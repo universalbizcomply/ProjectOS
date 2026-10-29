@@ -9,7 +9,7 @@
  * context (`platformStopStateDir`); nothing reads or writes the owner's real LOCALAPPDATA record.
  */
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { ExecResult, System } from '../src/system.js';
@@ -32,7 +32,17 @@ import {
   recordPlatformStopLift,
   stopLiftRelPath,
 } from '../src/loop/platformStop.js';
-import { stop } from '../src/commands/stop.js';
+import { stop as stopCommand } from '../src/commands/stop.js';
+
+/**
+ * THE TEST'S OWN ENTRY POINT. Production `stop()` takes its confirmation as a parameter and the CLI never
+ * passes one; here a test names the person at the terminal on its OWN context object and this wrapper hands
+ * it over in the open. Nothing in `src/` reads `platformStopConfirm`.
+ */
+function stop(ctx: Parameters<typeof stopCommand>[0], flags: Parameters<typeof stopCommand>[1], positionals: readonly string[]) {
+  const confirm = (ctx as { platformStopConfirm?: StopLiftConfirm }).platformStopConfirm ?? ((id: string) => ({ kind: 'typed' as const, text: id }));
+  return stopCommand(ctx, flags, positionals, confirm);
+}
 import type { StopLiftConfirm } from '../src/loop/platformStop.js';
 import { run as runCommand, continueCommand, isFoldableRunRecord } from '../src/commands/run.js';
 import { closurePrepare, closureRequest, closureResume } from '../src/commands/closure.js';
@@ -634,19 +644,77 @@ describe('the lift is an owner-intent check: one-file commit, same project, rety
     stillEngaged(dir);
   });
 
-  it('a stop engaged outside any project is lifted only from the installation root', () => {
-    const w = world('interactive');
+  it('a stop engaged outside any project binds to the INSTALLATION project recorded then — not to wherever code runs later', () => {
+    const installation = world('interactive');
+    const outside = tempStateDir();
     const dir = tempStateDir();
-    const engaged = engagePlatformStop(nodeSystem, dir, { reason: 'no project', engagedBy: 'b', project: null });
-    if (engaged.kind !== 'ENGAGED') throw new Error('not engaged');
-    const elsewhere = { sys: fixedClock(), root: w.root, platformStopStateDir: dir, platformStopConfirm: typesTheId, platformStopInstallRoot: tempStateDir() };
-    expect(stop(elsewhere, { stop: engaged.stopId }, ['lift']).lines.join('\n')).toContain('LIFT_WRONG_PROJECT');
-    const atInstall = { ...elsewhere, platformStopInstallRoot: w.root };
-    stop(atInstall, { stop: engaged.stopId }, ['lift']);
-    git(w.root, 'add', '--', stopLiftRelPath(engaged.stopId) as string);
-    git(w.root, ...ownerIdentity, 'commit', '-q', '-m', 'lift');
-    expect(stop(atInstall, { stop: engaged.stopId }, ['lift']).code).toBe(0);
+    const engaging = { sys: fixedClock(), root: outside, platformStopStateDir: dir, platformStopInstallRoot: installation.root };
+    expect(stop(engaging, { reason: 'from nowhere' }, ['engage']).code).toBe(0);
+    const read = readPlatformStop(nodeSystem, dir);
+    if (read.kind !== 'ok') throw new Error('not engaged');
+    expect(read.record.project?.root).toBe(installation.root.split(String.fromCharCode(92)).join('/'));
+    const stopId = read.record.stopId;
+    // ANOTHER CHECKOUT, EVEN ONE CLAIMING TO BE THE INSTALLATION'S ROOT NOW, LIFTS NOTHING.
+    const elsewhere = world('interactive');
+    const imposter = { sys: fixedClock(), root: elsewhere.root, platformStopStateDir: dir, platformStopInstallRoot: elsewhere.root };
+    expect(stop(imposter, { stop: stopId }, ['lift']).lines.join('\n')).toContain('LIFT_WRONG_PROJECT');
+    // FROM THE RECORDED INSTALLATION PROJECT, IT LIFTS.
+    const atInstall = { sys: fixedClock(), root: installation.root, platformStopStateDir: dir };
+    stop(atInstall, { stop: stopId }, ['lift']);
+    git(installation.root, 'add', '--', stopLiftRelPath(stopId) as string);
+    git(installation.root, ...ownerIdentity, 'commit', '-q', '-m', 'lift');
+    expect(stop(atInstall, { stop: stopId }, ['lift']).code).toBe(0);
     expect(platformStopRefusal(nodeSystem, dir)).toBeNull();
+  });
+
+  it('a stop that could be bound to no project RECORDS why, and `stop lift` cannot lift it from anywhere', () => {
+    const dir = tempStateDir();
+    const nowhere = { sys: fixedClock(), root: tempStateDir(), platformStopStateDir: dir, platformStopInstallRoot: tempStateDir() };
+    expect(stop(nowhere, { reason: 'r' }, ['engage']).code).toBe(0);
+    const read = readPlatformStop(nodeSystem, dir);
+    if (read.kind !== 'ok') throw new Error('not engaged');
+    expect(read.record.project).toBeNull();
+    expect(read.record.projectUnbound).toContain('is not a governed project');
+    const w = world('interactive');
+    const r = stop({ sys: fixedClock(), root: w.root, platformStopStateDir: dir } as Parameters<typeof stop>[0], { stop: read.record.stopId }, ['lift']);
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('cannot lift it from anywhere');
+    expect(r.lines.join('\n')).toContain('moves the stop record aside by hand');
+    stillEngaged(dir);
+  });
+
+  it('a recorded project root that no longer exists is said plainly, with the way back', () => {
+    const { w, dir, stopId, ctx } = stoppedWorld();
+    rmSync(w.root, { recursive: true, force: true });
+    const r = stop({ ...ctx, root: world('interactive').root }, { stop: stopId }, ['lift']);
+    expect(r.lines.join('\n')).toContain('no longer exists at');
+    expect(r.lines.join('\n')).toContain('restore that checkout at exactly that path');
+    expect(r.lines.join('\n')).toContain(PLATFORM_STOP_STATEMENT);
+    stillEngaged(dir);
+  });
+
+  it('refuses a RENAME onto the lift path: a `git mv` of a decoy is two paths, not one', () => {
+    const { w, dir, stopId, ctx } = stoppedWorld();
+    stop(ctx, { stop: stopId }, ['lift']);
+    const rel = stopLiftRelPath(stopId) as string;
+    // THE DECOY: the same bytes, committed elsewhere first, then moved onto the lift path in one commit.
+    writeFileSync(join(w.root, 'decoy.json'), readFileSync(join(w.root, rel), 'utf8'));
+    rmSync(join(w.root, rel));
+    git(w.root, 'add', '--', 'decoy.json');
+    git(w.root, ...ownerIdentity, 'commit', '-q', '-m', 'decoy');
+    git(w.root, 'mv', 'decoy.json', rel);
+    git(w.root, ...ownerIdentity, 'commit', '-q', '-m', 'move');
+    const r = stop(ctx, { stop: stopId }, ['lift']);
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('LIFT_COMMIT_NOT_ALONE');
+    expect(r.lines.join('\n')).toContain('decoy.json');
+    stillEngaged(dir);
+  });
+
+  it('an unknown `stop` subcommand also carries the honest statement', () => {
+    const r = stopCommand({ sys: spySystem().sys, root: '/proj' }, {}, ['unpause']);
+    expect(r.code).toBe(1);
+    expect(r.lines.join('\n')).toContain(PLATFORM_STOP_STATEMENT);
   });
 
   it('refuses with NO TERMINAL: the production confirmation answers no-terminal when stdin or stdout is not a TTY', () => {
@@ -659,6 +727,7 @@ describe('the lift is an owner-intent check: one-file commit, same project, rety
     expect(r.code).toBe(2);
     expect(r.lines.join('\n')).toContain('LIFT_NEEDS_A_TERMINAL');
     expect(r.lines.join('\n')).toContain('a person must lift this stop in an interactive terminal');
+    expect(r.lines.join('\n')).toContain('use PowerShell or Windows Terminal (Git Bash/mintty gives no terminal)');
     expect(terminalStopLiftConfirm(() => ({ stdinIsTTY: true, stdoutIsTTY: false, ask: () => 'x' }))('S').kind).toBe('no-terminal');
     stillEngaged(dir);
   });

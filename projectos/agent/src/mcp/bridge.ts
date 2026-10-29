@@ -45,7 +45,7 @@ import { listApprovalIds, loadApproval } from '../approvalStore.js';
 import { readLedger } from '../loop/gatekeeperConfig.js';
 import { reconciliationDebtBlock } from '../loop/degradedMode.js';
 import type { DurableBinding } from '../loop/degradedMode.js';
-import { engagePlatformStop, governedProjectOf } from '../loop/platformStop.js';
+import { engagePlatformStop, platformStopInstallRootOf, stopBindingFor } from '../loop/platformStop.js';
 
 /** The protocol revision this bridge speaks. Fixed: a bridge that negotiates is a bridge that guesses. */
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
@@ -247,7 +247,7 @@ function stopWork(deps: BridgeDeps): ReturnType<typeof engagePlatformStop> {
   return engagePlatformStop(deps.ctx.sys, deps.stateDir, {
     reason: 'requested through the private owner bridge (stop-work)',
     engagedBy: 'owner bridge caller',
-    project: governedProjectOf(deps.ctx.sys, deps.ctx.root),
+    ...stopBindingFor(deps.ctx.sys, deps.ctx.root, platformStopInstallRootOf(deps.ctx)),
   });
 }
 

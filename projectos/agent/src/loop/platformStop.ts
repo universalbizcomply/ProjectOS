@@ -72,9 +72,11 @@ export const STOP_SCOPE = 'this Windows account on this machine';
 export const PLATFORM_STOP_STATEMENT =
   'This stop covers this Windows account on this machine. It does NOT reverse completed external effects: ' +
   'commits already pushed, paid provider calls already made, messages already sent and payments already ' +
-  'made all stand. A worker that is already running is not killed; it ends at its next check. The ' +
-  'ProjectOS Host service is not touched. Lifting it is an owner-intent check — a git name match plus the ' +
-  'stop id retyped in a terminal — not cryptographic proof of the owner; a later phase adds Windows Hello.';
+  'made all stand. A worker process that is already running is not interrupted; only the next check of its ' +
+  'run stops it. The ProjectOS Host service is not touched. Lifting it is an owner-intent check — a git name ' +
+  'match plus the stop id retyped in a terminal — not cryptographic proof of the owner; a later phase adds ' +
+  'Windows Hello. Anything running as this Windows account can remove or rewrite this record, or type the ' +
+  'confirmation for you; the stop restrains ProjectOS commands, not git or agents run directly.';
 
 /** The only lift guidance any refusal carries: no command an agent could copy and paste. */
 export const STOP_LIFT_HINT = '  - a person lifts this with `projectos stop lift` in a terminal';
@@ -126,8 +128,14 @@ export interface PlatformStopRecord {
   readonly engagedBy: { readonly claim: string; readonly authenticated: false };
   /** Inert, bounded text. Never interpreted, never executed, only shown. */
   readonly reason: string;
-  /** Null when the stop was engaged outside any governed project; then only the installation's root lifts it. */
+  /**
+   * The governed project the stop is bound to: the one it was engaged from, or failing that the ProjectOS
+   * installation's own project. Null only when neither could be established — and then `projectUnbound`
+   * says why, and `stop lift` cannot lift it.
+   */
   readonly project: StopProject | null;
+  /** Why no project could be bound, recorded rather than swallowed. Null when `project` is set. */
+  readonly projectUnbound?: string | null;
   readonly statement: string;
   readonly liftedAt?: string;
   readonly liftedStopId?: string;
@@ -247,6 +255,7 @@ function validRecord(parsed: unknown): PlatformStopRecord | null {
   // record a reader cannot walk is a damaged record — which is stopped.
   if (!(r['history'] as unknown[]).every(validEvent)) return null;
   if (!('project' in r) || !validProject(r['project'])) return null;
+  if ('projectUnbound' in r && r['projectUnbound'] !== null && typeof r['projectUnbound'] !== 'string') return null;
   const by = r['engagedBy'] as Record<string, unknown> | null | undefined;
   if (typeof by !== 'object' || by === null || by['authenticated'] !== false || typeof by['claim'] !== 'string') return null;
   if (typeof r['reason'] !== 'string') return null;
@@ -389,16 +398,34 @@ export function mintStopId(now: string): string {
   return `STOP-${stamp.length >= 8 ? stamp : '00000000'}-${randomBytes(6).toString('hex')}`;
 }
 
-/** The governed project at this root, as a stop binds to it, or null. Reads only; never throws. */
-export function governedProjectOf(sys: System, root: string): StopProject | null {
+/** The governed project at this root, as a stop binds to it, or WHY there is none. Reads only; never throws. */
+export function governedProjectAt(sys: System, root: string): { readonly project: StopProject } | { readonly problem: string } {
   try {
     const gc = loadGovernedContext(sys, root);
-    if (!gc.ok) return null;
+    if (!gc.ok) return { problem: `${root} is not a governed project (${gc.code})` };
     const planId = gc.context.plan['planId'];
-    return { projectId: gc.context.projectId, planId: typeof planId === 'string' ? planId : null, root: forwardSlashes(resolve(root)) };
-  } catch {
-    return null;
+    return { project: { projectId: gc.context.projectId, planId: typeof planId === 'string' ? planId : null, root: forwardSlashes(resolve(root)) } };
+  } catch (error: unknown) {
+    return { problem: `the governed project at ${root} could not be read: ${error instanceof Error ? error.message : String(error)}` };
   }
+}
+
+/**
+ * What a stop engaged here is bound to.
+ *
+ * THE PROJECT IT WAS ENGAGED FROM, OR THE INSTALLATION'S OWN — NEVER "WHEREVER THE CODE RUNS LATER". A stop
+ * engaged outside any governed project used to be liftable from the running code's install root, which any
+ * checkout of ProjectOS satisfies. It is now bound, at engage time, to the installation's governed project
+ * — its root AND its plan — and a lift must match those recorded values. When neither can be established,
+ * that is recorded as such: the stop is not bound to anything, `stop lift` cannot lift it, and the reason
+ * says so instead of being swallowed.
+ */
+export function stopBindingFor(sys: System, root: string, installRoot: string): { readonly project: StopProject | null; readonly projectUnbound: string | null } {
+  const here = governedProjectAt(sys, root);
+  if ('project' in here) return { project: here.project, projectUnbound: null };
+  const installation = governedProjectAt(sys, installRoot);
+  if ('project' in installation) return { project: installation.project, projectUnbound: null };
+  return { project: null, projectUnbound: `${here.problem}; and the ProjectOS installation project: ${installation.problem}` };
 }
 
 export type StopWrite = { readonly written: true } | { readonly written: false; readonly problem: string };
@@ -447,6 +474,14 @@ function writeRecord(sys: System, stateDir: string, next: PlatformStopRecord, op
   return { written: true };
 }
 
+/** What an engagement says about itself. Everything but the binding is an inert, unauthenticated claim. */
+export interface StopClaim {
+  readonly reason: unknown;
+  readonly engagedBy: unknown;
+  readonly project?: StopProject | null;
+  readonly projectUnbound?: string | null;
+}
+
 export type EngageOutcome =
   | { readonly kind: 'ENGAGED'; readonly stopId: string; readonly lines: readonly string[] }
   | { readonly kind: 'ALREADY_ENGAGED'; readonly stopId: string; readonly lines: readonly string[] }
@@ -462,7 +497,7 @@ function engagedLines(record: PlatformStopRecord, already: boolean): readonly st
     '  and every technical delegation is suspended, until the owner lifts this stop',
     `  - reason, as given and inert: ${JSON.stringify(record.reason)}`,
     `  - engaged by (an unauthenticated claim): ${JSON.stringify(record.engagedBy.claim)}`,
-    `  - bound to: ${record.project === null ? "no governed project; only the installation's own project root can lift it" : `project '${record.project.projectId}'`}`,
+    `  - bound to: ${record.project === null ? `no governed project (${text(record.projectUnbound) || 'unrecorded'}); \`stop lift\` cannot lift it` : `project '${record.project.projectId}'`}`,
     STOP_LIFT_HINT,
     PLATFORM_STOP_STATEMENT,
   ];
@@ -480,7 +515,7 @@ function engagedLines(record: PlatformStopRecord, already: boolean): readonly st
 export function engagePlatformStop(
   sys: System,
   stateDir: string | null,
-  claim: { readonly reason: unknown; readonly engagedBy: unknown; readonly project?: StopProject | null },
+  claim: StopClaim,
   mint: (now: string) => string = mintStopId,
 ): EngageOutcome {
   if (stateDir === null || stateDir.trim() === '') {
@@ -510,7 +545,7 @@ export function engagePlatformStop(
 function engageOnce(
   sys: System,
   stateDir: string,
-  claim: { readonly reason: unknown; readonly engagedBy: unknown; readonly project?: StopProject | null },
+  claim: StopClaim,
   mint: (now: string) => string,
 ): EngageOutcome {
   const at = sys.now();
@@ -534,6 +569,7 @@ function engageOnce(
     engagedBy: { claim: by, authenticated: false },
     reason,
     project: claim.project ?? null,
+    projectUnbound: (claim.project ?? null) === null ? text(claim.projectUnbound) || 'no governed project was named when the stop was engaged' : null,
     statement: PLATFORM_STOP_STATEMENT,
     history: [...prior, { event: 'engaged', stopId, at, detail: `engaged by ${by} (unauthenticated claim)` }],
   };
@@ -604,7 +640,7 @@ export function platformStopStatusLines(sys: System, stateDir: string | null): r
     `  record: ${read.path}`,
     `  reason, as given and inert: ${JSON.stringify(r.reason)}`,
     `  engaged by (an unauthenticated claim): ${JSON.stringify(r.engagedBy.claim)}`,
-    `  bound to: ${r.project === null ? "no governed project (lift from the installation's own project root)" : `project '${r.project.projectId}' at ${r.project.root}`}`,
+    `  bound to: ${r.project === null ? `no governed project (${text(r.projectUnbound) || 'unrecorded'}); \`stop lift\` cannot lift it` : `project '${r.project.projectId}' (plan ${r.project.planId ?? 'none'}) at ${r.project.root}`}`,
     `  history: ${r.history.length} event(s)`,
     ...r.history.map((e) => `    ${e.at}  ${e.event}  ${e.stopId}  ${text(e.detail)}`),
     ...(r.state === 'engaged' ? [STOP_LIFT_HINT] : []),
@@ -678,13 +714,7 @@ export function terminalStopLiftConfirm(terminal: () => StopLiftTerminal = nodeT
   };
 }
 
-/** The confirmation a command uses: a test's, when one is named on the context, else the terminal's. */
-export function platformStopConfirmOf(ctx: object): StopLiftConfirm {
-  const named = (ctx as { readonly platformStopConfirm?: unknown }).platformStopConfirm;
-  return typeof named === 'function' ? (named as StopLiftConfirm) : terminalStopLiftConfirm();
-}
-
-/** The installation's own project root: where a stop engaged outside any project is lifted. */
+/** The installation's own project root: what a stop engaged outside any project is bound to, at engage time. */
 export function platformStopInstallRootOf(ctx: object): string {
   const named = (ctx as { readonly platformStopInstallRoot?: unknown }).platformStopInstallRoot;
   return typeof named === 'string' && named.trim() !== '' ? named : nodeProjectosRuntime().installRoot;

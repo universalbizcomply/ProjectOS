@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { nodeSystem, resolveBoundGit } from '../src/system.js';
+import { engagePlatformStop } from '../src/loop/platformStop.js';
 import { computeCandidateIdentity, describeCandidateDrift } from '../src/loop/candidateIdentity.js';
 import {
   runTechnicalContinuation,
@@ -384,6 +385,57 @@ describe('first run: reviewed candidate to committed and pushed', () => {
     expect(git(w.root, 'rev-parse', 'origin/work').trim()).toBe(committed.head);
     expect(git(w.root, 'rev-list', '--count', 'origin/work..HEAD').trim()).toBe('0');
     expect(git(w.root, 'rev-list', '--count', 'HEAD..origin/work').trim()).toBe('0');
+    cleanup(w);
+  });
+});
+
+/*
+ * THE EMERGENCY STOP, RE-ASKED IMMEDIATELY BEFORE EACH GIT ACT (PROJECTOS-KERNEL-PLATFORM-STOP1A, M2).
+ *
+ * `executeAuthorisedContinuation` runs AFTER `runTechnicalContinuation`'s entry check and after a network
+ * fetch, so a stop engaged in that window is exactly what these exercise: the grant is real, the entry
+ * check is behind us, and the commit or push must still refuse.
+ */
+describe('[PLATFORM-STOP] a stop engaged after continuation entry refuses the git act itself', () => {
+  const engagedDir = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'projectos-tc-stop-'));
+    const out = engagePlatformStop(nodeSystem, dir, { reason: 'mid-act', engagedBy: 'tester' });
+    if (out.kind !== 'ENGAGED') throw new Error('not engaged');
+    return dir;
+  };
+
+  it('doCommit refuses: nothing is staged and nothing is committed', () => {
+    const w = world();
+    writeFileSync(join(w.root, 'base.txt'), 'base\nreviewed change\n');
+    const dir = engagedDir();
+    const out = executeUnderRealGrant(w, { ...request(w, 'commit'), platformStopStateDir: dir });
+    expect(out.kind).toBe('REFUSED');
+    expect(refusalOf(out)).toContain('the commit was not made: the emergency stop is engaged');
+    expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(w.head);
+    expect(git(w.root, 'diff', '--cached', '--name-only').trim()).toBe('');
+    rmSync(dir, { recursive: true, force: true });
+    cleanup(w);
+  });
+
+  it('doPush refuses: the local commit stands and origin does not move', () => {
+    const w = world();
+    writeFileSync(join(w.root, 'base.txt'), 'base\nreviewed change\n');
+    const committed = executeUnderRealGrant(w, request(w, 'commit'));
+    if (committed.kind !== 'DONE') throw new Error(refusalOf(committed));
+    const dir = engagedDir();
+    const pushed = executeUnderRealGrant(w, {
+      ...request(w, 'push'),
+      decision: decision({
+        allowedActions: ['push'],
+        subjectCommit: committed.head,
+        reviewedCandidateDigest: (computeCandidateIdentity(sys, w.root) as { identity: CandidateIdentity }).identity.digest,
+      }),
+      platformStopStateDir: dir,
+    });
+    expect(pushed.kind).toBe('REFUSED');
+    expect(refusalOf(pushed)).toContain('the push was not made: the emergency stop is engaged');
+    expect(git(w.origin, 'rev-parse', 'work').trim()).toBe(w.head);
+    rmSync(dir, { recursive: true, force: true });
     cleanup(w);
   });
 });

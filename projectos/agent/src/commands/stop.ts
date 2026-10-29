@@ -41,17 +41,19 @@ import {
   PLATFORM_STOP_STATEMENT,
   STOP_LIFT_KIND,
   engagePlatformStop,
-  governedProjectOf,
+  governedProjectAt,
   isStopId,
-  platformStopConfirmOf,
   platformStopDirOf,
   platformStopInstallRootOf,
   platformStopStatusLines,
   readPlatformStop,
   recordPlatformStopLift,
   sameStopPath,
+  stopBindingFor,
   stopLiftRelPath,
+  terminalStopLiftConfirm,
   type PlatformStopRecord,
+  type StopLiftConfirm,
 } from '../loop/platformStop.js';
 import type { System } from '../system.js';
 
@@ -62,7 +64,19 @@ const USAGE: readonly string[] = [
   '  projectos stop lift --stop <stopId>                          lift it: a person, in a terminal',
 ];
 
-export function stop(ctx: CommandContext, flags: Flags, positionals: readonly string[]): CommandResult {
+/**
+ * THE CONFIRMATION IS A PARAMETER, AND PRODUCTION NEVER PASSES ONE. The CLI calls `stop(ctx, flags,
+ * positionals)`, so the lift always asks the real terminal. There is deliberately no context property for
+ * it: a context is a bag that in-process callers assemble and forward (the sidecar does, `closure` does),
+ * and a confirmation reachable through it would be one an in-process caller could satisfy by attaching a
+ * function. A test passes its own as the fourth argument, in the open.
+ */
+export function stop(
+  ctx: CommandContext,
+  flags: Flags,
+  positionals: readonly string[],
+  confirm: StopLiftConfirm = terminalStopLiftConfirm(),
+): CommandResult {
   const sub = positionals[0] ?? 'engage';
   switch (sub) {
     case 'engage':
@@ -70,9 +84,9 @@ export function stop(ctx: CommandContext, flags: Flags, positionals: readonly st
     case 'status':
       return ok(platformStopStatusLines(ctx.sys, platformStopDirOf(ctx)));
     case 'lift':
-      return lift(ctx, flags);
+      return lift(ctx, flags, confirm);
     default:
-      return fail(1, [`Unknown 'stop' subcommand: ${sub}`, '', ...USAGE]);
+      return fail(1, [`Unknown 'stop' subcommand: ${sub}`, '', ...USAGE, '', PLATFORM_STOP_STATEMENT]);
   }
 }
 
@@ -80,7 +94,7 @@ function engage(ctx: CommandContext, flags: Flags): CommandResult {
   const outcome = engagePlatformStop(ctx.sys, platformStopDirOf(ctx), {
     reason: str(flags, 'reason'),
     engagedBy: str(flags, 'by'),
-    project: governedProjectOf(ctx.sys, ctx.root),
+    ...stopBindingFor(ctx.sys, ctx.root, platformStopInstallRootOf(ctx)),
   });
   return outcome.kind === 'FAILED' ? fail(2, outcome.lines) : ok(outcome.lines);
 }
@@ -122,11 +136,12 @@ function committedLiftRecord(sys: System, root: string, rel: string): Record<str
  * Every path the lift commit touched, repository-relative, with the root's own prefix to compare against.
  *
  * NOT `--relative`: that would hide every path outside the governed root, which is exactly where a sweep
- * commit's other files would be.
+ * commit's other files would be. AND `--no-renames`: with rename detection, `git mv decoy <lift path>`
+ * lists only the new path, and the decoy the commit also removed would vanish from the check.
  */
 function liftCommitPaths(sys: System, root: string, commit: string): { readonly prefix: string; readonly paths: readonly string[] } | null {
   const prefix = sys.exec('git', ['-C', root, 'rev-parse', '--show-prefix']);
-  const shown = sys.exec('git', ['-C', root, 'show', '--name-only', '--format=', commit]);
+  const shown = sys.exec('git', ['-C', root, 'show', '--no-renames', '--name-only', '--format=', commit]);
   if (prefix.code !== 0 || shown.code !== 0) return null;
   return { prefix: prefix.stdout.trim(), paths: shown.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== '') };
 }
@@ -152,29 +167,47 @@ function asIgnored(flags: Flags): readonly string[] {
   return flags['as'] === undefined ? [] : ['  - `--as` was given and was ignored: a command-line role is not evidence of the owner'];
 }
 
+/** How a person gets out of a stop `stop lift` cannot lift. Said plainly, because it is the real answer. */
+const BY_HAND_RECOVERY =
+  'a person at this account, having checked that nothing needs stopping, moves the stop record aside by hand ' +
+  '(`projectos stop status` shows where it is); nothing in ProjectOS does that for them';
+
 /**
- * The stop is bound to the project it was engaged in, and lifted only from there.
+ * The stop is bound to the project RECORDED when it was engaged, and lifted only from there.
  *
- * A different repository — even one with its own approved plan and its own owner — is refused, so a
- * project an agent can create cannot lift a stop engaged elsewhere. A stop engaged outside any governed
- * project is lifted only from the installation's own project root.
+ * The recorded root AND plan are compared, never the location of whatever code is running now: a different
+ * repository — even one with its own approved plan and its own owner, or another checkout of ProjectOS — is
+ * refused. A stop that could be bound to no project says so, and `stop lift` cannot lift it. A recorded root
+ * that no longer exists is said plainly, with the way back.
  */
-function projectBindingProblem(ctx: CommandContext, record: PlatformStopRecord): string | null {
-  const here = governedProjectOf(ctx.sys, ctx.root);
+function projectBindingProblem(ctx: CommandContext, record: PlatformStopRecord): readonly string[] | null {
   if (record.project === null) {
-    if (!sameStopPath(ctx.root, platformStopInstallRootOf(ctx)) || here === null) {
-      return "this stop was engaged outside any governed project, so only the ProjectOS installation's own project root can lift it";
-    }
-    return null;
+    return [
+      `this stop could be bound to no governed project when it was engaged (${record.projectUnbound ?? 'no reason was recorded'}),`,
+      '  so `stop lift` cannot lift it from anywhere',
+      `  - to recover: ${BY_HAND_RECOVERY}`,
+    ];
   }
   const bound = record.project;
-  if (here === null || here.projectId !== bound.projectId || here.planId !== bound.planId || !sameStopPath(here.root, bound.root)) {
-    return `this stop is bound to project '${bound.projectId}' at ${bound.root}; a lift from any other repository or plan lifts nothing`;
+  if (!ctx.sys.exists(bound.root)) {
+    return [
+      `the project this stop is bound to no longer exists at ${bound.root} (project '${bound.projectId}', plan ${bound.planId ?? 'none'})`,
+      '  - to recover: restore that checkout at exactly that path and lift from it there',
+      `  - or, if it is gone for good: ${BY_HAND_RECOVERY}`,
+    ];
+  }
+  const here = governedProjectAt(ctx.sys, ctx.root);
+  const at = 'project' in here ? here.project : null;
+  if (at === null || at.projectId !== bound.projectId || at.planId !== bound.planId || !sameStopPath(at.root, bound.root)) {
+    return [
+      `this stop is bound to project '${bound.projectId}' (plan ${bound.planId ?? 'none'}) at ${bound.root};`,
+      '  a lift from any other repository, plan or checkout lifts nothing',
+    ];
   }
   return null;
 }
 
-function lift(ctx: CommandContext, flags: Flags): CommandResult {
+function lift(ctx: CommandContext, flags: Flags, confirm: StopLiftConfirm): CommandResult {
   const { sys, root } = ctx;
   const stopId = str(flags, 'stop');
   if (!isStopId(stopId)) {
@@ -203,7 +236,7 @@ function lift(ctx: CommandContext, flags: Flags): CommandResult {
     ]);
   }
   const binding = projectBindingProblem(ctx, read.record);
-  if (binding !== null) return liftAnswer(2, [`REFUSED (LIFT_WRONG_PROJECT): ${binding}. The stop stays engaged.`, ...asIgnored(flags)]);
+  if (binding !== null) return liftAnswer(2, ['REFUSED (LIFT_WRONG_PROJECT): the stop stays engaged.', ...binding, ...asIgnored(flags)]);
   if (resolveBoundGit() === null) {
     return liftAnswer(2, ["REFUSED (GIT_UNAVAILABLE): ProjectOS has no bound Git executable, so the owner's commit cannot be verified.", ...asIgnored(flags)]);
   }
@@ -219,7 +252,7 @@ function lift(ctx: CommandContext, flags: Flags): CommandResult {
       ...asIgnored(flags),
     ]);
   }
-  return verifyAndLift(ctx, stateDir, stopId, rel, git.commit, flags);
+  return verifyAndLift(ctx, stateDir, stopId, rel, git.commit, flags, confirm);
 }
 
 /** Step 1 of 2: write the lift record, uncommitted, and hand the commit to the owner. No command to paste. */
@@ -246,7 +279,15 @@ function requestOwnerCommit(sys: System, abs: string, rel: string, stopId: strin
  * Step 2 of 2: the committed record names this stop, its commit carried it alone, the owner's git name
  * made that commit, and a person retyped the stop id in a terminal. Only then, the compare-and-swap lift.
  */
-function verifyAndLift(ctx: CommandContext, stateDir: string, stopId: string, rel: string, liftCommit: string, flags: Flags): CommandResult {
+function verifyAndLift(
+  ctx: CommandContext,
+  stateDir: string,
+  stopId: string,
+  rel: string,
+  liftCommit: string,
+  flags: Flags,
+  confirm: StopLiftConfirm,
+): CommandResult {
   const { sys, root } = ctx;
   const committed = committedLiftRecord(sys, root, rel);
   if (committed === null || committed['kind'] !== STOP_LIFT_KIND || committed['stopId'] !== stopId) {
@@ -286,10 +327,11 @@ function verifyAndLift(ctx: CommandContext, stateDir: string, stopId: string, re
     ]);
   }
   // THE IN-PERSON HALF: the stop id, retyped, in an interactive terminal. No terminal, no lift.
-  const confirmation = platformStopConfirmOf(ctx)(stopId);
+  const confirmation = confirm(stopId);
   if (confirmation.kind !== 'typed') {
     return liftAnswer(2, [
       'REFUSED (LIFT_NEEDS_A_TERMINAL): a person must lift this stop in an interactive terminal; this process has no terminal.',
+      '  - use PowerShell or Windows Terminal (Git Bash/mintty gives no terminal)',
       '  the stop stays engaged',
       ...asIgnored(flags),
     ]);

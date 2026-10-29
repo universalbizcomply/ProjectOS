@@ -79,7 +79,6 @@ const TESTS = {
     "the run never folds a lift record into its own records commit",
     "refuses a SWEEP commit: the lift record committed together with any other file lifts nothing",
     "refuses a lift from a FOREIGN repository, even one with its own approved plan and owner",
-    "a stop engaged outside any project is lifted only from the installation root",
     "refuses with NO TERMINAL: the production confirmation answers no-terminal when stdin or stdout is not a TTY",
     "refuses a WRONG typed id — near misses included",
     "every `stop lift` answer, refusals included, carries the honest statement and no copy-paste lift command",
@@ -94,6 +93,15 @@ const TESTS = {
     "the sidecar asks this gate before any in-process dispatch, run start or off-loop worker",
     "refuses both with the statement and writes nothing",
     "commitOwnRecords refuses before git is asked anything",
+    "a stop engaged outside any project binds to the INSTALLATION project recorded then — not to wherever code runs later",
+    "a stop that could be bound to no project RECORDS why, and `stop lift` cannot lift it from anywhere",
+    "a recorded project root that no longer exists is said plainly, with the way back",
+    "refuses a RENAME onto the lift path: a `git mv` of a decoy is two paths, not one",
+    "an unknown `stop` subcommand also carries the honest statement",
+  ],
+  "projectos/agent/test/technicalContinuation.test.ts": [
+    "doCommit refuses: nothing is staged and nothing is committed",
+    "doPush refuses: the local commit stands and origin does not move",
   ],
   "projectos/agent/test/loopRunner.test.ts": [
     "[PLATFORM-STOP] engaged before the run: zero worker starts, zero writes, zero gatekeeper calls",
@@ -207,10 +215,13 @@ const PIN = {
   statementText: [
     "'This stop covers this Windows account on this machine. It does NOT reverse completed external effects: '",
     "'commits already pushed, paid provider calls already made, messages already sent and payments already '",
-    "'made all stand. A worker that is already running is not killed; it ends at its next check. The '",
-    "'ProjectOS Host service is not touched. Lifting it is an owner-intent check — a git name match plus the '",
-    "'stop id retyped in a terminal — not cryptographic proof of the owner; a later phase adds Windows Hello.'",
+    "'made all stand. A worker process that is already running is not interrupted; only the next check of its '",
+    "'run stops it. The ProjectOS Host service is not touched. Lifting it is an owner-intent check — a git name '",
+    "'match plus the stop id retyped in a terminal — not cryptographic proof of the owner; a later phase adds '",
+    "'Windows Hello. Anything running as this Windows account can remove or rewrite this record, or type the '",
+    "'confirmation for you; the stop restrains ProjectOS commands, not git or agents run directly.'",
   ],
+  unknownSubcommand: "return fail(1, [`Unknown 'stop' subcommand: ${sub}`, '', ...USAGE, '', PLATFORM_STOP_STATEMENT]);",
   liftAnswer: /function liftAnswer\(code: number, lines: readonly string\[\]\): CommandResult \{\s*return \{ code, lines: \[\.\.\.lines, PLATFORM_STOP_STATEMENT\] \};/,
   liftHint: "export const STOP_LIFT_HINT = '  - a person lifts this with `projectos stop lift` in a terminal';",
   // PS-11
@@ -224,23 +235,27 @@ const PIN = {
   liftRelFn: "return isStopId(stopId) ? `${STOP_LIFTS_REL}/${stopId}.json` : null;",
   stopIdShape: "const STOP_ID = /^STOP-[0-9TZ]{8,16}-[0-9a-f]{12}$/;",
   // PS-13
-  confirmAsked: "const confirmation = platformStopConfirmOf(ctx)(stopId);",
+  confirmAsked: "const confirmation = confirm(stopId);",
+  confirmParam: "confirm: StopLiftConfirm = terminalStopLiftConfirm(),",
+  terminalHint: "'  - use PowerShell or Windows Terminal (Git Bash/mintty gives no terminal)',",
   confirmTerminal: /if \(confirmation\.kind !== 'typed'\) \{\s*return liftAnswer\(2, \[\s*'REFUSED \(LIFT_NEEDS_A_TERMINAL\)/,
   confirmExact: /if \(confirmation\.text !== stopId\) \{\s*return liftAnswer\(2,/,
   ttyBoth: "if (t.stdinIsTTY !== true || t.stdoutIsTTY !== true) return { kind: 'no-terminal' };",
   ttyFromProcess: "return { stdinIsTTY: process.stdin.isTTY === true, stdoutIsTTY: process.stdout.isTTY === true, ask: askTerminal };",
-  confirmDefault: "return typeof named === 'function' ? (named as StopLiftConfirm) : terminalStopLiftConfirm();",
   // PS-14
-  commitPaths: "const shown = sys.exec('git', ['-C', root, 'show', '--name-only', '--format=', commit]);",
+  commitPaths: "const shown = sys.exec('git', ['-C', root, 'show', '--no-renames', '--name-only', '--format=', commit]);",
   commitAlone: "if (touched === null || touched.paths.length !== 1 || touched.paths[0] !== expected) {",
   commitPrefix: "const expected = `${touched?.prefix ?? ''}${rel}`;",
   // PS-15
   bindingAsked: "const binding = projectBindingProblem(ctx, read.record);",
-  bindingRefuses: "if (binding !== null) return liftAnswer(2, [`REFUSED (LIFT_WRONG_PROJECT): ${binding}. The stop stays engaged.`, ...asIgnored(flags)]);",
-  bindingSameProject: "if (here === null || here.projectId !== bound.projectId || here.planId !== bound.planId || !sameStopPath(here.root, bound.root)) {",
-  bindingInstallRoot: "if (!sameStopPath(ctx.root, platformStopInstallRootOf(ctx)) || here === null) {",
-  engageBinds: "project: governedProjectOf(ctx.sys, ctx.root),",
-  bridgeBinds: "project: governedProjectOf(deps.ctx.sys, deps.ctx.root),",
+  bindingRefuses: "if (binding !== null) return liftAnswer(2, ['REFUSED (LIFT_WRONG_PROJECT): the stop stays engaged.', ...binding, ...asIgnored(flags)]);",
+  bindingSameProject: "if (at === null || at.projectId !== bound.projectId || at.planId !== bound.planId || !sameStopPath(at.root, bound.root)) {",
+  bindingUnboundRefuses: /if \(record\.project === null\) \{\s*return \[/,
+  bindingRootGone: "if (!ctx.sys.exists(bound.root)) {",
+  engageBinds: "...stopBindingFor(ctx.sys, ctx.root, platformStopInstallRootOf(ctx)),",
+  bridgeBinds: "...stopBindingFor(deps.ctx.sys, deps.ctx.root, platformStopInstallRootOf(deps.ctx)),",
+  bindingInstallation: "const installation = governedProjectAt(sys, installRoot);",
+  bindingUnboundRecorded: "return { project: null, projectUnbound: `${here.problem}; and the ProjectOS installation project: ${installation.problem}` };",
   // PS-16
   honestDefault: "consequence: string = STOP_NOTHING_DONE,",
   honestEnd: "const haltedAtEnd = platformStopRefusal(sys, stopDir, STOP_AFTER_WORK);",
@@ -338,8 +353,9 @@ const MUTATIONS = [
   { name: "as-owner-lifts", rule: "PS-9", rel: STOPCMD_REL, from: "  if (git.state === 'uncommitted') return requestOwnerCommit(sys, abs, rel, stopId, flags);", to: "  if (flags['as'] === 'owner') recordPlatformStopLift(sys, stateDir, stopId, 'f'.repeat(40));\n  if (git.state === 'uncommitted') return requestOwnerCommit(sys, abs, rel, stopId, flags);" },
   { name: "as-owner-skips-identity", rule: "PS-9", rel: STOPCMD_REL, from: "  if (problems.length > 0) {", to: "  if (problems.length > 0 && str(flags, 'as') !== 'owner') {" },
   // PS-10
-  { name: "statement-softened", rule: "PS-10", rel: STOP_REL, from: "'made all stand. A worker that is already running is not killed; it ends at its next check. The '", to: "'made all stand. A worker that is already running is stopped. The '" },
-  { name: "statement-overclaims-proof", rule: "PS-10", rel: STOP_REL, from: "'stop id retyped in a terminal — not cryptographic proof of the owner; a later phase adds Windows Hello.'", to: "'stop id retyped in a terminal — proof of the owner.'" },
+  { name: "statement-softened", rule: "PS-10", rel: STOP_REL, from: "'made all stand. A worker process that is already running is not interrupted; only the next check of its '", to: "'made all stand. A worker that is already running is stopped at once; its '" },
+  { name: "statement-overclaims-proof", rule: "PS-10", rel: STOP_REL, from: "'match plus the stop id retyped in a terminal — not cryptographic proof of the owner; a later phase adds '", to: "'match plus the stop id retyped in a terminal — proof of the owner; a later phase adds '" },
+  { name: "statement-hides-same-account-reach", rule: "PS-10", rel: STOP_REL, from: "'confirmation for you; the stop restrains ProjectOS commands, not git or agents run directly.'", to: "'confirmation for you.'" },
   { name: "statement-dropped-from-refusal", rule: "PS-10", rel: STOP_REL, from: "    STOP_LIFT_HINT,\n    PLATFORM_STOP_STATEMENT,\n  ];\n}\n\n/**\n * The Control Center", to: "    STOP_LIFT_HINT,\n  ];\n}\n\n/**\n * The Control Center" },
   { name: "statement-dropped-from-lift-answers", rule: "PS-10", rel: STOPCMD_REL, from: "  return { code, lines: [...lines, PLATFORM_STOP_STATEMENT] };", to: "  return { code, lines };" },
   { name: "lift-refusal-bypasses-statement", rule: "PS-10", rel: STOPCMD_REL, from: "    return liftAnswer(2, ['REFUSED (LIFT_CONFIRMATION_MISMATCH):", to: "    return fail(2, ['REFUSED (LIFT_CONFIRMATION_MISMATCH):" },
@@ -352,19 +368,25 @@ const MUTATIONS = [
   // PS-12
   { name: "check-asks-git", rule: "PS-12", rel: STOP_REL, from: "  const path = platformStopPath(stateDir);\n  let raw: string | null;", to: "  const path = platformStopPath(stateDir);\n  sys.exec('git', ['rev-parse', 'HEAD']);\n  let raw: string | null;" },
   // PS-13
-  { name: "confirmation-skipped", rule: "PS-13", rel: STOPCMD_REL, from: "  const confirmation = platformStopConfirmOf(ctx)(stopId);", to: "  const confirmation = { kind: 'typed' as const, text: stopId };" },
+  { name: "confirmation-skipped", rule: "PS-13", rel: STOPCMD_REL, from: "  const confirmation = confirm(stopId);", to: "  const confirmation = { kind: 'typed' as const, text: stopId };" },
   { name: "no-terminal-accepted", rule: "PS-13", rel: STOPCMD_REL, from: "  if (confirmation.kind !== 'typed') {", to: "  if (false) {" },
   { name: "loose-typed-match", rule: "PS-13", rel: STOPCMD_REL, from: "  if (confirmation.text !== stopId) {", to: "  if (confirmation.kind === 'typed' && confirmation.text.trim().toLowerCase() !== stopId.toLowerCase()) {" },
   { name: "stdin-tty-not-required", rule: "PS-13", rel: STOP_REL, from: "if (t.stdinIsTTY !== true || t.stdoutIsTTY !== true) return { kind: 'no-terminal' };", to: "if (t.stdoutIsTTY !== true) return { kind: 'no-terminal' };" },
-  { name: "default-confirms-silently", rule: "PS-13", rel: STOP_REL, from: "return typeof named === 'function' ? (named as StopLiftConfirm) : terminalStopLiftConfirm();", to: "return typeof named === 'function' ? (named as StopLiftConfirm) : (id: string) => ({ kind: 'typed' as const, text: id });" },
+  { name: "default-confirms-silently", rule: "PS-13", rel: STOPCMD_REL, from: "confirm: StopLiftConfirm = terminalStopLiftConfirm(),", to: "confirm: StopLiftConfirm = (id: string) => ({ kind: 'typed' as const, text: id })," },
+  { name: "context-confirmation-seam", rule: "PS-13", rel: STOPCMD_REL, from: "  const confirmation = confirm(stopId);", to: "  const confirmation = ((ctx as { platformStopConfirm?: StopLiftConfirm }).platformStopConfirm ?? confirm)(stopId);" },
+  { name: "no-terminal-hint-dropped", rule: "PS-13", rel: STOPCMD_REL, from: "      '  - use PowerShell or Windows Terminal (Git Bash/mintty gives no terminal)',\n", to: "" },
   // PS-14
   { name: "sweep-commit-accepted", rule: "PS-14", rel: STOPCMD_REL, from: "if (touched === null || touched.paths.length !== 1 || touched.paths[0] !== expected) {", to: "if (touched === null || !touched.paths.includes(expected)) {" },
-  { name: "relative-hides-the-sweep", rule: "PS-14", rel: STOPCMD_REL, from: "'show', '--name-only', '--format=', commit]", to: "'show', '--name-only', '--relative', '--format=', commit]" },
+  { name: "relative-hides-the-sweep", rule: "PS-14", rel: STOPCMD_REL, from: "'show', '--no-renames', '--name-only', '--format=', commit]", to: "'show', '--no-renames', '--name-only', '--relative', '--format=', commit]" },
+  { name: "rename-hides-the-decoy", rule: "PS-14", rel: STOPCMD_REL, from: "'show', '--no-renames', '--name-only', '--format=', commit]", to: "'show', '--name-only', '--format=', commit]" },
   // PS-15
-  { name: "project-binding-skipped", rule: "PS-15", rel: STOPCMD_REL, from: "  if (binding !== null) return liftAnswer(2, [`REFUSED (LIFT_WRONG_PROJECT): ${binding}. The stop stays engaged.`, ...asIgnored(flags)]);", to: "" },
-  { name: "foreign-root-accepted", rule: "PS-15", rel: STOPCMD_REL, from: " || !sameStopPath(here.root, bound.root)) {", to: ") {" },
-  { name: "install-root-unchecked", rule: "PS-15", rel: STOPCMD_REL, from: "if (!sameStopPath(ctx.root, platformStopInstallRootOf(ctx)) || here === null) {", to: "if (here === null) {" },
-  { name: "engage-unbound", rule: "PS-15", rel: STOPCMD_REL, from: "    project: governedProjectOf(ctx.sys, ctx.root),", to: "    project: null," },
+  { name: "project-binding-skipped", rule: "PS-15", rel: STOPCMD_REL, from: "  if (binding !== null) return liftAnswer(2, ['REFUSED (LIFT_WRONG_PROJECT): the stop stays engaged.', ...binding, ...asIgnored(flags)]);", to: "" },
+  { name: "foreign-root-accepted", rule: "PS-15", rel: STOPCMD_REL, from: " || !sameStopPath(at.root, bound.root)) {", to: ") {" },
+  { name: "plan-not-compared", rule: "PS-15", rel: STOPCMD_REL, from: " || at.planId !== bound.planId", to: "" },
+  { name: "lift-follows-running-code", rule: "PS-15", rel: STOPCMD_REL, from: "  if (record.project === null) {\n    return [", to: "  if (record.project === null && !sameStopPath(ctx.root, platformStopInstallRootOf(ctx))) {\n    return [" },
+  { name: "unbound-reason-swallowed", rule: "PS-15", rel: STOP_REL, from: "return { project: null, projectUnbound: `${here.problem}; and the ProjectOS installation project: ${installation.problem}` };", to: "return { project: null, projectUnbound: null };" },
+  { name: "engage-binds-nothing", rule: "PS-15", rel: STOPCMD_REL, from: "    ...stopBindingFor(ctx.sys, ctx.root, platformStopInstallRootOf(ctx)),", to: "    project: null," },
+  { name: "unknown-subcommand-without-statement", rule: "PS-10", rel: STOPCMD_REL, from: "...USAGE, '', PLATFORM_STOP_STATEMENT]);", to: "...USAGE]);" },
   // PS-16
   { name: "end-of-run-claims-nothing", rule: "PS-16", rel: RUNNER_REL, from: "  const haltedAtEnd = platformStopRefusal(sys, stopDir, STOP_AFTER_WORK);", to: "  const haltedAtEnd = platformStopRefusal(sys, stopDir);" },
   { name: "post-ask-claims-nothing", rule: "PS-16", rel: CLOSURE_REL, from: "  const haltedBeforeCommit = platformStopRefusal(sys, platformStopDirOf(ctx), STOP_AFTER_ASK);", to: "  const haltedBeforeCommit = platformStopRefusal(sys, platformStopDirOf(ctx));" },
@@ -532,7 +554,7 @@ function check(raw) {
       (refusalFn.match(/PLATFORM_STOP_STATEMENT,/g) || []).length !== 3 ||
       !fnSpan(stopSrc, "engagedLines").includes("PLATFORM_STOP_STATEMENT,") ||
       !fnSpan(stopSrc, "platformStopStatusLines").includes("PLATFORM_STOP_STATEMENT") ||
-      !PIN.liftAnswer.test(cmd) || /\b(fail|ok)\(/.test(liftFns) ||
+      !PIN.liftAnswer.test(cmd) || /\b(fail|ok)\(/.test(liftFns) || !cmd.includes(PIN.unknownSubcommand) ||
       !stopSrc.includes(PIN.liftHint) || (refusalFn.match(/STOP_LIFT_HINT,/g) || []).length !== 1 ||
       /stop lift --stop \$\{|git add \$\{|git commit -m/.test(stopSrc + cmd)) {
     E("PS-10", "a stop output no longer carries the honest statement, a lift answer bypasses it, or an output carries a pasteable lift command");
@@ -553,20 +575,21 @@ function check(raw) {
   }
   // PS-13: the lift needs the stop id retyped exactly, and the production confirmation needs a terminal on both ends.
   const confirmAt = verify.indexOf(PIN.confirmAsked);
-  if (!all(cmd, [PIN.confirmAsked, PIN.confirmTerminal, PIN.confirmExact]) || confirmAt < 0 || liftAt < confirmAt ||
-      !all(stopSrc, [PIN.ttyBoth, PIN.ttyFromProcess, PIN.confirmDefault])) {
+  if (!all(cmd, [PIN.confirmAsked, PIN.confirmTerminal, PIN.confirmExact, PIN.confirmParam, PIN.terminalHint]) || confirmAt < 0 || liftAt < confirmAt ||
+      !all(stopSrc, [PIN.ttyBoth, PIN.ttyFromProcess]) || /platformStopConfirm/.test(cmd + stopSrc)) {
     E("PS-13", "the lift no longer needs the stop id retyped exactly in an interactive terminal");
   }
   // PS-14: the lift commit carries the lift record and nothing else, compared repository-wide.
   const aloneAt = verify.indexOf(PIN.commitAlone);
-  if (!all(cmd, [PIN.commitPaths, PIN.commitAlone, PIN.commitPrefix]) || /--relative/.test(cmd) || aloneAt < 0 || liftAt < aloneAt) {
+  if (!all(cmd, [PIN.commitPaths, PIN.commitAlone, PIN.commitPrefix]) || /--relative/.test(cmd) || !cmd.includes("'--no-renames'") || aloneAt < 0 || liftAt < aloneAt) {
     E("PS-14", "a commit that also carries other files (a sweep) can lift the stop");
   }
   // PS-15: engaging binds the stop to its project; a lift runs only from the same project, or the installation root.
   const liftFn = fnSpan(cmd, "lift");
   const bindAt = liftFn.indexOf(PIN.bindingAsked);
   const writeAt = liftFn.indexOf("requestOwnerCommit(");
-  if (!all(cmd, [PIN.bindingAsked, PIN.bindingRefuses, PIN.bindingSameProject, PIN.bindingInstallRoot, PIN.engageBinds]) ||
+  if (!all(cmd, [PIN.bindingAsked, PIN.bindingRefuses, PIN.bindingSameProject, PIN.bindingUnboundRefuses, PIN.bindingRootGone, PIN.engageBinds]) ||
+      !all(stopSrc, [PIN.bindingInstallation, PIN.bindingUnboundRecorded]) || /platformStopInstallRootOf/.test(fnSpan(cmd, "projectBindingProblem")) ||
       !src[BRIDGE_REL].includes(PIN.bridgeBinds) || bindAt < 0 || writeAt < bindAt) {
     E("PS-15", "a lift from another repository or plan, or outside the installation root, can lift the stop");
   }
