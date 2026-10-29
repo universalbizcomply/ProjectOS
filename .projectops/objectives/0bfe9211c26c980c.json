@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "0bfe9211c26c980c",
+  "objective": "Plan v1.20: writePath repair for PROJECTOS-KERNEL-FOLLOWUP1A only (worker-lifecycle validator, project-config schema codex-cli kind, reviewRoles.ts comment). No new phase, no new scope.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "0643cfc3176b5bbde5d8f2fc89288263d62689e6",
+  "submittedAt": "2026-10-29T18:08:40.480Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
