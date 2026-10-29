@@ -417,6 +417,8 @@ export function summariseLedger(
   for (const entry of unique) {
     const raw = entry.costMicroUsd;
     if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) unreadable = true;
+    // An entry that cannot be attributed would count in no phase, day or month (ECC SECURITY R2).
+    if (typeof entry.projectId !== 'string' || typeof entry.phaseId !== 'string' || utcInstant(entry.at) === null) unreadable = true;
     const cost = nonNegative(raw);
     const inProject = entry.projectId === scope.projectId;
     if (inProject) {

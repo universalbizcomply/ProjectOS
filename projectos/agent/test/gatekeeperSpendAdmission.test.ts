@@ -230,3 +230,33 @@ describe('KERNEL-COST-CAP1A: the serialised admission enforces the caps', () => 
     expect(existsSync(ledgerPath())).toBe(false);
   });
 });
+
+/** PROJECTOS-KERNEL-COST-CAP1A, ECC SECURITY recheck R1, R2 and L-c. */
+describe('KERNEL-COST-CAP1A: a ledger that cannot be fully read is never treated as empty', () => {
+  const CAPPED: BudgetPolicy = { warnAtMicroUsd: 40_000_000, hardStopAtMicroUsd: 50_000_000, phaseHardStopAtMicroUsd: 1_000, dayHardStopAtMicroUsd: 2_000 };
+  const ledgerPath = () => join(root, ...GATEKEEPER_LEDGER_REL.split('/'));
+
+  it('[R1] refuses when the ledger EXISTS but its read failed, and keeps the history', () => {
+    appendLedger(sys, root, paid('earlier', 1_000));
+    const before = readFileSync(ledgerPath(), 'utf8');
+    const failingRead = { ...sys, readText: (p: string) => (p === ledgerPath() ? null : sys.readText(p)) };
+    const r = admitGatekeeperSpend(failingRead, root, request('next', 1), CAPPED);
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('exists but could not be read');
+    expect(readFileSync(ledgerPath(), 'utf8')).toBe(before);
+  });
+
+  it('[R2] refuses an entry that cannot be attributed to a phase, day or month', () => {
+    writeFileSync(ledgerPath(), JSON.stringify({ schemaVersion: '1.0.0', entries: [{ ...paid('x', 1_000), phaseId: undefined }] }));
+    const r = admitGatekeeperSpend(sys, root, request('next', 1), CAPPED);
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('entry 0 is malformed');
+  });
+
+  it('[L-c] settlement never writes a cost it could not compute', () => {
+    admitGatekeeperSpend(sys, root, request('req-N', 5), CAPPED);
+    const before = readFileSync(ledgerPath(), 'utf8');
+    settleGatekeeperSpend(sys, root, 'req-N', { ...paid('req-N', 1), costMicroUsd: Number.NaN });
+    expect(readFileSync(ledgerPath(), 'utf8')).toBe(before);
+  });
+});

@@ -635,8 +635,9 @@ export function takeGatekeeperTurn(input: GatekeeperTurnInput, deps: GatekeeperT
   const totals = summariseLedger(deps.ledger, {
     projectId: input.projectId,
     phaseId: input.phaseId,
-    // The UTC period of a canonical instant; without one, no day is named, so the day counts the month.
-    ...(ledgerPeriod(input.at) ?? { month: input.at.slice(0, 7) }),
+    // The UTC period of a canonical instant. Without one, the month '' matches every dated entry and no
+    // day is named, so the fallback counts ALL spend as this month's and today's: it can only refuse more.
+    ...(ledgerPeriod(input.at) ?? { month: '' }),
   });
   // ADMISSION, NOT MERELY A CHECK.
   //

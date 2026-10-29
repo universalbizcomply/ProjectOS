@@ -28,6 +28,7 @@ import {
   ledgerPeriod,
   policyProblems,
   rateCardProblems,
+  utcInstant,
   summariseLedger,
   BUDGET_RAISE_SCOPE,
   GATEKEEPER_REVIEW_SCOPE,
@@ -819,7 +820,7 @@ export function admitGatekeeperSpend(
           // wholesale with the real call, so what survives an interruption is always the truth: a
           // question that was started and never answered.
           unresolved: true,
-          at: request.at,
+          at: utcInstant(request.at) as string,
         },
       ]);
       return { allowed: true, reasons: spend.reasons };
@@ -846,6 +847,8 @@ export function settleGatekeeperSpend(
     () => {
       const read = readLedgerStrict(sys, root);
       if (!read.ok) return;
+      // A non-finite cost would be written as null and make the whole ledger unreadable afterwards.
+      if (entry !== null && !(typeof entry.costMicroUsd === 'number' && Number.isFinite(entry.costMicroUsd) && entry.costMicroUsd >= 0)) return;
       const fresh = read.entries;
       const without = fresh.filter((e) => e.requestId !== requestId);
       writeLedger(sys, root, entry === null ? without : [...without, entry]);
@@ -1014,8 +1017,13 @@ export function readLedgerStrict(
   sys: System,
   root: string,
 ): { readonly ok: true; readonly entries: readonly LedgerEntry[] } | { readonly ok: false; readonly problem: string } {
-  const text = sys.readText(join(root, ...GATEKEEPER_LEDGER_REL.split('/')));
-  if (text === null) return { ok: true, entries: [] };
+  const path = join(root, ...GATEKEEPER_LEDGER_REL.split('/'));
+  const text = sys.readText(path);
+  // A READ THAT FAILED IS NOT AN ABSENT FILE (ECC SECURITY R1): `readText` returns null on EBUSY and
+  // EACCES too, and reading that as empty reset every cap and let the next write replace the history.
+  if (text === null) {
+    return sys.exists(path) ? { ok: false, problem: `${GATEKEEPER_LEDGER_REL} exists but could not be read` } : { ok: true, entries: [] };
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -1029,6 +1037,7 @@ export function readLedgerStrict(
     const usage = r?.['usage'] as Record<string, unknown> | undefined;
     const cost = r?.['costMicroUsd'];
     return r === null || typeof r !== 'object' || typeof r['requestId'] !== 'string' ||
+      typeof r['projectId'] !== 'string' || typeof r['phaseId'] !== 'string' || utcInstant(r['at']) === null ||
       typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0 ||
       usage === undefined || typeof usage['inputTokens'] !== 'number' || typeof usage['outputTokens'] !== 'number';
   });

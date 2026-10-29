@@ -138,8 +138,11 @@ describe('totals', () => {
   });
 
   it('does not attribute a malformed timestamp to some real month', () => {
+    // Nor does it silently drop it (PROJECTOS-KERNEL-COST-CAP1A, ECC SECURITY R2): a spend that belongs to
+    // no month would escape every cap, so the totals become unreadable and the gate refuses.
     const totals = summariseLedger([entry({ at: 'yesterday', costMicroUsd: 8_000_000 })], SCOPE);
-    expect(totals.monthMicroUsd).toBe(0);
+    expect(totals.monthMicroUsd).not.toBe(8_000_000);
+    expect(Number.isNaN(totals.monthMicroUsd)).toBe(true);
   });
 });
 

@@ -21,6 +21,7 @@
  *   CC-10 "any timestamp will do"                       — and a call is booked outside every day and month
  *   CC-11 "the display check is the enforcement check"  — and the caps are optional again
  *   CC-12 "the raise authority can live in the working copy" — and the pilot ceiling is self-raised
+ *   CC-13 "a failed read, an unattributed entry, a NaN settlement" — each resets or bricks the caps
  *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT
  * rule fires. Comments are stripped first. Reads files; runs nothing, calls no provider.
@@ -57,6 +58,9 @@ const TESTS = {
     "refuses a call that would cross the per-day cap, counting an offset timestamp on the same UTC day",
     "refuses an UNREADABLE ledger and leaves it exactly as it was",
     "refuses a request time that is not a canonical instant, so nothing can be booked outside every total",
+    "[R1] refuses when the ledger EXISTS but its read failed, and keeps the history",
+    "[R2] refuses an entry that cannot be attributed to a phase, day or month",
+    "[L-c] settlement never writes a cost it could not compute",
   ],
   "projectos/core/test/gatekeeper-cost-ledger.test.ts": [
     "counts only the named day's spend, across every phase and project",
@@ -82,7 +86,7 @@ const PIN = {
   committedPolicy: "budget: budgetPolicyFrom(committedBudget),",
   configRefusesBroken: "reasons.push(...policyProblems(budgetPolicyFrom(committedBudget)), ...capProblems(budgetPolicyFrom(committedBudget)));",
   admissionDay: "day: period.day,",
-  turnDay: "...(ledgerPeriod(input.at) ?? { month: input.at.slice(0, 7) }),",
+  turnDay: "...(ledgerPeriod(input.at) ?? { month: '' }),",
   pricingCompared: "const pricingDiffers = PRICING_FIELDS.filter((f) => JSON.stringify(raw[f]) !== JSON.stringify(committedGatekeeper?.[f]));",
   pricingCommitted: "rateCards: committedRateCards,",
   cardsValidated: "reasons.push(...rateCardProblems(card));",
@@ -95,6 +99,10 @@ const PIN = {
   capsEnforced: "const caps = capProblems(policy);",
   committedPilot: "initialCreditMicroUsd: committedBudget['initialCreditMicroUsd'],",
   committedAuthorities: "const authorities = Array.isArray(committedGatekeeper?.['budgetRaiseAuthorities'])",
+  failedReadRefused: "return sys.exists(path) ? { ok: false, problem: `${GATEKEEPER_LEDGER_REL} exists but could not be read` } : { ok: true, entries: [] };",
+  attributionRequired: "typeof r['projectId'] !== 'string' || typeof r['phaseId'] !== 'string' || utcInstant(r['at']) === null ||",
+  attributionUnreadable: "if (typeof entry.projectId !== 'string' || typeof entry.phaseId !== 'string' || utcInstant(entry.at) === null) unreadable = true;",
+  settleRefusesNonFinite: "if (entry !== null && !(typeof entry.costMicroUsd === 'number' && Number.isFinite(entry.costMicroUsd) && entry.costMicroUsd >= 0)) return;",
 };
 
 const MUTATIONS = [
@@ -110,6 +118,10 @@ const MUTATIONS = [
   { name: "config-accepts-broken-policy", rule: "CC-6", rel: CONFIG_REL, from: PIN.configRefusesBroken, to: "" },
   { name: "admission-without-day", rule: "CC-7", rel: CONFIG_REL, from: PIN.admissionDay, to: "" },
   { name: "turn-without-day", rule: "CC-7", rel: TURN_REL, from: PIN.turnDay, to: "month: input.at.slice(0, 7)," },
+  { name: "failed-read-is-empty", rule: "CC-13", rel: CONFIG_REL, from: PIN.failedReadRefused, to: "return { ok: true, entries: [] };" },
+  { name: "unattributed-entry-admitted", rule: "CC-13", rel: CONFIG_REL, from: PIN.attributionRequired, to: "" },
+  { name: "unattributed-entry-excluded", rule: "CC-13", rel: LEDGER_REL, from: PIN.attributionUnreadable, to: "" },
+  { name: "settle-writes-nan", rule: "CC-13", rel: CONFIG_REL, from: PIN.settleRefusesNonFinite, to: "" },
   { name: "working-copy-prices", rule: "CC-8", rel: CONFIG_REL, from: PIN.pricingCommitted, to: "rateCards," },
   { name: "prices-not-compared", rule: "CC-8", rel: CONFIG_REL, from: PIN.pricingCompared, to: "const pricingDiffers: string[] = [];" },
   { name: "cards-not-validated", rule: "CC-8", rel: CONFIG_REL, from: PIN.cardsValidated, to: "" },
@@ -203,6 +215,9 @@ function check(raw) {
     E("CC-10", "a non-canonical request time is admitted, or days are grouped by the written prefix");
   }
   if (!ledger.includes(PIN.capsEnforced)) E("CC-11", "authoriseRequestSpend no longer refuses without enforceable caps");
+  if (![PIN.failedReadRefused, PIN.attributionRequired, PIN.settleRefusesNonFinite].every((p) => config.includes(p)) || !ledger.includes(PIN.attributionUnreadable)) {
+    E("CC-13", "a failed read, an unattributed entry or a non-finite settlement can reset or brick the ledger");
+  }
   if (!config.includes(PIN.committedPilot) || !config.includes(PIN.committedAuthorities)) {
     E("CC-12", "the pilot ceiling or its raise authority is read from the working copy");
   }
