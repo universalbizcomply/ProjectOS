@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-KERNEL-HYGIENE1A",
   "project": "ProjectOS",
   "objective": "Register or retire the unregistered validators, including those added in plan v1.17 (val-projectos-kernel-role-review1a, val-projectos-kernel-cost-cap1a, val-projectos-kernel-platform-stop1a); add an engines field (Node 24) and rust-toolchain.toml (1.96.1) matching the locked stack in docs/04_TRD.md. Amended in v1.18: its v1.17 writePaths named a validator directory and two bare filenames, which the write-path rules refuse.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-29T15:53:00.282Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-29T15:53:01.794Z",
+      "note": "Owner-direct closure under the owner's grant. — closed by owner Murad, decision projectos:PROJECTOS-KERNEL-HYGIENE1A:owner-closure:d0860425"
     }
   ]
 }
