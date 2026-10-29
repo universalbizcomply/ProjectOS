@@ -46,13 +46,17 @@
 //! | Situation | Canonical | Host |
 //! |---|---|---|
 //! | Ledger file absent | empty | empty |
-//! | Ledger unparseable / not the canonical shape | empty (an OPEN budget) | REFUSE |
+//! | Ledger unparseable / not the canonical shape | REFUSE | REFUSE |
 //! | Entry carries an unknown field | ignored, and dropped on rewrite | REFUSE |
-//! | Cost is negative / fractional / not a number | coerced to 0 | REFUSE |
+//! | Cost is negative / not a number | REFUSE | REFUSE |
+//! | Cost is fractional | accepted | REFUSE |
+//! | Entry `at` carries a numeric offset, `T24:00` or a day its month lacks | converted to UTC | REFUSE |
+//! | Entry `at` is not an ISO-8601 instant at all | REFUSE | REFUSE |
 //! | Ledger over a size or entry bound | no bound | REFUSE |
 //! | Ledger or lock path is a link / reparse point | followed | REFUSE |
 //! | Request id already present, unresolved | re-askable IF the broker record says "not answered" | REFUSE |
-//! | Budget figure fractional | accepted if finite ≥ 0 | REFUSE |
+//! | Budget figure or cap fractional | accepted if finite ≥ 0 | REFUSE |
+//! | Per-phase or per-day cap absent or unusable | REFUSE | REFUSE |
 //! | More than [`MAX_OUTSTANDING_RESERVATIONS`] in flight | no bound | REFUSE |
 //!
 //! There is no row in which the Host admits something the canonical transaction would refuse, and
@@ -89,7 +93,7 @@ pub mod refusal;
 pub use entry::{LedgerDocument, LedgerEntry, TokenUsage, LEDGER_SCHEMA_VERSION};
 pub use instant::LedgerInstant;
 pub use policy::BudgetPolicy;
-pub use refusal::LedgerRefusal;
+pub use refusal::{CrossedCaps, LedgerRefusal};
 
 /// The canonical ledger, relative to the governed project root.
 pub const GATEKEEPER_LEDGER_REL: [&str; 2] = [".projectops", "gatekeeper-ledger.json"];
@@ -421,7 +425,7 @@ fn write_ledger_locked(
     Ok(())
 }
 
-/// LOCK → READ FRESH → RESOLVE POLICY → CHECK BOTH CEILINGS → RESERVE → WRITE → UNLOCK.
+/// LOCK → READ FRESH → RESOLVE POLICY → CHECK EVERY CAP AND THE CEILING → RESERVE → WRITE → UNLOCK.
 ///
 /// One transaction, and it is the whole of §10D's claim. Nothing between the read and the write lets
 /// go of the lock, so two callers cannot observe the same remaining capacity: whoever takes the lock
@@ -431,8 +435,9 @@ fn write_ledger_locked(
 ///
 /// # Errors
 /// [`LedgerRefusal`] naming the gate that refused. An unknown cost refuses before anything is read;
-/// a held lock refuses without waiting; an unenforceable policy refuses; either ceiling refuses; a
-/// malformed or oversize ledger refuses; and every refusal leaves the ledger exactly as it was.
+/// a held lock refuses without waiting; an unenforceable policy refuses; the per-phase cap, the
+/// per-day cap, the month's hard stop and the owner's ceiling each refuse; a malformed or oversize
+/// ledger refuses; and every refusal leaves the ledger exactly as it was.
 pub fn admit_spend(
     root: &Path,
     request: &AdmissionRequest<'_>,
@@ -479,15 +484,34 @@ pub fn admit_spend(
         if snapshot >= policy.hard_stop_micro_usd() {
             return Err(LedgerRefusal::HardStopExceeded);
         }
+        // EVERY CAP, NOT THE FIRST (PROJECTOS-KERNEL-COST-CAP1A) — the canonical
+        // `authoriseRequestSpend` bounds, in its order: the phase (this project's phase over the whole
+        // ledger), the day (the account, this UTC day) and the month (the account, this UTC month).
+        // Each is `projected > cap`, so a call that lands exactly on a cap is admitted, as it is
+        // canonically. Every crossed cap is named in the one refusal.
+        let phase_spent = document.phase_total_micro_usd(request.project_id, request.phase_id)?;
+        let day_spent = document.day_total_micro_usd(at.day())?;
+        let crosses = |spent: u64, cap: u64| -> Result<bool, LedgerRefusal> {
+            let projected = spent
+                .checked_add(cost)
+                .ok_or(LedgerRefusal::ArithmeticOverflow)?;
+            Ok(projected > cap)
+        };
+        let crossed = refusal::CrossedCaps::refusal(
+            crosses(phase_spent, policy.phase_hard_stop_micro_usd())?,
+            crosses(day_spent, policy.day_hard_stop_micro_usd())?,
+            crosses(snapshot, policy.hard_stop_micro_usd())?,
+        );
+        if let Some(refused) = crossed {
+            return Err(refused);
+        }
+        // THE OWNER'S CEILING IS IN ADDITION TO EVERY INSTALLATION CAP, NEVER INSTEAD OF ONE, AND THE
+        // LOWEST BINDS. The installation's caps answer "can this installation afford it?"; the owner's
+        // delegation ceiling answers "did the owner permit this programme that much?". The ceiling
+        // binds the month's total, as it always has.
         let projected = snapshot
             .checked_add(cost)
             .ok_or(LedgerRefusal::ArithmeticOverflow)?;
-        // BOTH CONTROLS, NEITHER REPLACING THE OTHER, AND THE LOWER OF THE TWO BINDS. The
-        // installation's hard stop answers "can this installation afford it?"; the owner's
-        // delegation ceiling answers "did the owner permit this programme that much?".
-        if projected > policy.hard_stop_micro_usd() {
-            return Err(LedgerRefusal::HardStopExceeded);
-        }
         if projected > request.delegation_ceiling_micro_usd {
             return Err(LedgerRefusal::CeilingExceeded);
         }

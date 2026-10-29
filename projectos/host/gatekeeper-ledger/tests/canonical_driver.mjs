@@ -11,7 +11,7 @@
  * only files written are the ledger and the lock inside that disposable root.
  *
  * Usage:  node canonical_driver.mjs <agent-dist> <op> [args...]
- *   admit   <root> <requestId> <projectId> <phaseId> <model> <estimateMicroUsd> <atIso> <hardStop> <warnAt>
+ *   admit   <root> <requestId> <projectId> <phaseId> <model> <estimateMicroUsd> <atIso> <hardStop> <warnAt> <phaseCap> <dayCap>
  *   settle  <root> <requestId> <inputTokens> <outputTokens> <costMicroUsd>
  *   release <root> <requestId>
  *   read    <root>
@@ -41,7 +41,7 @@ const say = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 
 switch (op) {
   case 'admit': {
-    const [root, requestId, projectId, phaseId, model, estimate, at, hardStop, warnAt] = rest;
+    const [root, requestId, projectId, phaseId, model, estimate, at, hardStop, warnAt, phaseCap, dayCap] = rest;
     const result = admitGatekeeperSpend(
       nodeSystem,
       root,
@@ -53,7 +53,17 @@ switch (op) {
         estimateMicroUsd: Number(estimate),
         at,
       },
-      { hardStopAtMicroUsd: Number(hardStop), warnAtMicroUsd: Number(warnAt) },
+      // THE FOUR-FIELD POLICY `loadGatekeeperConfig` HANDS THE ADMISSION (PROJECTOS-KERNEL-COST-CAP1A).
+      // The two-field policy this passed before the per-phase and per-day caps existed is one the
+      // canonical `capProblems` now refuses outright, so every comparison against it would have been
+      // "both refuse" — a like-for-like check that compared nothing. A missing argument is NaN, which
+      // the canonical admission refuses, never "unlimited".
+      {
+        hardStopAtMicroUsd: Number(hardStop),
+        warnAtMicroUsd: Number(warnAt),
+        phaseHardStopAtMicroUsd: Number(phaseCap),
+        dayHardStopAtMicroUsd: Number(dayCap),
+      },
       // The installation's broker record. `not-answered` is the only value that lets an existing
       // reservation be re-asked; the Host has no broker record at all and therefore always refuses,
       // which is the direction the cross-implementation test asserts.
@@ -99,7 +109,9 @@ switch (op) {
     // the first place. Raised by the ECC security review as the structural half of that defect: the
     // filter below is still a transcription of `loadGatekeeperConfig`'s, but the value it compares
     // against can no longer disagree with the one the agent uses.
-    const { checkPilotBudget, BUDGET_RAISE_SCOPE } = await importFrom('../../core/dist/index.js');
+    const { checkPilotBudget, policyProblems, capProblems, BUDGET_RAISE_SCOPE } = await importFrom(
+      '../../core/dist/index.js',
+    );
     if (typeof BUDGET_RAISE_SCOPE !== 'string' || BUDGET_RAISE_SCOPE === '') {
       // FAIL LOUDLY RATHER THAN FILTER ON `undefined`, which would silently match nothing and make
       // every policy look unenforceable — a green test proving the opposite of what it claims.
@@ -143,6 +155,19 @@ switch (op) {
           (a) => a && typeof a.decisionId === 'string' && a.scope === BUDGET_RAISE_SCOPE,
         ),
       ),
+      // AND THE CAPS, EXACTLY AS `loadGatekeeperConfig` CHECKS THEM: `budgetPolicyFrom` (a field that
+      // is not a number becomes NaN) through the real `policyProblems` and `capProblems`. The mapping
+      // is transcribed — `budgetPolicyFrom` is not exported — and it is three lines with one rule.
+      ...(() => {
+        const cap = (f) => (typeof budget[f] === 'number' ? budget[f] : Number.NaN);
+        const policy = {
+          warnAtMicroUsd: cap('warnAtMicroUsd'),
+          hardStopAtMicroUsd: cap('hardStopAtMicroUsd'),
+          phaseHardStopAtMicroUsd: cap('phaseHardStopAtMicroUsd'),
+          dayHardStopAtMicroUsd: cap('dayHardStopAtMicroUsd'),
+        };
+        return [...policyProblems(policy), ...capProblems(policy)];
+      })(),
     ];
     say({ problems });
     break;

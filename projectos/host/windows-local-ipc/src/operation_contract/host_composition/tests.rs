@@ -2026,7 +2026,7 @@ impl CanonicalProject {
         std::fs::write(
             root.join(".projectops").join("gatekeeper.json"),
             format!(
-                "{{\"schemaVersion\":\"1.0.0\",\"enabled\":true,\"budget\":{{\"initialCreditMicroUsd\":5000000,\"warnAtMicroUsd\":0,\"hardStopAtMicroUsd\":{hard_stop},\"autoRecharge\":false}},\"budgetRaiseAuthorities\":[]}}"
+                "{{\"schemaVersion\":\"1.0.0\",\"enabled\":true,\"budget\":{{\"initialCreditMicroUsd\":5000000,\"warnAtMicroUsd\":0,\"hardStopAtMicroUsd\":{hard_stop},\"phaseHardStopAtMicroUsd\":9007199254740991,\"dayHardStopAtMicroUsd\":9007199254740991,\"autoRecharge\":false}},\"budgetRaiseAuthorities\":[]}}"
             ),
         )
         .expect("config");

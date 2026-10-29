@@ -64,7 +64,7 @@ impl Scratch {
         fs::write(
             root.join(".projectops").join("gatekeeper.json"),
             format!(
-                "{{\"schemaVersion\":\"1.0.0\",\"enabled\":true,\"budget\":{{\"initialCreditMicroUsd\":5000000,\"warnAtMicroUsd\":0,\"hardStopAtMicroUsd\":{hard_stop},\"autoRecharge\":false}},\"budgetRaiseAuthorities\":[]}}"
+                "{{\"schemaVersion\":\"1.0.0\",\"enabled\":true,\"budget\":{{\"initialCreditMicroUsd\":5000000,\"warnAtMicroUsd\":0,\"hardStopAtMicroUsd\":{hard_stop},\"phaseHardStopAtMicroUsd\":9007199254740991,\"dayHardStopAtMicroUsd\":9007199254740991,\"autoRecharge\":false}},\"budgetRaiseAuthorities\":[]}}"
             ),
         )
         .expect("config");
@@ -136,7 +136,7 @@ fn an_admission_lands_in_the_canonical_file_as_a_canonical_entry() {
         "unexpected ledger: {text}"
     );
     assert!(
-        text.contains("\"at\": \"2026-09-08T13:00:00Z\""),
+        text.contains("\"at\": \"2026-09-08T13:00:00.000Z\""),
         "unexpected ledger: {text}"
     );
 }

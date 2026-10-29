@@ -37,8 +37,14 @@ impl Scratch {
         &self.root
     }
 
-    /// Write a gatekeeper configuration carrying this hard stop, otherwise the approved pilot.
+    /// Write a gatekeeper configuration carrying this month hard stop, and per-phase and per-day caps
+    /// that can never bind — so the month is what is under test — otherwise the approved pilot.
     fn with_hard_stop(self, hard_stop: u64) -> Self {
+        self.with_caps(hard_stop, u64::MAX, u64::MAX)
+    }
+
+    /// Write a gatekeeper configuration carrying these three stops, otherwise the approved pilot.
+    fn with_caps(self, hard_stop: u64, phase_cap: u64, day_cap: u64) -> Self {
         let warn = hard_stop.min(policy::APPROVED_WARN_AT_MICRO_USD);
         let config = format!(
             r#"{{
@@ -49,6 +55,8 @@ impl Scratch {
     "initialCreditMicroUsd": 5000000,
     "warnAtMicroUsd": {warn},
     "hardStopAtMicroUsd": {hard_stop},
+    "phaseHardStopAtMicroUsd": {phase_cap},
+    "dayHardStopAtMicroUsd": {day_cap},
     "autoRecharge": false
   }},
   "budgetRaiseAuthorities": []
@@ -83,6 +91,10 @@ impl Drop for Scratch {
 const SEPTEMBER: u64 = 1_788_872_400;
 /// 2026-08-31T23:59:59Z — the last second of the previous month.
 const AUGUST_LAST_SECOND: u64 = 1_788_220_799;
+/// 2026-09-08T23:59:59Z — the last second of SEPTEMBER's day.
+const SEPTEMBER_DAY_LAST_SECOND: u64 = SEPTEMBER + 39_599;
+/// 2026-09-09T00:00:00Z — the first second of the next day, in the same month.
+const NEXT_DAY_FIRST_SECOND: u64 = SEPTEMBER + 39_600;
 
 fn ask<'a>(id: &'a str, cost: Option<u64>, ceiling: u64) -> AdmissionRequest<'a> {
     AdmissionRequest {
@@ -144,7 +156,7 @@ fn an_admission_writes_the_canonical_entry_to_the_canonical_file() {
       },
       "costMicroUsd": 1000,
       "unresolved": true,
-      "at": "2026-09-08T13:00:00Z"
+      "at": "2026-09-08T13:00:00.000Z"
     }
   ]
 }
@@ -243,6 +255,298 @@ fn a_month_already_at_the_hard_stop_admits_nothing_at_all() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
+// (B2) THE PER-PHASE AND PER-DAY CAPS (PROJECTOS-KERNEL-COST-CAP1A)
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+/// The same request in another project, phase or instant.
+fn ask_in<'a>(
+    id: &'a str,
+    project_id: &'a str,
+    phase_id: &'a str,
+    cost: u64,
+    at_epoch_s: u64,
+) -> AdmissionRequest<'a> {
+    AdmissionRequest {
+        project_id,
+        phase_id,
+        at_epoch_s,
+        ..ask(id, Some(cost), u64::MAX)
+    }
+}
+
+fn crossed(refusal: LedgerRefusal) -> (bool, bool, bool) {
+    match refusal {
+        LedgerRefusal::CapsExceeded(caps) => (caps.phase(), caps.day(), caps.month()),
+        other => panic!("expected a cap refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_phase_cap_binds_one_phase_of_one_project_and_nothing_else() {
+    let scratch = Scratch::new().with_caps(5_000_000, 1_000, u64::MAX);
+    admit_spend(
+        scratch.path(),
+        &ask_in("GKHOST-0001", "projectos", "PHASE-ONE", 600, SEPTEMBER),
+    )
+    .expect("first");
+    let refused = admit_spend(
+        scratch.path(),
+        &ask_in("GKHOST-0002", "projectos", "PHASE-ONE", 500, SEPTEMBER),
+    )
+    .unwrap_err();
+    assert_eq!(crossed(refused), (true, false, false));
+    assert!(
+        scratch.document().find("GKHOST-0002").is_none(),
+        "a refusal was written"
+    );
+
+    // Another phase of the same project, and the same phase name in another project, are other phases.
+    admit_spend(
+        scratch.path(),
+        &ask_in("GKHOST-0003", "projectos", "PHASE-TWO", 500, SEPTEMBER),
+    )
+    .expect("another phase");
+    admit_spend(
+        scratch.path(),
+        &ask_in("GKHOST-0004", "deadaisle", "PHASE-ONE", 500, SEPTEMBER),
+    )
+    .expect("another project's phase of the same name");
+    // Landing exactly on the cap is admitted, as `projected > cap` has it canonically.
+    admit_spend(
+        scratch.path(),
+        &ask_in("GKHOST-0005", "projectos", "PHASE-ONE", 400, SEPTEMBER),
+    )
+    .expect("exactly at the cap");
+    assert_eq!(
+        crossed(
+            admit_spend(
+                scratch.path(),
+                &ask_in("GKHOST-0006", "projectos", "PHASE-ONE", 1, SEPTEMBER)
+            )
+            .unwrap_err()
+        ),
+        (true, false, false)
+    );
+}
+
+#[test]
+fn the_phase_cap_is_not_renewed_by_a_new_month() {
+    let scratch = Scratch::new().with_caps(5_000_000, 1_000, u64::MAX);
+    admit_spend(
+        scratch.path(),
+        &ask_in(
+            "GKHOST-AUG1",
+            "projectos",
+            "PHASE-ONE",
+            900,
+            AUGUST_LAST_SECOND,
+        ),
+    )
+    .expect("august");
+    let refused = admit_spend(
+        scratch.path(),
+        &ask_in("GKHOST-SEP1", "projectos", "PHASE-ONE", 200, SEPTEMBER),
+    )
+    .unwrap_err();
+    assert_eq!(crossed(refused), (true, false, false));
+}
+
+#[test]
+fn the_day_cap_binds_the_whole_account_for_one_utc_day() {
+    let scratch = Scratch::new().with_caps(5_000_000, u64::MAX, 1_000);
+    admit_spend(
+        scratch.path(),
+        &ask_in("GKHOST-0001", "projectos", "PHASE-ONE", 600, SEPTEMBER),
+    )
+    .expect("first");
+    // Another project and another phase share the account's day.
+    let refused = admit_spend(
+        scratch.path(),
+        &ask_in("GKHOST-0002", "deadaisle", "PHASE-TWO", 500, SEPTEMBER),
+    )
+    .unwrap_err();
+    assert_eq!(crossed(refused), (false, true, false));
+    admit_spend(
+        scratch.path(),
+        &ask_in("GKHOST-0003", "deadaisle", "PHASE-TWO", 400, SEPTEMBER),
+    )
+    .expect("exactly at the cap");
+}
+
+#[test]
+fn the_day_boundary_is_the_utc_midnight_and_nothing_else() {
+    let scratch = Scratch::new().with_caps(5_000_000, u64::MAX, 1_000);
+    admit_spend(
+        scratch.path(),
+        &ask_in(
+            "GKHOST-0001",
+            "projectos",
+            "PHASE-ONE",
+            1_000,
+            SEPTEMBER_DAY_LAST_SECOND,
+        ),
+    )
+    .expect("the day's whole allowance, in its last second");
+    // Still the same day, thirteen hours earlier: the day is full.
+    assert_eq!(
+        crossed(
+            admit_spend(
+                scratch.path(),
+                &ask_in("GKHOST-0002", "projectos", "PHASE-ONE", 1, SEPTEMBER)
+            )
+            .unwrap_err()
+        ),
+        (false, true, false)
+    );
+    // One second later is the next UTC day, and it starts clean.
+    admit_spend(
+        scratch.path(),
+        &ask_in(
+            "GKHOST-0003",
+            "projectos",
+            "PHASE-ONE",
+            1_000,
+            NEXT_DAY_FIRST_SECOND,
+        ),
+    )
+    .expect("the next day");
+    assert_eq!(
+        scratch
+            .document()
+            .day_total_micro_usd("2026-09-08")
+            .unwrap(),
+        1_000
+    );
+    assert_eq!(
+        scratch
+            .document()
+            .day_total_micro_usd("2026-09-09")
+            .unwrap(),
+        1_000
+    );
+}
+
+#[test]
+fn every_crossed_cap_is_named_in_the_one_refusal() {
+    // Phase and day crossed, the month not.
+    let scratch = Scratch::new().with_caps(2_000, 1_000, 1_000);
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(900), u64::MAX)).expect("first");
+    let refused =
+        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(200), u64::MAX)).unwrap_err();
+    assert_eq!(crossed(refused), (true, true, false));
+    assert_eq!(
+        refused.to_string(),
+        "this call would cross the per-phase cap, the per-day cap"
+    );
+
+    // All three crossed: the month is named alongside them, not instead of them.
+    let scratch = Scratch::new().with_caps(1_000, 1_000, 1_000);
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(500), u64::MAX)).expect("first");
+    let refused =
+        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(600), u64::MAX)).unwrap_err();
+    assert_eq!(crossed(refused), (true, true, true));
+    assert_eq!(
+        refused.to_string(),
+        "this call would cross the per-phase cap, the per-day cap, the installation's hard stop"
+    );
+
+    // The month alone keeps its own name.
+    let scratch = Scratch::new().with_caps(1_000, 5_000, 5_000);
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(500), u64::MAX)).expect("first");
+    assert_eq!(
+        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(600), u64::MAX)).unwrap_err(),
+        LedgerRefusal::HardStopExceeded
+    );
+}
+
+#[test]
+fn a_cap_is_checked_before_the_owner_ceiling_and_neither_replaces_the_other() {
+    // The owner's ceiling is generous; the phase cap still refuses.
+    let scratch = Scratch::new().with_caps(5_000_000, 1_000, u64::MAX);
+    assert_eq!(
+        crossed(
+            admit_spend(scratch.path(), &ask("GKHOST-0001", Some(1_001), u64::MAX)).unwrap_err()
+        ),
+        (true, false, false)
+    );
+    // Every installation cap is generous; the owner's ceiling still refuses.
+    assert_eq!(
+        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(999), 998)).unwrap_err(),
+        LedgerRefusal::CeilingExceeded
+    );
+}
+
+#[test]
+fn a_configuration_without_the_phase_or_day_cap_admits_nothing() {
+    for missing in ["phaseHardStopAtMicroUsd", "dayHardStopAtMicroUsd"] {
+        let scratch = Scratch::new().with_caps(5_000_000, 1_000, 1_000);
+        let path = scratch.path().join(".projectops").join("gatekeeper.json");
+        let config = fs::read_to_string(&path).unwrap();
+        let line = config
+            .lines()
+            .find(|l| l.contains(missing))
+            .expect("fixture carries the cap")
+            .to_owned();
+        fs::write(&path, config.replace(&format!("{line}\n"), "")).unwrap();
+        assert!(!fs::read_to_string(&path).unwrap().contains(missing));
+        assert_eq!(
+            admit_spend(scratch.path(), &ask("GKHOST-0001", Some(1), u64::MAX)).unwrap_err(),
+            LedgerRefusal::PolicyUnenforceable,
+            "admitted with no {missing}"
+        );
+        assert!(scratch.ledger_text().is_empty());
+    }
+}
+
+#[test]
+fn a_ledger_entry_that_belongs_to_no_day_or_month_refuses_the_whole_ledger() {
+    let entry = |at: &str| {
+        format!(
+            r#"{{"schemaVersion":"1.0.0","entries":[{{"requestId":"GKHOST-0001","projectId":"p","phaseId":"f","model":"m","usage":{{"inputTokens":0,"outputTokens":0}},"costMicroUsd":5,"at":"{at}"}}]}}"#
+        )
+    };
+    for at in [
+        "yesterday",
+        "2026-09-08",
+        "2026-09-08 13:00:00Z",
+        "2026-09-08T13:00:00",
+        "2026-09-08T13:00:00+01:00",
+        "2026-09-08T24:00:00Z",
+        "2026-02-30T00:00:00Z",
+        "2026-13-01T00:00:00Z",
+    ] {
+        let scratch = Scratch::new().with_hard_stop(5_000_000);
+        fs::write(
+            scratch
+                .path()
+                .join(".projectops")
+                .join("gatekeeper-ledger.json"),
+            entry(at),
+        )
+        .unwrap();
+        assert_eq!(
+            admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), u64::MAX)).unwrap_err(),
+            LedgerRefusal::LedgerMalformed,
+            "accounted for an entry at {at:?}"
+        );
+    }
+    // And one with no project or phase is not an entry at all.
+    let scratch = Scratch::new().with_hard_stop(5_000_000);
+    fs::write(
+        scratch
+            .path()
+            .join(".projectops")
+            .join("gatekeeper-ledger.json"),
+        entry("2026-09-08T13:00:00Z").replace(r#""projectId":"p","phaseId":"f","#, ""),
+    )
+    .unwrap();
+    assert_eq!(
+        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), u64::MAX)).unwrap_err(),
+        LedgerRefusal::LedgerMalformed
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
 // (C) COST
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -276,8 +580,8 @@ fn an_overflowing_projection_is_refused_rather_than_wrapped() {
     fs::write(
         scratch.path().join(".projectops").join("gatekeeper.json"),
         format!(
-            r#"{{"schemaVersion":"1.0.0","enabled":true,"budget":{{"initialCreditMicroUsd":0,"warnAtMicroUsd":0,"hardStopAtMicroUsd":{},"autoRecharge":false,"raisedByOwnerDecisionId":"D1"}},"budgetRaiseAuthorities":[{{"decisionId":"D1","scope":"gatekeeper-budget-raise"}}]}}"#,
-            u64::MAX
+            r#"{{"schemaVersion":"1.0.0","enabled":true,"budget":{{"initialCreditMicroUsd":0,"warnAtMicroUsd":0,"hardStopAtMicroUsd":{max},"phaseHardStopAtMicroUsd":{max},"dayHardStopAtMicroUsd":{max},"autoRecharge":false,"raisedByOwnerDecisionId":"D1"}},"budgetRaiseAuthorities":[{{"decisionId":"D1","scope":"gatekeeper-budget-raise"}}]}}"#,
+            max = u64::MAX
         ),
     )
     .unwrap();
@@ -372,7 +676,7 @@ fn a_reservation_commits_once_and_becomes_the_call_that_happened() {
     assert_eq!(entry.unresolved, None);
     assert!(entry.usage.is_a_call());
     assert_eq!(
-        entry.at, "2026-09-08T13:00:00Z",
+        entry.at, "2026-09-08T13:00:00.000Z",
         "the admitting month was kept"
     );
     assert_eq!(

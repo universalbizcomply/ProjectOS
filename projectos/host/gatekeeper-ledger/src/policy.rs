@@ -2,8 +2,9 @@
 //!
 //! ## Where the hard stop comes from, and why not from anywhere else
 //!
-//! `.projectops/gatekeeper.json` → `budget.hardStopAtMicroUsd`, accepted only after the checks
-//! `loadGatekeeperConfig` and `checkPilotBudget` already apply. The Host does not take a ceiling as
+//! `.projectops/gatekeeper.json` → `budget.hardStopAtMicroUsd`, `budget.phaseHardStopAtMicroUsd` and
+//! `budget.dayHardStopAtMicroUsd`, accepted only after the checks `loadGatekeeperConfig`,
+//! `checkPilotBudget`, `policyProblems` and `capProblems` already apply. The Host does not take a ceiling as
 //! an argument, does not carry a default, and has no compiled-in figure that could stand in for the
 //! configured one: a ceiling that can be supplied is not a ceiling.
 //!
@@ -43,17 +44,34 @@ pub const BUDGET_RAISE_SCOPE: &str = "gatekeeper-budget-raise";
 pub const CONFIG_SCHEMA_VERSION: &str = "1.0.0";
 
 /// The enforceable budget policy, once every canonical check has passed.
+///
+/// THREE STOPS, ALL REQUIRED (PROJECTOS-KERNEL-COST-CAP1A). The month's hard stop alone let one
+/// runaway phase, or one bad night, spend the whole month before anything refused, so the canonical
+/// policy also carries a per-phase and a per-day cap. A policy without either is not a policy with
+/// no such limit: it does not resolve at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BudgetPolicy {
     hard_stop_micro_usd: u64,
     warn_at_micro_usd: u64,
+    phase_hard_stop_micro_usd: u64,
+    day_hard_stop_micro_usd: u64,
 }
 
 impl BudgetPolicy {
-    /// The installation's own hard stop.
+    /// The installation's own hard stop for the month, across every project.
     #[must_use]
     pub fn hard_stop_micro_usd(&self) -> u64 {
         self.hard_stop_micro_usd
+    }
+    /// The most one phase of one project may spend, over the whole life of the ledger.
+    #[must_use]
+    pub fn phase_hard_stop_micro_usd(&self) -> u64 {
+        self.phase_hard_stop_micro_usd
+    }
+    /// The most the account may spend in one UTC day, across every project.
+    #[must_use]
+    pub fn day_hard_stop_micro_usd(&self) -> u64 {
+        self.day_hard_stop_micro_usd
     }
     /// The owner-visible warning threshold. Carried because the policy is not enforceable without
     /// it, never acted on here: a threshold that only warns is not a stop.
@@ -77,6 +95,8 @@ struct BudgetBlock {
     initial_credit_micro_usd: Option<serde_json::Value>,
     warn_at_micro_usd: Option<serde_json::Value>,
     hard_stop_at_micro_usd: Option<serde_json::Value>,
+    phase_hard_stop_at_micro_usd: Option<serde_json::Value>,
+    day_hard_stop_at_micro_usd: Option<serde_json::Value>,
     auto_recharge: Option<serde_json::Value>,
     raised_by_owner_decision_id: Option<serde_json::Value>,
 }
@@ -142,6 +162,14 @@ pub fn resolve(config_text: &str) -> Result<BudgetPolicy, LedgerRefusal> {
         .ok_or(LedgerRefusal::PolicyUnenforceable)?;
     let hard_stop = whole_amount(budget.hard_stop_at_micro_usd.as_ref())
         .ok_or(LedgerRefusal::PolicyUnenforceable)?;
+    // THE CANONICAL `capProblems`, WITH THE SAME WHOLE-AMOUNT STRICTNESS AS THE MONTH. Absent, null, a
+    // string, negative or fractional: each is a refusal, never "unlimited". Neither cap is compared
+    // against the approved pilot or against the month's stop, because the canonical rule compares
+    // neither — a phase cap above the month's stop is simply never the one that binds.
+    let phase_hard_stop = whole_amount(budget.phase_hard_stop_at_micro_usd.as_ref())
+        .ok_or(LedgerRefusal::PolicyUnenforceable)?;
+    let day_hard_stop = whole_amount(budget.day_hard_stop_at_micro_usd.as_ref())
+        .ok_or(LedgerRefusal::PolicyUnenforceable)?;
 
     // A DECISION AUTHORISES WHAT IT WAS ABOUT, so the scope has to match as well as the id. Any
     // owner decision used to unlock the ceiling, which meant the plan-approval decision — or any
@@ -197,6 +225,8 @@ pub fn resolve(config_text: &str) -> Result<BudgetPolicy, LedgerRefusal> {
     Ok(BudgetPolicy {
         hard_stop_micro_usd: hard_stop,
         warn_at_micro_usd: warn_at,
+        phase_hard_stop_micro_usd: phase_hard_stop,
+        day_hard_stop_micro_usd: day_hard_stop,
     })
 }
 
@@ -210,13 +240,69 @@ mod tests {
         )
     }
 
-    const APPROVED: &str = r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":5000000,"autoRecharge":false}"#;
+    const APPROVED: &str = r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":5000000,"phaseHardStopAtMicroUsd":1500000,"dayHardStopAtMicroUsd":2000000,"autoRecharge":false}"#;
 
     #[test]
     fn the_approved_pilot_configuration_is_enforceable() {
         let policy = resolve(&config(APPROVED, "[]")).expect("enforceable");
         assert_eq!(policy.hard_stop_micro_usd(), 5_000_000);
         assert_eq!(policy.warn_at_micro_usd(), 2_000_000);
+        assert_eq!(policy.phase_hard_stop_micro_usd(), 1_500_000);
+        assert_eq!(policy.day_hard_stop_micro_usd(), 2_000_000);
+    }
+
+    /// PROJECTOS-KERNEL-COST-CAP1A: A MISSING OR UNUSABLE CAP IS A REFUSAL, NEVER "UNLIMITED" — the
+    /// canonical `capProblems`, for each cap, in each shape it can arrive broken in.
+    #[test]
+    fn a_missing_or_unusable_phase_or_day_cap_stops_spending() {
+        for field in ["phaseHardStopAtMicroUsd", "dayHardStopAtMicroUsd"] {
+            let present = format!(
+                "\"{field}\":{}",
+                if field.starts_with("phase") {
+                    1_500_000
+                } else {
+                    2_000_000
+                }
+            );
+            assert!(APPROVED.contains(&present), "fixture lost {field}");
+            let absent = APPROVED.replace(&format!("{present},"), "");
+            assert_eq!(
+                resolve(&config(&absent, "[]")),
+                Err(LedgerRefusal::PolicyUnenforceable),
+                "accepted a budget with no {field}"
+            );
+            for bad in ["null", "\"1500000\"", "-1", "1500000.5", "true", "{}"] {
+                let budget = APPROVED.replace(&present, &format!("\"{field}\":{bad}"));
+                assert_eq!(
+                    resolve(&config(&budget, "[]")),
+                    Err(LedgerRefusal::PolicyUnenforceable),
+                    "accepted {field} = {bad}"
+                );
+            }
+        }
+    }
+
+    /// A CAP OF ZERO IS A USABLE CAP — it admits nothing that costs anything — and neither cap is
+    /// bounded by the pilot or by the month, because the canonical rule bounds neither.
+    #[test]
+    fn a_zero_cap_and_a_cap_above_the_month_are_both_enforceable() {
+        let zero = APPROVED
+            .replace(
+                "\"phaseHardStopAtMicroUsd\":1500000",
+                "\"phaseHardStopAtMicroUsd\":0",
+            )
+            .replace(
+                "\"dayHardStopAtMicroUsd\":2000000",
+                "\"dayHardStopAtMicroUsd\":0",
+            );
+        let policy = resolve(&config(&zero, "[]")).expect("zero caps are caps");
+        assert_eq!(policy.phase_hard_stop_micro_usd(), 0);
+        assert_eq!(policy.day_hard_stop_micro_usd(), 0);
+        let above = APPROVED.replace(
+            "\"phaseHardStopAtMicroUsd\":1500000",
+            "\"phaseHardStopAtMicroUsd\":9000000",
+        );
+        assert!(resolve(&config(&above, "[]")).is_ok());
     }
 
     #[test]
@@ -231,11 +317,11 @@ mod tests {
     #[test]
     fn a_missing_or_unusable_hard_stop_stops_spending() {
         for budget in [
-            r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"autoRecharge":false}"#,
-            r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":null,"autoRecharge":false}"#,
-            r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":"5000000","autoRecharge":false}"#,
-            r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":-1,"autoRecharge":false}"#,
-            r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":5000000.5,"autoRecharge":false}"#,
+            r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"phaseHardStopAtMicroUsd":1500000,"dayHardStopAtMicroUsd":2000000,"autoRecharge":false}"#,
+            r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":null,"phaseHardStopAtMicroUsd":1500000,"dayHardStopAtMicroUsd":2000000,"autoRecharge":false}"#,
+            r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":"5000000","phaseHardStopAtMicroUsd":1500000,"dayHardStopAtMicroUsd":2000000,"autoRecharge":false}"#,
+            r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":-1,"phaseHardStopAtMicroUsd":1500000,"dayHardStopAtMicroUsd":2000000,"autoRecharge":false}"#,
+            r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":5000000.5,"phaseHardStopAtMicroUsd":1500000,"dayHardStopAtMicroUsd":2000000,"autoRecharge":false}"#,
         ] {
             assert_eq!(
                 resolve(&config(budget, "[]")),
@@ -247,7 +333,7 @@ mod tests {
 
     #[test]
     fn auto_recharge_on_is_refused_and_no_decision_id_unlocks_it() {
-        let on = r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":5000000,"autoRecharge":true,"raisedByOwnerDecisionId":"D1"}"#;
+        let on = r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":5000000,"phaseHardStopAtMicroUsd":1500000,"dayHardStopAtMicroUsd":2000000,"autoRecharge":true,"raisedByOwnerDecisionId":"D1"}"#;
         assert_eq!(
             resolve(&config(
                 on,
@@ -255,7 +341,7 @@ mod tests {
             )),
             Err(LedgerRefusal::PolicyUnenforceable)
         );
-        let absent = r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":5000000}"#;
+        let absent = r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":5000000,"phaseHardStopAtMicroUsd":1500000,"dayHardStopAtMicroUsd":2000000}"#;
         assert_eq!(
             resolve(&config(absent, "[]")),
             Err(LedgerRefusal::PolicyUnenforceable)
@@ -268,7 +354,7 @@ mod tests {
     /// `tests/cross_implementation.rs`.
     #[test]
     fn a_correctly_scoped_entry_authorises_wherever_it_sits_in_the_list() {
-        let raised = r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":9000000,"autoRecharge":false,"raisedByOwnerDecisionId":"D1"}"#;
+        let raised = r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":9000000,"phaseHardStopAtMicroUsd":1500000,"dayHardStopAtMicroUsd":2000000,"autoRecharge":false,"raisedByOwnerDecisionId":"D1"}"#;
         for authorities in [
             r#"[{"decisionId":"D1","scope":"plan-approval"},{"decisionId":"D1","scope":"gatekeeper-budget-raise"}]"#,
             r#"[{"decisionId":"D1","scope":"gatekeeper-budget-raise"},{"decisionId":"D1","scope":"plan-approval"}]"#,
@@ -290,7 +376,7 @@ mod tests {
 
     #[test]
     fn a_figure_above_the_approved_pilot_needs_a_correctly_scoped_owner_decision() {
-        let raised = r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":9000000,"autoRecharge":false,"raisedByOwnerDecisionId":"D1"}"#;
+        let raised = r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":2000000,"hardStopAtMicroUsd":9000000,"phaseHardStopAtMicroUsd":1500000,"dayHardStopAtMicroUsd":2000000,"autoRecharge":false,"raisedByOwnerDecisionId":"D1"}"#;
         // No authority at all.
         assert_eq!(
             resolve(&config(raised, "[]")),
@@ -323,7 +409,7 @@ mod tests {
 
     #[test]
     fn lower_than_the_pilot_needs_nobody_s_permission() {
-        let lower = r#"{"initialCreditMicroUsd":10,"warnAtMicroUsd":1,"hardStopAtMicroUsd":2,"autoRecharge":false}"#;
+        let lower = r#"{"initialCreditMicroUsd":10,"warnAtMicroUsd":1,"hardStopAtMicroUsd":2,"phaseHardStopAtMicroUsd":1500000,"dayHardStopAtMicroUsd":2000000,"autoRecharge":false}"#;
         assert_eq!(
             resolve(&config(lower, "[]")).unwrap().hard_stop_micro_usd(),
             2
@@ -332,7 +418,7 @@ mod tests {
 
     #[test]
     fn a_warning_above_the_hard_stop_is_refused() {
-        let inverted = r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":4000000,"hardStopAtMicroUsd":3000000,"autoRecharge":false}"#;
+        let inverted = r#"{"initialCreditMicroUsd":5000000,"warnAtMicroUsd":4000000,"hardStopAtMicroUsd":3000000,"phaseHardStopAtMicroUsd":1500000,"dayHardStopAtMicroUsd":2000000,"autoRecharge":false}"#;
         assert_eq!(
             resolve(&config(inverted, "[]")),
             Err(LedgerRefusal::PolicyUnenforceable)

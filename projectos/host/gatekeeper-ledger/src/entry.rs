@@ -83,19 +83,28 @@ pub struct LedgerEntry {
     /// Set when a reservation was admitted and no answer has been recorded against it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unresolved: Option<bool>,
-    /// ISO-8601. Its leading `YYYY-MM` is what the monthly total groups on.
+    /// ISO-8601 UTC, `Z` form only (see [`check_canonical_instant`]). Its leading `YYYY-MM` is what
+    /// the monthly total groups on and its leading `YYYY-MM-DD` what the daily total groups on.
     pub at: String,
 }
 
 impl LedgerEntry {
     /// Whether this entry counts toward the month the canonical rule names.
     ///
-    /// PREFIX MATCH, NEVER A PARSE, and that is the canonical rule rather than an optimisation:
-    /// parsing would silently reinterpret a malformed timestamp into some real month and attribute
-    /// spend to it.
+    /// A PREFIX MATCH IS EXACT HERE BECAUSE OF WHAT [`LedgerDocument::parse`] ADMITS. The canonical
+    /// rule groups on the entry's instant in UTC; every `at` this crate accepts is already a validated
+    /// `Z` instant, whose leading characters ARE its UTC month and day. Anything that would need a
+    /// parse to place — an offset, an hour of 24, a 30th of February — is refused on the way in rather
+    /// than reinterpreted here.
     #[must_use]
     pub fn falls_in_month(&self, month: &str) -> bool {
         self.at.starts_with(month)
+    }
+
+    /// Whether this entry counts toward the UTC day `YYYY-MM-DD` — the same prefix rule as the month.
+    #[must_use]
+    pub fn falls_in_day(&self, day: &str) -> bool {
+        self.at.starts_with(day)
     }
 
     /// Whether this entry is an outstanding reservation rather than a call that happened.
@@ -147,6 +156,10 @@ impl LedgerDocument {
             crate::check_label(&entry.phase_id)?;
             crate::check_label(&entry.model)?;
             crate::check_label(&entry.at)?;
+            // A TIMESTAMP THAT PLACES THE ENTRY IN NO DAY AND NO MONTH IS NOT ONE THIS HOST WILL
+            // ACCOUNT FOR. The canonical `readLedgerStrict` refuses a whole ledger holding one, since
+            // such an entry would be invisible to every period total; this refuses at least as much.
+            check_canonical_instant(&entry.at)?;
         }
         Ok(document)
     }
@@ -199,9 +212,42 @@ impl LedgerDocument {
     /// # Errors
     /// [`LedgerRefusal::ArithmeticOverflow`] if the sum does not fit.
     pub fn month_total_micro_usd(&self, month: &str) -> Result<u64, LedgerRefusal> {
+        self.total_where(|e| e.falls_in_month(month))
+    }
+
+    /// Everything charged to one UTC day, across every project: the per-day cap's total.
+    ///
+    /// Counted exactly as the month is — committed spend plus every outstanding reservation at its
+    /// estimate, first entry per request id — because it is the canonical `summariseLedger` day.
+    ///
+    /// # Errors
+    /// [`LedgerRefusal::ArithmeticOverflow`] if the sum does not fit.
+    pub fn day_total_micro_usd(&self, day: &str) -> Result<u64, LedgerRefusal> {
+        self.total_where(|e| e.falls_in_day(day))
+    }
+
+    /// Everything one phase of one project has been charged, over the WHOLE ledger.
+    ///
+    /// NOT SCOPED TO A MONTH, which is the canonical `summariseLedger` phase total: a phase is a unit
+    /// of work, not a period, and a phase that ran across a month boundary must not get a second
+    /// allowance for crossing it. Scoped by project AND phase, because two projects can each have a
+    /// phase with the same name.
+    ///
+    /// # Errors
+    /// [`LedgerRefusal::ArithmeticOverflow`] if the sum does not fit.
+    pub fn phase_total_micro_usd(
+        &self,
+        project_id: &str,
+        phase_id: &str,
+    ) -> Result<u64, LedgerRefusal> {
+        self.total_where(|e| e.project_id == project_id && e.phase_id == phase_id)
+    }
+
+    /// The checked sum of the deduplicated entries that `counts`.
+    fn total_where(&self, counts: impl Fn(&LedgerEntry) -> bool) -> Result<u64, LedgerRefusal> {
         let mut total: u64 = 0;
         for entry in self.deduplicated() {
-            if entry.falls_in_month(month) {
+            if counts(entry) {
                 total = total
                     .checked_add(entry.cost_micro_usd)
                     .ok_or(LedgerRefusal::ArithmeticOverflow)?;
@@ -223,6 +269,85 @@ impl LedgerDocument {
     #[must_use]
     pub fn find(&self, request_id: &str) -> Option<&LedgerEntry> {
         self.entries.iter().find(|e| e.request_id == request_id)
+    }
+}
+
+/// Refuse an `at` that is not a canonical UTC instant this crate can place without a parse.
+///
+/// ACCEPTED: `YYYY-MM-DDTHH:MM`, optionally `:SS`, optionally `.` and one or more digits, then `Z` —
+/// with a real month, a day that exists in that month, an hour of 0-23, and minutes and seconds of
+/// 0-59. Every such string matches the canonical `CANONICAL_INSTANT` pattern AND is accepted by
+/// `Date.parse` at exactly the date its characters say, so its leading `YYYY-MM-DD` is its UTC day.
+///
+/// REFUSED, AND STRICTER THAN THE CANONICAL READER, deliberately and only in the refusing direction:
+/// a numeric offset (`+01:00`), which the canonical reader accepts and converts to UTC — neither
+/// writer of this ledger has ever written one, and placing it would need the parse this crate
+/// avoids; and the two shapes `Date.parse` silently ROLLS OVER, `T24:00` and a day the month does not
+/// have (`2026-02-30` becomes 2 March), which a prefix match would put in a different day or month
+/// from the canonical one. Everything the canonical reader refuses outright, this refuses too.
+///
+/// # Errors
+/// [`LedgerRefusal::LedgerMalformed`].
+pub fn check_canonical_instant(at: &str) -> Result<(), LedgerRefusal> {
+    if canonical_instant_shape(at.as_bytes()) {
+        Ok(())
+    } else {
+        Err(LedgerRefusal::LedgerMalformed)
+    }
+}
+
+/// The shape and the ranges [`check_canonical_instant`] requires.
+fn canonical_instant_shape(b: &[u8]) -> bool {
+    let number = |range: std::ops::Range<usize>| -> Option<u32> {
+        let part = b.get(range)?;
+        part.iter()
+            .all(u8::is_ascii_digit)
+            .then(|| part.iter().fold(0, |n, d| n * 10 + u32::from(d - b'0')))
+    };
+    let separators = [(4, b'-'), (7, b'-'), (10, b'T'), (13, b':')];
+    if separators.iter().any(|(at, want)| b.get(*at) != Some(want)) {
+        return false;
+    }
+    let (Some(year), Some(month), Some(day), Some(hour), Some(minute)) = (
+        number(0..4),
+        number(5..7),
+        number(8..10),
+        number(11..13),
+        number(14..16),
+    ) else {
+        return false;
+    };
+    // THE TAIL: `Z`, or `:SS` then `Z`, or `:SS.` then one or more digits then `Z`.
+    let second_ok = match &b[16..] {
+        [b'Z'] => true,
+        [b':', rest @ ..] => {
+            let fraction_ok = match rest.get(2..) {
+                Some([b'Z']) => true,
+                Some([b'.', digits @ .., b'Z']) => {
+                    !digits.is_empty() && digits.iter().all(u8::is_ascii_digit)
+                }
+                _ => false,
+            };
+            fraction_ok && number(17..19).is_some_and(|second| second <= 59)
+        }
+        _ => false,
+    };
+    second_ok
+        && (1..=12).contains(&month)
+        && (1..=days_in_month(year, month)).contains(&day)
+        && hour <= 23
+        && minute <= 59
+}
+
+/// Days in a proleptic Gregorian month, which is the calendar `Date.parse` uses.
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        2 if (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400) => {
+            29
+        }
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
     }
 }
 
@@ -376,6 +501,87 @@ mod tests {
         assert_eq!(
             LedgerDocument::parse(&text),
             Err(LedgerRefusal::TooManyEntries)
+        );
+    }
+
+    /// Every shape both writers produce, and every `Z` shape the canonical pattern admits.
+    #[test]
+    fn a_canonical_utc_instant_is_accepted_in_every_canonical_z_shape() {
+        for at in [
+            "2026-08-18T02:12:28.226Z",
+            "2026-09-08T13:00:00.000Z",
+            "2026-09-08T13:00:00Z",
+            "2026-09-08T13:00Z",
+            "2026-09-08T13:00:00.1234567Z",
+            "2024-02-29T23:59:59Z",
+            "2000-02-29T00:00Z",
+            "0000-01-01T00:00Z",
+        ] {
+            assert_eq!(check_canonical_instant(at), Ok(()), "refused {at}");
+        }
+    }
+
+    /// Everything the canonical reader refuses, and everything it would have to PARSE to place.
+    #[test]
+    fn an_instant_that_needs_a_parse_to_place_is_refused() {
+        for at in [
+            "",
+            "yesterday",
+            "2026-09-08",
+            "2026-09-08T13Z",
+            "2026-09-08T13:00:00",
+            "2026-09-08t13:00:00Z",
+            "2026-09-08 13:00:00Z",
+            "2026-09-08T13:00:00.Z",
+            "2026-09-08T13:00:0Z",
+            "2026-09-08T13:00:00ZZ",
+            "+02026-09-08T13:00:00Z",
+            // Converted to UTC by the canonical reader; this crate does not parse, so it refuses.
+            "2026-09-08T13:00:00+01:00",
+            "2026-09-08T13:00:00-00:00",
+            // `Date.parse` ROLLS these over into another day or month; a prefix would not.
+            "2026-02-30T00:00:00Z",
+            "2026-02-29T00:00Z",
+            "1900-02-29T00:00Z",
+            "2026-04-31T00:00Z",
+            "2026-09-08T24:00:00Z",
+            // `Date.parse` refuses these outright.
+            "2026-13-01T00:00Z",
+            "2026-00-01T00:00Z",
+            "2026-09-00T00:00Z",
+            "2026-09-08T23:60Z",
+            "2026-09-08T23:59:60Z",
+        ] {
+            assert_eq!(
+                check_canonical_instant(at),
+                Err(LedgerRefusal::LedgerMalformed),
+                "accepted {at:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_day_and_phase_totals_follow_the_canonical_scopes() {
+        let parsed = LedgerDocument::parse(CANONICAL).unwrap();
+        assert_eq!(parsed.day_total_micro_usd("2026-08-18").unwrap(), 6629);
+        assert_eq!(parsed.day_total_micro_usd("2026-09-05").unwrap(), 1333);
+        assert_eq!(parsed.day_total_micro_usd("2026-09-06").unwrap(), 0);
+        // The phase total spans months: both entries are projectos / PHASE-ONE.
+        assert_eq!(
+            parsed
+                .phase_total_micro_usd("projectos", "PHASE-ONE")
+                .unwrap(),
+            6629 + 1333
+        );
+        assert_eq!(
+            parsed
+                .phase_total_micro_usd("projectos", "PHASE-TWO")
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            parsed.phase_total_micro_usd("other", "PHASE-ONE").unwrap(),
+            0
         );
     }
 }

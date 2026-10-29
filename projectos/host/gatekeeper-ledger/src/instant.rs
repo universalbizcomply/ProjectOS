@@ -2,14 +2,16 @@
 //!
 //! ## Why this exists at all
 //!
-//! The canonical ledger attributes spend to a calendar month by string prefix: `at.slice(0, 7)` of
-//! `new Date().toISOString()`, which is the UTC `YYYY-MM`. Nothing parses a date on the read side,
-//! deliberately (a malformed timestamp must not be reinterpreted into some real month), so the
-//! WRITE side is where the month is decided. A Host that rendered its clock in local time, or with
-//! a different calendar arithmetic, would put the same instant in a different month from the agent
-//! and the hard stop would be applied to two different totals. So this module is the one place the
-//! Host turns epoch seconds into that string, it is UTC by construction, and its output is checked
-//! against Node's own rendering in the cross-implementation proof.
+//! The canonical ledger attributes spend to a UTC month and a UTC day: `utcInstant(at).slice(0, 7)`
+//! and `.slice(0, 10)`, where `utcInstant` is `new Date(Date.parse(at)).toISOString()` for an `at`
+//! that is a canonical ISO-8601 instant and nothing at all otherwise. The Host accepts only the `Z`
+//! forms of that instant (see `entry::check_canonical_instant`), for which the UTC month and day ARE
+//! the leading characters, so the WRITE side is where the month and the day are decided. A Host
+//! that rendered its clock in local time, or with a different calendar arithmetic, would put the
+//! same instant in a different month or day from the agent and the caps would be applied to two
+//! different totals. So this module is the one place the Host turns epoch seconds into that string,
+//! it is UTC by construction, and its output is checked against Node's own rendering in the
+//! cross-implementation proof.
 //!
 //! ## What it is not
 //!
@@ -49,11 +51,16 @@ impl fmt::Display for InstantError {
 
 impl std::error::Error for InstantError {}
 
-/// One instant, rendered once, in the canonical ISO-8601 UTC shape `YYYY-MM-DDTHH:MM:SSZ`.
+/// One instant, rendered once, in the canonical ISO-8601 UTC shape `YYYY-MM-DDTHH:MM:SS.000Z`.
 ///
-/// Whole seconds only: the Host's sealed clock reading carries no finer resolution, and writing
-/// `.000Z` would assert a precision the reading does not have. The canonical month rule reads only
-/// the first seven characters, which are identical in either form.
+/// EXACTLY `Date.prototype.toISOString()`, MILLISECONDS INCLUDED. This rendered whole seconds as
+/// `...SSZ`, on the grounds that `.000` asserts a precision the Host's sealed clock reading does not
+/// have. But the canonical admission now writes every entry's `at` as `utcInstant(request.at)` —
+/// that is, through `toISOString()` — so a second-resolution request is recorded as `.000Z` by the
+/// agent, and a Host that wrote anything else would be writing a different document from the same
+/// question (PROJECTOS-KERNEL-COST-CAP1A). The milliseconds are always zero: they say "this was a
+/// whole second", which is true. The month and day rules read only the first seven and ten
+/// characters, which are identical in either form.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LedgerInstant {
     rendered: String,
@@ -72,7 +79,7 @@ impl LedgerInstant {
         let secs = epoch_s % SECONDS_PER_DAY;
         let (year, month, day) = civil_from_days(days);
         let rendered = format!(
-            "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+            "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.000Z",
             secs / 3600,
             (secs / 60) % 60,
             secs % 60
@@ -86,10 +93,18 @@ impl LedgerInstant {
         &self.rendered
     }
 
-    /// The canonical month prefix `YYYY-MM` — exactly `at.slice(0, 7)`.
+    /// The canonical month prefix `YYYY-MM` — exactly `utcInstant(at).slice(0, 7)`.
     #[must_use]
     pub fn month(&self) -> &str {
         &self.rendered[..7]
+    }
+
+    /// The canonical UTC day `YYYY-MM-DD` — exactly `utcInstant(at).slice(0, 10)`, which is what the
+    /// per-day cap groups on. UTC by construction, like the month: a local-time day would put one
+    /// instant on two different days for the two programs that write this ledger.
+    #[must_use]
+    pub fn day(&self) -> &str {
+        &self.rendered[..10]
     }
 }
 
@@ -116,23 +131,23 @@ fn civil_from_days(days: u64) -> (u64, u64, u64) {
 mod tests {
     use super::*;
 
-    /// Vectors produced by `new Date(s * 1000).toISOString()` in Node 24, with the `.000` removed.
+    /// Vectors produced by `new Date(s * 1000).toISOString()` in Node 24.
     const VECTORS: &[(u64, &str)] = &[
-        (0, "1970-01-01T00:00:00Z"),
-        (86_399, "1970-01-01T23:59:59Z"),
-        (86_400, "1970-01-02T00:00:00Z"),
-        (951_782_400, "2000-02-29T00:00:00Z"),
-        (951_868_799, "2000-02-29T23:59:59Z"),
-        (951_868_800, "2000-03-01T00:00:00Z"),
-        (1_709_164_800, "2024-02-29T00:00:00Z"),
-        (1_756_684_799, "2025-08-31T23:59:59Z"),
-        (1_756_684_800, "2025-09-01T00:00:00Z"),
-        (1_757_341_948, "2025-09-08T14:32:28Z"),
-        (1_767_225_599, "2025-12-31T23:59:59Z"),
-        (1_767_225_600, "2026-01-01T00:00:00Z"),
-        (4_102_444_799, "2099-12-31T23:59:59Z"),
-        (4_102_444_800, "2100-01-01T00:00:00Z"),
-        (MAX_EPOCH_S, "9999-12-31T23:59:59Z"),
+        (0, "1970-01-01T00:00:00.000Z"),
+        (86_399, "1970-01-01T23:59:59.000Z"),
+        (86_400, "1970-01-02T00:00:00.000Z"),
+        (951_782_400, "2000-02-29T00:00:00.000Z"),
+        (951_868_799, "2000-02-29T23:59:59.000Z"),
+        (951_868_800, "2000-03-01T00:00:00.000Z"),
+        (1_709_164_800, "2024-02-29T00:00:00.000Z"),
+        (1_756_684_799, "2025-08-31T23:59:59.000Z"),
+        (1_756_684_800, "2025-09-01T00:00:00.000Z"),
+        (1_757_341_948, "2025-09-08T14:32:28.000Z"),
+        (1_767_225_599, "2025-12-31T23:59:59.000Z"),
+        (1_767_225_600, "2026-01-01T00:00:00.000Z"),
+        (4_102_444_799, "2099-12-31T23:59:59.000Z"),
+        (4_102_444_800, "2100-01-01T00:00:00.000Z"),
+        (MAX_EPOCH_S, "9999-12-31T23:59:59.000Z"),
     ];
 
     #[test]
@@ -141,7 +156,16 @@ mod tests {
             let instant = LedgerInstant::from_epoch_s(*epoch).expect("in range");
             assert_eq!(instant.as_str(), *expected, "epoch {epoch}");
             assert_eq!(instant.month(), &expected[..7], "epoch {epoch}");
+            assert_eq!(instant.day(), &expected[..10], "epoch {epoch}");
         }
+    }
+
+    #[test]
+    fn a_day_boundary_is_the_utc_one() {
+        let last = LedgerInstant::from_epoch_s(1_788_220_799).unwrap();
+        let first = LedgerInstant::from_epoch_s(1_788_220_800).unwrap();
+        assert_eq!(last.day(), "2026-08-31");
+        assert_eq!(first.day(), "2026-09-01");
     }
 
     #[test]
@@ -165,11 +189,11 @@ mod tests {
     }
 
     #[test]
-    fn the_rendering_is_exactly_twenty_characters() {
+    fn the_rendering_is_exactly_twenty_four_characters() {
         for (epoch, _) in VECTORS {
             assert_eq!(
                 LedgerInstant::from_epoch_s(*epoch).unwrap().as_str().len(),
-                20
+                24
             );
         }
     }

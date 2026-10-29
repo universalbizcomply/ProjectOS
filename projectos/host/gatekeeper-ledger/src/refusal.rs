@@ -2,6 +2,64 @@
 
 use std::fmt;
 
+/// Which of the installation's own spending caps one request would cross.
+///
+/// EVERY CROSSED CAP, NOT THE FIRST. The canonical `authoriseRequestSpend` names each bound a call
+/// would cross so the owner can see which limit stopped it, and this is the same answer without the
+/// figures — `Copy` and textless like the refusal that carries it, so no amount, path or id leaves
+/// the transaction. Only [`admit_spend`](crate::admit_spend) constructs one, and never with the phase
+/// and the day both clear (a month-only crossing keeps its own name, [`LedgerRefusal::HardStopExceeded`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CrossedCaps {
+    phase: bool,
+    day: bool,
+    month: bool,
+}
+
+impl CrossedCaps {
+    /// The refusal for this set of crossings, or `None` when nothing was crossed.
+    ///
+    /// THE MONTH ALONE STAYS `HardStopExceeded`, because that is the word the Host's own budget
+    /// vocabulary and every caller already use for it, and the month is the only cap whose crossing
+    /// meant anything before the per-phase and per-day caps existed.
+    pub(crate) fn refusal(phase: bool, day: bool, month: bool) -> Option<LedgerRefusal> {
+        match (phase, day, month) {
+            (false, false, false) => None,
+            (false, false, true) => Some(LedgerRefusal::HardStopExceeded),
+            _ => Some(LedgerRefusal::CapsExceeded(Self { phase, day, month })),
+        }
+    }
+    /// The request would cross the per-phase cap.
+    #[must_use]
+    pub fn phase(&self) -> bool {
+        self.phase
+    }
+    /// The request would cross the per-day cap.
+    #[must_use]
+    pub fn day(&self) -> bool {
+        self.day
+    }
+    /// The request would also cross the month's hard stop.
+    #[must_use]
+    pub fn month(&self) -> bool {
+        self.month
+    }
+}
+
+impl fmt::Display for CrossedCaps {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let named: Vec<&str> = [
+            (self.phase, "the per-phase cap"),
+            (self.day, "the per-day cap"),
+            (self.month, "the installation's hard stop"),
+        ]
+        .into_iter()
+        .filter_map(|(crossed, name)| crossed.then_some(name))
+        .collect();
+        f.write_str(&named.join(", "))
+    }
+}
+
 /// Why the canonical ledger transaction refused.
 ///
 /// EVERY VARIANT MEANS NOTHING WAS ADMITTED AND NOTHING WAS SPENT. They are separate variants
@@ -59,8 +117,13 @@ pub enum LedgerRefusal {
     CostUnknown,
     /// A total, a projection or a settlement did not fit in the ledger's integer micro-USD.
     ArithmeticOverflow,
-    /// The month's spend plus this cost would cross the installation's own hard stop.
+    /// The month's spend plus this cost would cross the installation's own hard stop — and no other
+    /// cap. A crossing of the per-phase or per-day cap is [`LedgerRefusal::CapsExceeded`].
     HardStopExceeded,
+    /// This cost would cross the per-phase cap (the phase's spend over the whole ledger) and/or the
+    /// per-day cap (the account's spend on this UTC day), and possibly the month's hard stop as well.
+    /// Every crossed cap is named.
+    CapsExceeded(CrossedCaps),
     /// The month's spend plus this cost would cross the owner's delegation ceiling.
     CeilingExceeded,
     /// This request id already has an entry in the canonical ledger.
@@ -128,6 +191,7 @@ impl fmt::Display for LedgerRefusal {
             }
             Self::ArithmeticOverflow => "the ledger arithmetic overflowed",
             Self::HardStopExceeded => "this call would cross the installation's hard stop",
+            Self::CapsExceeded(crossed) => return write!(f, "this call would cross {crossed}"),
             Self::CeilingExceeded => "this call would cross the owner's delegation ceiling",
             Self::AlreadyReserved => "this request already has an entry in the canonical ledger",
             Self::OutstandingReservationsExhausted => "too many reservations are already in flight",
