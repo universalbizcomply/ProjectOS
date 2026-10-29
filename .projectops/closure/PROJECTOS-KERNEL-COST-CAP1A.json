@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-COST-CAP1A",
+  "evidenceSubjectHead": "1056a5c08a0ad5147728fe04d6c246aed0f2df1f",
+  "baselineCommit": "b38046b795657d3c2cf61dfdb26b1929efd0de8d",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-29T11:45:19.724Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-KERNEL-COST-CAP1A, phase 12 of 16 of plan v1.17, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 1056a5c on b38046b: f0efaec (caps), e684abe (committed caps, owner \"Confirm\"), ff94653 (review round 1 fixes), 6187eae (recheck residuals), d9d7892 ($1.50, owner \"Raise to $1.50\"), 6991790 + 2eff5e7 (Rust Host ledger, owner \"Update it now\"), 1056a5c (evidence + plan tick).",
+    "validatorsPass: val-projectos-kernel-cost-cap1a PASS (13 rules, 26 named mutations, verified by run()), val-projectos-kernel-role-review1a PASS, val-projectos-boot-continue1a PASS, validate-no-secrets PASS.",
+    "checksPass: core 780/780; agent 2596/2597 (the single failure is pre-existing from plan v1.17 KERNEL-HYGIENE1A writePaths, repaired by v1.18); Rust gatekeeper-ledger 78 + 10 cross (RAN) + 1, windows-local-ipc 369 + 11 + 6 + 39; Control Center tsc clean; agent typecheck clean.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review round 1 (0C/2H/5M: H1 prices, H2 ledger fixed) and recheck (0 CRITICAL/HIGH; residuals R1/R2 fixed); independent Rust review of the Host twin (APPROVE WITH WARNINGS; follow-ups fixed in 2eff5e7).",
+    "unresolved: zero CRITICAL/HIGH in this phase. Carried: M2 authoring ports (outside the grant); Host reads the working-copy gatekeeper.json and Host/agent phase labels differ (both must close before the Host service starts); LOW items listed in docs/finish/PROJECTOS-KERNEL-COST-CAP1A.md.",
+    "protected files: projectos/host/gatekeeper-ledger and windows-local-ipc test fixtures changed on the owner's words \"Update it now\" (2026-10-29); .projectops/gatekeeper.json caps committed on \"Confirm\" and \"Raise to $1.50\".",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
