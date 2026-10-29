@@ -4,6 +4,9 @@
   "private": true,
   "description": "ProjectOS Local Agent — the `projectos` CLI over the core engine (status/init/validate/prompt/report/close).",
   "type": "module",
+  "engines": {
+    "node": ">=24.14.1 <25"
+  },
   "bin": {
     "projectos": "./bin/projectos.js"
   },

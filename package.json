@@ -4,6 +4,9 @@
   "private": true,
   "description": "ProjectOS — Universal Project Delivery OS (framework + validators + reporter + deploy guard + proof factory + drift detector + CI governance + multi-project dashboard).",
   "type": "commonjs",
+  "engines": {
+    "node": ">=24.14.1 <25"
+  },
   "scripts": {
     "validate": "node projectos/validators/validate-all.cjs",
     "validate:schemas": "node projectos/validators/validate-project-config.cjs && node projectos/validators/validate-phase-manifest.cjs && node projectos/validators/validate-evidence-pack.cjs",

@@ -120,12 +120,60 @@ const MODULES = [
   // PROJECTOS-BOOT-CONTINUE1A — safe continuation across approved phases.
   "val-projectos-boot-continue1a",
   // ProjectOS Watchdog Core (merged from main).
-  "val-watchdog-core1a"
+  "val-watchdog-core1a",
+  // PROJECTOS-KERNEL-HYGIENE1A — validators that existed in the tree but were never run here.
+  "val-host-state-activation-wiring-10h",
+  "validate-v2-closure-evidence",
+  "validate-wsl2-provider",
+  "val-projectos-kernel-role-review1a",
+  "val-projectos-kernel-cost-cap1a"
 ];
+
+// RETIRED: validator files that are deliberately NOT run by this suite, each with its recorded reason.
+// Every `val-*.cjs` / `validate-*.cjs` file in this directory must be in MODULES or here — the registry
+// check below fails the suite otherwise, so a new validator cannot silently go unrun. Retiring one
+// never weakens it: the file and its rules stay as they are, and it can still be run directly.
+const RETIRED = [
+  { name: "val-watchdog-conformance",
+    reason: "Per-product tool: requires --target <product checkout> and checks that product's vendored " +
+      "watchdog core, not this repository; run() without a target returns an error by design. Run it " +
+      "with `npm run watchdog:conformance -- --target <checkout>`." },
+  { name: "validate-claude-worker",
+    reason: "Opt-in owner-machine security evidence (its header: NOT part of `npm run validate`). Its " +
+      "run() is async, which this synchronous runner cannot await (a Promise would read as a vacuous " +
+      "PASS). It also fails inv50 standalone: the self-pin still expects mkdtempSync(path.join(os.tmpdir " +
+      "after 1d25cc8 moved it to lib/scratch.cjs; that fix belongs to the validator file itself." },
+  { name: "validate-speed-validation-cache",
+    reason: "Blocked, not superseded: it requires projectos/speed/cached-runner.cjs to carry this exact " +
+      "MODULES list, and that list has drifted (143 entries at e1e1e72). Register it in the phase that " +
+      "resyncs cached-runner.cjs; that file is outside PROJECTOS-KERNEL-HYGIENE1A's writePaths." },
+];
+
 const scratch = require("./lib/scratch.cjs");
 const validationRecord = require("./lib/validation-record.cjs");
+const fs = require("fs");
 const path = require("path");
 const ROOT = path.resolve(__dirname, "..", "..");
+
+// Registry completeness: every validator file is either registered or retired with a reason, never both
+// and never neither. Engines (`plan-*-engine.cjs`) and `lib/` are not validators and do not match.
+function registryProblems() {
+  const problems = [];
+  const files = fs.readdirSync(__dirname)
+    .filter((f) => /^(val|validate)-.+\.cjs$/.test(f) && f !== "validate-all.cjs")
+    .map((f) => f.slice(0, -".cjs".length));
+  const retiredNames = RETIRED.map((r) => r.name);
+  for (const f of files) {
+    if (!MODULES.includes(f) && !retiredNames.includes(f)) problems.push(f + " is neither registered nor retired");
+  }
+  for (const r of RETIRED) {
+    if (MODULES.includes(r.name)) problems.push(r.name + " is both registered and retired");
+    if (!files.includes(r.name)) problems.push(r.name + " is retired but no such validator file exists");
+    if (typeof r.reason !== "string" || r.reason.trim().length === 0) problems.push(r.name + " is retired without a reason");
+  }
+  return problems;
+}
+const REGISTRY_PROBLEMS = registryProblems();
 
 // Opt-in evidence production. The default run is unchanged — developers run this suite constantly on
 // dirty trees, and writing a tracked record every time would be residue. `--record-evidence` is what
@@ -157,15 +205,25 @@ for (const m of MODULES) {
   results.push({ name: m, passed: errs.length === 0, errorCount: errs.length });
 }
 
+// The registry is not a module, so its failure is not a result entry; it fails the run and withholds
+// the evidence record, which would otherwise read as passed while the run exits non-zero.
+REGISTRY_PROBLEMS.forEach((p) => console.error("[validate-all registry] FAIL: " + p));
+total += REGISTRY_PROBLEMS.length;
+
 if (RECORD_EVIDENCE) {
-  const w = validationRecord.writeRecord(ROOT, results, REGISTERED_MODULE_COUNT, new Date().toISOString());
-  if (w.written) console.log("validate-all: evidence recorded at " + path.relative(ROOT, w.path).replace(/\\/g, "/"));
-  else console.error("validate-all: evidence NOT recorded — " + w.reason);
+  if (REGISTRY_PROBLEMS.length) {
+    console.error("validate-all: evidence NOT recorded — the validator registry is incomplete");
+  } else {
+    const w = validationRecord.writeRecord(ROOT, results, REGISTERED_MODULE_COUNT, new Date().toISOString());
+    if (w.written) console.log("validate-all: evidence recorded at " + path.relative(ROOT, w.path).replace(/\\/g, "/"));
+    else console.error("validate-all: evidence NOT recorded — " + w.reason);
+  }
 }
 
 console.log(
   "validate-all: " + REGISTERED_MODULE_COUNT + " registered module(s), " +
-  results.filter((r) => r.passed).length + " PASS, " + results.filter((r) => !r.passed).length + " FAIL"
+  results.filter((r) => r.passed).length + " PASS, " + results.filter((r) => !r.passed).length + " FAIL, " +
+  RETIRED.length + " retired"
 );
 if (total) { console.error("validate-all: " + total + " error(s)"); process.exit(1); }
 console.log("validate-all: ALL PASS");

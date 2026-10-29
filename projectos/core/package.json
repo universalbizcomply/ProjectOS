@@ -4,6 +4,9 @@
   "private": true,
   "description": "ProjectOS Core Engine — pure TypeScript kernel (phase, task, approval, risk, permissions, events, config, plugins, workflow).",
   "type": "module",
+  "engines": {
+    "node": ">=24.14.1 <25"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
