@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-29T11:47:13.313Z",
   "note": "Owner (Murad), 2026-10-29, verbatim, answering \"Emergency stop ... Which do you want?\": \"Full stop, all files (Recommended)\". Standing grant: \"You have full authority\" and \"You are running on Admin mode, continue work without me.\" (2026-10-28). Amends PLATFORM-STOP1A scope, repairs HYGIENE1A writePaths/reviews, and records no Grok API (\"I want no API from GROK\", 2026-10-29).",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-29T11:47:22.078Z"
 }

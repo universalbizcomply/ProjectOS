@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "d746ae1ee19f2485",
+  "objective": "Plan v1.18 (V4 Stage 1, amendment): KERNEL-PLATFORM-STOP1A widened to every entry point the owner chose (Full stop, all files); KERNEL-HYGIENE1A writePaths and reviews repaired; exit proof's second provider is not Grok. Remaining phases: PLATFORM-STOP1A, TRUTH1A, HYGIENE1A, EXIT-PROOF1A.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "0f85a78f9a3f894bbec3d10af373589bacce3979",
+  "submittedAt": "2026-10-29T11:46:52.244Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
