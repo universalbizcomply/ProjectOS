@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-PLATFORM-STOP1A",
+  "evidenceSubjectHead": "d0860425867fedbbd740d5c8f94864a8877c9586",
+  "baselineCommit": "e1e1e725691dd8e761cd9826d18ab7119c3971f8",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-29T15:52:49.909Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-KERNEL-PLATFORM-STOP1A, phase 13 of 16 of plan v1.18, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. d086042 on e1e1e72 (plan v1.18 activation): stacked PLATFORM-STOP1A (d77f20a, 8cbd784, f3690e4), TRUTH1A (dd1c1f7, b857c22, eb2bf8e), HYGIENE1A (426bcbc, 7e25739, aefd3b0) and the evidence commit d086042.",
+    "validatorsPass: val-projectos-kernel-platform-stop1a (101 mutations), val-projectos-boot-continue1a (incl. TR rules), cost-cap, role-review, technical-continuation, work-record-not-authority and validate-no-secrets all PASS via run(); validate-all 151/153 with the 2 baseline failures.",
+    "checksPass: agent suite on the stacked branch 2729/2729; typecheck clean.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review (d77f20a: 0C/2H/6M fixed in 8cbd784) and recheck (no new CRITICAL/HIGH; residual MEDIUMs fixed in f3690e4); Agency identity-access-engineer (BLOCK on \"in person\" claim; resolved by owner decision and relabelled wording).",
+    "unresolved: zero CRITICAL/HIGH. Carried: Windows Hello lift via the Host service; real terminal prompt to be tried once by the owner; agent dist rebuild before the Control Center starts.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
