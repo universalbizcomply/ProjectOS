@@ -105,8 +105,12 @@ architecture ADR goes to `software-architect`.
       roles are bound to *different* providers or agents. An implementer can never author a reviewer
       or gatekeeper decision. The reviewer is recorded before the gatekeeper is asked. A plan with
       only a worker self-review cannot close.
-- [ ] 1.2 A hard cost cap: a per-phase and per-day spend bound that refuses the call before it is
-      made. Today's reservation is not a bound; it was 21.9× under.
+- [x] 1.2 (2026-10-29, `f0efaec`..`2eff5e7`: per-phase $1.50 / per-day $2 / month $5 caps refused before
+      dispatch, read from the committed config only; prices committed-only and validated; strict ledger;
+      the Rust Host twin enforces both caps; ECC SECURITY 2 rounds, Rust review APPROVE WITH WARNINGS)
+      A hard cost cap: a per-phase and per-day spend bound that refuses the call before it is made.
+      (The "21.9× under" reservation was already fixed in `daa9c00`; the missing parts were the per-phase
+      and per-day bounds and committed-only reading.)
 - [ ] 1.3 A platform-wide emergency stop: one owner command halts every loop, suspends delegations
       and refuses new operations. It states honestly that it cannot undo sends or payments already
       made.
@@ -237,3 +241,6 @@ Forge, the signed installer, and the Host unattended-review route.
 - 2026-10-29: PROJECTOS-KERNEL-ROLE-REVIEW1A (D11) implemented, `d500f82`..`3eef861`. The owner approved the
   `commands/closure.ts` change ("go for it"). Owner action open: commit a `reviewerWorkerId` before the next
   loop run (`docs/finish/PROJECTOS-KERNEL-ROLE-REVIEW1A.md`).
+- 2026-10-29: PROJECTOS-KERNEL-COST-CAP1A implemented, `f0efaec`..`2eff5e7`. Owner decisions: caps "Confirm",
+  then "Raise to $1.50"; Host ledger "Update it now". Must close before the Host service starts: committed-bytes
+  policy in the Host, and phase-label parity (`docs/finish/PROJECTOS-KERNEL-COST-CAP1A.md`).
