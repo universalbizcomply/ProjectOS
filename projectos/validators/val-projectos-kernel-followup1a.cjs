@@ -40,6 +40,8 @@
  *   CX-13 "a command is judged as reported"             — and every command arrives wrapped in an absolute
  *         powershell.exe path, so every review is refused; the inner command of a KNOWN wrapper is judged,
  *         one layer only, and an unknown wrapper is not unwrapped (PROJECTOS-KERNEL-CODEX-LIVE1A)
+ *   CX-14 "a sandbox stops what matters"               — and the live probe showed loopback is reachable from
+ *         it; a network fetch or decode-and-run command, or a "blocked by policy" failure, is a denial
  *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT
  * rule fires. Comments are stripped first. Reads files; runs nothing, calls no provider, runs no Codex.
@@ -123,6 +125,15 @@ const PIN = {
   innerUsed: "const command = innerCommand(reported);",
   innerKnownOnly: "if (m === null) continue;",
   innerFallback: "  return trimmed;\n}",
+  pwshWrapper: String.raw`/^"?[A-Za-z]:[\\/]+Program Files[\\/]+PowerShell[\\/]+7[\\/]+pwsh\.exe"?\s+(?:-NoProfile\s+)?-Command\s+([\s\S]+)$/i,`,
+  cmdWrapper: String.raw`/^"?[A-Za-z]:[\\/]+Windows[\\/]+System32[\\/]+cmd\.exe"?\s+\/c\s+([\s\S]+)$/i,`,
+  bashWrapper: String.raw`/^(?:\/usr)?(?:\/bin\/)?(?:ba)?sh\s+-l?c\s+([\s\S]+)$/,`,
+  forbidC: "['-c', 'overrides configuration, including the sandbox and approval policy'],",
+  attachedForms: String.raw`const attached = (a: string) => /^-[csp]./.test(a) || /^--(config|sandbox|profile)=/.test(a);`,
+  attachedUsed: "(FORBIDDEN_TOKENS.has(a.split('=')[0] as string) || attached(a))",
+  fetchDenied: "if (FETCH_OR_DECODE.test(innerCommand(command))) return 'command_execution: a network fetch or decode-and-run command';",
+  fetchNames: String.raw`Invoke-WebRequest|Invoke-RestMethod|Start-BitsTransfer|Net\.WebClient|System\.Net\.|certutil`,
+  policyWording: "/sandbox|blocked by policy|permission denied|",
   psWrapper: String.raw`/^"?[A-Za-z]:[\\/]+Windows[\\/]+System32[\\/]+WindowsPowerShell[\\/]+v1\.0[\\/]+powershell\.exe"?\s+(?:-NoProfile\s+)?-Command\s+([\s\S]+)$/i,`,
   sandboxGate: "return sandbox === null ? { ok: true, argv } : { ok: false, problem: sandbox };",
   sandboxCount: "if (sandboxAt.length !== 1 || flags[sandboxAt[0] as number] !== '--sandbox' || flags[(sandboxAt[0] as number) + 1] !== 'read-only') {",
@@ -199,6 +210,14 @@ const MUTATIONS = [
   { name: "any-config-override-admitted", rule: "CX-12", rel: CODEX_REL, from: PIN.winPairStripped, to: "const flags = all.filter((a) => a !== '-c');" },
   { name: "windows-sandbox-repeat-admitted", rule: "CX-12", rel: CODEX_REL, from: PIN.winPairOnce, to: "" },
   { name: "unknown-wrapper-unwrapped", rule: "CX-13", rel: CODEX_REL, from: PIN.innerFallback, to: String.raw`  return trimmed.replace(/^\S+\s+/, '');` + "\n}" },
+  { name: "pwsh-wrapper-any-path", rule: "CX-13", rel: CODEX_REL, from: PIN.pwshWrapper, to: String.raw`/^\S*pwsh\.exe"?\s+-Command\s+([\s\S]+)$/i,` },
+  { name: "cmd-wrapper-any-path", rule: "CX-13", rel: CODEX_REL, from: PIN.cmdWrapper, to: String.raw`/^\S*cmd\.exe"?\s+\/c\s+([\s\S]+)$/i,` },
+  { name: "bash-wrapper-any-shell", rule: "CX-13", rel: CODEX_REL, from: PIN.bashWrapper, to: String.raw`/^\S+\s+-\w*c\s+([\s\S]+)$/,` },
+  { name: "config-override-not-forbidden", rule: "CX-12", rel: CODEX_REL, from: PIN.forbidC, to: "" },
+  { name: "attached-override-forms-admitted", rule: "CX-12", rel: CODEX_REL, from: PIN.attachedUsed, to: "FORBIDDEN_TOKENS.has(a.split('=')[0] as string)" },
+  { name: "network-fetch-not-a-denial", rule: "CX-14", rel: CODEX_REL, from: PIN.fetchDenied, to: "" },
+  { name: "fetch-names-dropped", rule: "CX-14", rel: CODEX_REL, from: PIN.fetchNames, to: "ZZZ" },
+  { name: "blocked-by-policy-not-a-denial", rule: "CX-14", rel: CODEX_REL, from: PIN.policyWording, to: "/sandbox|permission denied|" },
   { name: "wrapper-not-unwrapped-before-check", rule: "CX-13", rel: CODEX_REL, from: PIN.innerUsed, to: "const command = reported;" },
   { name: "powershell-wrapper-any-path", rule: "CX-13", rel: CODEX_REL, from: PIN.psWrapper, to: String.raw`/^\S*powershell\.exe"?\s+-Command\s+([\s\S]+)$/i,` },
   { name: "sandbox-gate-ignored", rule: "CX-1", rel: CODEX_REL, from: PIN.sandboxGate, to: "return { ok: true, argv };" },
@@ -377,11 +396,14 @@ function check(raw) {
       !closureSrc.includes(PIN.waitGated) || /turn\.providerResponseId \?\?|providerResponseId: obtained\.providerResponseId/.test(closureSrc)) {
     E("CW-1", "a provider response id reaches the closure trace or wait without passing the one bounded-identifier gate");
   }
-  if (![PIN.winSandbox, PIN.winPairOnly, PIN.winPairOnce, PIN.winPairStripped].every((p) => cx.includes(p)) ||
+  if (![PIN.fetchDenied, PIN.fetchNames, PIN.policyWording].every((p) => cx.includes(p))) {
+    E("CX-14", "a Codex network fetch, decode-and-run command or policy-blocked command is no longer a denial");
+  }
+  if (![PIN.winSandbox, PIN.winPairOnly, PIN.winPairOnce, PIN.winPairStripped, PIN.forbidC, PIN.attachedForms, PIN.attachedUsed].every((p) => cx.includes(p)) ||
       !cx.includes("...READ_ONLY_SANDBOX, ...WINDOWS_SANDBOX, ...FIXED_REVIEW_ARGS")) {
     E("CX-12", "the Codex reviewer no longer always carries the fixed Windows sandbox mode as the only configuration override");
   }
-  if (![PIN.innerUsed, PIN.innerKnownOnly, PIN.innerFallback, PIN.psWrapper].every((p) => cx.includes(p))) {
+  if (![PIN.innerUsed, PIN.innerKnownOnly, PIN.innerFallback, PIN.psWrapper, PIN.pwshWrapper, PIN.cmdWrapper, PIN.bashWrapper].every((p) => cx.includes(p))) {
     E("CX-13", "a Codex command is no longer judged by the inner command of a known shell wrapper only, one layer, with unknown wrappers left whole");
   }
   return errors;

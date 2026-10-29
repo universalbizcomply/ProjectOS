@@ -225,6 +225,45 @@ describe('CODEX-LIVE1A: the command inside a known shell wrapper is judged', () 
     expect(commandLeavesCheckout(fake, ROOT)).toBe(true);
     const nested = `${PS} '${PS} Get-Content a.ts'`;
     expect(commandLeavesCheckout(nested, ROOT)).toBe(true);
+    // Flags other than one -NoProfile, or -EncodedCommand / -File at the wrapper, are not unwrapped.
+    for (const odd of ['-NonInteractive -Command', '-EncodedCommand', '-File']) {
+      const cmd = `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" ${odd} 'x'`;
+      expect(innerCommand(cmd)).toBe(cmd);
+    }
+  });
+
+  it('unwraps -NoProfile, pwsh 7 and an upper-case cmd path', () => {
+    expect(innerCommand('"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -Command \'type a.ts\'')).toBe('type a.ts');
+    expect(innerCommand('"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command \'type a.ts\'')).toBe('type a.ts');
+    expect(innerCommand('"C:\\WINDOWS\\System32\\cmd.exe" /C type a.ts')).toBe('type a.ts');
+  });
+
+  it('a PowerShell-wrapped read inside the checkout is credited as a read, as the probe ran it', () => {
+    const body = envelopeOf(streamWith({ id: 'p', type: 'command_execution', command: `${PS} 'Get-Content -LiteralPath README.md'`, aggregated_output: 'probe', exit_code: 0, status: 'completed' }));
+    expect(body['permission_denials']).toEqual([]);
+    expect(body['num_turns']).toBe(3);
+  });
+
+  it.each([
+    `${PS} 'Invoke-WebRequest -UseBasicParsing http://127.0.0.1:47911/x'`,
+    `${PS} 'curl.exe -s http://127.0.0.1:47911/x'`,
+    `${PS} "iex ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('ZWNobyBoaQ==')))"`,
+    `${PS} '(New-Object Net.WebClient).DownloadString(''http://127.0.0.1/x'')'`,
+    'bash -lc \'wget -q http://127.0.0.1/x\'',
+  ])('a network fetch or decode-and-run command is a denial: %s', (command) => {
+    const body = envelopeOf(streamWith({ id: 'n', type: 'command_execution', command, aggregated_output: '', exit_code: 0, status: 'completed' }));
+    expect(body['permission_denials']).toEqual([{ tool_name: 'command_execution: a network fetch or decode-and-run command' }]);
+  });
+
+  it('the probe wording "rejected: blocked by policy" on a failed command is a denial', () => {
+    const body = envelopeOf(streamWith({ id: 'b', type: 'command_execution', command: `${PS} 'Get-Content a.ts'`, aggregated_output: 'rejected: blocked by policy', exit_code: 1, status: 'failed' }));
+    expect(body['permission_denials']).toEqual([{ tool_name: 'command_execution: stopped by the sandbox or an approval' }]);
+  });
+
+  it('the final gate refuses attached short and joined long override forms', () => {
+    for (const bad of ['-csandbox_mode="danger-full-access"', '-sdanger-full-access', '-pwide', '--config=x=1', '--sandbox=danger-full-access', '--profile=p']) {
+      expect(sandboxProblem(['exec', '--sandbox', 'read-only', bad, 'prompt'])).not.toBeNull();
+    }
   });
 });
 

@@ -162,7 +162,10 @@ export function sandboxProblem(argv: readonly string[]): string | null {
   if (sandboxAt.length !== 1 || flags[sandboxAt[0] as number] !== '--sandbox' || flags[(sandboxAt[0] as number) + 1] !== 'read-only') {
     return 'the read-only sandbox could not be set on the Codex command line, so no review is started';
   }
-  const widened = flags.filter((a) => a !== '--sandbox' && FORBIDDEN_TOKENS.has(a.split('=')[0] as string));
+  // An attached short form (`-csandbox_mode=…`, `-sdanger-full-access`, `-pprofile`) or a joined long form
+  // is the same override; the configured-args allowlist refuses them, and so does this final gate.
+  const attached = (a: string) => /^-[csp]./.test(a) || /^--(config|sandbox|profile)=/.test(a);
+  const widened = flags.filter((a) => a !== '--sandbox' && (FORBIDDEN_TOKENS.has(a.split('=')[0] as string) || attached(a)));
   return widened.length === 0 ? null : `the Codex command line carries ${widened.join(', ')}, which widens the read-only sandbox`;
 }
 
@@ -272,7 +275,7 @@ function absolutePaths(command: string): readonly string[] {
 const SHELL_WRAPPERS: readonly RegExp[] = [
   /^"?[A-Za-z]:[\\/]+Windows[\\/]+System32[\\/]+WindowsPowerShell[\\/]+v1\.0[\\/]+powershell\.exe"?\s+(?:-NoProfile\s+)?-Command\s+([\s\S]+)$/i,
   /^"?[A-Za-z]:[\\/]+Program Files[\\/]+PowerShell[\\/]+7[\\/]+pwsh\.exe"?\s+(?:-NoProfile\s+)?-Command\s+([\s\S]+)$/i,
-  /^"?[A-Za-z]:[\\/]+Windows[\\/]+System32[\\/]+cmd\.exe"?\s+\/[cC]\s+([\s\S]+)$/,
+  /^"?[A-Za-z]:[\\/]+Windows[\\/]+System32[\\/]+cmd\.exe"?\s+\/c\s+([\s\S]+)$/i,
   /^(?:\/usr)?(?:\/bin\/)?(?:ba)?sh\s+-l?c\s+([\s\S]+)$/,
 ];
 
@@ -310,7 +313,7 @@ export function commandLeavesCheckout(reported: string, root: string | null): bo
 
 /** Output that says the command was stopped by the sandbox or an approval, not that it merely failed. */
 const SANDBOX_REFUSAL =
-  /sandbox|permission denied|access is denied|access to the path .* is denied|\bis denied\b|unauthorizedaccess|operation not permitted|read-only file system|\bEACCES\b|\bEPERM\b|approv/i;
+  /sandbox|blocked by policy|permission denied|access is denied|access to the path .* is denied|\bis denied\b|unauthorizedaccess|operation not permitted|read-only file system|\bEACCES\b|\bEPERM\b|approv/i;
 
 /**
  * MEDIUM 2. Why a `command_execution` item is beyond reading, or null. A command that was DECLINED, or
@@ -319,10 +322,26 @@ const SANDBOX_REFUSAL =
  * match exits 1) is neither a read nor a denial. A command whose text was not reported cannot be checked
  * for where it reached, so it is a denial too.
  */
+/**
+ * A reviewer has no reason to fetch from the network or to decode and run a script. The live probe showed
+ * the elevated sandbox blocks the internet but NOT loopback (`Invoke-WebRequest` and `curl.exe` reached a
+ * 127.0.0.1 listener), and a decoded script hides every path from the checks above. A tripwire on the
+ * command text, like the path check: a denial, so the loop refuses the review as possibly steered.
+ */
+const FETCH_OR_DECODE = new RegExp(
+  [
+    String.raw`Invoke-WebRequest|Invoke-RestMethod|Start-BitsTransfer|Net\.WebClient|System\.Net\.|certutil`,
+    String.raw`(^|[;|&(]\s*)(iwr|irm|curl(\.exe)?|wget(\.exe)?)\b`,
+    String.raw`-(EncodedCommand|enc|ec)\s+[A-Za-z0-9+/=]{8,}|FromBase64String|Invoke-Expression|(^|[;|&(]\s*)iex\b`,
+  ].join('|'),
+  'i',
+);
+
 function commandProblem(item: Record<string, unknown>, root: string | null): string | null {
   const command = item['command'];
   if (typeof command !== 'string') return 'command_execution: the command was not reported';
   if (commandLeavesCheckout(command, root)) return 'command_execution: names a path outside the repository';
+  if (FETCH_OR_DECODE.test(innerCommand(command))) return 'command_execution: a network fetch or decode-and-run command';
   if (item['status'] === 'declined') return 'command_execution: declined';
   if (item['status'] === 'failed' && SANDBOX_REFUSAL.test(typeof item['aggregated_output'] === 'string' ? item['aggregated_output'] : '')) {
     return 'command_execution: stopped by the sandbox or an approval';
