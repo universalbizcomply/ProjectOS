@@ -19,7 +19,8 @@
     "A third agency phase, fixing the gaps in its site validator, carried with one continue and no owner act, as the live proof.",
     "By the owner's approval of the completion delta in Plan Mode (2026-10-28): retire the temporary seo-agency installation allowlist entry, update its validator pin, disable the agency gatekeeper, and record ProjectOS's completion.",
     "Proposed for owner approval (plan v1.17, V4 Stage 1): kernel hardening per docs/06_Plan.md Stage 1. D11 is owner-approved as written in 06_Plan 1.1 (\"D11 approved as written in 06_Plan 1.1\", 2026-10-28); the rest of v1.17 awaits plan decide.",
-    "Proposed for owner approval (plan v1.18): amends KERNEL-PLATFORM-STOP1A to the full scope the owner chose (\"Full stop, all files\", 2026-10-29), repairs KERNEL-HYGIENE1A writePaths and reviews, and records that the exit proof's second provider is not Grok."
+    "Proposed for owner approval (plan v1.18): amends KERNEL-PLATFORM-STOP1A to the full scope the owner chose (\"Full stop, all files\", 2026-10-29), repairs KERNEL-HYGIENE1A writePaths and reviews, and records that the exit proof's second provider is not Grok.",
+    "Proposed for owner approval (plan v1.19): one Stage 1 follow-up phase before the exit proof — closure-route halves of D3/D9, validator registry pin, cached-runner resync, validate-claude-worker repair, and a Codex CLI reviewer adapter (owner: \"Yes, add and do it\"; \"Codex CLI (OpenAI)\")."
   ],
   "environments": [
     {
@@ -742,6 +743,63 @@
       ]
     },
     {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-FOLLOWUP1A",
+      "title": "Stage 1 follow-up: closure-route truth fixes, validator registry pin, Codex reviewer adapter",
+      "description": "Finishes what Stage 1 carried: the closure-route halves of D9 (broker provenance as a positive class through closureTurn, the closure wait and closure.ts, with a transitional rule for unstamped waits) and D3 (the closure funding sentence derived from the receipt question scope); a pin and named mutations for validate-all's registry rule; the cached-runner resync with validate-speed-validation-cache registered; the validate-claude-worker inv50 repair. Adds a Codex CLI worker adapter so the Stage 1 exit proof can use a reviewer from a different provider (owner: \"Codex CLI (OpenAI)\").",
+      "scope": "Edit the closure route, the closure wait, core gatekeeper provenance, receipts, the adapter registry and the named validators and speed runner; add the Codex adapter, tests and one validator.",
+      "writePaths": [
+        "projectos/agent/src/commands/closure.ts",
+        "projectos/agent/src/closureWait.ts",
+        "projectos/agent/src/loop/closureTurn.ts",
+        "projectos/agent/src/loop/ownerGateReceipts.ts",
+        "projectos/agent/src/loop/adapters/",
+        "projectos/agent/src/cli.ts",
+        "projectos/agent/test/",
+        "projectos/core/src/gatekeeperMode.ts",
+        "projectos/core/test/",
+        "projectos/speed/cached-runner.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/validators/validate-claude-worker.cjs",
+        "projectos/validators/val-projectos-boot-continue1a.cjs",
+        "projectos/validators/val-projectos-kernel-followup1a.cjs",
+        "docs/02_AppFlow.md",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No relaxation of any owner gate, closure eligibility predicate or ownerOnlyActions.",
+        "The Codex adapter only reviews: read-only sandbox, no write grant, never an implementer, never a credential argument."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-HYGIENE1A"
+      ],
+      "acceptanceCriteria": [
+        "D9: the installation broker is a named provenance class in core, stamped by the closure turn and persisted in the closure wait; closure.ts recognises it explicitly, with a tested transitional rule for waits written before the change; ZT-4 updated.",
+        "D3: the closure funding sentence is derived from the committed receipt question scope; the TR-7 pin is flipped deliberately; tested.",
+        "validate-all registry rule pinned with named mutations (unregistered file, retired without reason, evidence not withheld); cached-runner resynced and validate-speed-validation-cache registered; validate-claude-worker inv50 repaired or its retirement reason updated.",
+        "A codex-cli adapter whose review() runs Codex non-interactively in a read-only sandbox and is parsed like the Claude reviewer; refused as an implementer; tested with fakes.",
+        "Every new rule has a validator pin and a named mutation."
+      ],
+      "requiredValidators": [
+        "val-projectos-kernel-followup1a",
+        "val-projectos-boot-continue1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
       "riskLevel": "medium",
       "autonomyLevel": "gated-execution",
       "requiredBrowserProof": false,
@@ -753,7 +811,7 @@
       ],
       "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
       "title": "Stage 1 exit proof: cross-provider review and a refusing cap, live",
-      "description": "One governed Develop phase closes from one continue where the reviewer provider differs from the implementer provider, and a deliberately low cap is shown to refuse a provider call. Evidence only. The second provider is not xAI/Grok (owner, 2026-10-29: \"I want no API from GROK\").",
+      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. The second provider is not xAI/Grok (owner, 2026-10-29). The gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
       "scope": "Add the evidence record under docs/finish/.",
       "writePaths": [
         "docs/finish/",
@@ -763,7 +821,7 @@
         "No source change. Provider spend only under the owner-approved cap."
       ],
       "dependsOn": [
-        "PROJECTOS-KERNEL-HYGIENE1A"
+        "PROJECTOS-KERNEL-FOLLOWUP1A"
       ],
       "acceptanceCriteria": [
         "Recorded reviewer provider differs from the implementer provider for the proof phase.",
