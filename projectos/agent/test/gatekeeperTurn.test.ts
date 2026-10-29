@@ -18,7 +18,7 @@ import {
   type GatekeeperTurnInput,
 } from '../src/loop/gatekeeperTurn.js';
 import { unprovisionedResolver, inMemoryResolverForTests } from '../src/loop/credentialResolver.js';
-import { gatekeeperRequestDigest } from '@projectos/core';
+import { gatekeeperRequestDigest, GATEKEEPER_DECISION_SCHEMA_VERSION } from '@projectos/core';
 import type { HttpPort, HttpResponse } from '../src/loop/transports/openaiResponses.js';
 import {
   APPROVED_PILOT_POLICY,
@@ -632,6 +632,40 @@ describe('KERNEL-TRUTH1A: a broker answer is recorded as its own class, with its
   it('stamps nothing for the pre-hybrid direct route, which was not the broker', () => {
     const c = stamps();
     const result = takeGatekeeperTurn(input(), deps({ recordDecisionEvidence: c.port as never }));
+    expect(c.kept).toEqual([undefined]);
+    expect(result.provenance).toBeUndefined();
+  });
+
+  it('stamps nothing for a rehearsal answer, even with a broker configured: the broker made no call', () => {
+    const c = stamps();
+    let posted = 0;
+    const result = takeGatekeeperTurn(
+      input(),
+      deps({
+        transport: { ...TRANSPORT, kind: 'local-rehearsal', commercialApproval: false },
+        rehearsalOnly: true,
+        rehearsalReviewer: (request) => ({
+          kind: 'decision',
+          record: {
+            ...AMENDMENT,
+            schemaVersion: GATEKEEPER_DECISION_SCHEMA_VERSION,
+            decisionId: `GKDEC-${request.requestId}`,
+            projectId: request.projectId,
+            phaseId: request.phaseId,
+            subjectCommit: request.subjectCommit,
+            requestDigest: gatekeeperRequestDigest(request),
+            decidedBy: 'ChatGPT',
+            decidedAt: input().at,
+          },
+          providerResponseId: 'resp_rehearsal',
+          usage: { inputTokens: 1000, cachedInputTokens: 0, outputTokens: 100 },
+        }),
+        broker: { ...broker(okReply(AMENDMENT)), transport: { post: () => { posted += 1; return okReply(AMENDMENT); } } },
+        recordDecisionEvidence: c.port as never,
+      }),
+    );
+    expect(result.action).toEqual({ kind: 'retry', instruction: 'Add the tenant predicate and re-run validate-all.' });
+    expect(posted).toBe(0);
     expect(c.kept).toEqual([undefined]);
     expect(result.provenance).toBeUndefined();
   });

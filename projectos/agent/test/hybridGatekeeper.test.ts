@@ -515,6 +515,28 @@ describe('takeGatekeeperTurn in UNATTENDED mode — Host-attested, or nothing', 
     expect(r.ledgerEntry?.costMicroUsd).toBeGreaterThan(0);
   });
 
+  // PROJECTOS-KERNEL-TRUTH1A (D9): the broker class is stamped only when the broker made the call.
+  it('a Host-attested answer stays Host-stamped even when a broker is also configured, and the broker is never called', () => {
+    const stamps: unknown[] = [];
+    let posted = 0;
+    const host = fakeHost('APPROVED_TO_PROCEED');
+    const r = takeGatekeeperTurn(
+      input(),
+      unattendedDeps({
+        stamps,
+        hostReview: host,
+        broker: {
+          governedRoot: ROOT,
+          installationAllows: () => ({ allowed: true, reasons: [] }),
+          transport: { post: () => { posted += 1; return { kind: 'transport-error', detail: 'must never be called' }; } },
+        },
+      }),
+    );
+    expect(r.provenance).toBe('HostIndependentProviderAttestation');
+    expect(stamps).toEqual([{ kind: 'HostIndependentProviderAttestation', hostAttestationId: 'b'.repeat(64) }]);
+    expect(posted).toBe(0);
+  });
+
   it('the rehearsal switch cannot route an unattended turn away from the Host', () => {
     const host = fakeHost('APPROVED_TO_PROCEED');
     let rehearsed = 0;

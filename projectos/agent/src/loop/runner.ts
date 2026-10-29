@@ -130,8 +130,9 @@ export interface RunOptions {
   /** Which authorised worker to use. Omitted takes the project's default. */
   readonly workerId?: string;
   /**
-   * Prepare everything and stop before starting a worker. The brief is still written and the
-   * decision still reported, so the run can be reviewed before anything is spawned.
+   * Prepare everything and stop before starting a worker. The brief is built and checked and the
+   * decision still reported, so the run can be reviewed before anything is spawned — and nothing is
+   * written, not even the brief (PROJECTOS-KERNEL-TRUTH1A, D5).
    */
   readonly dryRun?: boolean;
   /**
@@ -401,8 +402,9 @@ function describeWorkerOutcome(o: WorkerOutcome): { stop: LoopStop | null; line:
 /**
  * Run one phase of the approved plan as far as it can go without a human decision.
  *
- * Returns lines for the CLI plus the structured outcome. It writes the brief, the session record and
- * the evidence, and nothing else — no phase transition, no commit, no closure. Those are gates, and
+ * Returns lines for the CLI plus the structured outcome. A live run writes the brief, the session record
+ * and the evidence, and nothing else — no phase transition, no commit, no closure; a dry run writes
+ * nothing at all. Those are gates, and
  * a loop that performed them would be the thing this design exists to prevent.
  */
 export function runLoop(sys: System, root: string, options: RunOptions = {}): RunResult {

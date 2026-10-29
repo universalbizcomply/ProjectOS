@@ -42,6 +42,8 @@
  *   - "a dry run may as well write the brief"         — and the owner deletes run records by hand (D5)
  *   - "one funding sentence fits every receipt"        — and it is false for a receipt naming closure (D3)
  *   - "the route line already pins closurePrepared"     — and its clean-tree condition goes silently
+ *   - "a test list may name a file twice"              — and the first list's needles are never checked
+ *   - "the helper exists, so the sentence is fixed"     — and closure.ts keeps the hard-coded line unnoticed
  *
  * Each section (15) rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only
  * when THAT rule, and no other rule in this validator, fires.
@@ -83,6 +85,7 @@ const GK_CONFIG_REL = "projectos/agent/src/loop/gatekeeperConfig.ts";
 const CLOSURE_RESPONSES_REL = "projectos/agent/src/loop/transports/closureResponses.ts";
 const GK_TURN_REL = "projectos/agent/src/loop/gatekeeperTurn.ts";
 const RECEIPTS_REL = "projectos/agent/src/loop/ownerGateReceipts.ts";
+const SELF_REL = "projectos/validators/val-projectos-boot-continue1a.cjs";
 
 /** The proofs. A pinned shape whose behaviour nobody runs is a shape, not a protection. */
 const TESTS = {
@@ -105,6 +108,14 @@ const TESTS = {
     "ProjectOS commits and pushes EXACTLY those three, and G4 accepts",
     "without a proven technical delegation, closure prepare only GENERATES the three records",
     "the run's own records are committed and pushed, and the tree holds none",
+    // PROJECTOS-FINISH-CONTINUE-INTEGRITY1A.
+    "one continue carries on from a preparation that committed its records",
+    "a preparation that only GENERATES its records (no technical delegation) stops there",
+    "that BREAKS it fails on the phase copy",
+    "CHANGES it and keeps it passing runs BOTH copies, in the run and in closure preparation",
+    // PROJECTOS-KERNEL-TRUTH1A.
+    "continue --dry-run on a phase with work left writes no execution brief or other run record",
+    "route to the request only on a clean tree; one untracked file routes back to prepare",
   ],
   "projectos/agent/test/closureEndToEnd.test.ts": ["waits, boundedly, for the owner commit", "projectos continue routes on recorded state"],
   "projectos/agent/test/loopToolGrants.test.ts": ["passes through a link", "differs in case", "the retired source grant", "the execution records directory", "a star glob", "a sentence as an entry", "git-ignored output", "the closure delegation", "governed files", "the list alone decides", "not a non-empty path string", "Every plan v1.9 phase carries writePaths", "an agent instruction file", "flags a hook or settings directory", "FILE grant the worker made into a directory"],
@@ -136,16 +147,14 @@ const TESTS = {
   "projectos/agent/test/hybridClosureReconcile.test.ts": ["closure composes the trusted broker only on the committed opt-in with no Host route; reconcile composes none", "on the broker opt-in, a project the installation does not allowlist is refused before the closure request", "ProjectOS commits the decision, the phase closes and the close is persisted", "an INTERACTIVE answer is never committed by ProjectOS, grant or not", "without the grant the owner commit is required exactly as before, and a ProjectOS-identity commit is refused", "a delegation ProjectOS committed itself grants nothing", "a wait whose provenance was stripped is not an answer produced in the call", "with the grant but no technical delegation, nothing is committed"],
   // PROJECTOS-FINISH-CONTINUE-INTEGRITY1A.
   "projectos/agent/test/continueIntegrity.test.ts": ["is added for a required validator the write paths name exactly", "is NOT added when the write paths do not cover the validator", "never turns an unsafe validator name into a path", "a phase copy that changes the checkout while it runs FAILS", "reads the checkout picture with a buffer large enough for a real checkout"],
-  "projectos/agent/test/continuationEndToEnd.test.ts": ["one continue carries on from a preparation that committed its records", "a preparation that only GENERATES its records (no technical delegation) stops there", "that BREAKS it fails on the phase copy", "CHANGES it and keeps it passing runs BOTH copies, in the run and in closure preparation",
-    // PROJECTOS-KERNEL-TRUTH1A.
-    "continue --dry-run on a phase with work left writes no execution brief or other run record", "route to the request only on a clean tree; one untracked file routes back to prepare"],
   // PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A.
   "projectos/agent/test/zeroTouchClosure.test.ts": ["with the grant, commits and pushes exactly the closure decision", "without the grant — absent, refused or judged invalid — commits nothing", "the grant never lifts a reserved commit or push", "with the grant, every other implementer-shaped or foreign identity is still refused"],
   "projectos/agent/test/closureTurn.test.ts": ["an invented decision time", "the request actually sent names the time of the question"],
   "projectos/core/test/closure-transport.test.ts": ["refuses the invented time the live agency closure carried", "an interactive answer saved while an earlier run waited has no lower bound"],
   // PROJECTOS-KERNEL-TRUTH1A.
   "projectos/agent/test/programmeContinuation.test.ts": ["never that closure is not continued through"],
-  "projectos/agent/test/gatekeeperTurn.test.ts": ["stamps an accepted broker answer InstallationBrokerProviderAnswer, with the provider response id", "stamps nothing for the pre-hybrid direct route"],
+  "projectos/agent/test/gatekeeperTurn.test.ts": ["stamps an accepted broker answer InstallationBrokerProviderAnswer, with the provider response id", "stamps nothing for the pre-hybrid direct route", "stamps nothing for a rehearsal answer, even with a broker configured"],
+  "projectos/agent/test/hybridGatekeeper.test.ts": ["a Host-attested answer stays Host-stamped even when a broker is also configured"],
   "projectos/agent/test/gatekeeperDecisionEvidence.test.ts": ["writes the class and the response id, and refuses to relabel it"],
   "projectos/agent/test/ownerGateReceipts.test.ts": ["reads questionKinds as a closed, non-empty list", "says a receipt covers closure questions only when its scope names them"],
 };
@@ -804,7 +813,7 @@ function check() {
   if (!/const dryRun = options\.dryRun === true;\s*if \(!dryRun\) store\.writeBrief\(sys, root, sessionId, brief\);/.test(runner15) ||
       (runner15.match(/store\.writeBrief\(/g) || []).length !== 1 ||
       dryAt < 0 || invocationAt < 0 || dryAt > invocationAt) {
-    E("TR-3: a dry run writes the brief or another run record before it returns");
+    E("TR-3: a dry run writes the brief, or no longer returns before the invocation record is written");
   }
   // TR-4 (D3): the receipt's question scope is a closed list read from the committed, approving receipt,
   // and the funding line claims closure coverage only when that list names closure.
@@ -815,7 +824,24 @@ function check() {
       !/if \(!ownerApprovedSecretsHandling\(sys, root, phaseId\)\) return null;\s*return receiptQuestionScope\(readCommittedReceipt\(sys, root, phaseId, 'secrets-handling'\)\);/.test(fnBody(receipts15, "secretsHandlingReceiptScope") || "") ||
       !/return scope\.questionKinds\.includes\('closure'\)\s*\? `\$\{lead\}, whose recorded scope \(\$\{named\}\) covers closure questions`/.test(funding15) ||
       (funding15.match(/covers closure questions/g) || []).length !== 1 || /did not when it was written/.test(receipts15)) {
-    E("TR-4: the closure funding line is no longer derived from the receipt's machine-readable question scope");
+    E("TR-4: the closure funding-line helper (advisory only: not wired into closure.ts, not enforced by the broker) is no longer derived from the receipt's question scope");
+  }
+  // TR-7 (D3, read-only): the CURRENT hard-coded funding sentence in closure.ts, pinned as it stands. The helper
+  // above is not wired in; the Stage 1 follow-up that wires it must flip this pin deliberately, not drift past it.
+  const closure15 = files[CLOSURE_REL];
+  if (!closure15.includes("`this call is funded by the committed secrets-handling receipt for ${id}; that receipt now also ` +") ||
+      !closure15.includes("'covers closure questions, which it did not when it was written';") ||
+      !closure15.includes("...(config === null ? [] : [fundedBy]),")) {
+    E("TR-7: the hard-coded D3 funding sentence in closure.ts changed; the follow-up that wires closureFundingLine must update this pin with it");
+  }
+  // TR-6: no test file is named twice in TESTS. A second key silently replaces the first in a JS object
+  // literal, so the first list's needles would never be checked; only the source can show the repeat.
+  const self15 = read(SELF_REL);
+  const testsBlock = self15 === null ? "" : (/\nconst TESTS = \{([\s\S]*?)\n\};/.exec(self15.replace(/\r\n/g, "\n")) || [])[1] || "";
+  const keys15 = [...testsBlock.matchAll(/^\s*"(projectos\/[^"]+)": \[/gm)].map((m) => m[1]);
+  const repeated = keys15.filter((k, i) => keys15.indexOf(k) !== i);
+  if (keys15.length === 0 || repeated.length > 0) {
+    E(`TR-6: TESTS names ${repeated.length > 0 ? repeated.join(", ") : "no test file"} more than once or not at all; a repeated key hides the first list`);
   }
   // TR-5: the clean-tree condition inside closurePrepared, pinned on its own (CI-1 pins only the route line).
   if (!/^function closurePrepared\(ctx: CommandContext, context: GovernedContext, phaseId: string\): boolean \{\s*if \(!gitFacts\(ctx\.sys, ctx\.root\)\.clean\) return false;/.test(fnBody(files[RUN_REL], "closurePrepared") || "")) {
@@ -847,6 +873,9 @@ const TRUTH_MUTATIONS = [
   { name: "broker-evidence-drops-response-id", rule: "TR-2", rel: GK_CONFIG_REL,
     from: "? { provenance: provenance.kind, providerResponseId: provenance.providerResponseId }",
     to: "? { provenance: provenance.kind }" },
+  { name: "broker-stamp-ignores-route-precedence", rule: "TR-2", rel: GK_TURN_REL,
+    from: "  const viaBroker = hosted === null && !rehearsed && deps.broker !== undefined;",
+    to: "  const viaBroker = deps.broker !== undefined;" },
   // TR-3
   { name: "dry-run-writes-brief", rule: "TR-3", rel: RUNNER_REL,
     from: "  if (!dryRun) store.writeBrief(sys, root, sessionId, brief);",
@@ -862,6 +891,14 @@ const TRUTH_MUTATIONS = [
   { name: "closure-prepared-ignores-dirty-tree", rule: "TR-5", rel: RUN_REL,
     from: "  if (!gitFacts(ctx.sys, ctx.root).clean) return false;\n",
     to: "" },
+  // TR-6. Spelt in two halves so this definition is not itself a key line the rule would count.
+  { name: "tests-key-repeated", rule: "TR-6", rel: SELF_REL,
+    from: '  "projectos/agent/test/programmeContinuation' + '.test.ts": [',
+    to: '  "projectos/agent/test/ownerGateReceipts' + '.test.ts": [' },
+  // TR-7
+  { name: "closure-funding-sentence-edited", rule: "TR-7", rel: CLOSURE_REL,
+    from: "'covers closure questions, which it did not when it was written';",
+    to: "'covers closure questions';" },
 ];
 
 /** Every named mutation must be killed by its own rule, and only by it. */

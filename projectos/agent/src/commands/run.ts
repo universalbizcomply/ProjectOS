@@ -815,7 +815,8 @@ function continueRouteCommand(route: ContinueRoute): string {
 }
 
 export function continueCommand(ctx: CommandContext, flags: Flags, ownerWait: OwnerCommitWaitPorts = {}): CommandResult {
-  // THE PLATFORM STOP, BEFORE THE ROUTE IS EVEN WORKED OUT — `--dry-run` included, since it writes briefs.
+  // THE PLATFORM STOP, BEFORE THE ROUTE IS EVEN WORKED OUT — `--dry-run` included: it writes nothing now,
+  // but under a stop nothing is prepared either.
   const halted = platformStopRefusal(ctx.sys, platformStopDirOf(ctx));
   if (halted !== null) return fail(2, halted);
   const dryRun = bool(flags, 'dry-run');

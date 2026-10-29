@@ -152,6 +152,9 @@ export interface ReceiptQuestionScope {
  * which every caller must treat as covering nothing it does not name.
  *
  * Pure. It reads what it is given; `secretsHandlingReceiptScope` supplies the committed bytes.
+ *
+ * ADVISORY ONLY — not enforced by the broker; the hard-coded sentence at commands/closure.ts:1061 is not
+ * yet wired (carried to the Stage 1 follow-up).
  */
 export function receiptQuestionScope(receipt: Record<string, unknown> | null): ReceiptQuestionScope | null {
   const raw = receipt === null ? undefined : receipt['questionKinds'];
@@ -168,6 +171,9 @@ export function receiptQuestionScope(receipt: Record<string, unknown> | null): R
 /**
  * The scope of THIS phase's committed secrets-handling receipt — and only of one that approves
  * credential use, by the same predicate that releases the credential.
+ *
+ * ADVISORY ONLY — not enforced by the broker; the hard-coded sentence at commands/closure.ts:1061 is not
+ * yet wired (carried to the Stage 1 follow-up).
  */
 export function secretsHandlingReceiptScope(sys: System, root: string, phaseId: string): ReceiptQuestionScope | null {
   if (!ownerApprovedSecretsHandling(sys, root, phaseId)) return null;
@@ -180,6 +186,9 @@ export function secretsHandlingReceiptScope(sys: System, root: string, phaseId: 
  * THE LINE IT REPLACES WAS WRITTEN ONCE FOR EVERY RECEIPT: "that receipt now also covers closure
  * questions, which it did not when it was written". It was printed for a receipt that named closure
  * questions, where it was false. This says what the receipt records, and when it records nothing, says so.
+ *
+ * ADVISORY ONLY — not enforced by the broker; the hard-coded sentence at commands/closure.ts:1061 is not
+ * yet wired (carried to the Stage 1 follow-up).
  */
 export function closureFundingLine(phaseId: string, scope: ReceiptQuestionScope | null): string {
   const lead = `this call is funded by the committed secrets-handling receipt for ${phaseId}`;

@@ -135,10 +135,10 @@ export function recordGatekeeperDecisionEvidence(
   record: GatekeeperDecisionRecord,
   /**
    * How the decision was obtained, as the ROUTE that received it says — never the record's own claim.
-   * Absent for the pre-hybrid composition, which keeps its evidence byte-identical to before. Because
-   * the stamp is part of the bytes, the same request id recorded under a different provenance is a
-   * conflict, never a silent relabel. A broker answer is stamped as its own class, with the provider's
-   * response id (PROJECTOS-KERNEL-TRUTH1A, D9).
+   * Absent only for the direct pre-hybrid route (no Host, no broker), which keeps its evidence
+   * byte-identical to before; a broker answer is stamped as its own class, with the provider's response
+   * id (PROJECTOS-KERNEL-TRUTH1A, D9). Because the stamp is part of the bytes, the same request id
+   * recorded under a different provenance is a conflict, never a silent relabel.
    */
   provenance?: LoopDecisionProvenance,
 ): DecisionEvidenceOutcome {

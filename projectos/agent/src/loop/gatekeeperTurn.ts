@@ -234,7 +234,10 @@ export interface GatekeeperTurnDeps {
    */
   readonly recordDecisionEvidence?: (
     record: GatekeeperDecisionRecord,
-    /** How the decision was obtained, stamped by this route. Absent for the pre-hybrid composition. */
+    /**
+     * How the decision was obtained, stamped by this route. Absent only for the direct pre-hybrid route;
+     * a broker answer is stamped as its own class.
+     */
     provenance?: LoopDecisionProvenance,
   ) => 'written' | 'already-recorded' | string;
 
@@ -309,7 +312,7 @@ export interface GatekeeperTurnResult {
   readonly checkedDecision: CheckedTechnicalDecision | null;
   /**
    * The evidence class of an ACCEPTED decision, stamped by the route that obtained it. Absent whenever
-   * no decision was accepted, and for the pre-hybrid composition.
+   * no decision was accepted, and for the direct pre-hybrid route (no Host, no broker) and a rehearsal.
    */
   readonly provenance?: LoopDecisionProvenance['kind'];
 }
