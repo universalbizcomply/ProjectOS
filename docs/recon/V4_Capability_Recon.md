@@ -1,4 +1,6 @@
-# V4 capability recon — Hermes, OpenClaw, OpenBot / Grok Bot (clean-room)
+# V4 capability recon — Hermes, OpenClaw, OpenBot / Grok Bot
+
+> **AMENDED 2026-10-29.** Owner direction, 2026-10-29: "I asked you to adopt the capabilites, clone the code then adopt to our project. That's not copy is it?" and "I want no API from GROK, what I need is GROK like capabilities". Hermes, OpenClaw and OpenBot are all MIT; their code is now ADOPTED (cloned and ported, notices kept), per `docs/recon/V4_Port_Map.md`. There is no xAI/Grok provider: Grok-like capabilities are built on ProjectOS's own stack. The "Do not copy" table below now means "adapt, do not keep": those behaviours are replaced by kernel gates when the surrounding code is ported.
 
 **Date:** 2026-10-28.
 
@@ -7,7 +9,7 @@ built inside ProjectOS. In the owner's words, "I want grok capabilities not grok
 
 **Method:** the replica-recon method, using official documentation and READMEs only. Three research
 subagents did the reading, and the lead consolidated their findings. ProjectOS rebuilds *what these
-products do*. It never copies their code, prompts or assets.
+products do*. (Superseded on 2026-10-29: their MIT code is now adopted; see the note at the top.)
 
 **REA (reverse-engineer-anything) was not used.** By its own rule it is skipped for open-source
 repositories:

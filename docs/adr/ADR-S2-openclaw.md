@@ -1,4 +1,11 @@
-# ADR-S2 — OpenClaw (gateway, channels, device nodes): REFERENCE
+# ADR-S2 — OpenClaw (gateway, channels, device nodes): ADOPT (amended from REFERENCE)
+
+> **AMENDED 2026-10-29 — REFERENCE is withdrawn; the decision is now ADOPT.** Owner direction, 2026-10-29: "I asked you to adopt the capabilites, clone the code then adopt to our project. That's not copy is it?" and "I want no API from GROK, what I need is GROK like capabilities".
+> The code is cloned at a pinned commit (`docs/recon/V4_Port_Map.md`) and its modules are ported into
+> ProjectOS, keeping the MIT notice in each ported file and listing them in `THIRD_PARTY_NOTICES`. What
+> this ADR said must never run unattended still never does: every port goes through the kernel gates
+> (ADR-K1), and the behaviours in the recon's "Do not copy" table are replaced, not carried over. The
+> analysis below stands as the record of why those replacements are needed.
 
 **Status:** Decided by the spike, 2026-10-28 (V4 plan Stage 1, spike S2). It is research only.
 Nothing was installed, cloned or run. A research subagent drafted it from primary sources and the
