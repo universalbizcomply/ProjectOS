@@ -58,6 +58,17 @@ const READ_ONLY_SANDBOX: readonly string[] = ['--sandbox', 'read-only'];
  */
 const FIXED_REVIEW_ARGS: readonly string[] = ['--json', '--color', 'never', '--ignore-user-config', '--ignore-rules', '--ephemeral'];
 
+/**
+ * The Windows sandbox mode, set by this adapter and never by configuration. The live probe
+ * (PROJECTOS-KERNEL-CODEX-LIVE1A, Codex CLI 0.165.0 on the owner's host) showed that with
+ * `--ignore-user-config` and no mode, Codex runs no command at all — every read is "rejected: blocked by
+ * policy" — so a reviewer could never review; with a mode set, reads work and writes inside and outside
+ * the checkout are refused ("Access to the path ... is denied"). `elevated` is the stronger of the two
+ * modes; a host without it set up fails the review closed. Codex ignores `windows.*` on other platforms.
+ * This is the ONE `-c` the finished command line may carry: `sandboxProblem` refuses any other.
+ */
+const WINDOWS_SANDBOX: readonly string[] = ['-c', 'windows.sandbox="elevated"'];
+
 /** Configured arguments that take a value. Model selection only — nothing that touches authority. */
 const CONFIGURABLE_VALUED: readonly string[] = ['-m', '--model', '--local-provider'];
 /** Configured switches. None of them widens what the reviewer may do. */
@@ -142,7 +153,11 @@ export function codexArgProblems(args: readonly string[]): readonly string[] {
  * element) is text, not a flag, and is excluded. Null when it does; otherwise why not.
  */
 export function sandboxProblem(argv: readonly string[]): string | null {
-  const flags = argv.slice(0, -1);
+  const all = argv.slice(0, -1);
+  // The adapter's own Windows sandbox mode is the one permitted `-c`, as the exact adjacent pair, once.
+  const pairAt = all.flatMap((a, i) => (a === WINDOWS_SANDBOX[0] && all[i + 1] === WINDOWS_SANDBOX[1] ? [i] : []));
+  if (pairAt.length > 1) return 'the Codex command line carries the Windows sandbox mode more than once';
+  const flags = pairAt.length === 1 ? [...all.slice(0, pairAt[0]), ...all.slice((pairAt[0] as number) + 2)] : all;
   const sandboxAt = flags.flatMap((a, i) => (a === '--sandbox' || a === '-s' || a.startsWith('--sandbox=') ? [i] : []));
   if (sandboxAt.length !== 1 || flags[sandboxAt[0] as number] !== '--sandbox' || flags[(sandboxAt[0] as number) + 1] !== 'read-only') {
     return 'the read-only sandbox could not be set on the Codex command line, so no review is started';
@@ -163,7 +178,7 @@ export function codexReviewArgv(
   if (instruction.trim() === '' || instruction.startsWith('-')) {
     return { ok: false, problem: 'the review instruction is empty or would be read as a flag' };
   }
-  const argv = ['exec', ...worker.args, ...READ_ONLY_SANDBOX, ...FIXED_REVIEW_ARGS, '--cd', root, instruction];
+  const argv = ['exec', ...worker.args, ...READ_ONLY_SANDBOX, ...WINDOWS_SANDBOX, ...FIXED_REVIEW_ARGS, '--cd', root, instruction];
   const sandbox = sandboxProblem(argv);
   return sandbox === null ? { ok: true, argv } : { ok: false, problem: sandbox };
 }
@@ -250,13 +265,43 @@ function absolutePaths(command: string): readonly string[] {
 }
 
 /**
+ * The shells Codex wraps a command in, at their system paths only. The live probe recorded every command
+ * as `"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -Command '…'`; read whole, that absolute
+ * path is "outside the checkout" and every review would be refused.
+ */
+const SHELL_WRAPPERS: readonly RegExp[] = [
+  /^"?[A-Za-z]:[\\/]+Windows[\\/]+System32[\\/]+WindowsPowerShell[\\/]+v1\.0[\\/]+powershell\.exe"?\s+(?:-NoProfile\s+)?-Command\s+([\s\S]+)$/i,
+  /^"?[A-Za-z]:[\\/]+Program Files[\\/]+PowerShell[\\/]+7[\\/]+pwsh\.exe"?\s+(?:-NoProfile\s+)?-Command\s+([\s\S]+)$/i,
+  /^"?[A-Za-z]:[\\/]+Windows[\\/]+System32[\\/]+cmd\.exe"?\s+\/[cC]\s+([\s\S]+)$/,
+  /^(?:\/usr)?(?:\/bin\/)?(?:ba)?sh\s+-l?c\s+([\s\S]+)$/,
+];
+
+/**
+ * The command a known shell wrapper runs, with one layer of enclosing quotes removed; the reported text
+ * itself when there is no known wrapper. ONE layer only: a wrapper inside a wrapper keeps its absolute
+ * shell path, which is outside the checkout, so it still fails closed. An unknown wrapper is not unwrapped.
+ */
+export function innerCommand(command: string): string {
+  const trimmed = command.trim();
+  for (const wrapper of SHELL_WRAPPERS) {
+    const m = wrapper.exec(trimmed);
+    if (m === null) continue;
+    const inner = (m[1] as string).trim();
+    const quoted = /^(['"])([\s\S]*)\1$/.exec(inner);
+    return quoted === null ? inner : (quoted[2] as string);
+  }
+  return trimmed;
+}
+
+/**
  * Does this command name a path outside the candidate checkout? A heuristic, and said to be one: it reads
  * the command TEXT, so a command built to hide a path (an encoded string, a variable assembled at run
  * time) is not caught. What it does catch fails closed — a reviewer that reads outside the checkout has
  * its review refused as possibly steered, never credited. `root` null means no checkout is known, so
  * every absolute path is outside it.
  */
-export function commandLeavesCheckout(command: string, root: string | null): boolean {
+export function commandLeavesCheckout(reported: string, root: string | null): boolean {
+  const command = innerCommand(reported);
   if (HOME_REFERENCE.test(command) || CODEX_HOME_NAME.test(command) || PARENT_ESCAPE.test(command)) return true;
   if (UNC_PATH.test(command) || POSIX_HOME.test(command)) return true;
   const inside = root === null ? null : comparablePath(root);

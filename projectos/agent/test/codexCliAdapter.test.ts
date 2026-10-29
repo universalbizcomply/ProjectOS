@@ -18,6 +18,7 @@ import {
   codexReviewArgv,
   commandLeavesCheckout,
   credentialShaped,
+  innerCommand,
   readCodexEvents,
   sandboxProblem,
 } from '../src/loop/adapters/codexCli.js';
@@ -93,6 +94,7 @@ describe('the Codex reviewer command line', () => {
     expect(call?.args).toEqual([
       'exec', '-m', 'gpt-5-codex',
       '--sandbox', 'read-only',
+      '-c', 'windows.sandbox="elevated"',
       '--json', '--color', 'never', '--ignore-user-config', '--ignore-rules', '--ephemeral',
       '--cd', ROOT,
       INSTRUCTION,
@@ -187,6 +189,42 @@ describe('the Codex reviewer command line', () => {
     expect(sandboxProblem(['exec', '--sandbox', 'read-only', '--json', 'prompt'])).toBeNull();
     // The prompt is text, not a flag: a reviewer told about workspace-write is not given it.
     expect(sandboxProblem(['exec', '--sandbox', 'read-only', 'workspace-write'])).toBeNull();
+  });
+
+  it("admits the adapter's own Windows sandbox mode as the one configuration override, once", () => {
+    const mode = ['-c', 'windows.sandbox="elevated"'];
+    expect(sandboxProblem(['exec', '--sandbox', 'read-only', ...mode, '--json', 'prompt'])).toBeNull();
+    // Any other override is still a widening, and so is the mode given twice or split.
+    expect(sandboxProblem(['exec', '--sandbox', 'read-only', '-c', 'sandbox_mode="danger-full-access"', 'prompt'])).toContain('widens');
+    expect(sandboxProblem(['exec', '--sandbox', 'read-only', '-c', 'windows.sandbox="unelevated"', 'prompt'])).toContain('widens');
+    expect(sandboxProblem(['exec', '--sandbox', 'read-only', ...mode, ...mode, 'prompt'])).toContain('more than once');
+    expect(sandboxProblem(['exec', '--sandbox', 'read-only', ...mode, '-c', 'x=1', 'prompt'])).toContain('widens');
+    // It cannot be configured: a worker that lists it is refused before any spawn.
+    expect(codexArgProblems(mode).join(' ')).toContain('overrides configuration');
+  });
+});
+
+describe('CODEX-LIVE1A: the command inside a known shell wrapper is judged', () => {
+  // The exact forms the live probe recorded on the owner's host (Codex CLI 0.165.0).
+  const PS = '"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command';
+
+  it('judges the command inside a known shell wrapper, exactly as the live probe reported it', () => {
+    expect(innerCommand(`${PS} 'Get-Content -LiteralPath README.md'`)).toBe('Get-Content -LiteralPath README.md');
+    expect(commandLeavesCheckout(`${PS} 'Get-Content -LiteralPath README.md'`, ROOT)).toBe(false);
+    expect(commandLeavesCheckout(`${PS} "Get-Content -LiteralPath 'C:/dev/candidate/src/a.ts'"`, ROOT)).toBe(false);
+    // The probe's profile read: the inner command still reaches outside the checkout.
+    expect(commandLeavesCheckout(`${PS} "Test-Path -LiteralPath 'C:\\Users\\murad\\.codex\\x.txt'"`, ROOT)).toBe(true);
+    expect(commandLeavesCheckout(`${PS} 'Get-Content C:\\Windows\\win.ini'`, ROOT)).toBe(true);
+    expect(innerCommand('"C:\\Windows\\System32\\cmd.exe" /c type a.ts')).toBe('type a.ts');
+    expect(innerCommand("bash -lc 'cat a.ts'")).toBe('cat a.ts');
+  });
+
+  it('leaves an unknown wrapper, or a wrapper inside a wrapper, whole so it fails closed', () => {
+    const fake = '"C:\\Tools\\powershell.exe" -Command \'Get-Content a.ts\'';
+    expect(innerCommand(fake)).toBe(fake);
+    expect(commandLeavesCheckout(fake, ROOT)).toBe(true);
+    const nested = `${PS} '${PS} Get-Content a.ts'`;
+    expect(commandLeavesCheckout(nested, ROOT)).toBe(true);
   });
 });
 

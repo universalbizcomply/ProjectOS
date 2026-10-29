@@ -34,6 +34,12 @@
  *         .agents/, which a candidate could use to steer it (MEDIUM 4)
  *   CW-1  "a provider id is just an id"                 — and provider text reaches a console and a record
  *         unchecked; it is kept only as a plain bounded identifier (LOW 7)
+ *   CX-12 "Codex picks its own Windows sandbox"         — and with no mode it runs no command at all, so a
+ *         review can never happen; the adapter sets one fixed mode, and it is the ONLY `-c` the command line
+ *         may carry (PROJECTOS-KERNEL-CODEX-LIVE1A, live probe)
+ *   CX-13 "a command is judged as reported"             — and every command arrives wrapped in an absolute
+ *         powershell.exe path, so every review is refused; the inner command of a KNOWN wrapper is judged,
+ *         one layer only, and an unknown wrapper is not unwrapped (PROJECTOS-KERNEL-CODEX-LIVE1A)
  *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT
  * rule fires. Comments are stripped first. Reads files; runs nothing, calls no provider, runs no Codex.
@@ -56,6 +62,8 @@ const SOURCES = [VA_REL, CR_REL, CODEX_REL, CLAUDE_REL, REVIEW_REL, ROLES_REL, C
 const TESTS = {
   "projectos/agent/test/codexCliAdapter.test.ts": [
     "runs codex exec in the read-only sandbox, in the candidate checkout, with the instruction as the prompt",
+    "admits the adapter's own Windows sandbox mode as the one configuration override, once",
+    "judges the command inside a known shell wrapper, exactly as the live probe reported it",
     "is bounded, scrubs credential-shaped environment variables, and passes no environment of its own",
     "refuses configured args %j that could widen the sandbox, and spawns nothing",
     "refuses a credential-shaped argument %j and passes nothing",
@@ -106,7 +114,16 @@ const PIN = {
   evidenceWithheld: "if (REGISTRY_PROBLEMS.length) {\n    console.error(\"validate-all: evidence NOT recorded",
   // codex adapter
   readOnly: "const READ_ONLY_SANDBOX: readonly string[] = ['--sandbox', 'read-only'];",
-  argvBuild: "const argv = ['exec', ...worker.args, ...READ_ONLY_SANDBOX, ...FIXED_REVIEW_ARGS, '--cd', root, instruction];",
+  argvBuild: "const argv = ['exec', ...worker.args, ...READ_ONLY_SANDBOX, ...WINDOWS_SANDBOX, ...FIXED_REVIEW_ARGS, '--cd', root, instruction];",
+  // CX-12 / CX-13 (CODEX-LIVE1A)
+  winSandbox: "const WINDOWS_SANDBOX: readonly string[] = ['-c', 'windows.sandbox=\"elevated\"'];",
+  winPairOnly: "const pairAt = all.flatMap((a, i) => (a === WINDOWS_SANDBOX[0] && all[i + 1] === WINDOWS_SANDBOX[1] ? [i] : []));",
+  winPairOnce: "if (pairAt.length > 1) return 'the Codex command line carries the Windows sandbox mode more than once';",
+  winPairStripped: "const flags = pairAt.length === 1 ? [...all.slice(0, pairAt[0]), ...all.slice((pairAt[0] as number) + 2)] : all;",
+  innerUsed: "const command = innerCommand(reported);",
+  innerKnownOnly: "if (m === null) continue;",
+  innerFallback: "  return trimmed;\n}",
+  psWrapper: String.raw`/^"?[A-Za-z]:[\\/]+Windows[\\/]+System32[\\/]+WindowsPowerShell[\\/]+v1\.0[\\/]+powershell\.exe"?\s+(?:-NoProfile\s+)?-Command\s+([\s\S]+)$/i,`,
   sandboxGate: "return sandbox === null ? { ok: true, argv } : { ok: false, problem: sandbox };",
   sandboxCount: "if (sandboxAt.length !== 1 || flags[sandboxAt[0] as number] !== '--sandbox' || flags[(sandboxAt[0] as number) + 1] !== 'read-only') {",
   argsChecked: "const problems = codexArgProblems(worker.args);\n  if (problems.length > 0) return { ok: false,",
@@ -176,7 +193,14 @@ const MUTATIONS = [
   { name: "evidence-recorded-despite-registry", rule: "FU-5", rel: VA_REL, from: "if (REGISTRY_PROBLEMS.length) {\n    console.error(\"validate-all: evidence NOT recorded", to: "if (false) {\n    console.error(\"validate-all: evidence NOT recorded" },
   { name: "cached-runner-drops-a-module", rule: "FU-6", rel: CR_REL, from: "  \"val-projectos-kernel-followup1a\",\n", to: "" },
   { name: "sandbox-not-read-only", rule: "CX-1", rel: CODEX_REL, from: PIN.readOnly, to: "const READ_ONLY_SANDBOX: readonly string[] = [];" },
-  { name: "sandbox-left-off-argv", rule: "CX-1", rel: CODEX_REL, from: PIN.argvBuild, to: "const argv = ['exec', ...worker.args, ...FIXED_REVIEW_ARGS, '--cd', root, instruction];" },
+  { name: "sandbox-left-off-argv", rule: "CX-1", rel: CODEX_REL, from: PIN.argvBuild, to: "const argv = ['exec', ...worker.args, ...WINDOWS_SANDBOX, ...FIXED_REVIEW_ARGS, '--cd', root, instruction];" },
+  { name: "windows-sandbox-left-off-argv", rule: "CX-12", rel: CODEX_REL, from: "...READ_ONLY_SANDBOX, ...WINDOWS_SANDBOX, ...FIXED_REVIEW_ARGS", to: "...READ_ONLY_SANDBOX, ...FIXED_REVIEW_ARGS" },
+  { name: "windows-sandbox-mode-dropped", rule: "CX-12", rel: CODEX_REL, from: PIN.winSandbox, to: "const WINDOWS_SANDBOX: readonly string[] = [];" },
+  { name: "any-config-override-admitted", rule: "CX-12", rel: CODEX_REL, from: PIN.winPairStripped, to: "const flags = all.filter((a) => a !== '-c');" },
+  { name: "windows-sandbox-repeat-admitted", rule: "CX-12", rel: CODEX_REL, from: PIN.winPairOnce, to: "" },
+  { name: "unknown-wrapper-unwrapped", rule: "CX-13", rel: CODEX_REL, from: PIN.innerFallback, to: String.raw`  return trimmed.replace(/^\S+\s+/, '');` + "\n}" },
+  { name: "wrapper-not-unwrapped-before-check", rule: "CX-13", rel: CODEX_REL, from: PIN.innerUsed, to: "const command = reported;" },
+  { name: "powershell-wrapper-any-path", rule: "CX-13", rel: CODEX_REL, from: PIN.psWrapper, to: String.raw`/^\S*powershell\.exe"?\s+-Command\s+([\s\S]+)$/i,` },
   { name: "sandbox-gate-ignored", rule: "CX-1", rel: CODEX_REL, from: PIN.sandboxGate, to: "return { ok: true, argv };" },
   { name: "bypass-flag-added", rule: "CX-2", rel: CODEX_REL, from: "const FIXED_REVIEW_ARGS: readonly string[] = ['--json',", to: "const FIXED_REVIEW_ARGS: readonly string[] = ['--dangerously-bypass-approvals-and-sandbox', '--json'," },
   { name: "workspace-write-sandbox", rule: "CX-2", rel: CODEX_REL, from: "['--sandbox', 'read-only'];", to: "['--sandbox', 'workspace-write'];" },
@@ -352,6 +376,13 @@ function check(raw) {
   if (!src[WAIT_REL].includes(PIN.idShape) || !src[WAIT_REL].includes(PIN.idGate) || !closureSrc.includes(PIN.traceGated) ||
       !closureSrc.includes(PIN.waitGated) || /turn\.providerResponseId \?\?|providerResponseId: obtained\.providerResponseId/.test(closureSrc)) {
     E("CW-1", "a provider response id reaches the closure trace or wait without passing the one bounded-identifier gate");
+  }
+  if (![PIN.winSandbox, PIN.winPairOnly, PIN.winPairOnce, PIN.winPairStripped].every((p) => cx.includes(p)) ||
+      !cx.includes("...READ_ONLY_SANDBOX, ...WINDOWS_SANDBOX, ...FIXED_REVIEW_ARGS")) {
+    E("CX-12", "the Codex reviewer no longer always carries the fixed Windows sandbox mode as the only configuration override");
+  }
+  if (![PIN.innerUsed, PIN.innerKnownOnly, PIN.innerFallback, PIN.psWrapper].every((p) => cx.includes(p))) {
+    E("CX-13", "a Codex command is no longer judged by the inner command of a known shell wrapper only, one layer, with unknown wrappers left whole");
   }
   return errors;
 }
