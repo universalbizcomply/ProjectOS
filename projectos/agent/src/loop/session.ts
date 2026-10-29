@@ -84,7 +84,11 @@ export function writeReviewerRecord(sys: System, root: string, record: ReviewerR
 export function readReviewerRecord(sys: System, root: string, sessionId: string): ReadResult<ReviewerRecord | null> {
   const p = reviewerPath(root, sessionId);
   const text = sys.readText(p);
-  if (text === null) return { ok: true, value: null };
+  return text === null ? { ok: true, value: null } : parseReviewerRecord(text, p);
+}
+
+/** The reviewer record in `text`, shape-checked. Callers that hashed the text parse that same text. */
+export function parseReviewerRecord(text: string, p: string): ReadResult<ReviewerRecord> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);

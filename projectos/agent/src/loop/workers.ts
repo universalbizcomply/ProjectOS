@@ -573,7 +573,7 @@ export function writePathGrants(
 }
 
 /** ProjectOS's own records. A worker is never granted authority over these. */
-export const PROJECTOS_OWNED_RECORD_SUFFIXES: readonly string[] = ['.brief.json', '.session.json', '.evidence.json'];
+export const PROJECTOS_OWNED_RECORD_SUFFIXES: readonly string[] = ['.brief.json', '.session.json', '.evidence.json', '.reviewer.json'];
 
 /**
  * Tools through which a worker could write a file.
@@ -598,7 +598,7 @@ const AUTHORITY_FLAGS = /^--(dangerously-skip-permissions|allow-dangerously-skip
 const UNSAFE_PERMISSION_MODES: readonly string[] = ['bypassPermissions', 'acceptEdits', 'auto'];
 
 /** Flags that load authority from somewhere this config does not show. Refused in every form. */
-const UNPOLICED_AUTHORITY_FLAGS: readonly string[] = ['--settings', '--add-dir', '--mcp-config', '--agents', '--plugin-dir'];
+const UNPOLICED_AUTHORITY_FLAGS: readonly string[] = ['--settings', '--add-dir', '--mcp-config', '--agents', '--plugin-dir', '--tools'];
 
 /**
  * A grant whose parentheses are nested or unbalanced. The CLI tracks parentheses with a single flag, not

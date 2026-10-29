@@ -29,7 +29,7 @@ import type { AuthorisedWorker } from './workers.js';
 import { ambiguousGrants, argvGrants } from './workers.js';
 
 /** R1. How a self-review is named in a plan: "Claude self-review", "worker self review", "self-review". */
-export const SELF_REVIEW = /\bself[- ]?review\b/i;
+export const SELF_REVIEW = /^(\S+\s+)?self[- ]?review$/i;
 
 export function isSelfReview(name: string): boolean {
   return SELF_REVIEW.test(name);
@@ -45,7 +45,7 @@ export function independentReviews(required: readonly string[]): readonly string
  * review", "Gatekeeper contract review", "maintainer sign-off". Independent, so they satisfy R5 at
  * approval, but no reviewer WORKER may be credited with one; they stay outstanding for the owner route.
  */
-export const EXTERNAL_REVIEW = /\b(owner|gatekeeper|maintainer|human|sign-?off)\b/i;
+export const EXTERNAL_REVIEW = /^(owner|gatekeeper|maintainer|human)\b|\b(owner|gatekeeper|maintainer)('s)? (review|sign-?off)\b/i;
 
 /** The independent reviews a reviewer worker may be asked for and credited with. */
 export function workerReviewable(required: readonly string[]): readonly string[] {
@@ -96,10 +96,10 @@ export interface ReviewerRecord {
   readonly recordedAt: string;
 }
 
-/** R3. Why this reviewer may not review this implementer's work, or nothing. */
 /** The only tools a reviewer may be granted: reading. Anything else is refused (deny by default). */
 const READ_ONLY_GRANT = /^(Read|Grep|Glob|LS)(\(.*\))?$/;
 
+/** R3. Why this reviewer may not review this implementer's work, or nothing. */
 export function roleBindingProblems(implementer: AuthorisedWorker, reviewer: AuthorisedWorker | null): readonly string[] {
   if (reviewer === null) {
     return [
@@ -237,6 +237,21 @@ export function creditedReviews(
   return required.filter((r) => (isSelfReview(r) ? implementerClaims.includes(r) : reviewable.includes(r) && performed.includes(r)));
 }
 
+/**
+ * The reviewer record as the gatekeeper evidence carries it. The nonce and timestamp would make every
+ * resumed request a new one, and free-text summaries would grow the paid pack (ECC CODE L9).
+ */
+export function reviewerSummary(record: ReviewerRecord) {
+  return {
+    reviewerWorkerId: record.reviewerWorkerId,
+    reviewerKind: record.reviewerKind,
+    providerDistinct: record.providerDistinct,
+    verdict: record.verdict,
+    reviewsPerformed: record.reviewsPerformed,
+    findings: record.findings.map((f) => ({ id: f.id, severity: f.severity, category: f.category })),
+  };
+}
+
 /** What the reviewer objected to, for the stop detail the gatekeeper and owner read. */
 export function reviewerObjection(record: ReviewerRecord): string {
   const blocking = record.findings.filter((f) => f.severity === 'CRITICAL' || f.severity === 'HIGH');
@@ -255,10 +270,10 @@ export function reviewerConfigPaths(paths: readonly string[]): readonly string[]
   return paths.filter((p) => REVIEWER_CONFIG_PATH.test(p));
 }
 
-/** The fixed sentence the reviewer is started with. It points at governed records and names no task. */
 /** How many changed paths the instruction names. The argv is bounded (~32 KB on Windows). */
 export const REVIEW_PATHS_SHOWN = 100;
 
+/** The fixed sentence the reviewer is started with. It points at governed records and names no task. */
 export function reviewInstruction(
   briefPath: string,
   subject: ReviewSubject,

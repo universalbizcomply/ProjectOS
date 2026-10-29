@@ -39,6 +39,16 @@ describe('R1 — what counts as a self-review', () => {
     expect(isSelfReview('Owner review of readiness evidence')).toBe(false);
     expect(independentReviews(['Claude self-review', 'ECC SECURITY review'])).toEqual(['ECC SECURITY review']);
   });
+  it('is anchored, so a name that merely mentions a self-review is not one (ECC CODE L7)', () => {
+    expect(isSelfReview('ECC CODE review (not a self-review)')).toBe(false);
+    expect(isSelfReview('self-review')).toBe(true);
+  });
+  it('treats only reviews BY the owner, gatekeeper or a maintainer as theirs (ECC CODE M4)', () => {
+    expect(workerReviewable(['security/reliability sign-off', 'ECC SECURITY review of owner-facing auth'])).toEqual([
+      'security/reliability sign-off', 'ECC SECURITY review of owner-facing auth',
+    ]);
+    expect(workerReviewable(['governance/owner review', "maintainer's sign-off"])).toEqual([]);
+  });
 });
 
 describe('R1 + R2 — credit', () => {

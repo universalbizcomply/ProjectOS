@@ -15,7 +15,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { System } from '../system.js';
 import type { WorkerBrief } from './brief.js';
-import { computeCandidateIdentity } from './candidateIdentity.js';
+import { candidateDigest, computeCandidateIdentity } from './candidateIdentity.js';
+import type { CandidateEntry } from '@projectos/core';
 import {
   REVIEW_PATHS_SHOWN,
   parseReviewerVerdict,
@@ -70,6 +71,22 @@ function reviewerDenials(stdout: string): number {
   return Array.isArray(denials) ? denials.length : 0;
 }
 
+/**
+ * The digest of the reviewed bytes: the candidate WITHOUT the two records the loop writes after the
+ * review (this session's evidence and reviewer record). Excluding them is what lets the same digest be
+ * recomputed at the seal, after both exist (ECC CODE M1).
+ */
+export function reviewedDigest(entries: readonly CandidateEntry[], sessionId: string): string {
+  const own = new Set([`.projectops/execution/${sessionId}.evidence.json`, `.projectops/execution/${sessionId}.reviewer.json`]);
+  return candidateDigest(entries.filter((e) => !own.has(e.path)));
+}
+
+/** Are the bytes about to be sealed for the gatekeeper still the bytes the reviewer reviewed? */
+export function candidateStillReviewed(sys: System, root: string, record: ReviewerRecord): boolean {
+  const now = computeCandidateIdentity(sys, root);
+  return now.ok && reviewedDigest(now.identity.entries, record.sessionId) === record.candidateDigest;
+}
+
 export function runIndependentReview(sys: System, root: string, input: IndependentReviewInput): IndependentReviewResult {
   const requested = workerReviewable(input.outstanding);
   if (requested.length === 0) {
@@ -95,7 +112,7 @@ export function runIndependentReview(sys: System, root: string, input: Independe
     sessionId: input.sessionId,
     phaseId: input.brief.phase.phaseId,
     baseHead,
-    candidateDigest: before.identity.digest,
+    candidateDigest: reviewedDigest(before.identity.entries, input.sessionId),
     implementerWorkerId: input.implementer.workerId,
   };
   const nonce = input.nonce ?? randomBytes(16).toString('hex');
@@ -116,7 +133,7 @@ export function runIndependentReview(sys: System, root: string, input: Independe
   const outcome = adapter.review(sys, worker, input.brief, reviewInstruction(input.brief.records.briefPath, subject, paths, requested, nonce));
 
   const after = computeCandidateIdentity(sys, root);
-  if (!after.ok || after.identity.digest !== before.identity.digest) {
+  if (!after.ok || reviewedDigest(after.identity.entries, input.sessionId) !== subject.candidateDigest) {
     return { ok: false, problems: [`the reviewer '${worker.workerId}' changed the candidate while reviewing it; its review is discarded`] };
   }
   if (outcome.kind !== 'completed') {

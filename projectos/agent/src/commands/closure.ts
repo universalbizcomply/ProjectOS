@@ -58,7 +58,7 @@ import {
   type OwnRecordsKind,
   type OwnRecordsOutcome,
 } from '../loop/technicalContinuation.js';
-import { findingsPath, readFindings, readReviewerRecord, reviewerPath, type FindingsRecord } from '../loop/session.js';
+import { findingsPath, parseReviewerRecord, readFindings, reviewerPath, type FindingsRecord } from '../loop/session.js';
 import { creditedReviews, independentReviews, type ReviewerRecord } from '../loop/reviewRoles.js';
 import { createHash } from 'node:crypto';
 import { blockingFindings } from '../loop/outcome.js';
@@ -605,8 +605,8 @@ function boundRun(
   const recordedReviewer = run['reviewerSha256'];
   if (typeof recordedReviewer === 'string') {
     const reviewerText = sys.readText(reviewerPath(root, sessionId));
-    const read = readReviewerRecord(sys, root, sessionId);
-    if (reviewerText === null || sha256(reviewerText) !== recordedReviewer || !read.ok || read.value === null ||
+    const read = reviewerText === null ? null : parseReviewerRecord(reviewerText, reviewerPath(root, sessionId));
+    if (reviewerText === null || sha256(reviewerText) !== recordedReviewer || read === null || !read.ok ||
         read.value.sessionId !== sessionId || read.value.baseHead !== base ||
         read.value.reviewerWorkerId === read.value.implementerWorkerId) {
       return refuse([

@@ -88,8 +88,15 @@ import {
   type LedgerEntry,
 } from '@projectos/core';
 import * as store from './session.js';
-import { creditedReviews, independentReviews, reviewPassed, reviewerObjection, type ReviewerRecord } from './reviewRoles.js';
-import { runIndependentReview } from './independentReview.js';
+import {
+  creditedReviews,
+  independentReviews,
+  reviewPassed,
+  reviewerObjection,
+  reviewerSummary,
+  type ReviewerRecord,
+} from './reviewRoles.js';
+import { candidateStillReviewed, runIndependentReview } from './independentReview.js';
 import {
   digestOf,
   invocationIdFor,
@@ -1178,7 +1185,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       readonly findings: EvidencePart<{ readonly reviews: readonly string[]; readonly findings: readonly ReviewFinding[] }>;
       readonly effects: EvidencePart<EffectsRecord | null>;
       /** D11: the loop-written reviewer record, when one was obtained for this stop. */
-      readonly independentReview?: EvidencePart<ReviewerRecord>;
+      readonly independentReview?: EvidencePart<ReturnType<typeof reviewerSummary>>;
     },
   ): string => {
     // EVERY WRITE THAT BELONGS TO THE CANDIDATE HAPPENS BEFORE THE CANDIDATE IS FROZEN.
@@ -1644,6 +1651,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   // Spent at the first dispatch; see where the attempt's grants are composed.
   let writeGrantSpent = false;
   for (;;) {
+    creditedAtLastDecision = [];
     // Rejoin whenever a handle exists. A handle from a PREVIOUS invocation only appears here when
     // the operator named that session with `--resume --session`; it is never inherited by
     // accident. Without a handle the only honest option is a fresh start, and the line below says
@@ -1967,6 +1975,14 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       // THE RELAY REMOVAL, at the one place the loop used to end. A reviewer that requires an
       // amendment sends the phase back through the SAME bounded correction budget as an ordinary
       // failing check - it does not get its own, and it cannot reset the one that exists.
+      // D11: THE BYTES SEALED FOR THE GATEKEEPER MUST BE THE BYTES REVIEWED. Checked here, immediately
+      // before `evidenceFor` seals the candidate, so a change after the review is caught (ECC CODE M1).
+      if (reviewerRecord !== null && !candidateStillReviewed(sys, root, reviewerRecord)) {
+        reviewerProblems = ['the candidate changed after the independent review, so the review does not cover what would be sealed'];
+        reviewerRecord = null;
+        creditedAtLastDecision = creditedReviews(required, findings.value.reviews, null);
+        decision = { kind: 'stop', reason: { code: 'REVIEW_OUTSTANDING', detail: reviewerProblems[0] as string } };
+      }
       const answered = applyReviewerAnswer(decision.reason, evidenceFor(decision.reason, {
         checks: { available: true, value: checks },
         // What the decision was taken on: credited reviews and the reviewer's findings, not the
@@ -1974,7 +1990,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         findings: { available: true, value: { reviews: turnFacts.reviewsRecorded, findings: turnFacts.findings } },
         effects: { available: true, value: effects.value },
         independentReview: reviewerRecord !== null
-          ? { available: true, value: reviewerRecord }
+          ? { available: true, value: reviewerSummary(reviewerRecord) }
           : unavailable(reviewerProblems.length > 0 ? reviewerProblems.join('; ') : 'no independent review was run for this stop'),
       }));
       if (answered === 'continue') continue;

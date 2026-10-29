@@ -25,6 +25,8 @@
  *   RR-16 "close enough is the same grant"             — and `Read((x) Bash(*)` is a shell to the CLI
  *   RR-17 "review what fits, trust what it says"       — and part of the change, a rewritten brief or a
  *                                                         reviewer that read nothing passes as reviewed
+ *   RR-18 the rule BODIES behind the call sites above (ECC CODE M2): each is pinned and mutated, because
+ *         a pin on a call site survives the function it calls being gutted
  *
  * Each rule has a NAMED MUTATION below; `selfTest` applies it in memory and counts it killed only when
  * THAT rule fires. Comments are stripped first. Reads files; runs nothing, calls no provider.
@@ -59,6 +61,8 @@ const TESTS = {
     "names a candidate that changes files the reviewer CLI loads as its own configuration",
     "refuses a grant the CLI could read as several, and authority loaded from outside the config (ECC N1)",
     "refuses more findings than one verdict carries, rather than dropping the tail (ECC N6)",
+    "is anchored, so a name that merely mentions a self-review is not one (ECC CODE L7)",
+    "treats only reviews BY the owner, gatekeeper or a maintainer as theirs (ECC CODE M4)",
   ],
   "projectos/agent/test/loopRunner.test.ts": [
     "[R2] a worker that NAMES the independent reviews itself does not get past REVIEW_OUTSTANDING without a reviewer",
@@ -91,7 +95,7 @@ const MUTATIONS = [
   { name: "reviewer-may-write", rule: "RR-3", rel: ROLES_REL,
     from: "const grants = [...new Set([...ambiguousGrants(reviewer.args), ...argvGrants(reviewer.args).filter((g) => !READ_ONLY_GRANT.test(g))])];", to: "const grants: string[] = [];" },
   { name: "ignore-tree-drift", rule: "RR-4", rel: REVIEW_REL,
-    from: "after.identity.digest !== before.identity.digest", to: "after.identity.digest !== after.identity.digest" },
+    from: "reviewedDigest(after.identity.entries, input.sessionId) !== subject.candidateDigest", to: "false" },
   { name: "fixed-nonce", rule: "RR-4", rel: REVIEW_REL,
     from: "randomBytes(16).toString('hex')", to: "'0'" },
   { name: "no-independent-required", rule: "RR-5", rel: OUTCOME_REL,
@@ -131,6 +135,32 @@ const MUTATIONS = [
     from: "if (sys.readText(input.brief.records.briefPath) !== `${JSON.stringify(input.brief, null, 2)}\\n`) {", to: "if (false) {" },
   { name: "turns-fail-open", rule: "RR-17", rel: REVIEW_REL,
     from: "if (turns === null || turns < 2) {", to: "if (turns === 1) {" },
+  { name: "pass-any-verdict", rule: "RR-18", rel: ROLES_REL,
+    from: "return record.verdict !== 'REJECT' && !record.findings.some((f) => f.severity === 'CRITICAL' || f.severity === 'HIGH');", to: "return true;" },
+  { name: "plan-review-no-op", rule: "RR-18", rel: ROLES_REL,
+    from: "if (independentReviews(required).length > 0) return [];", to: "if (true) return [];" },
+  { name: "independent-passthrough", rule: "RR-18", rel: ROLES_REL,
+    from: "return required.filter((r) => !isSelfReview(r));", to: "return required;" },
+  { name: "external-filter-removed", rule: "RR-18", rel: ROLES_REL,
+    from: "return independentReviews(required).filter((r) => !EXTERNAL_REVIEW.test(r));", to: "return independentReviews(required);" },
+  { name: "reviewer-deny-list-emptied", rule: "RR-18", rel: ADAPTER_REL,
+    from: "'Bash,PowerShell,Write,Edit,MultiEdit,NotebookEdit,Task,Agent,WebFetch,WebSearch',", to: "''," },
+  { name: "authority-flags-ignored", rule: "RR-18", rel: WORKERS_REL,
+    from: "if (AUTHORITY_FLAGS.test(arg))", to: "if (false)" },
+  { name: "unsafe-modes-ignored", rule: "RR-18", rel: WORKERS_REL,
+    from: "if (arg === '--permission-mode' && UNSAFE_PERMISSION_MODES.includes(args[i + 1] ?? '')) {", to: "if (false) {" },
+  { name: "reviewer-picked-as-implementer", rule: "RR-18", rel: WORKERS_REL,
+    from: "const implementers = loaded.workers.filter((w) => w.workerId !== loaded.reviewerWorkerId);", to: "const implementers = loaded.workers;" },
+  { name: "closure-ignores-session-and-base", rule: "RR-18", rel: CLOSURE_REL,
+    from: "read.value.sessionId !== sessionId || read.value.baseHead !== base ||", to: "false ||" },
+  { name: "closure-ignores-self-review", rule: "RR-18", rel: CLOSURE_REL,
+    from: "read.value.reviewerWorkerId === read.value.implementerWorkerId", to: "false" },
+  { name: "guard-reads-required", rule: "RR-18", rel: RUNNER_REL,
+    from: "creditedAtLastDecision = turnFacts.reviewsRecorded;", to: "creditedAtLastDecision = required;" },
+  { name: "no-seal-check", rule: "RR-18", rel: RUNNER_REL,
+    from: "if (reviewerRecord !== null && !candidateStillReviewed(sys, root, reviewerRecord)) {", to: "if (false) {" },
+  { name: "nonzero-exit-accepted", rule: "RR-18", rel: REVIEW_REL,
+    from: "if (outcome.exitCode !== 0) return", to: "if (false) return" },
   { name: "reviewer-not-denied", rule: "RR-14", rel: ADAPTER_REL,
     from: "[...worker.args, ...REVIEWER_DENIED, ...OUTPUT_ARGS, '-p', instruction]", to: "[...worker.args, ...OUTPUT_ARGS, '-p', instruction]" },
 ];
@@ -202,7 +232,7 @@ function check(raw) {
       !roles.includes("const grants = [...new Set([...ambiguousGrants(reviewer.args), ...argvGrants(reviewer.args).filter((g) => !READ_ONLY_GRANT.test(g))])];")) {
     E("RR-3", "roleBindingProblems no longer refuses the implementer as reviewer, or a reviewer with write grants");
   }
-  if (!review.includes("after.identity.digest !== before.identity.digest") ||
+  if (!review.includes("reviewedDigest(after.identity.entries, input.sessionId) !== subject.candidateDigest") ||
       !review.includes("randomBytes(16).toString('hex')") ||
       !review.includes("parseReviewerVerdict(reviewerText(outcome.stdout), nonce)") ||
       !review.includes("reviewerRecordProblems(record, subject, nonce)")) {
@@ -254,6 +284,24 @@ function check(raw) {
       !review.includes("if (turns === null || turns < 2) {") ||
       !review.includes("if (reviewerDenials(outcome.stdout) > 0) {")) {
     E("RR-17", "the review may cover part of the change, read a rewritten brief, or pass without evidence of reading");
+  }
+  const BODIES = [
+    [ROLES_REL, "return record.verdict !== 'REJECT' && !record.findings.some((f) => f.severity === 'CRITICAL' || f.severity === 'HIGH');"],
+    [ROLES_REL, "if (independentReviews(required).length > 0) return [];"],
+    [ROLES_REL, "return required.filter((r) => !isSelfReview(r));"],
+    [ROLES_REL, "return independentReviews(required).filter((r) => !EXTERNAL_REVIEW.test(r));"],
+    [ADAPTER_REL, "'Bash,PowerShell,Write,Edit,MultiEdit,NotebookEdit,Task,Agent,WebFetch,WebSearch',"],
+    [WORKERS_REL, "if (AUTHORITY_FLAGS.test(arg))"],
+    [WORKERS_REL, "if (arg === '--permission-mode' && UNSAFE_PERMISSION_MODES.includes(args[i + 1] ?? '')) {"],
+    [WORKERS_REL, "const implementers = loaded.workers.filter((w) => w.workerId !== loaded.reviewerWorkerId);"],
+    [CLOSURE_REL, "read.value.sessionId !== sessionId || read.value.baseHead !== base ||"],
+    [CLOSURE_REL, "read.value.reviewerWorkerId === read.value.implementerWorkerId"],
+    [RUNNER_REL, "creditedAtLastDecision = turnFacts.reviewsRecorded;"],
+    [RUNNER_REL, "if (reviewerRecord !== null && !candidateStillReviewed(sys, root, reviewerRecord)) {"],
+    [REVIEW_REL, "if (outcome.exitCode !== 0) return"],
+  ];
+  for (const [rel, text] of BODIES) {
+    if (!src[rel].includes(text)) E("RR-18", `${rel} no longer contains the rule body \`${text}\``);
   }
   const closure = src[CLOSURE_REL];
   if (!closure.includes("const credited = creditedReviews(required, recorded.reviews, reviewer);") ||
