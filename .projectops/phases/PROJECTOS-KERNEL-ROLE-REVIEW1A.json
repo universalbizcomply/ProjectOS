@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-KERNEL-ROLE-REVIEW1A",
   "project": "ProjectOS",
   "objective": "Owner-approved as written in docs/06_Plan.md 1.1 (2026-10-28). The implementer, reviewer and gatekeeper roles are bound to different providers or agents. An implementer can never author a reviewer or gatekeeper decision. The reviewer verdict is recorded before the gatekeeper is asked, and a plan whose only review is a worker self-review cannot close.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-29T08:35:43.765Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-29T08:36:57.141Z",
+      "note": "Owner-direct closure under the owner's grant; decision projectos:PROJECTOS-KERNEL-ROLE-REVIEW1A:owner-closure:732db621. — closed by owner Murad, decision projectos:PROJECTOS-KERNEL-ROLE-REVIEW1A:owner-closure:732db621"
     }
   ]
 }
