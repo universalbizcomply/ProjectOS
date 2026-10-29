@@ -1,9 +1,12 @@
 # ADR-K1 — Kernel contract: task envelope, permission classes and grants
 
-**Status:** PROPOSED in phase PROJECTOS-KERNEL-CONTRACT1A (plan v1.17, V4 Stage 1). Revision 2,
-2026-10-29, after the independent architecture review: Agency `software-architect`, corpus
-`ad9264e3`, verdict CONCERNS, 5 HIGH / 4 MEDIUM, all accepted (see §5). **Only the owner marks an ADR
-Accepted.**
+**Status:** PROPOSED in phase PROJECTOS-KERNEL-CONTRACT1A (plan v1.17, V4 Stage 1). Revision 3,
+2026-10-29. The independent architecture review (Agency `software-architect`, corpus `ad9264e3`)
+ran in two rounds:
+- Round 1: CONCERNS, 5 HIGH / 4 MEDIUM.
+- Round 2: 6 resolved, 3 partial, 3 new issues.
+
+All of them are addressed (§7). **Only the owner marks an ADR Accepted.**
 
 **Context:** every V4 domain runs on one kernel (`docs/06_Plan.md`). This ADR fixes the contract each
 domain must use:
@@ -44,7 +47,7 @@ C1–C6 in `docs/recon/V4_Capability_Recon.md` depend on it.
 | `scope` | What may be touched | Phase `writePaths`, the plan's `approvedScope`, `exclusions` | Yes for code. **New** for connectors, channels and records |
 | `budget` | Maximum spend for this envelope | None. The reservation is not a bound | **New**, as its own field (PROJECTOS-KERNEL-COST-CAP1A). A missing budget on a paid action is a refusal |
 | `expiry` | When authority lapses | The closure `decidedAt` window; gate timeouts | Partial. **New**: every grant expires |
-| `idempotencyKey` | The same effect never happens twice | Host durable replay (§10C); the GKREQ and CLREQ ids | Partial. **Minted by the kernel at admission** and carried to every non-git side effect |
+| `idempotencyKey` | The same effect never happens twice | Host durable replay (§10C); the GKREQ and CLREQ ids | Partial. **Derived by the kernel from the intent**: a hash of `tenant`, `project`, `action` and `subjectHash`. A retry of the same intent therefore carries the same key and is refused as a duplicate; a new envelope id never produces a new key |
 
 ## 3. Classes: how dangerous an action is (never lowered)
 
@@ -63,10 +66,15 @@ C1–C6 in `docs/recon/V4_Capability_Recon.md` depend on it.
 |---|---|---|---|
 | P1 | The role | — | `permissions.ts` roles |
 | P2 | The approved plan's `writePaths` and the pinned validators | — | Write-path grant; after-attempt scan of new files |
-| P3 | **The owner** (`commit` and `push` are in `ALWAYS_OWNER_ONLY`, `ownerOnlyActions.ts:80-86`) | Technical delegation plus gatekeeper approval (`CONDITIONALLY_DELEGABLE_TECHNICAL`, `:71`; capability token `technicalDelegationCondition`, `:113-120`). Provider calls also need a `budget` within the hard cap | As named; the cap is planned |
+| P3 | **The owner** (`commit` and `push` are in `ALWAYS_OWNER_ONLY`, `ownerOnlyActions.ts:80-86`) | Two separate named grants. **Commit and push:** a technical delegation plus gatekeeper approval (`CONDITIONALLY_DELEGABLE_TECHNICAL`, `:71`; capability token `technicalDelegationCondition`, `:113-120`); nothing else may be added to that list without an owner decision. **Paid provider call:** a *provider-spend grant*. Today that is the project's owner-committed secrets-handling receipt plus the installation allowlist entry (AG-5), always bounded by the envelope `budget` within the hard cap. The gatekeeper's own call uses this grant, not gatekeeper approval, so there is no circularity | As named; the cap is planned |
 | P4 | **None exists yet**, so the action cannot run | Only after the Stage 5.3 delegated-authority design is approved | Gap, by design |
 | P5 | **The owner, every time** (`ABSOLUTE_OWNER_ONLY`: phase-closure, secrets-handling, payment-or-live-charge, `:56`) | Phase closure only: the `closure-decision-commit` delegation (`closureAuthority.ts:92`), where the owner made the last commit to the delegation file. The class stays P5; only the grant is delegated | phase-closure, secrets and payment in code. **The rest are enforced by having no capability**: the agent has no deploy, send or merge path. Stage 5 must register each new capability as P5 *before* it ships |
-| P6 | Nobody, **including the platform owner across tenants**. Crossing tenants needs an explicit, scoped, expiring grant recorded by the *data-owning* tenant | — | Credential router and broker (the agent never holds the key); wildcard refusal in the allowlist reader; tenant isolation is Stage 2 |
+| P6 | **Nobody, ever, including the platform owner.** P6 is never grantable | — | Credential router and broker (the agent never holds the key); wildcard refusal in the allowlist reader; tenant isolation is Stage 2 |
+
+**Cross-tenant access** is not P6. It is the P5 registry action `cross-tenant-access`. Its only grant
+is an explicit, scoped, expiring record made by the owner of the **data-owning** tenant, so the
+platform owner has no implicit access. Each use starts a **new root envelope** in the data-owning
+tenant, which keeps the R3 equality rule intact.
 
 The owner-only governance actions `approve`, `reject`, `close_phase` and `override_gate`
 (`permissions.ts:49-54`) are P5 actions whose default grant is the owner.
@@ -74,8 +82,11 @@ The owner-only governance actions `approve`, `reject`, `close_phase` and `overri
 ## 5. Rules
 - **R1.** A missing or unparseable field is a refusal. Defaults exist only where §2 names a
   kernel-derived value for that envelope version.
-- **R2.** `tenant`, `domain`, `environment`, `actionClass`, `envelopeId` and `idempotencyKey` are
-  derived or minted by the kernel. Worker or model text is never authority.
+- **R2.** The kernel derives or mints all of these: `principal`, `actor`, `tenant`, `domain`,
+  `environment`, `actionClass`, `subjectHash`, `envelopeId` and `idempotencyKey`.
+  - `actor` comes from the loop's own invocation record, which the loop writes, never the worker.
+  - `subjectHash` is computed by the kernel over the exact bytes acted on.
+  - Worker or model text is never authority.
 - **R3.** No widening downstream. A child's `tenant`, `domain`, `project` and `environment` must
   **equal** its parent's. Its `scope`, `budget`, `expiry` and class must be **at most** its parent's.
 - **R4.** Every envelope is recorded **at admission**, refusals included, before any side effect. It
@@ -84,9 +95,11 @@ The owner-only governance actions `approve`, `reject`, `close_phase` and `overri
 - **R6.** Classes are never lowered. Only an owner-committed delegation record can widen a *grant*,
   and only where §4 lists one. No flag, setting, environment variable or model judgement changes a
   class or a grant.
-- **R7.** Emergency stop refuses every new or pending operation for every non-owner principal. That
-  includes approved-but-not-yet-executed P3–P5 work, such as a pre-approved send or a delegated
-  closure. Stop and `expiry` are checked **when the action executes**, not only at admission. The stop
+- **R7.** Emergency stop is judged by the **executing** principal and actor, not by whoever approved
+  the work. It refuses every new or pending operation that a non-owner executor would run. That
+  includes approved-but-not-yet-executed P3–P5 work, such as an owner-pre-approved send that an agent
+  would carry out, or a delegated closure. Only an operation the owner performs directly, in person,
+  is unaffected. Stop and `expiry` are checked **when the action executes**, not only at admission. The stop
   cannot undo P5 effects that have already happened, and the UI says so.
 
 ## 6. Consequences
@@ -112,6 +125,21 @@ The owner-only governance actions `approve`, `reject`, `close_phase` and `overri
 - **Verified by the lead:** `rollback` appears only at `permissions.ts:27,36`. The closure delegation
   is a separate path (`closureAuthority.ts:92`). The claim that no deploy, send or merge path exists
   is carried as an open item to verify in PROJECTOS-KERNEL-ROLE-REVIEW1A's scan.
+
+### Re-review (revision 2 → 3)
+- **F4 PARTIAL**, the stop applying to the approver rather than the executor: fixed. R7 is judged
+  by the executing principal and actor.
+- **F5 PARTIAL**, a spoofable `actor`: fixed. R2 derives `actor`, `principal` and `subjectHash`, and
+  `actor` comes from the loop-written invocation record.
+- **F9 PARTIAL, plus N3 MEDIUM**, P6 was grantable: fixed. P6 is never grantable; cross-tenant access
+  is a P5 registry action with a data-owner grant and a new root envelope.
+- **N1 HIGH**, provider calls had no grant path, and the gatekeeper call was circular: fixed. A named
+  provider-spend grant (secrets-handling receipt, allowlist and `budget`), separate from
+  commit/push. The lead verified that the gatekeeper broker today requires the committed
+  secrets-handling receipt *and* the installation allowlist (PROJECTOS-COMPLETION1A security review;
+  `installationAllowsProject`).
+- **N2 HIGH**, the key was minted per admission, so a retry could double-send: fixed. The key is
+  derived from intent.
 
 ## 8. Alternatives rejected
 - **A model-judged risk class** (Hermes's `smart` mode). It can be steered by prompt injection.
