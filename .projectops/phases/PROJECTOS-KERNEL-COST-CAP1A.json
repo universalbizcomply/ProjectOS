@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-KERNEL-COST-CAP1A",
   "project": "ProjectOS",
   "objective": "Replace the budget reservation (measured 21.9x under real spend) with a hard per-phase and per-day bound that refuses a gatekeeper or worker provider call before it is sent when the projected or recorded spend would exceed the cap. The refusal names the cap and the ledger total.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-29T11:45:06.569Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-29T11:45:20.713Z",
+      "note": "Owner-direct closure under the owner's grant; decision projectos:PROJECTOS-KERNEL-COST-CAP1A:owner-closure. — closed by owner Murad, decision projectos:PROJECTOS-KERNEL-COST-CAP1A:owner-closure:1056a5c0"
     }
   ]
 }
