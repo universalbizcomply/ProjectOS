@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-KERNEL-CONTRACT1A",
   "project": "ProjectOS",
   "objective": "Write the domain-neutral kernel contract every V4 domain will use: the task envelope {principal, tenant, domain, project, environment, actionClass, scope, expiry, idempotencyKey} and the six permission classes (read-only, local reversible, technical gate, business operation, protected, prohibited), each mapped onto the gates ProjectOS has today. Records which existing records already carry each field and which are new. Docs only.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-29T00:05:44.902Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-29T00:06:18.399Z",
+      "note": "Owner-direct closure under the owner's grant (\"You have full authority\"; \"continue work without me\"). No gatekeeper closure ruling claimed. — closed by owner Murad, decision projectos:PROJECTOS-KERNEL-CONTRACT1A:owner-closure:0409573b"
     }
   ]
 }
