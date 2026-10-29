@@ -21,7 +21,8 @@
     "Proposed for owner approval (plan v1.17, V4 Stage 1): kernel hardening per docs/06_Plan.md Stage 1. D11 is owner-approved as written in 06_Plan 1.1 (\"D11 approved as written in 06_Plan 1.1\", 2026-10-28); the rest of v1.17 awaits plan decide.",
     "Proposed for owner approval (plan v1.18): amends KERNEL-PLATFORM-STOP1A to the full scope the owner chose (\"Full stop, all files\", 2026-10-29), repairs KERNEL-HYGIENE1A writePaths and reviews, and records that the exit proof's second provider is not Grok.",
     "Proposed for owner approval (plan v1.19): one Stage 1 follow-up phase before the exit proof — closure-route halves of D3/D9, validator registry pin, cached-runner resync, validate-claude-worker repair, and a Codex CLI reviewer adapter (owner: \"Yes, add and do it\"; \"Codex CLI (OpenAI)\").",
-    "Plan v1.20 writePath repair for PROJECTOS-KERNEL-FOLLOWUP1A (no new scope): the approved Codex reviewer adapter also needs the worker-lifecycle validator to admit a closed list of two adapters, the project-config schema to accept the codex-cli worker kind, and a stale comment in reviewRoles.ts corrected (owner: \"Yes, add and do it\"; \"Codex CLI (OpenAI)\")."
+    "Plan v1.20 writePath repair for PROJECTOS-KERNEL-FOLLOWUP1A (no new scope): the approved Codex reviewer adapter also needs the worker-lifecycle validator to admit a closed list of two adapters, the project-config schema to accept the codex-cli worker kind, and a stale comment in reviewRoles.ts corrected (owner: \"Yes, add and do it\"; \"Codex CLI (OpenAI)\").",
+    "Proposed for owner approval (plan v1.21): one small phase with the Codex reviewer fixes found by the live sandbox probe (fixed Windows sandbox mode; judge commands inside the shell wrapper), before the exit proof runs (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\")."
   ],
   "environments": [
     {
@@ -755,7 +756,7 @@
       ],
       "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
       "title": "Stage 1 exit proof: cross-provider review and a refusing cap, live",
-      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
+      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter, and AFTER PROJECTOS-KERNEL-CODEX-LIVE1A, which fixes what the live probe found (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
       "scope": "Add the evidence record under docs/finish/.",
       "writePaths": [
         "docs/finish/",
@@ -833,6 +834,48 @@
       "requiredValidators": [
         "val-projectos-kernel-followup1a",
         "val-projectos-boot-continue1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-CODEX-LIVE1A",
+      "title": "Codex reviewer: fixes from the live sandbox probe",
+      "description": "The EXIT-PROOF1A precondition probe (2026-10-29, live Codex CLI 0.165.0 on this host) showed: with --ignore-user-config and no Windows sandbox mode Codex can run no command at all (every read \"rejected: blocked by policy\"), so the reviewer could never review; with windows.sandbox set (elevated or unelevated) reads work and writes inside and outside the checkout are blocked (\"Access to the path ... is denied\"); Codex reports every command wrapped in an absolute powershell.exe -Command, which the out-of-checkout heuristic reads as a path outside the repository, refusing every review; both sandbox modes can still read the owner profile (the residual the owner accepted as tripwire-only: \"Accept tripwires (Recommended)\"). This phase makes the adapter set the Windows sandbox mode itself (fixed, not configurable) and analyse the command inside a known shell wrapper.",
+      "scope": "Edit the Codex adapter, its tests and its validator rules only.",
+      "writePaths": [
+        "projectos/agent/src/loop/adapters/",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-kernel-followup1a.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No relaxation of any owner gate, closure eligibility predicate or ownerOnlyActions.",
+        "The Codex adapter stays reviewer-only, read-only sandbox, no credential argument; the sandbox mode is fixed by the adapter, never taken from project configuration."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-FOLLOWUP1A"
+      ],
+      "acceptanceCriteria": [
+        "On Windows the adapter always passes a fixed Windows sandbox mode; a configured argument cannot change or remove it; tested.",
+        "A command reported inside a known shell wrapper (absolute powershell.exe/pwsh.exe -Command, cmd.exe /c, bash -lc) is judged by its inner command; an unknown wrapper or an inner command reaching outside the checkout is still a denial; tested with the exact forms the probe recorded.",
+        "Every new rule has a validator pin and a named mutation."
+      ],
+      "requiredValidators": [
+        "val-projectos-kernel-followup1a",
         "validate-no-secrets"
       ],
       "requiredReviews": [
