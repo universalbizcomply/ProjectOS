@@ -105,8 +105,10 @@ export const HELP: readonly string[] = [
  * the stop itself (engaging is always safe, status reads, and the lift carries its own owner-commit
  * check), help and versions, and the read-only views of each command.
  *
- * `--dry-run` IS NOT ON IT. A dry run writes a worker brief and session records, and "prepare everything
- * for the moment the stop is lifted" is not a read; it refuses like the live form.
+ * `--dry-run` IS NOT ON IT. A dry run now writes nothing — not even the brief (PROJECTOS-KERNEL-TRUTH1A,
+ * D5) — but it still drives the run path up to the worker, and "prepare everything for the moment the
+ * stop is lifted" is not a read. That it writes nothing is the runner's promise; this list does not lean
+ * on it, so a dry run refuses like the live form.
  */
 export function readOnlyUnderPlatformStop(command: string, positionals: readonly string[], flags: Flags): boolean {
   const sub = positionals[0];

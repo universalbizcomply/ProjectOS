@@ -37,7 +37,7 @@ Defined in `commands/run.ts` (`continueRouteFor`, `closureRouteFor`, `dispatchCo
 | Defect | — | 1 |
 
 `--dry-run` names the route and runs nothing. For a phase with work left it does a real
-`run --dry-run`, which writes a brief.
+`run --dry-run`, which builds and checks the brief but writes nothing and starts no worker.
 
 ## 3. One phase run (`loop/runner.ts`)
 
