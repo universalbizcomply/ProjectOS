@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-29T18:08:53.819Z",
   "note": "WritePath repair only, no new scope. Owner (Murad), 2026-10-29, verbatim: \"Yes, add and do it (Recommended)\" (the follow-up phase); \"Codex CLI (OpenAI) (Recommended)\" (second reviewer). The approved Codex adapter needs the worker-lifecycle validator to admit it, the config schema to accept its kind, and a stale comment fixed. Standing grant: \"You have full authority\" (2026-10-28).",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-29T18:09:03.759Z"
 }
