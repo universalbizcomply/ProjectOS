@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-KERNEL-CODEX-LIVE1A",
   "project": "ProjectOS",
   "objective": "The EXIT-PROOF1A precondition probe (2026-10-29, live Codex CLI 0.165.0 on this host) showed: with --ignore-user-config and no Windows sandbox mode Codex can run no command at all (every read \"rejected: blocked by policy\"), so the reviewer could never review; with windows.sandbox set (elevated or unelevated) reads work and writes inside and outside the checkout are blocked (\"Access to the path ... is denied\"); Codex reports every command wrapped in an absolute powershell.exe -Command, which the out-of-checkout heuristic reads as a path outside the repository, refusing every review; both sandbox modes can still read the owner profile (the residual the owner accepted as tripwire-only: \"Accept tripwires (Recommended)\"). This phase makes the adapter set the Windows sandbox mode itself (fixed, not configurable) and analyse the command inside a known shell wrapper.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-29T23:13:50.917Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-29T23:13:52.386Z",
+      "note": "Owner-direct closure under the owner's grant. — closed by owner Murad, decision projectos:PROJECTOS-KERNEL-CODEX-LIVE1A:owner-closure:d11eabda"
     }
   ]
 }
