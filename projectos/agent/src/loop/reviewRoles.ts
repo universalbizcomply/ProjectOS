@@ -26,7 +26,7 @@
  */
 import type { ReviewFinding, Severity } from './outcome.js';
 import type { AuthorisedWorker } from './workers.js';
-import { argvGrants } from './workers.js';
+import { ambiguousGrants, argvGrants } from './workers.js';
 
 /** R1. How a self-review is named in a plan: "Claude self-review", "worker self review", "self-review". */
 export const SELF_REVIEW = /\bself[- ]?review\b/i;
@@ -113,7 +113,7 @@ export function roleBindingProblems(implementer: AuthorisedWorker, reviewer: Aut
   }
   // DENY BY DEFAULT. Every grant, in every form the CLI accepts (see `argvGrants`), must be a read. A
   // write grant on the implementer's own records would let the reviewer rewrite its account of itself.
-  const grants = argvGrants(reviewer.args).filter((g) => !READ_ONLY_GRANT.test(g));
+  const grants = [...new Set([...ambiguousGrants(reviewer.args), ...argvGrants(reviewer.args).filter((g) => !READ_ONLY_GRANT.test(g))])];
   if (grants.length > 0) {
     problems.push(`the reviewer '${reviewer.workerId}' holds non-read grants (${grants.join(', ')}); a reviewer only reads`);
   }
@@ -129,7 +129,7 @@ export function verdictMarker(nonce: string): string {
 function inert(value: unknown, max: number): string {
   const text = typeof value === 'string' ? value : '';
   // eslint-disable-next-line no-control-regex
-  return text.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, max);
+  return text.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]|\udb40[\udc00-\udc7f]/g, ' ').slice(0, max);
 }
 
 export type VerdictParse =
@@ -159,9 +159,13 @@ export function parseReviewerVerdict(text: string, nonce: string): VerdictParse 
   const verdict = String(obj['verdict']);
   if (!VERDICTS.has(verdict)) return { ok: false, problem: `the reviewer verdict '${verdict}' is not APPROVE, CONCERNS or REJECT` };
   const reviews = Array.isArray(obj['reviews'])
-    ? obj['reviews'].filter((r): r is string => typeof r === 'string').map((r) => inert(r, 200))
+    ? obj['reviews'].filter((r): r is string => typeof r === 'string').slice(0, MAX_REVIEWER_FINDINGS).map((r) => inert(r, 200))
     : [];
-  const rawFindings = Array.isArray(obj['findings']) ? obj['findings'].slice(0, MAX_REVIEWER_FINDINGS) : [];
+  const rawFindings = Array.isArray(obj['findings']) ? obj['findings'] : [];
+  // Truncating could drop a HIGH at position 51 and turn a rejection into a pass (ECC SECURITY N6).
+  if (rawFindings.length > MAX_REVIEWER_FINDINGS) {
+    return { ok: false, problem: `the reviewer reported ${rawFindings.length} findings, more than the ${MAX_REVIEWER_FINDINGS} one verdict may carry` };
+  }
   const findings: ReviewFinding[] = [];
   for (const [i, f] of rawFindings.entries()) {
     if (f === null || typeof f !== 'object' || Array.isArray(f)) return { ok: false, problem: `reviewer findings[${i}] is not an object` };
@@ -245,7 +249,7 @@ export function reviewerObjection(record: ReviewerRecord): string {
  * changes one could steer or arm the reviewer (hooks, permissions, instructions), so it is not reviewed
  * in-loop at all (Agency IAM F2).
  */
-const REVIEWER_CONFIG_PATH = /(^|\/)(\.claude\/|CLAUDE(\.local)?\.md$|AGENTS\.md$|\.mcp\.json$)/i;
+const REVIEWER_CONFIG_PATH = /(^|\/)(\.claude(\/|$)|CLAUDE(\.local)?\.md$|AGENTS\.md$|GEMINI\.md$|\.mcp\.json$|\.codex(\/|$)|\.cursor(\/|$))/i;
 
 export function reviewerConfigPaths(paths: readonly string[]): readonly string[] {
   return paths.filter((p) => REVIEWER_CONFIG_PATH.test(p));

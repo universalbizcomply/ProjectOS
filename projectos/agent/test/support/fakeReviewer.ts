@@ -35,7 +35,7 @@ export function reviewerReply(instruction: string, verdict = 'APPROVE', findings
   return {
     kind: 'completed',
     exitCode: 0,
-    stdout: JSON.stringify({ result: `Reviewed.\nPROJECTOS-REVIEW ${nonceOf(instruction)} ${body}` }),
+    stdout: JSON.stringify({ result: `Reviewed.\nPROJECTOS-REVIEW ${nonceOf(instruction)} ${body}`, num_turns: 5, permission_denials: [] }),
     stderr: '',
     providerRef: null,
   };

@@ -22,6 +22,9 @@
  *   RR-13 "the grant is the next argument"             — and `--allowedTools Read Bash` grants a shell
  *   RR-14 "the reviewer reads what it is given"        — and the candidate arms or steers the reviewer
  *   RR-15 "closure can trust the worker's list"        — and G4-9 credits the self-claim the loop refuses
+ *   RR-16 "close enough is the same grant"             — and `Read((x) Bash(*)` is a shell to the CLI
+ *   RR-17 "review what fits, trust what it says"       — and part of the change, a rewritten brief or a
+ *                                                         reviewer that read nothing passes as reviewed
  *
  * Each rule has a NAMED MUTATION below; `selfTest` applies it in memory and counts it killed only when
  * THAT rule fires. Comments are stripped first. Reads files; runs nothing, calls no provider.
@@ -54,6 +57,8 @@ const TESTS = {
     "never credits a reviewer worker with an owner, gatekeeper or maintainer review (ECC SECURITY M4)",
     "sees every grant form the CLI accepts: variadic, space-separated, repeated and bare (ECC M5, IAM F1)",
     "names a candidate that changes files the reviewer CLI loads as its own configuration",
+    "refuses a grant the CLI could read as several, and authority loaded from outside the config (ECC N1)",
+    "refuses more findings than one verdict carries, rather than dropping the tail (ECC N6)",
   ],
   "projectos/agent/test/loopRunner.test.ts": [
     "[R2] a worker that NAMES the independent reviews itself does not get past REVIEW_OUTSTANDING without a reviewer",
@@ -61,6 +66,7 @@ const TESTS = {
     "[R2+R4] an approving reviewer satisfies the reviews, and the loop writes a record bound to the candidate and its nonce",
     "[R2] a REJECT from the reviewer leaves the review outstanding, a stop no verdict can approve past",
     "[H2] a reviewer that answered without reading anything has not reviewed",
+    "[N3] a reviewer that tried tools it was denied is treated as steered, not as a review",
   ],
   "projectos/agent/test/loopOutcome.test.ts": [
     "stops a phase whose only review is a self-review, even with that review recorded",
@@ -83,7 +89,7 @@ const MUTATIONS = [
   { name: "implementer-may-review", rule: "RR-3", rel: ROLES_REL,
     from: "if (reviewer.workerId === implementer.workerId) {", to: "if (false) {" },
   { name: "reviewer-may-write", rule: "RR-3", rel: ROLES_REL,
-    from: "const grants = argvGrants(reviewer.args).filter((g) => !READ_ONLY_GRANT.test(g));", to: "const grants: string[] = [];" },
+    from: "const grants = [...new Set([...ambiguousGrants(reviewer.args), ...argvGrants(reviewer.args).filter((g) => !READ_ONLY_GRANT.test(g))])];", to: "const grants: string[] = [];" },
   { name: "ignore-tree-drift", rule: "RR-4", rel: REVIEW_REL,
     from: "after.identity.digest !== before.identity.digest", to: "after.identity.digest !== after.identity.digest" },
   { name: "fixed-nonce", rule: "RR-4", rel: REVIEW_REL,
@@ -107,7 +113,7 @@ const MUTATIONS = [
     from: "for (let j = i + 1; j < args.length && !(args[j] as string).startsWith('-'); j += 1) add(args[j] as string);",
     to: "if (args[i + 1] !== undefined) add(args[i + 1] as string);" },
   { name: "bare-grant-invisible", rule: "RR-13", rel: WORKERS_REL,
-    from: "/^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent)\\s*(\\(|$)/i", to: "/^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent)\\s*\\(/i" },
+    from: "/^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|Task|Agent)\\s*(\\(|$)/i", to: "/^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|Task|Agent)\\s*\\(/i" },
   { name: "reviewer-loads-candidate-config", rule: "RR-14", rel: REVIEW_REL,
     from: "const armed = reviewerConfigPaths(paths);", to: "const armed: string[] = [];" },
   { name: "closure-credits-worker-list", rule: "RR-15", rel: CLOSURE_REL,
@@ -117,6 +123,14 @@ const MUTATIONS = [
     from: "sha256(reviewerText) !== recordedReviewer", to: "false" },
   { name: "runner-binds-no-reviewer-digest", rule: "RR-15", rel: RUNNER_REL,
     from: "store.writeEvidence(sys, root, { ...evidence, reviewerSha256: reviewed.recordSha256 });", to: "" },
+  { name: "ambiguous-grant-allowed", rule: "RR-16", rel: WORKERS_REL,
+    from: "for (const grant of ambiguousGrants(args)) {", to: "for (const grant of [] as string[]) {" },
+  { name: "partial-review", rule: "RR-17", rel: REVIEW_REL,
+    from: "if (paths.length > REVIEW_PATHS_SHOWN) {", to: "if (false) {" },
+  { name: "brief-not-reverified", rule: "RR-17", rel: REVIEW_REL,
+    from: "if (sys.readText(input.brief.records.briefPath) !== `${JSON.stringify(input.brief, null, 2)}\\n`) {", to: "if (false) {" },
+  { name: "turns-fail-open", rule: "RR-17", rel: REVIEW_REL,
+    from: "if (turns === null || turns < 2) {", to: "if (turns === 1) {" },
   { name: "reviewer-not-denied", rule: "RR-14", rel: ADAPTER_REL,
     from: "[...worker.args, ...REVIEWER_DENIED, ...OUTPUT_ARGS, '-p', instruction]", to: "[...worker.args, ...OUTPUT_ARGS, '-p', instruction]" },
 ];
@@ -185,7 +199,7 @@ function check(raw) {
     E("RR-2", "the runner passes the worker's own review list to the decision instead of creditedReviews");
   }
   if (!roles.includes("if (reviewer.workerId === implementer.workerId) {") ||
-      !roles.includes("const grants = argvGrants(reviewer.args).filter((g) => !READ_ONLY_GRANT.test(g));")) {
+      !roles.includes("const grants = [...new Set([...ambiguousGrants(reviewer.args), ...argvGrants(reviewer.args).filter((g) => !READ_ONLY_GRANT.test(g))])];")) {
     E("RR-3", "roleBindingProblems no longer refuses the implementer as reviewer, or a reviewer with write grants");
   }
   if (!review.includes("after.identity.digest !== before.identity.digest") ||
@@ -223,13 +237,23 @@ function check(raw) {
   }
   const workers = src[WORKERS_REL];
   if (!workers.includes("for (let j = i + 1; j < args.length && !(args[j] as string).startsWith('-'); j += 1) add(args[j] as string);") ||
-      !workers.includes("/^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent)\\s*(\\(|$)/i")) {
+      !workers.includes("/^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|Task|Agent)\\s*(\\(|$)/i")) {
     E("RR-13", "argvGrants reads only the next argument, or a bare write-capable tool name is not seen");
   }
   if (!review.includes("const armed = reviewerConfigPaths(paths);") ||
       !src[ADAPTER_REL].includes("[...worker.args, ...REVIEWER_DENIED, ...OUTPUT_ARGS, '-p', instruction]") ||
       !roles.includes("UNTRUSTED DATA WRITTEN BY THE IMPLEMENTER")) {
     E("RR-14", "the reviewer may load candidate-written configuration, is not deny-listed, or is not told the repository is untrusted");
+  }
+  if (!workers.includes("for (const grant of ambiguousGrants(args)) {") ||
+      !roles.includes("...ambiguousGrants(reviewer.args)")) {
+    E("RR-16", "a grant with nested or unbalanced parentheses is not refused for implementers and reviewers");
+  }
+  if (!review.includes("if (paths.length > REVIEW_PATHS_SHOWN) {") ||
+      !review.includes("if (sys.readText(input.brief.records.briefPath) !== `${JSON.stringify(input.brief, null, 2)}\\n`) {") ||
+      !review.includes("if (turns === null || turns < 2) {") ||
+      !review.includes("if (reviewerDenials(outcome.stdout) > 0) {")) {
+    E("RR-17", "the review may cover part of the change, read a rewritten brief, or pass without evidence of reading");
   }
   const closure = src[CLOSURE_REL];
   if (!closure.includes("const credited = creditedReviews(required, recorded.reviews, reviewer);") ||

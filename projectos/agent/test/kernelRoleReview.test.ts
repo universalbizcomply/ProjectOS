@@ -82,6 +82,15 @@ describe('R3 — role binding', () => {
     expect(toolGrantProblems(['--allowedTools', 'Read', 'Bash']).join()).toContain("tool grant 'Bash'");
     expect(toolGrantProblems(['--allowedTools', 'Write']).join()).toContain("tool grant 'Write'");
   });
+  it('refuses a grant the CLI could read as several, and authority loaded from outside the config (ECC N1)', () => {
+    expect(toolGrantProblems(['--allowedTools', 'Read((x) Bash(*)']).join()).toContain('nested or unbalanced parentheses');
+    expect(roleBindingProblems(worker('impl'), worker('rev', ['--allowedTools', 'Read((x) Bash(*)'])).join()).toContain('non-read grants');
+    expect(toolGrantProblems(['--permission-mode=bypassPermissions']).length).toBeGreaterThan(0);
+    for (const flag of ['--settings', '--add-dir', '--mcp-config', '--agents', '--plugin-dir']) {
+      expect(toolGrantProblems([flag, 'x']).join(), flag).toContain('loads authority from outside this config');
+    }
+    expect(toolGrantProblems(['--allowedTools', 'PowerShell']).join()).toContain("tool grant 'PowerShell'");
+  });
   it('refuses the flags that remove permission checks, and the --flag=value grant form', () => {
     expect(toolGrantProblems(['--dangerously-skip-permissions']).join()).toContain('removes the permission checks');
     expect(toolGrantProblems(['--permission-mode', 'bypassPermissions']).join()).toContain('beyond its grants');
@@ -99,8 +108,8 @@ describe('H2 / F2 — what the reviewer is told and what it may be steered by', 
     expect(text).not.toContain('f120.ts');
   });
   it('names a candidate that changes files the reviewer CLI loads as its own configuration', () => {
-    expect(reviewerConfigPaths(['src/a.ts', '.claude/settings.json', 'docs/CLAUDE.md', '.mcp.json', 'AGENTS.md'])).toEqual([
-      '.claude/settings.json', 'docs/CLAUDE.md', '.mcp.json', 'AGENTS.md',
+    expect(reviewerConfigPaths(['src/a.ts', '.claude/settings.json', 'docs/CLAUDE.md', '.mcp.json', 'AGENTS.md', '.claude', '.codex/config.toml'])).toEqual([
+      '.claude/settings.json', 'docs/CLAUDE.md', '.mcp.json', 'AGENTS.md', '.claude', '.codex/config.toml',
     ]);
   });
 });
@@ -112,6 +121,10 @@ describe('R4 — the verdict and the record are bound', () => {
     const v = parseReviewerVerdict(text, NONCE);
     expect(v.ok && v.verdict).toBe('APPROVE');
     expect(parseReviewerVerdict(line('ff'.repeat(16), { verdict: 'APPROVE' }), NONCE).ok).toBe(false);
+  });
+  it('refuses more findings than one verdict carries, rather than dropping the tail (ECC N6)', () => {
+    const many = Array.from({ length: 51 }, (_, i) => ({ id: `F${i}`, severity: i === 50 ? 'HIGH' : 'LOW' }));
+    expect(parseReviewerVerdict(line(NONCE, { verdict: 'APPROVE', findings: many }), NONCE).ok).toBe(false);
   });
   it('refuses an unknown verdict and severity, and never lets a reviewer mark its own finding resolved', () => {
     expect(parseReviewerVerdict(line(NONCE, { verdict: 'LGTM' }), NONCE).ok).toBe(false);

@@ -17,6 +17,7 @@ import type { System } from '../system.js';
 import type { WorkerBrief } from './brief.js';
 import { computeCandidateIdentity } from './candidateIdentity.js';
 import {
+  REVIEW_PATHS_SHOWN,
   parseReviewerVerdict,
   reviewerConfigPaths,
   reviewInstruction,
@@ -47,14 +48,26 @@ export type IndependentReviewResult =
   | { readonly ok: true; readonly record: ReviewerRecord; readonly recordSha256: string }
   | { readonly ok: false; readonly problems: readonly string[] };
 
-/** `num_turns` from the CLI's structured output, or null when it reported none. */
-function reviewerTurns(stdout: string): number | null {
+/** A field of the CLI's structured output, or undefined when the output is not structured. */
+function structuredField(stdout: string, field: string): unknown {
   try {
-    const turns = (JSON.parse(stdout.trim()) as Record<string, unknown>)['num_turns'];
-    return typeof turns === 'number' ? turns : null;
+    const parsed = JSON.parse(stdout.trim()) as unknown;
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>)[field] : undefined;
   } catch {
-    return null;
+    return undefined;
   }
+}
+
+/** `num_turns`, or null when the CLI reported none — which is not evidence of reading anything. */
+function reviewerTurns(stdout: string): number | null {
+  const turns = structuredField(stdout, 'num_turns');
+  return typeof turns === 'number' ? turns : null;
+}
+
+/** How many tool uses the CLI denied the reviewer. A CLI that reports no list denied none. */
+function reviewerDenials(stdout: string): number {
+  const denials = structuredField(stdout, 'permission_denials');
+  return Array.isArray(denials) ? denials.length : 0;
 }
 
 export function runIndependentReview(sys: System, root: string, input: IndependentReviewInput): IndependentReviewResult {
@@ -71,6 +84,11 @@ export function runIndependentReview(sys: System, root: string, input: Independe
   const baseHead = input.brief.repository.head;
   if (baseHead === null) return { ok: false, problems: ['the brief is not bound to a commit, so there is no base to review against'] };
 
+  // THE BRIEF ON DISK MUST STILL BE THE ONE THE LOOP WROTE. The checks ran candidate code since, and the
+  // reviewer reads its acceptance criteria from this file (ECC SECURITY N4). Same encoding as `writeBrief`.
+  if (sys.readText(input.brief.records.briefPath) !== `${JSON.stringify(input.brief, null, 2)}\n`) {
+    return { ok: false, problems: ['the brief on disk is not the one the loop wrote for this run, so the reviewer would judge against other criteria'] };
+  }
   const before = computeCandidateIdentity(sys, root);
   if (!before.ok) return { ok: false, problems: before.problems.map((p) => `the candidate could not be named: ${p}`) };
   const subject: ReviewSubject = {
@@ -82,6 +100,12 @@ export function runIndependentReview(sys: System, root: string, input: Independe
   };
   const nonce = input.nonce ?? randomBytes(16).toString('hex');
   const paths = before.identity.entries.map((e) => e.path);
+  if (paths.length > REVIEW_PATHS_SHOWN) {
+    return {
+      ok: false,
+      problems: [`the candidate changes ${paths.length} paths, more than the ${REVIEW_PATHS_SHOWN} one review is shown; a partly seen change is not reviewed`],
+    };
+  }
   const armed = reviewerConfigPaths(paths);
   if (armed.length > 0) {
     return {
@@ -100,8 +124,12 @@ export function runIndependentReview(sys: System, root: string, input: Independe
     return { ok: false, problems: [`the reviewer '${worker.workerId}' ${why}`] };
   }
   if (outcome.exitCode !== 0) return { ok: false, problems: [`the reviewer '${worker.workerId}' exited ${outcome.exitCode}`] };
-  if (reviewerTurns(outcome.stdout) === 1) {
-    return { ok: false, problems: [`the reviewer '${worker.workerId}' answered without reading anything, which is not a review`] };
+  const turns = reviewerTurns(outcome.stdout);
+  if (turns === null || turns < 2) {
+    return { ok: false, problems: [`the reviewer '${worker.workerId}' did not show that it read anything, which is not a review`] };
+  }
+  if (reviewerDenials(outcome.stdout) > 0) {
+    return { ok: false, problems: [`the reviewer '${worker.workerId}' attempted tools it was denied, so it may have been steered by the candidate`] };
   }
   const parsed = parseReviewerVerdict(reviewerText(outcome.stdout), nonce);
   if (!parsed.ok) return { ok: false, problems: [parsed.problem] };

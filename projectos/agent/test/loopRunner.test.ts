@@ -1837,7 +1837,29 @@ describe('D11: role-separated independent review inside the loop', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
-    expect(r.stop?.detail).toContain('without reading anything');
+    expect(r.stop?.detail).toContain('did not show that it read anything');
+  });
+
+  it('[N3] a reviewer that tried tools it was denied is treated as steered, not as a review', () => {
+    const { registry } = fakeAdapter();
+    const base = registry[WORKER_KIND] as WorkerAdapter;
+    const steered: AdapterRegistry = {
+      [WORKER_KIND]: {
+        ...base,
+        review: (_s, _w, _b, instruction) => {
+          const reply = reviewerReply(instruction);
+          if (reply.kind !== 'completed') return reply;
+          const body = JSON.parse(reply.stdout) as Record<string, unknown>;
+          return { ...reply, stdout: JSON.stringify({ ...body, permission_denials: [{ tool_name: 'Bash' }] }) };
+        },
+      },
+    };
+    const sys = world({ files: cleanFindings(SESSION) });
+    const r = runLoop(sys, ROOT, { adapters: steered });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
+    expect(r.stop?.detail).toContain('attempted tools it was denied');
   });
 
   it('[R2] a reviewer reply without this dispatch’s nonce is not a verdict', () => {

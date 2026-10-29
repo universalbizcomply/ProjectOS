@@ -187,7 +187,9 @@ const WORKER_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
  */
 const REVIEWER_DENIED: readonly string[] = [
   '--disallowedTools',
-  'Bash,Write,Edit,MultiEdit,NotebookEdit,Task,Agent,WebFetch,WebSearch',
+  'Bash,PowerShell,Write,Edit,MultiEdit,NotebookEdit,Task,Agent,WebFetch,WebSearch',
+  // Only MCP servers given explicitly, and none are: a candidate-written MCP config is never loaded.
+  '--strict-mcp-config',
 ];
 
 /** Structured output is requested so the run reports a handle that a rejoin can name. */

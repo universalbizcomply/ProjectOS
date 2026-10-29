@@ -588,7 +588,7 @@ export const PROJECTOS_OWNED_RECORD_SUFFIXES: readonly string[] = ['.brief.json'
  * ProjectOS. The boundary it enforces is "the project cannot widen worker authority quietly", not
  * "the worker can do nothing else".
  */
-const WRITE_CAPABLE_GRANT = /^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent)\s*(\(|$)/i;
+const WRITE_CAPABLE_GRANT = /^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|Task|Agent)\s*(\(|$)/i;
 
 /**
  * Flags that hand a worker authority no grant list can take back: skipping permission checks
@@ -596,6 +596,22 @@ const WRITE_CAPABLE_GRANT = /^(Write|Edit|MultiEdit|NotebookEdit|Bash|Task|Agent
  */
 const AUTHORITY_FLAGS = /^--(dangerously-skip-permissions|allow-dangerously-skip-permissions)$/;
 const UNSAFE_PERMISSION_MODES: readonly string[] = ['bypassPermissions', 'acceptEdits', 'auto'];
+
+/** Flags that load authority from somewhere this config does not show. Refused in every form. */
+const UNPOLICED_AUTHORITY_FLAGS: readonly string[] = ['--settings', '--add-dir', '--mcp-config', '--agents', '--plugin-dir'];
+
+/**
+ * A grant whose parentheses are nested or unbalanced. The CLI tracks parentheses with a single flag, not
+ * a depth, so `Read((x) Bash(*)` is ONE grant here and TWO there, the second a shell (ECC SECURITY N1).
+ * Rather than mirror the CLI's parser, anything the two could read differently is refused.
+ */
+export function ambiguousGrants(args: readonly string[]): readonly string[] {
+  return argvGrants(args).filter((g) => {
+    const open = (g.match(/\(/g) ?? []).length;
+    const close = (g.match(/\)/g) ?? []).length;
+    return open > 1 || close > 1 || open !== close;
+  });
+}
 
 /**
  * Why this worker's tool grants are unacceptable, or empty when they are fine.
@@ -610,12 +626,20 @@ export function toolGrantProblems(args: readonly string[]): readonly string[] {
     if (arg === '--permission-mode' && UNSAFE_PERMISSION_MODES.includes(args[i + 1] ?? '')) {
       problems.push(`'--permission-mode ${args[i + 1]}' lets a worker act beyond its grants`);
     }
+    if (arg.startsWith('--permission-mode=')) problems.push(`'${arg}' is not accepted; give the mode as its own argument`);
+    const flag = arg.split('=')[0] as string;
+    if (UNPOLICED_AUTHORITY_FLAGS.includes(flag)) {
+      problems.push(`'${flag}' loads authority from outside this config, which the loop cannot judge`);
+    }
     if (ALLOWED_TOOLS_FLAGS.some((f) => arg.startsWith(`${f}=`))) {
       problems.push(`'${arg.split('=')[0]}=' is not accepted; give the grant list as its own argument`);
     }
     if (ALLOWED_TOOLS_FLAGS.includes(arg) && (args[i + 1] === undefined || (args[i + 1] as string).startsWith('-'))) {
       problems.push('--allowedTools is given with no value');
     }
+  }
+  for (const grant of ambiguousGrants(args)) {
+    problems.push(`tool grant '${grant}' has nested or unbalanced parentheses, which the CLI may read as several grants`);
   }
   for (const grant of argvGrants(args)) {
     if (!WRITE_CAPABLE_GRANT.test(grant)) continue;
