@@ -69,7 +69,9 @@ beforeEach(() => {
   savedLocalAppData = process.env['LOCALAPPDATA'];
   const base = mkdtempSync(join(tmpdir(), 'projectos-hcr-state-'));
   made.push(base);
-  process.env['LOCALAPPDATA'] = base;
+  // `AppData/Local` beneath the base, so the account profile the emergency stop derives from the operating
+  // system agrees with it (see test/setup.ts); a disagreeing environment would read as STOPPED.
+  process.env['LOCALAPPDATA'] = join(base, 'AppData', 'Local');
 });
 afterEach(() => {
   if (savedLocalAppData === undefined) delete process.env['LOCALAPPDATA'];

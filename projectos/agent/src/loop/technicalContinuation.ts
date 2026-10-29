@@ -46,7 +46,7 @@ import type { System } from '../system.js';
 import { computeCandidateIdentity, describeCandidateDrift } from './candidateIdentity.js';
 import { classifyOwnerGates } from './brief.js';
 import { resolveClosureCommitDelegation, resolveTechnicalDelegation } from './gatekeeperConfig.js';
-import { platformStopRefusal } from './platformStop.js';
+import { platformStopRefusal, STOP_AFTER_COMMIT, STOP_BEFORE_ACT } from './platformStop.js';
 import type { GovernedContext } from '../governedContext.js';
 import {
   TECHNICAL_ACTIONS,
@@ -165,7 +165,7 @@ export function runTechnicalContinuation(sys: System, request: ContinuationReque
   // THE PLATFORM STOP FIRST, before git is asked anything: under a stop nothing here runs at all, and the
   // refusal says nothing was attempted — which is true, because nothing was.
   const stopped = platformStopRefusal(sys, request.platformStopStateDir);
-  if (stopped !== null) return refuse(['no technical continuation runs while the platform stop is engaged', ...stopped]);
+  if (stopped !== null) return refuse(['no technical continuation runs while the emergency stop is engaged', ...stopped]);
   const { context } = request;
   const lines: string[] = [];
 
@@ -339,6 +339,10 @@ function doCommit(
     return refuse(['the candidate is empty — there is nothing to commit, and an empty commit is not a continuation']);
   }
 
+  // THE EMERGENCY STOP, IMMEDIATELY BEFORE THE IRREVERSIBLE ACT. Asked at entry too; asked again here
+  // because a fetch and a candidate re-derivation sit in between, and the stop is judged when it executes.
+  const stoppedBeforeCommit = platformStopRefusal(sys, request.platformStopStateDir, STOP_BEFORE_ACT);
+  if (stoppedBeforeCommit !== null) return refuse(['the commit was not made: the emergency stop is engaged', ...stoppedBeforeCommit]);
   // `--all` is NOT used. It would sweep in anything that became dirty since the identity was taken,
   // which is precisely the drift the identity exists to detect.
   const staged = sys.exec('git', ['-C', root, 'add', '--', ...paths]);
@@ -410,6 +414,8 @@ function doPush(
     return refuse([`HEAD moved between authorisation and push (${expectedLocalHead.slice(0, 7)} -> ${head.out.slice(0, 7)})`]);
   }
 
+  const stoppedBeforePush = platformStopRefusal(sys, request.platformStopStateDir, STOP_BEFORE_ACT);
+  if (stoppedBeforePush !== null) return refuse(['the push was not made: the emergency stop is engaged', ...stoppedBeforePush]);
   const pushed = sys.exec('git', ['-C', root, 'push', expectedRemote, `${expectedBranch}:${expectedBranch}`]);
   if (pushed.code !== 0) {
     // A REJECTION IS A SAFE STOP, NOT A PROBLEM TO SOLVE. Nothing is retried, forced or reconciled.
@@ -484,6 +490,8 @@ function doFastForward(
     ]);
   }
 
+  const stoppedBeforeMerge = platformStopRefusal(sys, request.platformStopStateDir, STOP_BEFORE_ACT);
+  if (stoppedBeforeMerge !== null) return refuse(['the integration was not made: the emergency stop is engaged', ...stoppedBeforeMerge]);
   const merged = sys.exec('git', [
     '-C',
     root,
@@ -559,6 +567,8 @@ export interface OwnRecordsCommitRequest {
   readonly phaseOwnerGates: readonly string[];
   /** The owner's `closure-decision-commit` grant, judged from the committed delegation. Required for the closure kinds. */
   readonly closureCommit?: { readonly granted: boolean; readonly problems: readonly string[] };
+  /** Where the emergency stop is read; absent in production. A test names a temporary directory. */
+  readonly platformStopStateDir?: string | null | undefined;
 }
 
 export type OwnRecordsOutcome =
@@ -593,6 +603,11 @@ export type OwnRecordsOutcome =
  * module; there is no `--force`, no `--all` and no refspec from outside.
  */
 export function commitOwnRecords(sys: System, request: OwnRecordsCommitRequest): OwnRecordsOutcome {
+  // THE EMERGENCY STOP, at entry and again before the commit and before the push below.
+  const stoppedAtEntry = platformStopRefusal(sys, request.platformStopStateDir);
+  if (stoppedAtEntry !== null) {
+    return { kind: 'REFUSED', reasons: ['ProjectOS commits and pushes none of its records while the emergency stop is engaged', ...stoppedAtEntry], nothingAttempted: true };
+  }
   const { root, expectedBranch, expectedRemote } = request;
   const ownerOnly = enforcedOwnerOnlyActions(request.phaseOwnerGates, technicalDelegationCondition(request.delegation)).map(String);
   const reserved = ['commit', 'push'].filter((a) => ownerOnly.includes(a));
@@ -644,6 +659,8 @@ export function commitOwnRecords(sys: System, request: OwnRecordsCommitRequest):
     return refuseNow([`HEAD is ${m[1]} ahead and ${m[2]} behind '${upstream}'; ProjectOS commits its records only on a pushed, reconciled head`]);
   }
 
+  const stoppedBeforeRecordsCommit = platformStopRefusal(sys, request.platformStopStateDir, STOP_BEFORE_ACT);
+  if (stoppedBeforeRecordsCommit !== null) return refuseNow(['the records were not committed: the emergency stop is engaged', ...stoppedBeforeRecordsCommit]);
   // LITERAL PATHSPECS: a record path is a file name, never a pattern git would expand.
   const staged = sys.exec('git', ['--literal-pathspecs', '-C', root, 'add', '--', ...dirty]);
   if (staged.code !== 0) {
@@ -671,6 +688,14 @@ export function commitOwnRecords(sys: System, request: OwnRecordsCommitRequest):
   const parent = git(sys, root, ['rev-parse', 'HEAD~1']);
   if (!parent.ok || parent.out !== head.out) {
     return { kind: 'REFUSED', reasons: [`committed locally as ${after.out.slice(0, 7)}, NOT pushed: its parent is not the head that was checked against the remote`], nothingAttempted: false };
+  }
+  const stoppedBeforeRecordsPush = platformStopRefusal(sys, request.platformStopStateDir, STOP_AFTER_COMMIT);
+  if (stoppedBeforeRecordsPush !== null) {
+    return {
+      kind: 'REFUSED',
+      reasons: [`committed locally as ${after.out.slice(0, 7)}, NOT pushed: the emergency stop is engaged`, ...stoppedBeforeRecordsPush],
+      nothingAttempted: false,
+    };
   }
   const pushed = sys.exec('git', ['-C', root, 'push', expectedRemote, `${expectedBranch}:${expectedBranch}`]);
   if (pushed.code !== 0) {
@@ -736,7 +761,7 @@ export function commitOwnRecordsFor(
   // would fall back to the owner), but refusing here says WHY in one line, before git is asked anything.
   const stopped = platformStopRefusal(sys, platformStopStateDir);
   if (stopped !== null) {
-    return { kind: 'REFUSED', reasons: ['ProjectOS commits and pushes none of its records while the platform stop is engaged', ...stopped], nothingAttempted: true };
+    return { kind: 'REFUSED', reasons: ['ProjectOS commits and pushes none of its records while the emergency stop is engaged', ...stopped], nothingAttempted: true };
   }
   const phases = Array.isArray(context.plan['phases']) ? (context.plan['phases'] as unknown[]) : [];
   const phase = phases.find((ph) => typeof ph === 'object' && ph !== null && (ph as Record<string, unknown>)['phaseId'] === phaseId) as
@@ -757,5 +782,6 @@ export function commitOwnRecordsFor(
     delegation: resolveTechnicalDelegation(sys, root, programme),
     phaseOwnerGates: ownerGatesOfPlanPhase(phase['requiredOwnerGates']),
     ...(CLOSURE_COMMIT_KINDS.includes(kind) ? { closureCommit: resolveClosureCommitDelegation(sys, root, programme) } : {}),
+    platformStopStateDir,
   });
 }

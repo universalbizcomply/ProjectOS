@@ -27,6 +27,7 @@ import { execFileSync } from 'node:child_process';
 import { closure, closureRequest, type MakeClosureDeps } from '../src/commands/closure.js';
 import { closureResume } from '../src/commands/closure.js';
 import { continueCommand } from '../src/commands/run.js';
+import { engagePlatformStop, STOP_AFTER_ASK, STOP_NOTHING_DONE } from '../src/loop/platformStop.js';
 import { phase as phaseCommand } from '../src/commands/phase.js';
 import { nodeSystem, resolveBoundGit } from '../src/system.js';
 import { normaliseRemote } from '../src/loop/observation.js';
@@ -384,6 +385,36 @@ function fixtureDeps(sent: string[], mutate: (answer: Record<string, unknown>) =
 }
 
 describe('the synthetic Route-A chain', () => {
+  it('[PLATFORM-STOP] a stop engaged while the closure question was out: the paid answer is presented, nothing is committed', () => {
+    const w = world();
+    const sent: string[] = [];
+    const stopDir = mkdtempSync(join(tmpdir(), 'projectos-closure-stop-'));
+    const ctx = { ...w.ctx, platformStopStateDir: stopDir } as typeof w.ctx;
+    const stopping: MakeClosureDeps = (args) => {
+      const deps = fixtureDeps(sent)(args) as unknown as { hostReview: { reviewClosure(call: HostClosureReviewCall): unknown } } & Record<string, unknown>;
+      return {
+        ...deps,
+        hostReview: {
+          reviewClosure(call: HostClosureReviewCall) {
+            engagePlatformStop(nodeSystem, stopDir, { reason: 'mid-ask', engagedBy: 'tester' });
+            return deps.hostReview.reviewClosure(call);
+          },
+        },
+      } as unknown as ReturnType<MakeClosureDeps>;
+    };
+    const before = git(w.root, 'rev-parse', 'HEAD').trim();
+    const result = closureRequest(ctx, { id: PHASE, execute: true }, stopping);
+    rmSync(stopDir, { recursive: true, force: true });
+    expect(sent).toHaveLength(1);
+    expect(result.code).toBe(2);
+    const text = result.lines.join('\n');
+    expect(text).toContain('REFUSED (PLATFORM_STOP)');
+    expect(text).toContain(STOP_AFTER_ASK);
+    expect(text).not.toContain(STOP_NOTHING_DONE);
+    expect(git(w.root, 'rev-parse', 'HEAD').trim()).toBe(before);
+    expect(git(w.origin, 'rev-parse', BRANCH).trim()).toBe(before);
+  });
+
   it('reaches WAITING_OWNER automatically, and closes nothing on its own', () => {
     const w = world();
     const sent: string[] = [];

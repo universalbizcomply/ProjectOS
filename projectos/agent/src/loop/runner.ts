@@ -97,7 +97,7 @@ import {
   type ReviewerRecord,
 } from './reviewRoles.js';
 import { candidateStillReviewed, runIndependentReview } from './independentReview.js';
-import { platformStopRefusal } from './platformStop.js';
+import { platformStopRefusal, STOP_AFTER_WORK, STOP_NOTHING_DONE } from './platformStop.js';
 import {
   digestOf,
   invocationIdFor,
@@ -733,7 +733,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       attempt,
       subjectCommit: verification.observed.head ?? null,
       lastStopCode: null,
-      lastStopDetail: 'the platform-wide emergency stop is engaged',
+      lastStopDetail: 'the emergency stop is engaged',
       ownerRequired: true,
     });
     return refused([...lines, ...refusal]);
@@ -887,7 +887,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    */
   const degradedContinuation = (candidate: LoopStop, cause: GatekeeperUnavailabilityCause): DegradedOutcome => {
     // NO GRANT IS SPENT UNDER A STOP: a consumption is durable and single-use, and a stop must not burn it.
-    const haltedDegraded = platformStopRefusal(sys, stopDir);
+    const haltedDegraded = platformStopRefusal(sys, stopDir, STOP_AFTER_WORK);
     if (haltedDegraded !== null) {
       lines.push('  degraded mode REFUSED: the platform stop is engaged; nothing was authorised and no grant was spent');
       return { kind: 'REFUSED', reasons: haltedDegraded };
@@ -1006,7 +1006,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    */
   const consultGatekeeper = (candidate: LoopStop, evidenceText: string): 'retry' | 'proceed' | null => {
     // NO PAID QUESTION UNDER A STOP. `null` leaves the stop standing, exactly as "no reviewer" does.
-    const haltedReview = platformStopRefusal(sys, stopDir);
+    const haltedReview = platformStopRefusal(sys, stopDir, STOP_AFTER_WORK);
     if (haltedReview !== null) {
       lines.push('  the reviewer was not asked: the platform stop is engaged, so nothing was spent', ...haltedReview.map((l) => `    ${l}`));
       return null;
@@ -1207,7 +1207,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    */
   const recordLocalCandidate = (): Record<string, unknown> | null => {
     // NO LOCAL COMMIT UNDER A STOP. Remembered as a refusal, so `consultGatekeeper` asks nothing either.
-    const haltedCandidate = platformStopRefusal(sys, stopDir);
+    const haltedCandidate = platformStopRefusal(sys, stopDir, STOP_AFTER_WORK);
     if (haltedCandidate !== null) {
       localCandidateRefusal = haltedCandidate;
       return { available: false, why: 'the platform stop is engaged, so no candidate commit was made' };
@@ -1525,7 +1525,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   const runContinuation = (): ContinuationResult => {
     // NO COMMIT OR PUSH UNDER A STOP, however the decision read. REFUSED, never NO_ACTION, so the record
     // says the action was refused rather than that nothing was approved.
-    const haltedContinuation = platformStopRefusal(sys, stopDir);
+    const haltedContinuation = platformStopRefusal(sys, stopDir, STOP_AFTER_WORK);
     if (haltedContinuation !== null) {
       lines.push('  no technical continuation: the platform stop is engaged', ...haltedContinuation.map((l) => `    ${l}`));
       return { kind: 'REFUSED', detail: 'the platform stop is engaged, so nothing was committed or pushed' };
@@ -1778,7 +1778,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     //
     // AND THE PLATFORM STOP IS ASKED IMMEDIATELY BEFORE IT. This is the line every correction loops back
     // to, so a stop engaged during the first attempt means there is no second dispatch.
-    const haltedDispatch = platformStopRefusal(sys, stopDir);
+    const haltedDispatch = platformStopRefusal(sys, stopDir, attempts === 0 ? STOP_NOTHING_DONE : STOP_AFTER_WORK);
     if (haltedDispatch !== null) return haltMidRun(haltedDispatch, attempts);
     options.onWorkState?.({
       state: 'WAITING_AI',
@@ -2001,7 +2001,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     let reviewerProblems: readonly string[] = [];
     const outstandingIndependent = independentReviews(required).filter((r) => !turnFacts.reviewsRecorded.includes(r));
     // NO INDEPENDENT REVIEWER IS STARTED UNDER A STOP: it is a worker dispatch like any other.
-    const haltedReviewer = platformStopRefusal(sys, stopDir);
+    const haltedReviewer = platformStopRefusal(sys, stopDir, STOP_AFTER_WORK);
     if (haltedReviewer !== null) return haltMidRun(haltedReviewer, attempts);
     if (decision.kind === 'stop' && decision.reason.code === 'REVIEW_OUTSTANDING' && outstandingIndependent.length > 0) {
       const reviewed = runIndependentReview(sys, root, {
@@ -2163,11 +2163,11 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   lines.push(`Evidence: ${store.evidencePath(root, sessionId)}`);
   // THE LAST CHECK. A stop engaged while this run was finishing turns its answer into a refusal: the work
   // it already did is reported above as it happened, and nothing further follows from it.
-  const haltedAtEnd = platformStopRefusal(sys, stopDir);
+  const haltedAtEnd = platformStopRefusal(sys, stopDir, STOP_AFTER_WORK);
   if (haltedAtEnd !== null) {
     return haltMidRun(
       [
-        'the platform stop was engaged while this run was in progress; the run ended here and no further commit,',
+        'the emergency stop was engaged while this run was in progress; the run ended here and no further commit,',
         'push, review or continuation follows from it. Anything the lines above report as already committed or',
         'pushed happened before the stop and is not reversed.',
         ...haltedAtEnd,

@@ -179,7 +179,8 @@ describe('the recording path, on a real repository with an owner-accepted upstre
 
   it('evaluate hashes the cached text before use: bytes that are not the registered bytes never reach an engine', () => {
     const { work } = acceptedRepo();
-    const base = join(work, '..', 'localappdata');
+    // `AppData/Local` so the emergency stop's operating-system view agrees with it (see test/setup.ts).
+    const base = join(work, '..', 'localappdata', 'AppData', 'Local');
     const saved = process.env['LOCALAPPDATA'];
     process.env['LOCALAPPDATA'] = base;
     try {

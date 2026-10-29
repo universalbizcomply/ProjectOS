@@ -298,7 +298,7 @@ describe('what it answers, and what it never says', () => {
     const response = handleBridgeRpc(call('stop-work'), w.deps);
     const text = textOf(response);
     expect(isError(response)).toBe(false);
-    expect(text).toContain('PLATFORM STOP ENGAGED');
+    expect(text).toContain('EMERGENCY STOP ENGAGED');
     expect(text).toContain(PLATFORM_STOP_STATEMENT);
     expect(text).not.toContain(w.stateDir);
     // THE CLAIM IS TRUE NOW: the record exists, and every governed entry point refuses on it.

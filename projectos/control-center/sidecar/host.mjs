@@ -60,7 +60,7 @@ import {
   GOVERNED_PORTFOLIO_MESSAGE_KIND,
   toProjectSummary,
 } from '../node-build/governed/projectInventory.js';
-import { phase as phaseCommand, approve as approveCommand, report as reportCommand, plan as planCommand, nodeSystem as agentSystem, setGovernanceEngines, platformStopRefusal } from '@projectos/agent';
+import { phase as phaseCommand, approve as approveCommand, report as reportCommand, plan as planCommand, nodeSystem as agentSystem, setGovernanceEngines, controlCenterVerbRefusal } from '@projectos/agent';
 import { gitBoundSystem } from './gitBoundSystem.mjs';
 import { startOffLoopCommand } from './offLoopCommand.mjs';
 
@@ -585,18 +585,17 @@ function handleGovernedCommand(raw) {
   // THE PLATFORM STOP (PROJECTOS-KERNEL-PLATFORM-STOP1A), BEFORE ANY VERB THAT CAN ACT.
   //
   // This channel calls `phase`, `approve`, `report` and `plan` IN PROCESS and starts `projectos run`, so
-  // the CLI's own gate never sees these requests. It asks the SAME check the CLI asks — `platformStopRefusal`
-  // from the agent package, not a copy — and refuses every verb except those that cannot act: `refresh`
-  // reads, `run.stop` ends a child this sidecar already owns (which is what a stop wants), and
-  // `project.select`, answered above, only changes which project this surface shows. Absent record means running; an engaged,
-  // unreadable or unverifiable one refuses. The canonical commands also ask for themselves.
-  if (check.request.verb !== 'refresh' && check.request.verb !== 'run.stop') {
-    const halted = platformStopRefusal(agentSystem);
-    if (halted !== null) {
-      emit(2, halted, check.request.verb);
-      emitGovernedState();
-      return;
-    }
+  // the CLI's own gate never sees these requests. It asks `controlCenterVerbRefusal` from the agent
+  // package — the SAME check the CLI asks, not a copy, and tested there — which refuses every verb except
+  // those that cannot act: `refresh` reads, `run.stop` ends a child this sidecar already owns (which is
+  // what a stop wants), and `project.select`, answered above, only changes which project is shown. Absent
+  // record means running; an engaged, unreadable or unverifiable one refuses. The canonical commands also
+  // ask for themselves.
+  const halted = controlCenterVerbRefusal(agentSystem, check.request.verb);
+  if (halted !== null) {
+    emit(2, halted, check.request.verb);
+    emitGovernedState();
+    return;
   }
 
   const root = governedRoot();

@@ -45,7 +45,7 @@ import { listApprovalIds, loadApproval } from '../approvalStore.js';
 import { readLedger } from '../loop/gatekeeperConfig.js';
 import { reconciliationDebtBlock } from '../loop/degradedMode.js';
 import type { DurableBinding } from '../loop/degradedMode.js';
-import { engagePlatformStop } from '../loop/platformStop.js';
+import { engagePlatformStop, governedProjectOf } from '../loop/platformStop.js';
 
 /** The protocol revision this bridge speaks. Fixed: a bridge that negotiates is a bridge that guesses. */
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
@@ -236,9 +236,7 @@ function costStatus(ctx: CommandContext): readonly string[] {
 }
 
 /**
- * Run one allowed operation.
- *
- * `stop-work` ENGAGES THE PLATFORM-WIDE EMERGENCY STOP (PROJECTOS-KERNEL-PLATFORM-STOP1A). It used to
+ * `stop-work` ENGAGES THE EMERGENCY STOP FOR THIS WINDOWS ACCOUNT (PROJECTOS-KERNEL-PLATFORM-STOP1A). It used to
  * answer "stop requested and recorded" while recording nothing, which was the one claim this surface
  * must never make. It now writes the same stop record `projectos stop` writes, in the installation state
  * directory this bridge already owns, and reports what that record means and what it cannot do: the
@@ -249,9 +247,11 @@ function stopWork(deps: BridgeDeps): ReturnType<typeof engagePlatformStop> {
   return engagePlatformStop(deps.ctx.sys, deps.stateDir, {
     reason: 'requested through the private owner bridge (stop-work)',
     engagedBy: 'owner bridge caller',
+    project: governedProjectOf(deps.ctx.sys, deps.ctx.root),
   });
 }
 
+/** Run one allowed READ operation. `stop-work` is answered by `stopWork` before this is reached. */
 function perform(operation: BridgeOperation, deps: BridgeDeps): readonly string[] {
   switch (operation) {
     case 'project-state':
@@ -266,8 +266,6 @@ function perform(operation: BridgeOperation, deps: BridgeDeps): readonly string[
       return workerStatus(deps);
     case 'cost-status':
       return costStatus(deps.ctx);
-    case 'stop-work':
-      return stopWork(deps).lines;
     default:
       return [`'${operation}' is not implemented by this bridge revision`];
   }

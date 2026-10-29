@@ -104,7 +104,7 @@ import { unprovisionedResolver } from '../loop/credentialResolver.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
 import { nodeInstallationStateDir } from '../nodeRuntimeRoot.js';
 import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
-import { platformStopDirOf, platformStopRefusal } from '../loop/platformStop.js';
+import { platformStopDirOf, platformStopRefusal, STOP_AFTER_ASK, STOP_AFTER_OWNER_COMMIT } from '../loop/platformStop.js';
 import { resolveBoundGit } from '../system.js';
 import { phase as phaseCommand } from './phase.js';
 import { brokerRouteOptedIn, GATE_WAIT_INVALID, gateWaitMinutesFrom, run as runCommand, trustedBroker } from './run.js';
@@ -1170,9 +1170,9 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
 
   // A STOP ENGAGED WHILE THE QUESTION WAS OUT: the answer is written and presented, and ProjectOS commits
   // none of it. The owner committing it by hand is an act in person, which R7 leaves with the owner.
-  const haltedBeforeCommit = platformStopRefusal(sys, platformStopDirOf(ctx));
+  const haltedBeforeCommit = platformStopRefusal(sys, platformStopDirOf(ctx), STOP_AFTER_ASK);
   if (haltedBeforeCommit !== null) {
-    return fail(2, [...trace, '', ...haltedBeforeCommit, '', 'ProjectOS committed and pushed nothing.', ...ownerAskLines(wait)]);
+    return fail(2, [...trace, '', ...haltedBeforeCommit, '', ...ownerAskLines(wait)]);
   }
 
   // ZERO-TOUCH CLOSURE — PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A. Where the owner has granted
@@ -1495,9 +1495,9 @@ export function closureResume(ctx: CommandContext, flags: Flags, ownerWait: Owne
 
   // NO DELEGATED CLOSE UNDER A STOP. The owner's commit is observed and stays exactly as it is; the close
   // that would follow from it waits until the stop is lifted and `closure resume` is run again.
-  const haltedBeforeClose = platformStopRefusal(sys, platformStopDirOf(ctx));
+  const haltedBeforeClose = platformStopRefusal(sys, platformStopDirOf(ctx), STOP_AFTER_OWNER_COMMIT);
   if (haltedBeforeClose !== null) {
-    return fail(2, [...lines.slice(0, -1), '', ...haltedBeforeClose, '', `${id} was NOT closed; nothing was committed or pushed.`]);
+    return fail(2, [...lines.slice(0, -1), '', ...haltedBeforeClose, '', `${id} was NOT closed.`]);
   }
 
   // THE EXISTING PATH, CALLED WITH NOTHING BUT THE PHASE AND THE BASIS.

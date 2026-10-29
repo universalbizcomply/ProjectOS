@@ -15,13 +15,17 @@ import { join, resolve } from 'node:path';
 import type { ExecResult, System } from '../src/system.js';
 import { nodeSystem } from '../src/system.js';
 import { run as cli, readOnlyUnderPlatformStop, parseArgs } from '../src/cli.js';
-import { nodeInstallationStateDir } from '../src/nodeRuntimeRoot.js';
 import {
   PLATFORM_STOP_FILENAME,
   PLATFORM_STOP_SCHEMA_VERSION,
   PLATFORM_STOP_STATEMENT,
   STOP_TEXT_MAX,
+  controlCenterVerbRefusal,
   engagePlatformStop,
+  defaultPlatformStopStateDir,
+  osInstallationStateDir,
+  platformStopStatusLines,
+  terminalStopLiftConfirm,
   platformStopDirOf,
   platformStopRefusal,
   readPlatformStop,
@@ -29,6 +33,7 @@ import {
   stopLiftRelPath,
 } from '../src/loop/platformStop.js';
 import { stop } from '../src/commands/stop.js';
+import type { StopLiftConfirm } from '../src/loop/platformStop.js';
 import { run as runCommand, continueCommand, isFoldableRunRecord } from '../src/commands/run.js';
 import { closurePrepare, closureRequest, closureResume } from '../src/commands/closure.js';
 import { reconcile } from '../src/commands/reconcile.js';
@@ -41,7 +46,7 @@ import {
   resolveDelegatedDecider,
   resolveTechnicalDelegation,
 } from '../src/loop/gatekeeperConfig.js';
-import { commitOwnRecordsFor, runTechnicalContinuation } from '../src/loop/technicalContinuation.js';
+import { commitOwnRecords, commitOwnRecordsFor, runTechnicalContinuation } from '../src/loop/technicalContinuation.js';
 import { loadGovernedContext } from '../src/governedContext.js';
 import { OWNER, PHASE, PROGRAMME, fixedClock, git, made, unchanged, world, worker } from './support/verticalSliceWorld.js';
 
@@ -164,7 +169,7 @@ describe('the reader', () => {
   });
 
   it('takes its directory from the context only when a test names one, and reads explicit null as unresolvable', () => {
-    expect(platformStopDirOf({ sys: nodeSystem, root: '/x' })).toBe(nodeInstallationStateDir());
+    expect(platformStopDirOf({ sys: nodeSystem, root: '/x' })).toBe(defaultPlatformStopStateDir());
     expect(platformStopDirOf({ platformStopStateDir: '/somewhere' })).toBe('/somewhere');
     expect(platformStopDirOf({ platformStopStateDir: null })).toBeNull();
     expect(platformStopDirOf({ platformStopStateDir: undefined })).toBeNull();
@@ -350,7 +355,7 @@ describe('the CLI gate', () => {
     const s = spySystem();
     const r = cli({ sys: s.sys, root: '/proj', platformStopStateDir: STATE } as Parameters<typeof cli>[0], ['stop', '--reason', 'enough']);
     expect(r.code).toBe(0);
-    expect(r.lines.join('\n')).toContain('PLATFORM STOP ENGAGED');
+    expect(r.lines.join('\n')).toContain('EMERGENCY STOP ENGAGED');
     expect(r.lines.join('\n')).toContain(PLATFORM_STOP_STATEMENT);
     expect(s.writes.every((w) => w.startsWith(`${STATE}/`))).toBe(true);
     expect(s.execs).toEqual([]);
@@ -361,13 +366,19 @@ describe('the CLI gate', () => {
  * REAL GIT — the commands refuse before they touch the repository, and only the owner can lift.
  * ------------------------------------------------------------------------------------------- */
 
-function stoppedWorld() {
+/** A person at a terminal who retypes exactly what they are asked to. */
+const typesTheId: StopLiftConfirm = (stopId) => ({ kind: 'typed', text: stopId });
+
+/** A governed world with a stop engaged FROM it — so the stop is bound to this project — and a terminal. */
+function stoppedWorld(confirm: StopLiftConfirm = typesTheId) {
   const w = world('interactive');
   const dir = tempStateDir();
-  const engaged = engagePlatformStop(nodeSystem, dir, { reason: 'test stop', engagedBy: 'tester' });
-  if (engaged.kind !== 'ENGAGED') throw new Error('could not engage');
-  const ctx = { sys: fixedClock(), root: w.root, platformStopStateDir: dir };
-  return { w, dir, stopId: engaged.stopId, ctx };
+  const ctx = { sys: fixedClock(), root: w.root, platformStopStateDir: dir, platformStopConfirm: confirm };
+  const engaged = stop(ctx, { reason: 'test stop', by: 'tester' }, ['engage']);
+  if (engaged.code !== 0) throw new Error('could not engage');
+  const read = readPlatformStop(nodeSystem, dir);
+  if (read.kind !== 'ok') throw new Error('not engaged');
+  return { w, dir, stopId: read.record.stopId, ctx };
 }
 
 function clean(root: string): void {
@@ -569,7 +580,7 @@ describe('only the owner lifts the stop, by an owner-authored commit (real git)'
     commitLift(w.root, stopId, ['-c', `user.name=${OWNER}`, '-c', 'user.email=owner@example.invalid']);
     const r = lift(ctx, stopId);
     expect(r.code).toBe(0);
-    expect(r.lines.join('\n')).toContain('PLATFORM STOP LIFTED');
+    expect(r.lines.join('\n')).toContain('EMERGENCY STOP LIFTED');
     expect(r.lines.join('\n')).toContain(PLATFORM_STOP_STATEMENT);
     expect(platformStopRefusal(nodeSystem, dir)).toBeNull();
     const read = readPlatformStop(nodeSystem, dir);
@@ -588,5 +599,254 @@ describe('only the owner lifts the stop, by an owner-authored commit (real git)'
     lift(ctx, stopId);
     const status = git(w.root, 'status', '--porcelain', '--untracked-files=all').trim().split(/\r?\n/);
     expect(status).toEqual([`?? ${stopLiftRelPath(stopId)}`]);
+  });
+});
+
+/* ----------------------------------------------------------------------------------------------
+ * FIX ROUND — owner-intent lift, never dropping a stop, OS-derived directory, honest refusals.
+ * ------------------------------------------------------------------------------------------- */
+
+describe('the lift is an owner-intent check: one-file commit, same project, retyped in a terminal (real git)', () => {
+  const ownerIdentity = ['-c', `user.name=${OWNER}`, '-c', 'user.email=owner@example.invalid'];
+  const stillEngaged = (dir: string) => expect(platformStopRefusal(nodeSystem, dir)?.join('\n')).toContain('REFUSED (PLATFORM_STOP)');
+
+  it('refuses a SWEEP commit: the lift record committed together with any other file lifts nothing', () => {
+    const { w, dir, stopId, ctx } = stoppedWorld();
+    stop(ctx, { stop: stopId }, ['lift']);
+    writeFileSync(join(w.root, 'unrelated.txt'), 'swept up\n');
+    git(w.root, 'add', '--all');
+    git(w.root, ...ownerIdentity, 'commit', '-q', '-m', 'everything');
+    const r = stop(ctx, { stop: stopId }, ['lift']);
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('LIFT_COMMIT_NOT_ALONE');
+    expect(r.lines.join('\n')).toContain(PLATFORM_STOP_STATEMENT);
+    stillEngaged(dir);
+  });
+
+  it('refuses a lift from a FOREIGN repository, even one with its own approved plan and owner', () => {
+    const { dir, stopId } = stoppedWorld();
+    const other = world('interactive');
+    const foreign = { sys: fixedClock(), root: other.root, platformStopStateDir: dir, platformStopConfirm: typesTheId };
+    const first = stop(foreign, { stop: stopId }, ['lift']);
+    expect(first.code).toBe(2);
+    expect(first.lines.join('\n')).toContain('LIFT_WRONG_PROJECT');
+    expect(existsSync(join(other.root, stopLiftRelPath(stopId) as string))).toBe(false);
+    stillEngaged(dir);
+  });
+
+  it('a stop engaged outside any project is lifted only from the installation root', () => {
+    const w = world('interactive');
+    const dir = tempStateDir();
+    const engaged = engagePlatformStop(nodeSystem, dir, { reason: 'no project', engagedBy: 'b', project: null });
+    if (engaged.kind !== 'ENGAGED') throw new Error('not engaged');
+    const elsewhere = { sys: fixedClock(), root: w.root, platformStopStateDir: dir, platformStopConfirm: typesTheId, platformStopInstallRoot: tempStateDir() };
+    expect(stop(elsewhere, { stop: engaged.stopId }, ['lift']).lines.join('\n')).toContain('LIFT_WRONG_PROJECT');
+    const atInstall = { ...elsewhere, platformStopInstallRoot: w.root };
+    stop(atInstall, { stop: engaged.stopId }, ['lift']);
+    git(w.root, 'add', '--', stopLiftRelPath(engaged.stopId) as string);
+    git(w.root, ...ownerIdentity, 'commit', '-q', '-m', 'lift');
+    expect(stop(atInstall, { stop: engaged.stopId }, ['lift']).code).toBe(0);
+    expect(platformStopRefusal(nodeSystem, dir)).toBeNull();
+  });
+
+  it('refuses with NO TERMINAL: the production confirmation answers no-terminal when stdin or stdout is not a TTY', () => {
+    const noTty = terminalStopLiftConfirm(() => ({ stdinIsTTY: false, stdoutIsTTY: true, ask: () => { throw new Error('asked without a terminal'); } }));
+    const { w, dir, stopId, ctx } = stoppedWorld(noTty);
+    stop(ctx, { stop: stopId }, ['lift']);
+    git(w.root, 'add', '--', stopLiftRelPath(stopId) as string);
+    git(w.root, ...ownerIdentity, 'commit', '-q', '-m', 'lift');
+    const r = stop(ctx, { stop: stopId }, ['lift']);
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('LIFT_NEEDS_A_TERMINAL');
+    expect(r.lines.join('\n')).toContain('a person must lift this stop in an interactive terminal');
+    expect(terminalStopLiftConfirm(() => ({ stdinIsTTY: true, stdoutIsTTY: false, ask: () => 'x' }))('S').kind).toBe('no-terminal');
+    stillEngaged(dir);
+  });
+
+  it('refuses a WRONG typed id — near misses included', () => {
+    for (const typed of ['', 'STOP', 'wrong']) {
+      const { w, dir, stopId, ctx } = stoppedWorld(() => ({ kind: 'typed', text: typed }));
+      stop(ctx, { stop: stopId }, ['lift']);
+      git(w.root, 'add', '--', stopLiftRelPath(stopId) as string);
+      git(w.root, ...ownerIdentity, 'commit', '-q', '-m', 'lift');
+      const r = stop(ctx, { stop: stopId }, ['lift']);
+      expect(r.lines.join('\n')).toContain('LIFT_CONFIRMATION_MISMATCH');
+      stillEngaged(dir);
+    }
+    const spaced = stoppedWorld((id) => ({ kind: 'typed', text: ` ${id.toLowerCase()} ` }));
+    stop(spaced.ctx, { stop: spaced.stopId }, ['lift']);
+    git(spaced.w.root, 'add', '--', stopLiftRelPath(spaced.stopId) as string);
+    git(spaced.w.root, ...ownerIdentity, 'commit', '-q', '-m', 'lift');
+    expect(stop(spaced.ctx, { stop: spaced.stopId }, ['lift']).lines.join('\n')).toContain('LIFT_CONFIRMATION_MISMATCH');
+  });
+
+  it('every `stop lift` answer, refusals included, carries the honest statement and no copy-paste lift command', () => {
+    const { stopId, ctx } = stoppedWorld();
+    const answers = [
+      stop(ctx, {}, ['lift']),
+      stop(ctx, { stop: 'STOP-20260101T000000Z-ffffffffffff' }, ['lift']),
+      stop(ctx, { stop: stopId }, ['lift']),
+      stop(ctx, { stop: stopId, as: 'owner' }, ['lift']),
+      stop({ ...ctx, platformStopStateDir: null } as Parameters<typeof stop>[0], { stop: stopId }, ['lift']),
+    ];
+    for (const a of answers) {
+      expect(a.lines.join('\n')).toContain(PLATFORM_STOP_STATEMENT);
+      expect(a.lines.join('\n')).not.toMatch(/projectos stop lift --stop|git add |git commit/);
+    }
+  });
+
+  it('the lift is a compare-and-swap: a stop re-engaged between the read and the write is not lifted', () => {
+    const files = engagedFiles();
+    const s = spySystem(files);
+    const racing: System = {
+      ...s.sys,
+      writeText: (p, c) => {
+        s.sys.writeText(p, c);
+        // ANOTHER PROCESS WINS THE RACE: by the time the lift moves its record in, a NEW stop stands.
+        files[STOP_FILE] = (files[STOP_FILE] as string).replace(/STOP-20261029T100000Z-0123456789ab/g, 'STOP-20261029T100500Z-bbbbbbbbbbbb');
+      },
+    };
+    const out = recordPlatformStopLift(racing, STATE, 'STOP-20261029T100000Z-0123456789ab', 'a'.repeat(40));
+    expect(out.written).toBe(false);
+    const read = readPlatformStop(s.sys, STATE);
+    expect(read.kind === 'ok' && read.record.state).toBe('engaged');
+    expect(read.kind === 'ok' && read.record.stopId).toBe('STOP-20261029T100500Z-bbbbbbbbbbbb');
+  });
+});
+
+describe('a standing stop is never dropped (H2)', () => {
+  it('a FAILING WRITE leaves the damaged record exactly where it was, still refusing', () => {
+    const s = spySystem({ [STOP_FILE]: '{ damaged' });
+    const failing: System = { ...s.sys, writeText: () => { throw new Error('disk full'); } };
+    const out = engagePlatformStop(failing, STATE, { reason: 'r', engagedBy: 'b' });
+    expect(out.kind).toBe('FAILED');
+    expect(s.files[STOP_FILE]).toBe('{ damaged');
+    expect(platformStopRefusal(s.sys, STATE)?.join('\n')).toContain('PLATFORM_STOP_UNREADABLE');
+  });
+
+  it('a failing move INTO place restores the damaged record, so a reader never finds nothing', () => {
+    const s = spySystem({ [STOP_FILE]: '{ damaged' });
+    const failing: System = {
+      ...s.sys,
+      renameFile: (from, to) => (from.endsWith('.tmp') ? false : s.sys.renameFile(from, to)),
+    };
+    const out = engagePlatformStop(failing, STATE, { reason: 'r', engagedBy: 'b' });
+    expect(out.kind).toBe('FAILED');
+    expect(s.files[STOP_FILE]).toBe('{ damaged');
+    expect(platformStopRefusal(s.sys, STATE)).not.toBeNull();
+  });
+
+  it('a new record that does not read back from its temporary file never displaces the damaged one', () => {
+    const s = spySystem({ [STOP_FILE]: '{ damaged' });
+    const garbling: System = { ...s.sys, writeText: (p) => s.sys.writeText(p, 'garbled') };
+    expect(engagePlatformStop(garbling, STATE, { reason: 'r', engagedBy: 'b' }).kind).toBe('FAILED');
+    expect(s.files[STOP_FILE]).toBe('{ damaged');
+  });
+});
+
+describe('the directory comes from the operating system, and the environment can only stop (M1)', () => {
+  it('agrees with the installation state directory in the suite, and is unverifiable — stopped — when the environment disagrees', () => {
+    expect(defaultPlatformStopStateDir()).not.toBeNull();
+    expect(defaultPlatformStopStateDir()).toBe(osInstallationStateDir());
+    const prior = process.env['LOCALAPPDATA'];
+    try {
+      process.env['LOCALAPPDATA'] = tempStateDir();
+      expect(defaultPlatformStopStateDir()).toBeNull();
+      expect(platformStopRefusal(noExecSystem())?.join('\n')).toContain('PLATFORM_STOP_UNVERIFIABLE');
+    } finally {
+      process.env['LOCALAPPDATA'] = prior;
+    }
+    expect(platformStopRefusal(noExecSystem())).toBeNull();
+  });
+});
+
+describe('the record is validated whole (LOW)', () => {
+  it('strips C1 controls, line separators and bidirectional overrides from the reason and the claim', () => {
+    const s = spySystem();
+    const hostile = ['ok', String.fromCharCode(0x85), String.fromCharCode(0x2028), String.fromCharCode(0x202e), String.fromCharCode(0x2066), 'end'].join('');
+    engagePlatformStop(s.sys, STATE, { reason: hostile, engagedBy: hostile });
+    const read = readPlatformStop(s.sys, STATE);
+    if (read.kind !== 'ok') throw new Error('not engaged');
+    for (const value of [read.record.reason, read.record.engagedBy.claim]) {
+      expect([...value].every((c) => { const n = c.charCodeAt(0); return n >= 0x20 && !(n >= 0x7f && n <= 0x9f) && n !== 0x2028 && n !== 0x202e && n !== 0x2066; })).toBe(true);
+    }
+  });
+
+  it('a history with a null element is a damaged record — stopped — and `stop status` does not throw on it', () => {
+    const record = JSON.parse(engagedFiles()[STOP_FILE] as string) as Record<string, unknown>;
+    const files = { [STOP_FILE]: JSON.stringify({ ...record, history: [null] }) };
+    expect(platformStopRefusal(noExecSystem(files), STATE)?.join('\n')).toContain('PLATFORM_STOP_UNREADABLE');
+    expect(() => platformStopStatusLines(noExecSystem(files), STATE)).not.toThrow();
+  });
+
+  it('an unreachable record (a parent that is a FILE, ENOTDIR) is unreadable — stopped — never absent', () => {
+    const dir = tempStateDir();
+    writeFileSync(join(dir, 'not-a-directory'), 'x');
+    const refusal = platformStopRefusal(nodeSystem, `${dir}/not-a-directory/state`);
+    expect(refusal?.join('\n')).toContain('PLATFORM_STOP_UNREADABLE');
+  });
+});
+
+describe('the Control Center gate (M6)', () => {
+  const verbs = (): string[] => {
+    const source = readFileSync(resolve(__dirname, '../../control-center/src/governed/governedCommands.ts'), 'utf8');
+    const block = source.slice(source.indexOf('export const GOVERNED_VERBS = ['), source.indexOf('] as const;'));
+    return [...block.matchAll(/^\s*'([a-z]+\.?[a-z]*)',/gm)].map((m) => m[1] as string);
+  };
+
+  it('refuses every verb that can act while engaged, and lets only refresh, project.select and run.stop through', () => {
+    const all = verbs();
+    expect(all.length).toBeGreaterThan(10);
+    const s = spySystem(engagedFiles());
+    for (const verb of all) {
+      const refusal = controlCenterVerbRefusal(s.sys, verb, STATE);
+      if (['refresh', 'project.select', 'run.stop'].includes(verb)) expect(refusal, verb).toBeNull();
+      else expect(refusal?.join('\n'), verb).toContain(PLATFORM_STOP_STATEMENT);
+    }
+    expect(s.writes).toEqual([]);
+    for (const verb of all) expect(controlCenterVerbRefusal(spySystem().sys, verb, STATE), verb).toBeNull();
+  });
+
+  it('the sidecar asks this gate before any in-process dispatch, run start or off-loop worker', () => {
+    const host = readFileSync(resolve(__dirname, '../../control-center/sidecar/host.mjs'), 'utf8');
+    const gate = host.indexOf('const halted = controlCenterVerbRefusal(agentSystem, check.request.verb);');
+    const handler = host.indexOf('function handleGovernedCommand(');
+    expect(gate).toBeGreaterThan(handler);
+    for (const act of ['startGovernedRun(root,', 'startOffLoopCommand({', 'const COMMANDS = {']) {
+      expect(host.indexOf(act, handler)).toBeGreaterThan(gate);
+    }
+  });
+});
+
+describe('in-process plan approve and plan activate refuse (M6)', () => {
+  it('refuses both with the statement and writes nothing', () => {
+    const s = spySystem(engagedFiles());
+    const ctx = { sys: s.sys, root: '/proj', platformStopStateDir: STATE } as Parameters<typeof plan>[0];
+    for (const sub of ['approve', 'activate']) {
+      const r = plan(ctx, { id: 'D', decision: 'X' }, [sub]);
+      expect(r.code).toBe(2);
+      expect(r.lines.join('\n')).toContain(PLATFORM_STOP_STATEMENT);
+    }
+    expect(s.writes).toEqual([]);
+    expect(s.execs).toEqual([]);
+  });
+});
+
+describe('the records commit asks the stop itself (M2)', () => {
+  it('commitOwnRecords refuses before git is asked anything', () => {
+    const s = spySystem(engagedFiles());
+    const out = commitOwnRecords(s.sys, {
+      root: '/proj',
+      phaseId: PHASE,
+      kind: 'run-records',
+      expectedBranch: 'work',
+      expectedRemote: 'origin',
+      isOwnRecord: () => true,
+      delegation: { problems: [], carriesTechnicalScope: true, delegatedTo: 'ChatGPT' },
+      phaseOwnerGates: [],
+      platformStopStateDir: STATE,
+    });
+    expect(out.kind).toBe('REFUSED');
+    expect(s.execs).toEqual([]);
   });
 });

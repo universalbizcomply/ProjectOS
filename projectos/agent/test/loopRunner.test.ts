@@ -8,7 +8,7 @@
  *
  * Created in PROJECTOS-RECOVERY-AUTONOMOUS-LOOP1A.
  */
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, it, expect, afterEach } from 'vitest';
@@ -1623,12 +1623,13 @@ describe('runLoop with an unattended gatekeeper', () => {
   // WRITTEN DIRECTLY: this world's fake rename moves nothing, so the atomic engage cannot run in it. The
   // bytes are the shape `engagePlatformStop` writes, judged by the same reader.
   const STOP_RECORD = JSON.stringify({
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     state: 'engaged',
     stopId: 'STOP-20260811T190000Z-0123456789ab',
     engagedAt: NOW,
     engagedBy: { claim: 'tester', authenticated: false },
     reason: 'test',
+    project: null,
     statement: PLATFORM_STOP_STATEMENT,
     history: [],
   });
@@ -1707,6 +1708,49 @@ describe('runLoop with an unattended gatekeeper', () => {
     });
     expect(r.ok).toBe(false);
     expect(sent).toEqual([]);
+  });
+
+  it('[PLATFORM-STOP] degraded mode spends no grant when the stop is engaged while the reviewer is being reached', () => {
+    const sys = world({ files: unreadableFindings() });
+    const durable = runnerDurable();
+    const deps: Record<string, unknown> = { ...gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }) };
+    // THE STOP LANDS INSIDE THE TURN: after the review site's own check, before the degraded route's.
+    Object.defineProperty(deps, 'availability', {
+      enumerable: true,
+      get: () => {
+        engageIn(sys);
+        return { reachable: false, detail: 'no network route to the gatekeeper' };
+      },
+    });
+    const r = runLoop(sys, ROOT, {
+      adapters: fakeAdapter().registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: deps as never,
+      degradedMode: { durable, grantId: 'FIXTURE-NO-SUCH-GRANT', operation: 'implement' },
+      platformStopStateDir: STOP_DIR,
+    });
+    expect(r.lines.join('\n')).toContain('degraded mode REFUSED: the platform stop is engaged; nothing was authorised and no grant was spent');
+    expect(r.ok).toBe(false);
+    // NOTHING WAS RECORDED AS SPENT: the installation's durable state is exactly as empty as it began.
+    expect(readdirSync(durable.stateDir)).toEqual([]);
+  });
+
+  it('[PLATFORM-STOP] an owner receipt is never burned on a passage the stop will refuse', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const engagingReviewer: WorkerAdapter = {
+      kind: WORKER_KIND,
+      start: () => ({ kind: 'completed', exitCode: 0, stdout: '', stderr: '', providerRef: 'ref-1' }),
+      rejoin: () => ({ kind: 'completed', exitCode: 0, stdout: '', stderr: '', providerRef: 'ref-1' }),
+      // THE STOP LANDS DURING THE INDEPENDENT REVIEW: after the reviewer site's check, before the receipt.
+      review: (_s: unknown, _w: unknown, _b: unknown, instruction: string) => {
+        engageIn(sys);
+        return reviewerReply(instruction);
+      },
+    };
+    const r = runLoop(sys, ROOT, { adapters: { [WORKER_KIND]: engagingReviewer }, platformStopStateDir: STOP_DIR });
+    expect(r.lines.join('\n')).toContain('no owner receipt was spent: the platform stop is engaged');
+    expect(r.ok).toBe(false);
+    expect(sys.writes.some((p) => p.includes('/.projectops/gates/'))).toBe(false);
   });
 });
 

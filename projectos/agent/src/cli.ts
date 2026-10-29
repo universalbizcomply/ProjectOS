@@ -31,7 +31,7 @@ import { CORE_VERSION } from '@projectos/core';
  * in process and so never passes through the gate below. It imports `@projectos/agent`, whose index
  * re-exports this module, so this is how it reaches the ONE check rather than keeping a copy of it.
  */
-export { platformStopRefusal, PLATFORM_STOP_STATEMENT } from './loop/platformStop.js';
+export { controlCenterVerbRefusal, platformStopRefusal, PLATFORM_STOP_STATEMENT } from './loop/platformStop.js';
 
 export const AGENT_VERSION = '0.1.0';
 
@@ -91,7 +91,7 @@ export const HELP: readonly string[] = [
   '  plugins                      List the integration catalog (inert)',
   '  close --phase <ID>           Refuses — closure is owner-gated',
   '  closure <request|resume|status> --id <ID>  Ask the closure authority, wait for the owner’s commit, resume',
-  '  stop [engage|status|lift]    Platform-wide emergency stop: engage (no authority), status, owner-only lift',
+  '  stop [engage|status|lift]    Emergency stop for this Windows account: engage (no authority), status, lift (a person, in a terminal)',
   '  version                      Print versions',
   '  help                         Show this help',
 ];
