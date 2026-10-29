@@ -14,11 +14,17 @@
 //! only process it starts is `node`, on a script committed beside it, and only when a built agent is
 //! present.
 //!
-//! ## Skipping is loud, not silent
+//! ## Skipping is loud, not silent — and where proof is required, it is a failure
 //!
-//! A checkout with no `node` on the PATH, or with the agent not built, cannot run these. They print
-//! why and pass, exactly as `packaged-manifest-generator`'s node-dependent proof does — but the skip
-//! is printed, so a run that proved nothing does not look like a run that proved everything.
+//! A checkout with no `node` on the PATH, or with the agent not built, cannot run these. On a
+//! developer machine they print why and pass, exactly as `packaged-manifest-generator`'s
+//! node-dependent proof does — but the skip is printed, so a run that proved nothing does not look
+//! like a run that proved everything.
+//!
+//! WHERE THE PROOF IS REQUIRED, A SKIP IS A FAILURE. With `PROJECTOS_REQUIRE_CROSS=1`, or with `CI`
+//! set, a missing `node`, agent build or driver fails every test here with the reason. A green run
+//! in a place that is meant to prove the two implementations agree must not be one that never ran
+//! the second implementation. Raised by the independent review of the cap change.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -76,6 +82,23 @@ struct Harness {
     driver: PathBuf,
 }
 
+/// Whether this run must prove agreement rather than skip: `PROJECTOS_REQUIRE_CROSS=1`, or `CI` set
+/// to anything but empty or `false`.
+fn cross_proof_required() -> bool {
+    let ci = std::env::var("CI").is_ok_and(|v| !v.is_empty() && !v.eq_ignore_ascii_case("false"));
+    ci || std::env::var("PROJECTOS_REQUIRE_CROSS").is_ok_and(|v| v == "1")
+}
+
+/// Skip loudly, or — where the proof is required — fail with the same reason.
+fn skip_or_fail(reason: &str) {
+    assert!(
+        !cross_proof_required(),
+        "the cross-implementation proof is REQUIRED here (PROJECTOS_REQUIRE_CROSS=1 or CI is set) \
+         but cannot run: {reason}"
+    );
+    println!("SKIPPED: {reason}");
+}
+
 impl Harness {
     fn available() -> Option<Self> {
         let driver = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -84,17 +107,19 @@ impl Harness {
         match (node_available(), agent_dist(), driver.is_file()) {
             (true, Some(dist), true) => Some(Self { dist, driver }),
             (false, _, _) => {
-                println!("SKIPPED: node is not on the PATH, so the canonical implementation cannot be run");
+                skip_or_fail(
+                    "node is not on the PATH, so the canonical implementation cannot be run",
+                );
                 None
             }
             (_, None, _) => {
-                println!(
-                    "SKIPPED: projectos/agent/dist is not built (npm ci && npm run build in projectos/core then projectos/agent)"
+                skip_or_fail(
+                    "projectos/agent/dist is not built (npm ci && npm run build in projectos/core then projectos/agent)",
                 );
                 None
             }
             (_, _, false) => {
-                println!("SKIPPED: the canonical driver script is missing");
+                skip_or_fail("the canonical driver script is missing");
                 None
             }
         }
@@ -197,7 +222,7 @@ impl Question<'_> {
             phase_id: self.phase,
             model: "gpt-5.6-terra",
             cost_micro_usd: Some(self.estimate),
-            delegation_ceiling_micro_usd: u64::MAX,
+            delegation_ceiling_micro_usd: NEVER_BINDS,
             at_epoch_s: self.at.0,
         }
     }
@@ -283,7 +308,7 @@ fn the_host_and_the_agent_write_byte_identical_ledgers() {
         answer.contains("\"allowed\":true"),
         "canonical refused: {answer}"
     );
-    admit_spend(by_host.path(), &ask("GKHOST-0001", 1_000, u64::MAX)).expect("host admitted");
+    admit_spend(by_host.path(), &ask("GKHOST-0001", 1_000, NEVER_BINDS)).expect("host admitted");
 
     assert_eq!(
         by_host.ledger_text(),
@@ -311,7 +336,7 @@ fn the_host_and_the_agent_settle_to_byte_identical_ledgers() {
         "6629",
     ]);
 
-    admit_spend(by_host.path(), &ask("GKHOST-0001", 1_000, u64::MAX)).expect("admitted");
+    admit_spend(by_host.path(), &ask("GKHOST-0001", 1_000, NEVER_BINDS)).expect("admitted");
     commit_reservation(
         by_host.path(),
         "GKHOST-0001",
@@ -344,7 +369,7 @@ fn the_host_and_the_agent_release_to_byte_identical_ledgers() {
         "GKHOST-0001",
     ]);
 
-    admit_spend(by_host.path(), &ask("GKHOST-0001", 1_000, u64::MAX)).expect("admitted");
+    admit_spend(by_host.path(), &ask("GKHOST-0001", 1_000, NEVER_BINDS)).expect("admitted");
     release_reservation(by_host.path(), "GKHOST-0001", SEPTEMBER).expect("released");
 
     assert_eq!(by_host.ledger_text(), by_node.ledger_text());
@@ -368,13 +393,13 @@ fn a_reservation_taken_by_either_side_constrains_the_other() {
         "canonical refused: {answer}"
     );
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0002", 600, u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0002", 600, NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::HardStopExceeded
     );
 
     // The Host goes first; the agent is refused by the Host's reservation.
     let scratch = Scratch::new(1_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", 600, u64::MAX)).expect("host admitted");
+    admit_spend(scratch.path(), &ask("GKHOST-0001", 600, NEVER_BINDS)).expect("host admitted");
     let answer = harness.admit(scratch.path(), "GKREQ-0002", 600, 1_000);
     assert!(
         answer.contains("\"allowed\":false"),
@@ -406,10 +431,10 @@ fn a_settlement_by_either_side_is_read_as_committed_spend_by_the_other() {
     ]);
 
     // The Host reads the settled cost, not the estimate.
-    let next = admit_spend(scratch.path(), &ask("GKHOST-0002", 100, u64::MAX)).expect("fits");
+    let next = admit_spend(scratch.path(), &ask("GKHOST-0002", 100, NEVER_BINDS)).expect("fits");
     assert_eq!(next.spend_snapshot_micro_usd(), 900);
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0003", 1, u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0003", 1, NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::HardStopExceeded
     );
 }
@@ -447,7 +472,7 @@ fn the_canonical_lock_excludes_the_other_implementation() {
         "the canonical implementation never took the lock"
     );
     assert_eq!(
-        admit_spend(&root, &ask("GKHOST-0001", 10, u64::MAX)).unwrap_err(),
+        admit_spend(&root, &ask("GKHOST-0001", 10, NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::LockHeld
     );
     held.wait().expect("node finishes");
@@ -492,7 +517,7 @@ fn the_host_refuses_at_least_everything_the_agent_refuses() {
             "{name}: canonical admitted"
         );
         assert!(
-            admit_spend(host_root.path(), &ask(id, *cost, u64::MAX)).is_err(),
+            admit_spend(host_root.path(), &ask(id, *cost, NEVER_BINDS)).is_err(),
             "{name}: the Host admitted what the agent refused"
         );
     }
@@ -546,11 +571,56 @@ fn the_host_refuses_at_least_everything_the_agent_refuses() {
             "{name}: the canonical refusal rewrote the ledger"
         );
         assert_eq!(
-            admit_spend(scratch.path(), &ask("GKHOST-0001", 900, u64::MAX)).unwrap_err(),
+            admit_spend(scratch.path(), &ask("GKHOST-0001", 900, NEVER_BINDS)).unwrap_err(),
             LedgerRefusal::LedgerMalformed,
             "{name}: the Host read an unreadable ledger as an open budget"
         );
     }
+
+    // THE INDEPENDENT REVIEW'S FLOAT-ROUNDING WITNESS: two entries for projectos/PHASE-ONE at
+    // 9007199254740992 and 9007199254740995, an estimate of 2, and a phase cap of 18014398509481989.
+    // The canonical admission sums in doubles and refuses; exact `u64` arithmetic used to admit. The
+    // Host now refuses any amount past `Number.MAX_SAFE_INTEGER`, so it refuses too.
+    let witness = r#"{"schemaVersion":"1.0.0","entries":[{"requestId":"GKREQ-0001","projectId":"projectos","phaseId":"PHASE-ONE","model":"m","usage":{"inputTokens":1,"outputTokens":1},"costMicroUsd":9007199254740992,"at":"2026-09-08T10:00:00.000Z"},{"requestId":"GKREQ-0002","projectId":"projectos","phaseId":"PHASE-ONE","model":"m","usage":{"inputTokens":1,"outputTokens":1},"costMicroUsd":9007199254740995,"at":"2026-09-08T11:00:00.000Z"}]}"#;
+    let witness_caps = Caps {
+        month: 36_028_797_018_963_968,
+        phase: 18_014_398_509_481_989,
+        day: 36_028_797_018_963_968,
+    };
+    let scratch = Scratch::with_caps(witness_caps);
+    let ledger_path = scratch
+        .path()
+        .join(".projectops")
+        .join("gatekeeper-ledger.json");
+    fs::write(&ledger_path, witness).unwrap();
+    let answer = harness.admit_under(
+        scratch.path(),
+        &Question {
+            id: "GKHOST-0003",
+            estimate: 2,
+            ..Question::default()
+        },
+        witness_caps,
+    );
+    assert!(
+        answer.contains("\"allowed\":false"),
+        "the canonical implementation admitted the float-rounding witness: {answer}"
+    );
+    assert!(
+        admit_spend(scratch.path(), &ask("GKHOST-0003", 2, NEVER_BINDS)).is_err(),
+        "the Host admitted the float-rounding witness the agent refused"
+    );
+    let scratch = Scratch::new(5_000_000);
+    let ledger_path = scratch
+        .path()
+        .join(".projectops")
+        .join("gatekeeper-ledger.json");
+    fs::write(&ledger_path, witness).unwrap();
+    assert_eq!(
+        admit_spend(scratch.path(), &ask("GKHOST-0003", 2, NEVER_BINDS)).unwrap_err(),
+        LedgerRefusal::LedgerMalformed,
+        "the witness ledger, under an enforceable policy"
+    );
 
     // THE ONE STRICTER ROW THIS TEST CAN DRIVE: an instant with a numeric offset. The canonical
     // reader converts it to UTC and admits; the Host does not parse, so it refuses — the refusing
@@ -566,7 +636,7 @@ fn the_host_refuses_at_least_everything_the_agent_refuses() {
     )
     .unwrap();
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0001", 900, u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0001", 900, NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::LedgerMalformed,
     );
     let answer = harness.admit(scratch.path(), "GKREQ-0001", 900, 1_000);

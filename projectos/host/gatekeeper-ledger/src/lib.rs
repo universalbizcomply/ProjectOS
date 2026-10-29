@@ -56,6 +56,7 @@
 //! | Ledger or lock path is a link / reparse point | followed | REFUSE |
 //! | Request id already present, unresolved | re-askable IF the broker record says "not answered" | REFUSE |
 //! | Budget figure or cap fractional | accepted if finite ≥ 0 | REFUSE |
+//! | Cost, cap, total or projection above [`MAX_EXACT_MICRO_USD`] | compared in rounded floats | REFUSE |
 //! | Per-phase or per-day cap absent or unusable | REFUSE | REFUSE |
 //! | More than [`MAX_OUTSTANDING_RESERVATIONS`] in flight | no bound | REFUSE |
 //!
@@ -125,6 +126,29 @@ pub const MAX_LEDGER_ENTRIES: usize = 8_192;
 /// `MAX_OUTSTANDING_RESERVATIONS`, which a test in the IPC crate pins. The canonical implementation
 /// has no such bound; enforcing one can only refuse, never admit.
 pub const MAX_OUTSTANDING_RESERVATIONS: usize = 64;
+
+/// The largest amount, in micro-USD, this crate will read, total, project or write:
+/// `Number.MAX_SAFE_INTEGER`.
+///
+/// THE CANONICAL ADMISSION DOES ITS ARITHMETIC IN JAVASCRIPT NUMBERS, and above 2^53 - 1 those are
+/// no longer integers: `9007199254740992 + 1` is `9007199254740992`. A total or a projection the
+/// agent computes there has been ROUNDED, and the two programs can then disagree about whether a
+/// cap is crossed — an independent review produced a ledger the Host admitted against and the agent
+/// refused. Exact `u64` arithmetic on the Host's side does not fix that, because the question is
+/// what the canonical transaction would decide. So every amount above this is refused: a ledger
+/// entry is malformed, a cap is unenforceable, and a total, projection or settlement is an
+/// arithmetic overflow. Nine thousand million dollars is not a budget anyone is asking for.
+pub const MAX_EXACT_MICRO_USD: u64 = 9_007_199_254_740_991;
+
+/// `a + b`, refused when it leaves the range both implementations compute exactly.
+///
+/// # Errors
+/// [`LedgerRefusal::ArithmeticOverflow`].
+pub(crate) fn exact_sum(a: u64, b: u64) -> Result<u64, LedgerRefusal> {
+    a.checked_add(b)
+        .filter(|sum| *sum <= MAX_EXACT_MICRO_USD)
+        .ok_or(LedgerRefusal::ArithmeticOverflow)
+}
 
 /// The longest project, phase, model or timestamp label an entry may carry.
 pub const MAX_LABEL_LEN: usize = 256;
@@ -492,10 +516,7 @@ pub fn admit_spend(
         let phase_spent = document.phase_total_micro_usd(request.project_id, request.phase_id)?;
         let day_spent = document.day_total_micro_usd(at.day())?;
         let crosses = |spent: u64, cap: u64| -> Result<bool, LedgerRefusal> {
-            let projected = spent
-                .checked_add(cost)
-                .ok_or(LedgerRefusal::ArithmeticOverflow)?;
-            Ok(projected > cap)
+            Ok(exact_sum(spent, cost)? > cap)
         };
         let crossed = refusal::CrossedCaps::refusal(
             crosses(phase_spent, policy.phase_hard_stop_micro_usd())?,
@@ -509,9 +530,7 @@ pub fn admit_spend(
         // LOWEST BINDS. The installation's caps answer "can this installation afford it?"; the owner's
         // delegation ceiling answers "did the owner permit this programme that much?". The ceiling
         // binds the month's total, as it always has.
-        let projected = snapshot
-            .checked_add(cost)
-            .ok_or(LedgerRefusal::ArithmeticOverflow)?;
+        let projected = exact_sum(snapshot, cost)?;
         if projected > request.delegation_ceiling_micro_usd {
             return Err(LedgerRefusal::CeilingExceeded);
         }
@@ -564,6 +583,10 @@ pub fn commit_reservation(
     at_epoch_s: u64,
 ) -> Result<(), LedgerRefusal> {
     check_request_id(request_id)?;
+    // A SETTLEMENT IS WRITTEN INTO THE LEDGER, so an amount neither implementation can read exactly
+    // would leave behind an entry this crate itself refuses to parse — and with it, every later
+    // admission. Refused before anything is touched; the reservation keeps its estimate.
+    exact_sum(settlement.cost_micro_usd, 0)?;
     let usage = TokenUsage {
         input_tokens: settlement.input_tokens,
         cached_input_tokens: settlement.cached_input_tokens,

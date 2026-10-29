@@ -40,7 +40,7 @@ impl Scratch {
     /// Write a gatekeeper configuration carrying this month hard stop, and per-phase and per-day caps
     /// that can never bind — so the month is what is under test — otherwise the approved pilot.
     fn with_hard_stop(self, hard_stop: u64) -> Self {
-        self.with_caps(hard_stop, u64::MAX, u64::MAX)
+        self.with_caps(hard_stop, NEVER_BINDS, NEVER_BINDS)
     }
 
     /// Write a gatekeeper configuration carrying these three stops, otherwise the approved pilot.
@@ -86,6 +86,11 @@ impl Drop for Scratch {
         let _ = fs::remove_dir_all(&self.root);
     }
 }
+
+/// A cap or an owner ceiling that never binds: the largest amount both implementations compute
+/// exactly. Not `u64::MAX`, which this crate now refuses as a cap and which no test should be read
+/// as meaning "unlimited".
+const NEVER_BINDS: u64 = MAX_EXACT_MICRO_USD;
 
 /// 2026-09-08T13:00:00Z — inside 2026-09.
 const SEPTEMBER: u64 = 1_788_872_400;
@@ -134,8 +139,11 @@ fn call(cost: u64) -> SettledProviderCall {
 #[test]
 fn an_admission_writes_the_canonical_entry_to_the_canonical_file() {
     let scratch = Scratch::new().with_hard_stop(5_000_000);
-    let admitted =
-        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(1_000), u64::MAX)).expect("admitted");
+    let admitted = admit_spend(
+        scratch.path(),
+        &ask("GKHOST-0001", Some(1_000), NEVER_BINDS),
+    )
+    .expect("admitted");
 
     assert_eq!(admitted.cost_micro_usd(), 1_000);
     assert_eq!(admitted.spend_snapshot_micro_usd(), 0);
@@ -170,22 +178,40 @@ fn a_reservation_is_visible_to_a_completely_fresh_reader() {
     // no handle, no cache and no in-memory position to preserve, because there is none to begin
     // with — which is the property this test exists to pin.
     let scratch = Scratch::new().with_hard_stop(5_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(4_000), u64::MAX)).expect("first");
-    let refused = admit_spend(scratch.path(), &ask("GKHOST-0002", Some(1_001), u64::MAX));
+    admit_spend(
+        scratch.path(),
+        &ask("GKHOST-0001", Some(4_000), NEVER_BINDS),
+    )
+    .expect("first");
+    let refused = admit_spend(
+        scratch.path(),
+        &ask("GKHOST-0002", Some(1_001), NEVER_BINDS),
+    );
     assert_eq!(refused.unwrap_err(), LedgerRefusal::HardStopExceeded);
     // And the capacity that IS left is still admissible.
-    admit_spend(scratch.path(), &ask("GKHOST-0002", Some(1_000), u64::MAX)).expect("fits exactly");
+    admit_spend(
+        scratch.path(),
+        &ask("GKHOST-0002", Some(1_000), NEVER_BINDS),
+    )
+    .expect("fits exactly");
 }
 
 #[test]
 fn the_month_snapshot_counts_committed_spend_and_outstanding_reservations_alike() {
     let scratch = Scratch::new().with_hard_stop(5_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(1_000), u64::MAX)).expect("first");
+    admit_spend(
+        scratch.path(),
+        &ask("GKHOST-0001", Some(1_000), NEVER_BINDS),
+    )
+    .expect("first");
     commit_at(scratch.path(), "GKHOST-0001", &call(1_200)).expect("settled");
-    admit_spend(scratch.path(), &ask("GKHOST-0002", Some(800), u64::MAX)).expect("second");
+    admit_spend(scratch.path(), &ask("GKHOST-0002", Some(800), NEVER_BINDS)).expect("second");
 
-    let third =
-        admit_spend(scratch.path(), &ask("GKHOST-0003", Some(1_000), u64::MAX)).expect("third");
+    let third = admit_spend(
+        scratch.path(),
+        &ask("GKHOST-0003", Some(1_000), NEVER_BINDS),
+    )
+    .expect("third");
     // 1,200 committed + 800 still outstanding.
     assert_eq!(third.spend_snapshot_micro_usd(), 2_000);
 }
@@ -195,12 +221,12 @@ fn spend_in_another_month_does_not_count_against_this_one() {
     let scratch = Scratch::new().with_hard_stop(1_000);
     let august = AdmissionRequest {
         at_epoch_s: AUGUST_LAST_SECOND,
-        ..ask("GKHOST-AUG1", Some(900), u64::MAX)
+        ..ask("GKHOST-AUG1", Some(900), NEVER_BINDS)
     };
     admit_spend(scratch.path(), &august).expect("august");
     // September starts clean, one second later.
-    let september =
-        admit_spend(scratch.path(), &ask("GKHOST-SEP1", Some(900), u64::MAX)).expect("september");
+    let september = admit_spend(scratch.path(), &ask("GKHOST-SEP1", Some(900), NEVER_BINDS))
+        .expect("september");
     assert_eq!(september.spend_snapshot_micro_usd(), 0);
     assert_eq!(scratch.document().entries.len(), 2);
 }
@@ -212,7 +238,10 @@ fn spend_in_another_month_does_not_count_against_this_one() {
 #[test]
 fn the_installation_hard_stop_refuses_independently_of_the_owner_ceiling() {
     let scratch = Scratch::new().with_hard_stop(1_000);
-    let refused = admit_spend(scratch.path(), &ask("GKHOST-0001", Some(1_001), u64::MAX));
+    let refused = admit_spend(
+        scratch.path(),
+        &ask("GKHOST-0001", Some(1_001), NEVER_BINDS),
+    );
     assert_eq!(refused.unwrap_err(), LedgerRefusal::HardStopExceeded);
     assert!(scratch.ledger_text().is_empty(), "a refusal wrote a ledger");
 }
@@ -246,10 +275,14 @@ fn the_lower_of_the_two_controls_is_the_one_that_binds() {
 #[test]
 fn a_month_already_at_the_hard_stop_admits_nothing_at_all() {
     let scratch = Scratch::new().with_hard_stop(1_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(1_000), u64::MAX)).expect("exactly");
+    admit_spend(
+        scratch.path(),
+        &ask("GKHOST-0001", Some(1_000), NEVER_BINDS),
+    )
+    .expect("exactly");
     // Even a zero-cost call: `spent >= hardStop` is STOPPED before any estimate is considered.
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(0), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(0), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::HardStopExceeded
     );
 }
@@ -270,7 +303,7 @@ fn ask_in<'a>(
         project_id,
         phase_id,
         at_epoch_s,
-        ..ask(id, Some(cost), u64::MAX)
+        ..ask(id, Some(cost), NEVER_BINDS)
     }
 }
 
@@ -283,7 +316,7 @@ fn crossed(refusal: LedgerRefusal) -> (bool, bool, bool) {
 
 #[test]
 fn the_phase_cap_binds_one_phase_of_one_project_and_nothing_else() {
-    let scratch = Scratch::new().with_caps(5_000_000, 1_000, u64::MAX);
+    let scratch = Scratch::new().with_caps(5_000_000, 1_000, NEVER_BINDS);
     admit_spend(
         scratch.path(),
         &ask_in("GKHOST-0001", "projectos", "PHASE-ONE", 600, SEPTEMBER),
@@ -331,7 +364,7 @@ fn the_phase_cap_binds_one_phase_of_one_project_and_nothing_else() {
 
 #[test]
 fn the_phase_cap_is_not_renewed_by_a_new_month() {
-    let scratch = Scratch::new().with_caps(5_000_000, 1_000, u64::MAX);
+    let scratch = Scratch::new().with_caps(5_000_000, 1_000, NEVER_BINDS);
     admit_spend(
         scratch.path(),
         &ask_in(
@@ -353,7 +386,7 @@ fn the_phase_cap_is_not_renewed_by_a_new_month() {
 
 #[test]
 fn the_day_cap_binds_the_whole_account_for_one_utc_day() {
-    let scratch = Scratch::new().with_caps(5_000_000, u64::MAX, 1_000);
+    let scratch = Scratch::new().with_caps(5_000_000, NEVER_BINDS, 1_000);
     admit_spend(
         scratch.path(),
         &ask_in("GKHOST-0001", "projectos", "PHASE-ONE", 600, SEPTEMBER),
@@ -375,7 +408,7 @@ fn the_day_cap_binds_the_whole_account_for_one_utc_day() {
 
 #[test]
 fn the_day_boundary_is_the_utc_midnight_and_nothing_else() {
-    let scratch = Scratch::new().with_caps(5_000_000, u64::MAX, 1_000);
+    let scratch = Scratch::new().with_caps(5_000_000, NEVER_BINDS, 1_000);
     admit_spend(
         scratch.path(),
         &ask_in(
@@ -430,9 +463,9 @@ fn the_day_boundary_is_the_utc_midnight_and_nothing_else() {
 fn every_crossed_cap_is_named_in_the_one_refusal() {
     // Phase and day crossed, the month not.
     let scratch = Scratch::new().with_caps(2_000, 1_000, 1_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(900), u64::MAX)).expect("first");
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(900), NEVER_BINDS)).expect("first");
     let refused =
-        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(200), u64::MAX)).unwrap_err();
+        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(200), NEVER_BINDS)).unwrap_err();
     assert_eq!(crossed(refused), (true, true, false));
     assert_eq!(
         refused.to_string(),
@@ -441,9 +474,9 @@ fn every_crossed_cap_is_named_in_the_one_refusal() {
 
     // All three crossed: the month is named alongside them, not instead of them.
     let scratch = Scratch::new().with_caps(1_000, 1_000, 1_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(500), u64::MAX)).expect("first");
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(500), NEVER_BINDS)).expect("first");
     let refused =
-        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(600), u64::MAX)).unwrap_err();
+        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(600), NEVER_BINDS)).unwrap_err();
     assert_eq!(crossed(refused), (true, true, true));
     assert_eq!(
         refused.to_string(),
@@ -452,9 +485,9 @@ fn every_crossed_cap_is_named_in_the_one_refusal() {
 
     // The month alone keeps its own name.
     let scratch = Scratch::new().with_caps(1_000, 5_000, 5_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(500), u64::MAX)).expect("first");
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(500), NEVER_BINDS)).expect("first");
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(600), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(600), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::HardStopExceeded
     );
 }
@@ -462,10 +495,14 @@ fn every_crossed_cap_is_named_in_the_one_refusal() {
 #[test]
 fn a_cap_is_checked_before_the_owner_ceiling_and_neither_replaces_the_other() {
     // The owner's ceiling is generous; the phase cap still refuses.
-    let scratch = Scratch::new().with_caps(5_000_000, 1_000, u64::MAX);
+    let scratch = Scratch::new().with_caps(5_000_000, 1_000, NEVER_BINDS);
     assert_eq!(
         crossed(
-            admit_spend(scratch.path(), &ask("GKHOST-0001", Some(1_001), u64::MAX)).unwrap_err()
+            admit_spend(
+                scratch.path(),
+                &ask("GKHOST-0001", Some(1_001), NEVER_BINDS)
+            )
+            .unwrap_err()
         ),
         (true, false, false)
     );
@@ -490,7 +527,7 @@ fn a_configuration_without_the_phase_or_day_cap_admits_nothing() {
         fs::write(&path, config.replace(&format!("{line}\n"), "")).unwrap();
         assert!(!fs::read_to_string(&path).unwrap().contains(missing));
         assert_eq!(
-            admit_spend(scratch.path(), &ask("GKHOST-0001", Some(1), u64::MAX)).unwrap_err(),
+            admit_spend(scratch.path(), &ask("GKHOST-0001", Some(1), NEVER_BINDS)).unwrap_err(),
             LedgerRefusal::PolicyUnenforceable,
             "admitted with no {missing}"
         );
@@ -525,7 +562,7 @@ fn a_ledger_entry_that_belongs_to_no_day_or_month_refuses_the_whole_ledger() {
         )
         .unwrap();
         assert_eq!(
-            admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), u64::MAX)).unwrap_err(),
+            admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), NEVER_BINDS)).unwrap_err(),
             LedgerRefusal::LedgerMalformed,
             "accounted for an entry at {at:?}"
         );
@@ -541,7 +578,7 @@ fn a_ledger_entry_that_belongs_to_no_day_or_month_refuses_the_whole_ledger() {
     )
     .unwrap();
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::LedgerMalformed
     );
 }
@@ -554,7 +591,7 @@ fn a_ledger_entry_that_belongs_to_no_day_or_month_refuses_the_whole_ledger() {
 fn an_unknown_cost_is_refused_and_never_spent_as_zero() {
     let scratch = Scratch::new().with_hard_stop(5_000_000);
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0001", None, u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0001", None, NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::CostUnknown
     );
     assert!(scratch.ledger_text().is_empty());
@@ -562,42 +599,115 @@ fn an_unknown_cost_is_refused_and_never_spent_as_zero() {
 
 #[test]
 fn an_overflowing_projection_is_refused_rather_than_wrapped() {
+    // A hard stop beyond the exact range is unenforceable however it is authorised, so there is no
+    // way to configure a ceiling that makes a wrapped or rounded projection reachable.
     let scratch = Scratch::new().with_hard_stop(u64::MAX);
-    // A hard stop of u64::MAX needs an owner decision, so this configuration is refused first —
-    // which is itself the point: there is no way to configure a ceiling that makes overflow
-    // reachable without an owner decision behind it.
     assert_eq!(
         admit_spend(
             scratch.path(),
-            &ask("GKHOST-0001", Some(u64::MAX), u64::MAX)
+            &ask("GKHOST-0001", Some(u64::MAX), NEVER_BINDS)
         )
         .unwrap_err(),
         LedgerRefusal::PolicyUnenforceable
     );
 
-    // With the raise authorised, the arithmetic itself is still checked.
+    // With every stop at the largest exact amount and the raise authorised, the arithmetic itself
+    // is still checked: a projection past the exact range is an overflow, not a rounded figure.
+    let scratch = authorised_at_the_exact_limit();
+    admit_spend(
+        scratch.path(),
+        &ask("GKHOST-0001", Some(MAX_EXACT_MICRO_USD - 1), NEVER_BINDS),
+    )
+    .expect("admitted under an authorised raise, landing one below the limit");
+    for cost in [2, u64::MAX] {
+        assert_eq!(
+            admit_spend(scratch.path(), &ask("GKHOST-0002", Some(cost), NEVER_BINDS)).unwrap_err(),
+            LedgerRefusal::ArithmeticOverflow,
+            "projected {cost} past the exact range"
+        );
+    }
+    // And exactly reaching the limit is a projection, not an overflow.
+    admit_spend(scratch.path(), &ask("GKHOST-0003", Some(1), NEVER_BINDS))
+        .expect("exactly at the limit");
+}
+
+/// A root whose three stops are all the largest exact amount, under an authorised raise.
+fn authorised_at_the_exact_limit() -> Scratch {
     let scratch = Scratch::new();
     fs::write(
         scratch.path().join(".projectops").join("gatekeeper.json"),
         format!(
             r#"{{"schemaVersion":"1.0.0","enabled":true,"budget":{{"initialCreditMicroUsd":0,"warnAtMicroUsd":0,"hardStopAtMicroUsd":{max},"phaseHardStopAtMicroUsd":{max},"dayHardStopAtMicroUsd":{max},"autoRecharge":false,"raisedByOwnerDecisionId":"D1"}},"budgetRaiseAuthorities":[{{"decisionId":"D1","scope":"gatekeeper-budget-raise"}}]}}"#,
-            max = u64::MAX
+            max = MAX_EXACT_MICRO_USD
         ),
     )
     .unwrap();
-    admit_spend(
-        scratch.path(),
-        &ask("GKHOST-0001", Some(u64::MAX - 1), u64::MAX),
-    )
-    .expect("admitted under an authorised raise");
+    scratch
+}
+
+/// THE INDEPENDENT REVIEW'S WITNESS, end to end: two entries for projectos/PHASE-ONE at
+/// 9007199254740992 and 9007199254740995, an estimate of 2, and a phase cap of 18014398509481989.
+/// Exact `u64` arithmetic admitted it (18014398509481987 + 2 is not past the cap); the canonical
+/// admission, summing in doubles, refused. Each half is now refused on its own.
+#[test]
+fn the_reviewers_float_rounding_witness_is_refused() {
+    let witness_ledger = r#"{"schemaVersion":"1.0.0","entries":[{"requestId":"GKREQ-0001","projectId":"projectos","phaseId":"PHASE-ONE","model":"m","usage":{"inputTokens":1,"outputTokens":1},"costMicroUsd":9007199254740992,"at":"2026-09-08T10:00:00.000Z"},{"requestId":"GKREQ-0002","projectId":"projectos","phaseId":"PHASE-ONE","model":"m","usage":{"inputTokens":1,"outputTokens":1},"costMicroUsd":9007199254740995,"at":"2026-09-08T11:00:00.000Z"}]}"#;
+    let witness_config = r#"{"schemaVersion":"1.0.0","enabled":true,"budget":{"initialCreditMicroUsd":0,"warnAtMicroUsd":0,"hardStopAtMicroUsd":9007199254740991,"phaseHardStopAtMicroUsd":18014398509481989,"dayHardStopAtMicroUsd":9007199254740991,"autoRecharge":false,"raisedByOwnerDecisionId":"D1"},"budgetRaiseAuthorities":[{"decisionId":"D1","scope":"gatekeeper-budget-raise"}]}"#;
+    let ledger_path = |s: &Scratch| s.path().join(".projectops").join("gatekeeper-ledger.json");
+    let config_path = |s: &Scratch| s.path().join(".projectops").join("gatekeeper.json");
+
+    // The witness exactly as given: the cap is refused first, because the policy is read first.
+    let scratch = Scratch::new();
+    fs::write(config_path(&scratch), witness_config).unwrap();
+    fs::write(ledger_path(&scratch), witness_ledger).unwrap();
     assert_eq!(
-        admit_spend(
-            scratch.path(),
-            &ask("GKHOST-0002", Some(u64::MAX), u64::MAX)
-        )
-        .unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0003", Some(2), NEVER_BINDS)).unwrap_err(),
+        LedgerRefusal::PolicyUnenforceable
+    );
+    // Its ledger under an enforceable policy: the entries are refused.
+    let scratch = authorised_at_the_exact_limit();
+    fs::write(ledger_path(&scratch), witness_ledger).unwrap();
+    assert_eq!(
+        admit_spend(scratch.path(), &ask("GKHOST-0003", Some(2), NEVER_BINDS)).unwrap_err(),
+        LedgerRefusal::LedgerMalformed
+    );
+    // And the same shape kept inside the exact range per entry: the TOTAL is refused.
+    let scratch = authorised_at_the_exact_limit();
+    fs::write(
+        ledger_path(&scratch),
+        witness_ledger
+            .replace("9007199254740992", "9007199254740990")
+            .replace("9007199254740995", "5"),
+    )
+    .unwrap();
+    assert_eq!(
+        admit_spend(scratch.path(), &ask("GKHOST-0003", Some(2), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::ArithmeticOverflow
     );
+    assert!(
+        !fs::read_to_string(ledger_path(&scratch))
+            .unwrap()
+            .contains("GKHOST-0003"),
+        "a refusal was written"
+    );
+}
+
+/// A settlement the ledger could not hold exactly is refused, and the reservation is left as it was.
+#[test]
+fn a_settlement_beyond_the_exact_range_is_refused_and_writes_nothing() {
+    let scratch = Scratch::new().with_hard_stop(5_000_000);
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).expect("reserved");
+    let before = scratch.ledger_text();
+    assert_eq!(
+        commit_at(
+            scratch.path(),
+            "GKHOST-0001",
+            &call(MAX_EXACT_MICRO_USD + 1)
+        ),
+        Err(LedgerRefusal::ArithmeticOverflow)
+    );
+    assert_eq!(scratch.ledger_text(), before);
+    commit_at(scratch.path(), "GKHOST-0001", &call(MAX_EXACT_MICRO_USD)).expect("the limit itself");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -607,16 +717,16 @@ fn an_overflowing_projection_is_refused_rather_than_wrapped() {
 #[test]
 fn a_request_id_that_already_has_an_entry_is_refused_whatever_that_entry_is() {
     let scratch = Scratch::new().with_hard_stop(5_000_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).expect("first");
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).expect("first");
     // Outstanding.
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::AlreadyReserved
     );
     // Settled.
     commit_at(scratch.path(), "GKHOST-0001", &call(12)).expect("settled");
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::AlreadyReserved
     );
     assert_eq!(scratch.document().entries.len(), 1);
@@ -634,7 +744,7 @@ fn a_request_id_that_could_never_address_a_record_is_refused() {
         &"a".repeat(129),
     ] {
         assert_eq!(
-            admit_spend(scratch.path(), &ask(bad, Some(10), u64::MAX)).unwrap_err(),
+            admit_spend(scratch.path(), &ask(bad, Some(10), NEVER_BINDS)).unwrap_err(),
             LedgerRefusal::RequestIdMalformed,
             "accepted id {bad:?}"
         );
@@ -647,17 +757,17 @@ fn the_outstanding_reservation_list_is_bounded() {
     for n in 0..MAX_OUTSTANDING_RESERVATIONS {
         admit_spend(
             scratch.path(),
-            &ask(&format!("GKHOST-{n:04}"), Some(1), u64::MAX),
+            &ask(&format!("GKHOST-{n:04}"), Some(1), NEVER_BINDS),
         )
         .unwrap_or_else(|e| panic!("admission {n} refused: {e}"));
     }
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-9999", Some(1), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-9999", Some(1), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::OutstandingReservationsExhausted
     );
     // TRANSIENT, UNLIKE A CEILING: settling one in flight clears it.
     commit_at(scratch.path(), "GKHOST-0000", &call(1)).expect("settled");
-    admit_spend(scratch.path(), &ask("GKHOST-9999", Some(1), u64::MAX)).expect("room again");
+    admit_spend(scratch.path(), &ask("GKHOST-9999", Some(1), NEVER_BINDS)).expect("room again");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -667,7 +777,11 @@ fn the_outstanding_reservation_list_is_bounded() {
 #[test]
 fn a_reservation_commits_once_and_becomes_the_call_that_happened() {
     let scratch = Scratch::new().with_hard_stop(5_000_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(1_000), u64::MAX)).expect("reserved");
+    admit_spend(
+        scratch.path(),
+        &ask("GKHOST-0001", Some(1_000), NEVER_BINDS),
+    )
+    .expect("reserved");
     commit_at(scratch.path(), "GKHOST-0001", &call(1_234)).expect("committed");
 
     let document = scratch.document();
@@ -692,21 +806,29 @@ fn a_reservation_commits_once_and_becomes_the_call_that_happened() {
 #[test]
 fn a_reservation_releases_once_and_the_capacity_comes_back() {
     let scratch = Scratch::new().with_hard_stop(1_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(1_000), u64::MAX)).expect("reserved");
+    admit_spend(
+        scratch.path(),
+        &ask("GKHOST-0001", Some(1_000), NEVER_BINDS),
+    )
+    .expect("reserved");
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(1), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(1), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::HardStopExceeded
     );
     release_at(scratch.path(), "GKHOST-0001").expect("released");
     assert_eq!(scratch.document().entries.len(), 0);
-    admit_spend(scratch.path(), &ask("GKHOST-0002", Some(1_000), u64::MAX)).expect("capacity back");
+    admit_spend(
+        scratch.path(),
+        &ask("GKHOST-0002", Some(1_000), NEVER_BINDS),
+    )
+    .expect("capacity back");
 }
 
 #[test]
 fn every_invalid_settlement_transition_is_refused() {
     // Double commit.
     let scratch = Scratch::new().with_hard_stop(5_000_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).unwrap();
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).unwrap();
     commit_at(scratch.path(), "GKHOST-0001", &call(12)).unwrap();
     assert_eq!(
         commit_at(scratch.path(), "GKHOST-0001", &call(12)).unwrap_err(),
@@ -724,7 +846,7 @@ fn every_invalid_settlement_transition_is_refused() {
 
     // Double release, and commit after release.
     let scratch = Scratch::new().with_hard_stop(5_000_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), u64::MAX)).unwrap();
+    admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), NEVER_BINDS)).unwrap();
     release_at(scratch.path(), "GKHOST-0002").unwrap();
     assert_eq!(
         release_at(scratch.path(), "GKHOST-0002").unwrap_err(),
@@ -740,7 +862,7 @@ fn every_invalid_settlement_transition_is_refused() {
 fn a_reservation_cannot_be_settled_on_a_ledger_that_never_held_it() {
     let held = Scratch::new().with_hard_stop(5_000_000);
     let other = Scratch::new().with_hard_stop(5_000_000);
-    admit_spend(held.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).expect("reserved here");
+    admit_spend(held.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).expect("reserved here");
 
     assert_eq!(
         commit_at(other.path(), "GKHOST-0001", &call(12)).unwrap_err(),
@@ -761,7 +883,7 @@ fn a_reservation_cannot_be_settled_on_a_ledger_that_never_held_it() {
 #[test]
 fn a_settlement_that_records_no_call_is_refused() {
     let scratch = Scratch::new().with_hard_stop(5_000_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).unwrap();
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).unwrap();
     let nothing = SettledProviderCall {
         input_tokens: 0,
         cached_input_tokens: Some(0),
@@ -786,7 +908,7 @@ fn a_settlement_that_records_no_call_is_refused() {
 #[test]
 fn a_held_lock_refuses_admission_settlement_and_release_alike() {
     let scratch = Scratch::new().with_hard_stop(5_000_000);
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).expect("reserved");
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).expect("reserved");
 
     // Exactly what another process holding the canonical lock looks like on disk.
     let lock = scratch
@@ -796,7 +918,7 @@ fn a_held_lock_refuses_admission_settlement_and_release_alike() {
     fs::write(&lock, "{\"heldSince\":\"2026-09-08T13:00:00Z\"}\n").unwrap();
 
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::LockHeld
     );
     assert_eq!(
@@ -809,7 +931,7 @@ fn a_held_lock_refuses_admission_settlement_and_release_alike() {
     );
 
     fs::remove_file(&lock).unwrap();
-    admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), u64::MAX)).expect("lock released");
+    admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), NEVER_BINDS)).expect("lock released");
 }
 
 #[test]
@@ -827,7 +949,7 @@ fn concurrent_admissions_cannot_overbook_one_hard_stop() {
                 let root = root.clone();
                 scope.spawn(move || {
                     let id = format!("GKHOST-{n:04}");
-                    admit_spend(&root, &ask(&id, Some(600), u64::MAX))
+                    admit_spend(&root, &ask(&id, Some(600), NEVER_BINDS))
                 })
             })
             .collect();
@@ -886,7 +1008,7 @@ fn a_malformed_ledger_refuses_rather_than_reading_as_empty() {
             corrupt,
         )
         .unwrap();
-        let refused = admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), u64::MAX));
+        let refused = admit_spend(scratch.path(), &ask("GKHOST-0002", Some(10), NEVER_BINDS));
         assert_eq!(
             refused.unwrap_err(),
             LedgerRefusal::LedgerMalformed,
@@ -908,7 +1030,7 @@ fn an_oversize_ledger_is_refused_rather_than_read() {
     )
     .unwrap();
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::LedgerOversize
     );
 }
@@ -924,7 +1046,7 @@ fn a_ledger_path_that_is_not_a_regular_file_is_refused() {
     )
     .unwrap();
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::PathNotRegular
     );
 }
@@ -939,7 +1061,7 @@ fn a_root_that_is_not_a_governed_project_admits_nothing_and_creates_nothing() {
     let _ = fs::remove_dir_all(&bare);
     fs::create_dir_all(&bare).unwrap();
     assert_eq!(
-        admit_spend(&bare, &ask("GKHOST-0001", Some(10), u64::MAX)).unwrap_err(),
+        admit_spend(&bare, &ask("GKHOST-0001", Some(10), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::ProjectRootUnavailable
     );
     assert!(
@@ -948,7 +1070,7 @@ fn a_root_that_is_not_a_governed_project_admits_nothing_and_creates_nothing() {
     );
     let missing = bare.join("no-such-root");
     assert_eq!(
-        admit_spend(&missing, &ask("GKHOST-0001", Some(10), u64::MAX)).unwrap_err(),
+        admit_spend(&missing, &ask("GKHOST-0001", Some(10), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::ProjectRootUnavailable
     );
     let _ = fs::remove_dir_all(&bare);
@@ -959,7 +1081,7 @@ fn an_absent_or_unenforceable_configuration_stops_spending() {
     // Absent.
     let scratch = Scratch::new();
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::ConfigUnavailable
     );
     // Present but unenforceable: no hard stop at all.
@@ -970,7 +1092,7 @@ fn an_absent_or_unenforceable_configuration_stops_spending() {
     )
     .unwrap();
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::PolicyUnenforceable
     );
     assert!(scratch.ledger_text().is_empty());
@@ -984,12 +1106,12 @@ fn the_lock_is_always_released_however_the_transaction_ended() {
         .join(".projectops")
         .join("gatekeeper-ledger.lock");
 
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).expect("admitted");
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).expect("admitted");
     assert!(!lock.exists(), "the lock outlived a successful admission");
 
     let _ = admit_spend(
         scratch.path(),
-        &ask("GKHOST-0002", Some(u64::MAX), u64::MAX),
+        &ask("GKHOST-0002", Some(u64::MAX), NEVER_BINDS),
     );
     assert!(!lock.exists(), "the lock outlived a refused admission");
 
@@ -1024,7 +1146,7 @@ fn a_hard_link_planted_at_the_companion_path_is_not_written_through() {
         return;
     }
 
-    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).expect("admitted");
+    admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).expect("admitted");
 
     assert_eq!(
         fs::read_to_string(&victim).unwrap(),
@@ -1053,7 +1175,7 @@ fn a_symlink_planted_at_the_companion_path_is_not_written_through() {
     // a hard link IS a regular file - and there it is `remove` + `create_new` that protects the
     // victim. Two different defences, and the ledger needs both.
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::PathNotRegular
     );
 
@@ -1091,7 +1213,7 @@ fn a_symlink_at_the_ledger_itself_is_refused_rather_than_followed() {
         return;
     }
     assert_eq!(
-        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), u64::MAX)).unwrap_err(),
+        admit_spend(scratch.path(), &ask("GKHOST-0001", Some(10), NEVER_BINDS)).unwrap_err(),
         LedgerRefusal::PathNotRegular
     );
 }

@@ -160,6 +160,11 @@ impl LedgerDocument {
             // ACCOUNT FOR. The canonical `readLedgerStrict` refuses a whole ledger holding one, since
             // such an entry would be invisible to every period total; this refuses at least as much.
             check_canonical_instant(&entry.at)?;
+            // A COST THE CANONICAL READER CAN ONLY HOLD ROUNDED is not one this Host will total — see
+            // `MAX_EXACT_MICRO_USD`.
+            if entry.cost_micro_usd > crate::MAX_EXACT_MICRO_USD {
+                return Err(LedgerRefusal::LedgerMalformed);
+            }
         }
         Ok(document)
     }
@@ -210,7 +215,7 @@ impl LedgerDocument {
     /// refused by the same hard stop. That is the whole of the concurrency defence.
     ///
     /// # Errors
-    /// [`LedgerRefusal::ArithmeticOverflow`] if the sum does not fit.
+    /// [`LedgerRefusal::ArithmeticOverflow`] if the sum exceeds [`crate::MAX_EXACT_MICRO_USD`].
     pub fn month_total_micro_usd(&self, month: &str) -> Result<u64, LedgerRefusal> {
         self.total_where(|e| e.falls_in_month(month))
     }
@@ -243,14 +248,12 @@ impl LedgerDocument {
         self.total_where(|e| e.project_id == project_id && e.phase_id == phase_id)
     }
 
-    /// The checked sum of the deduplicated entries that `counts`.
+    /// The sum of the deduplicated entries that `counts`, refused beyond the exact range.
     fn total_where(&self, counts: impl Fn(&LedgerEntry) -> bool) -> Result<u64, LedgerRefusal> {
         let mut total: u64 = 0;
         for entry in self.deduplicated() {
             if counts(entry) {
-                total = total
-                    .checked_add(entry.cost_micro_usd)
-                    .ok_or(LedgerRefusal::ArithmeticOverflow)?;
+                total = crate::exact_sum(total, entry.cost_micro_usd)?;
             }
         }
         Ok(total)
@@ -455,7 +458,19 @@ mod tests {
 
     #[test]
     fn a_negative_or_fractional_cost_is_refused_rather_than_treated_as_zero() {
-        for bad in ["-1", "1.5", "1e3", "null", r#""6629""#] {
+        for bad in [
+            "-1",
+            "1.5",
+            "1e3",
+            "null",
+            r#""6629""#,
+            // Pinned after the independent review verified them by hand: an exponent, a negative
+            // zero, a whole number written as a float, and one past `u64::MAX`.
+            "1e6",
+            "-0",
+            "1.0",
+            "18446744073709551616",
+        ] {
             let text = CANONICAL.replace(
                 "\"costMicroUsd\": 6629",
                 &format!("\"costMicroUsd\": {bad}"),
@@ -477,19 +492,69 @@ mod tests {
         );
     }
 
+    /// Two entries each inside the exact range whose SUM is not: every total over them is refused.
     #[test]
-    fn an_overflowing_month_is_refused_rather_than_wrapped() {
+    fn a_total_beyond_the_exact_range_is_refused_rather_than_rounded() {
         let text = CANONICAL
             .replace(
                 "\"costMicroUsd\": 6629",
-                &format!("\"costMicroUsd\": {}", u64::MAX),
+                &format!("\"costMicroUsd\": {}", crate::MAX_EXACT_MICRO_USD),
             )
             .replace("2026-09-05T16:10:17.422Z", "2026-08-05T16:10:17.422Z")
-            .replace("\"costMicroUsd\": 1333", "\"costMicroUsd\": 2");
-        let parsed = LedgerDocument::parse(&text).unwrap();
+            .replace("\"costMicroUsd\": 1333", "\"costMicroUsd\": 1");
+        let parsed = LedgerDocument::parse(&text).expect("each entry is exact");
         assert_eq!(
             parsed.month_total_micro_usd("2026-08"),
             Err(LedgerRefusal::ArithmeticOverflow)
+        );
+        assert_eq!(
+            parsed.day_total_micro_usd("2026-08-05"),
+            Ok(1),
+            "an exact total over the same ledger is still answered"
+        );
+        assert_eq!(
+            parsed.phase_total_micro_usd("projectos", "PHASE-ONE"),
+            Err(LedgerRefusal::ArithmeticOverflow)
+        );
+    }
+
+    /// The largest exact amount is a cost; one more is not.
+    #[test]
+    fn a_cost_beyond_the_exact_range_is_malformed() {
+        let at = |cost: u64| {
+            CANONICAL.replace(
+                "\"costMicroUsd\": 6629",
+                &format!("\"costMicroUsd\": {cost}"),
+            )
+        };
+        assert!(LedgerDocument::parse(&at(crate::MAX_EXACT_MICRO_USD)).is_ok());
+        for cost in [crate::MAX_EXACT_MICRO_USD + 1, u64::MAX] {
+            assert_eq!(
+                LedgerDocument::parse(&at(cost)),
+                Err(LedgerRefusal::LedgerMalformed),
+                "accepted cost {cost}"
+            );
+        }
+    }
+
+    /// THE INDEPENDENT REVIEW'S WITNESS, at the ledger: two entries for projectos/PHASE-ONE at
+    /// 9007199254740992 and 9007199254740995. Before this rule the Host totalled them exactly and
+    /// admitted an estimate of 2 under a phase cap of 18014398509481989, which the canonical
+    /// admission — summing in doubles — refused.
+    #[test]
+    fn the_reviewers_witness_ledger_is_refused() {
+        let text = CANONICAL
+            .replace(
+                "\"costMicroUsd\": 6629",
+                "\"costMicroUsd\": 9007199254740992",
+            )
+            .replace(
+                "\"costMicroUsd\": 1333",
+                "\"costMicroUsd\": 9007199254740995",
+            );
+        assert_eq!(
+            LedgerDocument::parse(&text),
+            Err(LedgerRefusal::LedgerMalformed)
         );
     }
 

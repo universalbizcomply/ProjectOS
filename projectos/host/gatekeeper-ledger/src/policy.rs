@@ -124,8 +124,13 @@ struct GatekeeperConfigFile {
 /// against a total without choosing a rounding direction, and choosing one silently is how a limit
 /// stops meaning what it says. Refusing is the safe direction: an installation whose ceiling is
 /// written `5000000.5` gets a refusal to spend, not a rounded permission.
+///
+/// AND NOTHING ABOVE [`crate::MAX_EXACT_MICRO_USD`]: the canonical implementation holds a figure
+/// beyond it only rounded, so a cap there is not the cap the two programs would both enforce.
 fn whole_amount(value: Option<&serde_json::Value>) -> Option<u64> {
-    value?.as_u64()
+    value?
+        .as_u64()
+        .filter(|amount| *amount <= crate::MAX_EXACT_MICRO_USD)
 }
 
 /// Resolve the enforceable policy from the canonical configuration text.
@@ -275,6 +280,42 @@ mod tests {
                 let budget = APPROVED.replace(&present, &format!("\"{field}\":{bad}"));
                 assert_eq!(
                     resolve(&config(&budget, "[]")),
+                    Err(LedgerRefusal::PolicyUnenforceable),
+                    "accepted {field} = {bad}"
+                );
+            }
+        }
+    }
+
+    /// A CAP THE CANONICAL IMPLEMENTATION CAN ONLY HOLD ROUNDED IS UNENFORCEABLE — including the
+    /// independent review's witness, a phase cap of 18014398509481989 — and so is every shape that
+    /// is not a plain whole number. The largest exact amount is still a cap.
+    #[test]
+    fn a_cap_beyond_the_exact_range_or_not_a_plain_whole_number_is_refused() {
+        let with = |field: &str, value: &str| {
+            let present = if field.starts_with("phase") {
+                format!("\"{field}\":1500000")
+            } else {
+                format!("\"{field}\":2000000")
+            };
+            APPROVED.replace(&present, &format!("\"{field}\":{value}"))
+        };
+        for field in ["phaseHardStopAtMicroUsd", "dayHardStopAtMicroUsd"] {
+            assert!(
+                resolve(&config(&with(field, "9007199254740991"), "[]")).is_ok(),
+                "refused the largest exact {field}"
+            );
+            for bad in [
+                "9007199254740992",
+                "18014398509481989",
+                "18446744073709551615",
+                "18446744073709551616",
+                "1e6",
+                "-0",
+                "1.0",
+            ] {
+                assert_eq!(
+                    resolve(&config(&with(field, bad), "[]")),
                     Err(LedgerRefusal::PolicyUnenforceable),
                     "accepted {field} = {bad}"
                 );
