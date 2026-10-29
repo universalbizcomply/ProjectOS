@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-8dff3feadc9cdb0dfbe01873",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "5b319867643034ec3cc2d3eaa2b71994f83d6fdb",
+  "draftId": "0bfe9211c26c980c",
+  "planDigest": "sha256:6b7e55be41521da8a0c815d16fc690f13342645cf5a73a4d69b52a3eb4b83125",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-29T18:08:53.819Z",
+  "note": "WritePath repair only, no new scope. Owner (Murad), 2026-10-29, verbatim: \"Yes, add and do it (Recommended)\" (the follow-up phase); \"Codex CLI (OpenAI) (Recommended)\" (second reviewer). The approved Codex adapter needs the worker-lifecycle validator to admit it, the config schema to accept its kind, and a stale comment fixed. Standing grant: \"You have full authority\" (2026-10-28).",
+  "recordedBy": "projectos plan decide"
+}
