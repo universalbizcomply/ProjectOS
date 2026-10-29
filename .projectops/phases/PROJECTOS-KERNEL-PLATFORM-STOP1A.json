@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-KERNEL-PLATFORM-STOP1A",
   "project": "ProjectOS",
   "objective": "One owner command halts every loop, suspends technical delegations and refuses new operations until the owner lifts it, and says honestly that it cannot undo sends, payments, pushes or provider calls already made. Owner decision, 2026-10-29: \"Full stop, all files\" — the check reaches every entry point, including the protected closure, run, plan, reconcile, phase, gatekeeper-config, technical-continuation and Control Center sidecar paths, so nothing that bypasses the CLI or the run loop keeps working.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-29T15:52:49.375Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-29T15:52:51.042Z",
+      "note": "Owner-direct closure under the owner's grant. — closed by owner Murad, decision projectos:PROJECTOS-KERNEL-PLATFORM-STOP1A:owner-closure:d0860425"
     }
   ]
 }
