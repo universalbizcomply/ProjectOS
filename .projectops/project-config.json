@@ -150,6 +150,7 @@
       }
     ],
     "defaultWorkerId": "claude-local",
+    "reviewerWorkerId": "claude-reviewer",
     "workers": [
       {
         "workerId": "claude-local",
@@ -162,6 +163,21 @@
           "project"
         ],
         "notes": "The owner's local Claude Code CLI. Absolute by requirement: a bare name would resolve against the governed checkout before PATH. No credential is passed and no Anthropic API is called — use-anthropic-api remains a forbidden action. The allowlist grants exactly the two records the WORKER owns: its findings and its effects attestation. It deliberately does NOT cover *.brief.json, *.session.json or *.evidence.json — those are ProjectOS's, and a worker able to rewrite the brief it was judged against, or the evidence collected about it, could launder its own run. An earlier grant of .projectops/execution/** was too broad and was narrowed here; `workers.ts` refuses any grant that is not exactly one of the six patterns it enumerates, so a future config cannot widen it silently. The two proof-surface grants were activated for PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A: `.projectops/proof/*.json` holds no product code, plan, authority record or configuration, and it is the surface that phase's bounded change is made on. `--setting-sources project` was added after PROJECTOS-AUTONOMOUS-SELF-CHANGE-PILOT1A attempt 2: the governed worker loaded the owner's USER-level Claude Code settings, and a user-installed plugin's SessionEnd hook (`node .../session-end-cleanup.mjs`, from the vercel plugin) failed inside Claude Code's own hook shell with `node: command not found`, which made claude.exe exit 1 and the loop read a finished worker as WORKER_REFUSED - a paid gatekeeper call about the owner's plugin list. Restricting the worker to PROJECT settings means nothing the owner installs for their own interactive sessions - plugins, hooks, MCP servers - executes inside a governed run unless it is committed in this repository, which is also the narrower trust boundary. Proven through the adapter's exact exec path: exit 1 with the hook error without the flag, exit 0 with it."
+      },
+      {
+        "workerId": "claude-reviewer",
+        "kind": "claude-code-cli",
+        "command": "C:/Users/murad/.local/bin/claude.exe",
+        "args": [
+          "--allowedTools",
+          "Read,Grep,Glob",
+          "--setting-sources",
+          "project",
+          "--model",
+          "sonnet"
+        ],
+        "timeoutMs": 1200000,
+        "notes": "D11 (PROJECTOS-KERNEL-ROLE-REVIEW1A): the independent REVIEWER. It is never the implementer: roleBindingProblems refuses a reviewer that is the implementer or holds any non-read grant, and the adapter's review() always adds --disallowedTools for every write, shell, dispatch and web tool plus --strict-mcp-config. It reads the candidate and answers on stdout; the loop writes the reviewer record. Same provider as claude-local (providerDistinct=false, recorded); the Stage 1 exit proof needs a reviewer of a different provider. --setting-sources project for the same reason as claude-local. Committed by the owner's instruction 2026-10-29: \"Commit the claude-reviewer config, then start PROJECTOS-KERNEL-COST-CAP1A.\""
       }
     ]
   },
