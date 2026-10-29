@@ -37,6 +37,8 @@
     "initialCreditMicroUsd": 5000000,
     "warnAtMicroUsd": 2000000,
     "hardStopAtMicroUsd": 5000000,
+    "phaseHardStopAtMicroUsd": 1000000,
+    "dayHardStopAtMicroUsd": 2000000,
     "autoRecharge": false
   },
   "budgetRaiseAuthorities": [],
