@@ -18,6 +18,7 @@ import { MAX_CORRECTION_ATTEMPTS } from '../src/loop/outcome.js';
 import { inMemoryResolverForTests } from '../src/loop/credentialResolver.js';
 import { deriveUnavailabilityId } from '../src/loop/degradedMode.js';
 import { APPROVED_PILOT_POLICY } from '@projectos/core';
+import { PLATFORM_STOP_STATEMENT } from '../src/loop/platformStop.js';
 import type { AdapterRegistry, WorkerAdapter } from '../src/loop/workers.js';
 import { reviewerReply, reviewing, withReviewer } from './support/fakeReviewer.js';
 import type { System, ExecResult } from '../src/system.js';
@@ -1611,6 +1612,100 @@ describe('runLoop with an unattended gatekeeper', () => {
     if (!r.ok) return;
     expect(r.stop?.code).toBe('OWNER_GATE');
     // Nothing was sent: an owner gate is not a question for a reviewer.
+    expect(sent).toEqual([]);
+  });
+
+  /* --------------------------------------------------------------------------------------------
+   * THE PLATFORM STOP (PROJECTOS-KERNEL-PLATFORM-STOP1A). The stop lives in an in-memory state
+   * directory named on the run, never in the owner's real one.
+   * ----------------------------------------------------------------------------------------- */
+  const STOP_DIR = '/installation-state';
+  // WRITTEN DIRECTLY: this world's fake rename moves nothing, so the atomic engage cannot run in it. The
+  // bytes are the shape `engagePlatformStop` writes, judged by the same reader.
+  const STOP_RECORD = JSON.stringify({
+    schemaVersion: '1.0.0',
+    state: 'engaged',
+    stopId: 'STOP-20260811T190000Z-0123456789ab',
+    engagedAt: NOW,
+    engagedBy: { claim: 'tester', authenticated: false },
+    reason: 'test',
+    statement: PLATFORM_STOP_STATEMENT,
+    history: [],
+  });
+  const engageIn = (sys: System) => sys.writeText(`${STOP_DIR}/platform-stop.json`, STOP_RECORD);
+
+  it('[PLATFORM-STOP] engaged before the run: zero worker starts, zero writes, zero gatekeeper calls', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    engageIn(sys);
+    sys.writes.length = 0;
+    const { calls, registry } = fakeAdapter({ exitCode: 3 });
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent),
+      platformStopStateDir: STOP_DIR,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.lines.join('\n')).toContain('REFUSED (PLATFORM_STOP)');
+    expect(r.lines.join('\n')).toContain(PLATFORM_STOP_STATEMENT);
+    expect(calls).toEqual([]);
+    expect(sys.writes).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  it('[PLATFORM-STOP] engaged during the first attempt: no second dispatch, BLOCKED, and the gatekeeper is never called', () => {
+    // A failing check would normally be corrected up to the bound, and a reviewer would be asked.
+    const sys = world({ validatorExit: 1, files: cleanFindings(SESSION) });
+    const calls: string[] = [];
+    const stopping: WorkerAdapter = {
+      kind: WORKER_KIND,
+      ...reviewing(),
+      start: (s) => {
+        calls.push('start');
+        engageIn(s);
+        return { kind: 'completed', exitCode: 0, stdout: '', stderr: '', providerRef: 'ref-1' };
+      },
+      rejoin: () => {
+        calls.push('rejoin');
+        return { kind: 'completed', exitCode: 0, stdout: '', stderr: '', providerRef: 'ref-1' };
+      },
+    };
+    const sent: string[] = [];
+    const states: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: { [WORKER_KIND]: stopping },
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('AMENDMENT_REQUIRED', 'fix it') }, sent),
+      onWorkState: (p) => states.push(p.state),
+      platformStopStateDir: STOP_DIR,
+    });
+    expect(r.ok).toBe(false);
+    expect(calls).toEqual(['start']);
+    expect(sent).toEqual([]);
+    expect(states[states.length - 1]).toBe('BLOCKED');
+    expect(r.lines.join('\n')).toContain(PLATFORM_STOP_STATEMENT);
+  });
+
+  it('[PLATFORM-STOP] a stop engaged while a refused worker was out means the reviewer is not paid to look', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const stopping: WorkerAdapter = {
+      kind: WORKER_KIND,
+      ...reviewing(),
+      start: (s) => {
+        engageIn(s);
+        return { kind: 'completed', exitCode: 3, stdout: '', stderr: '', providerRef: 'ref-1' };
+      },
+      rejoin: () => ({ kind: 'completed', exitCode: 3, stdout: '', stderr: '', providerRef: 'ref-1' }),
+    };
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters: { [WORKER_KIND]: stopping },
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', null) }, sent),
+      platformStopStateDir: STOP_DIR,
+    });
+    expect(r.ok).toBe(false);
     expect(sent).toEqual([]);
   });
 });

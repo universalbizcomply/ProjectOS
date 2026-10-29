@@ -97,6 +97,7 @@ import {
   type ReviewerRecord,
 } from './reviewRoles.js';
 import { candidateStillReviewed, runIndependentReview } from './independentReview.js';
+import { platformStopRefusal } from './platformStop.js';
 import {
   digestOf,
   invocationIdFor,
@@ -240,6 +241,12 @@ export interface RunOptions {
   readonly ownerOnlyActions?: readonly string[];
   /** Who the approved plan says reviews. Never derived from a caller flag. */
   readonly expectedDecider?: string;
+  /**
+   * Where the platform stop record is read from. ABSENT IN PRODUCTION, which reads the installation's
+   * own state directory; a test names a temporary one so engaging a stop never touches the owner's.
+   * `null` is an unresolvable directory and refuses, like every other unknown here.
+   */
+  readonly platformStopStateDir?: string | null | undefined;
 }
 
 export type RunResult =
@@ -399,6 +406,15 @@ function describeWorkerOutcome(o: WorkerOutcome): { stop: LoopStop | null; line:
  * a loop that performed them would be the thing this design exists to prevent.
  */
 export function runLoop(sys: System, root: string, options: RunOptions = {}): RunResult {
+  // THE PLATFORM STOP, BEFORE ANYTHING IS READ, WRITTEN OR SPAWNED (PROJECTOS-KERNEL-PLATFORM-STOP1A).
+  //
+  // Asked here and again at every later step that can have an effect — the dispatch, the paid review,
+  // the local candidate commit, the independent review, degraded mode, an owner receipt, the technical
+  // continuation and the final answer — because R7 judges the stop when an action EXECUTES. A stop
+  // engaged while a worker runs therefore ends the run at the next of these, not at the next run.
+  const stopDir = options.platformStopStateDir;
+  const stoppedAtEntry = platformStopRefusal(sys, stopDir);
+  if (stoppedAtEntry !== null) return refused(stoppedAtEntry);
   const contextResult = loadGovernedContext(sys, root);
   if (!contextResult.ok) return refused(refusalLines(contextResult));
   const context: GovernedContext = contextResult.context;
@@ -701,6 +717,28 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
   let attempts = 0;
   /**
+   * END THE RUN BECAUSE THE PLATFORM STOP IS ENGAGED, mid-flight.
+   *
+   * The durable record says BLOCKED, with the owner required, BEFORE the refusal is returned, so a run the
+   * stop ended can never be read back as one still working or one that completed. No new stop code: the
+   * stop vocabulary is a closed, exhaustive table, and a platform stop is not a decision anybody inside
+   * the loop may answer — it is the refusal itself, carried in the lines. The run's own lines are kept,
+   * so what it did before the stop stays on the record.
+   */
+  const haltMidRun = (refusal: readonly string[], attempt: number): RunResult => {
+    options.onWorkState?.({
+      state: 'BLOCKED',
+      phaseId,
+      sessionId,
+      attempt,
+      subjectCommit: verification.observed.head ?? null,
+      lastStopCode: null,
+      lastStopDetail: 'the platform-wide emergency stop is engaged',
+      ownerRequired: true,
+    });
+    return refused([...lines, ...refusal]);
+  };
+  /**
    * HOW MANY TIMES A MISSING RECORD THE WORKER OWNS HAS BEEN RE-ASKED FOR, FREE.
    *
    * The findings and effects records are the two files the worker is granted to write, and the brief
@@ -848,6 +886,12 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    * report the structured outcome.
    */
   const degradedContinuation = (candidate: LoopStop, cause: GatekeeperUnavailabilityCause): DegradedOutcome => {
+    // NO GRANT IS SPENT UNDER A STOP: a consumption is durable and single-use, and a stop must not burn it.
+    const haltedDegraded = platformStopRefusal(sys, stopDir);
+    if (haltedDegraded !== null) {
+      lines.push('  degraded mode REFUSED: the platform stop is engaged; nothing was authorised and no grant was spent');
+      return { kind: 'REFUSED', reasons: haltedDegraded };
+    }
     const cfg = options.degradedMode;
     if (cfg === undefined) return { kind: 'NOT_CONFIGURED' };
 
@@ -961,6 +1005,12 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    * both cases the stop stands and the run ends where it always did.
    */
   const consultGatekeeper = (candidate: LoopStop, evidenceText: string): 'retry' | 'proceed' | null => {
+    // NO PAID QUESTION UNDER A STOP. `null` leaves the stop standing, exactly as "no reviewer" does.
+    const haltedReview = platformStopRefusal(sys, stopDir);
+    if (haltedReview !== null) {
+      lines.push('  the reviewer was not asked: the platform stop is engaged, so nothing was spent', ...haltedReview.map((l) => `    ${l}`));
+      return null;
+    }
     const deps = options.gatekeeper;
     if (deps === undefined) return null;
 
@@ -1010,7 +1060,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         // is only that a project which HAS delegated, and whose plan does not separately gate the
         // action, can have the question put to its reviewer at all.
         technicalDelegation: technicalDelegationCondition(
-          resolveTechnicalDelegation(sys, root, programmeIdOf(context)),
+          resolveTechnicalDelegation(sys, root, programmeIdOf(context), stopDir),
         ),
         expectedDecider: options.expectedDecider ?? '',
         at: sys.now(),
@@ -1156,6 +1206,12 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    * record of the stop says why. A candidate with nothing new to record leaves the subject where it was.
    */
   const recordLocalCandidate = (): Record<string, unknown> | null => {
+    // NO LOCAL COMMIT UNDER A STOP. Remembered as a refusal, so `consultGatekeeper` asks nothing either.
+    const haltedCandidate = platformStopRefusal(sys, stopDir);
+    if (haltedCandidate !== null) {
+      localCandidateRefusal = haltedCandidate;
+      return { available: false, why: 'the platform stop is engaged, so no candidate commit was made' };
+    }
     localCandidateRefusal = null;
     if (!unattendedHostRoute()) return null;
     const made = commitLocalCandidate(sys, root, phaseId);
@@ -1419,6 +1475,12 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    * on the owner exactly as it already had.
    */
   const payForPendingOwnerGates = (): boolean => {
+    // A STOP NEVER BURNS AN OWNER RECEIPT. A receipt is single-use; spending one on a passage the stop
+    // then refuses would cost the owner a decision for nothing.
+    if (platformStopRefusal(sys, stopDir) !== null) {
+      lines.push('  no owner receipt was spent: the platform stop is engaged');
+      return false;
+    }
     const pending = brief.phase.requiredOwnerGates
       .filter((g) => (TECHNICAL_ACTIONS as readonly string[]).includes(g))
       .filter((g) => !paidOwnerGates.has(g));
@@ -1461,6 +1523,13 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
    * pushed at cc324a7. Every refusal below is the executor's, reported rather than interpreted.
    */
   const runContinuation = (): ContinuationResult => {
+    // NO COMMIT OR PUSH UNDER A STOP, however the decision read. REFUSED, never NO_ACTION, so the record
+    // says the action was refused rather than that nothing was approved.
+    const haltedContinuation = platformStopRefusal(sys, stopDir);
+    if (haltedContinuation !== null) {
+      lines.push('  no technical continuation: the platform stop is engaged', ...haltedContinuation.map((l) => `    ${l}`));
+      return { kind: 'REFUSED', detail: 'the platform stop is engaged, so nothing was committed or pushed' };
+    }
     // MANDATORY DOCTOR PREFLIGHT — automatic technical commit or push continuation.
     //
     // The third and last of the contexts the approved plan makes mandatory, and the one where a
@@ -1484,7 +1553,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       return { kind: 'NO_ACTION', detail };
     }
     const programmeId = programmeIdOf(context);
-    const delegation = resolveTechnicalDelegation(sys, root, programmeId);
+    const delegation = resolveTechnicalDelegation(sys, root, programmeId, stopDir);
     // THE BRANCH THE APPROVED PLAN NAMES, not the branch the checkout happens to be on. Comparing the
     // checkout against itself would make the executor's branch check vacuous.
     const repository = (context.plan['repository'] as Record<string, unknown> | undefined) ?? {};
@@ -1544,6 +1613,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         delegation,
         phaseOwnerGates: options.ownerOnlyActions ?? brief.phase.requiredOwnerGates,
         at: sys.now(),
+        platformStopStateDir: stopDir,
       });
       if (outcome.kind === 'REFUSED') {
         lines.push(`  technical continuation REFUSED for '${action}':`);
@@ -1705,6 +1775,11 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // the record truthfully says a worker went out and no answer came back, which is what B8 will
     // need in order to reconcile it. `EXECUTING` still follows only once the attempt has actually
     // run, so neither state claims something that has not happened.
+    //
+    // AND THE PLATFORM STOP IS ASKED IMMEDIATELY BEFORE IT. This is the line every correction loops back
+    // to, so a stop engaged during the first attempt means there is no second dispatch.
+    const haltedDispatch = platformStopRefusal(sys, stopDir);
+    if (haltedDispatch !== null) return haltMidRun(haltedDispatch, attempts);
     options.onWorkState?.({
       state: 'WAITING_AI',
       phaseId,
@@ -1925,6 +2000,9 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     let reviewerRecord: ReviewerRecord | null = null;
     let reviewerProblems: readonly string[] = [];
     const outstandingIndependent = independentReviews(required).filter((r) => !turnFacts.reviewsRecorded.includes(r));
+    // NO INDEPENDENT REVIEWER IS STARTED UNDER A STOP: it is a worker dispatch like any other.
+    const haltedReviewer = platformStopRefusal(sys, stopDir);
+    if (haltedReviewer !== null) return haltMidRun(haltedReviewer, attempts);
     if (decision.kind === 'stop' && decision.reason.code === 'REVIEW_OUTSTANDING' && outstandingIndependent.length > 0) {
       const reviewed = runIndependentReview(sys, root, {
         sessionId,
@@ -2083,6 +2161,20 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   }
   if (stop !== null) lines.push(...loopStopLines(stop));
   lines.push(`Evidence: ${store.evidencePath(root, sessionId)}`);
+  // THE LAST CHECK. A stop engaged while this run was finishing turns its answer into a refusal: the work
+  // it already did is reported above as it happened, and nothing further follows from it.
+  const haltedAtEnd = platformStopRefusal(sys, stopDir);
+  if (haltedAtEnd !== null) {
+    return haltMidRun(
+      [
+        'the platform stop was engaged while this run was in progress; the run ended here and no further commit,',
+        'push, review or continuation follows from it. Anything the lines above report as already committed or',
+        'pushed happened before the stop and is not reversed.',
+        ...haltedAtEnd,
+      ],
+      attempts,
+    );
+  }
   // WHERE THE RUN ACTUALLY ENDED. A standing stop is BLOCKED; no stop is this phase's work
   // COMPLETE. Neither creates the next phase and neither authorises anything — `selectNextPhase`
   // still decides what is eligible, and B6 still owns whatever may follow an approval.

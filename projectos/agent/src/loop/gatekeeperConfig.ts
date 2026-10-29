@@ -49,6 +49,7 @@ import {
 import type { System } from '../system.js';
 import type { BrokerAnsweredState } from '../installation/brokerAnsweredState.js';
 import { commitIdentityOf, ownerCommitIdentityProblems } from '../closureWait.js';
+import { platformStopRefusal } from './platformStop.js';
 // The canonical delegation validator and the canonical owner resolution — imported rather than
 // re-implemented, because a second opinion about either is the defect this file was corrected for.
 import {
@@ -182,6 +183,18 @@ export function recordGatekeeperDecisionEvidence(
   };
 }
 
+/**
+ * Why every delegation is suspended right now, or `null` when the platform stop is not engaged.
+ *
+ * ONE SENTENCE, ONE CHECK, three readers: the resolver every delegation passes through, and the two
+ * scope readers built on it (technical continuation, closure commit), so a caller that names where the
+ * stop is read gets the same answer as the resolver reading the installation's own directory.
+ */
+function delegationSuspension(sys: System, platformStopStateDir: string | null | undefined): readonly string[] | null {
+  const stopped = platformStopRefusal(sys, platformStopStateDir);
+  return stopped === null ? null : ['every delegation is suspended while the platform stop is engaged', ...stopped];
+}
+
 /** The decider a valid delegation names, or every reason there is no decider. */
 export type DelegatedDeciderResolution =
   | { readonly ok: true; readonly decider: string }
@@ -225,7 +238,18 @@ export function resolveDelegatedDecider(
    * refused the same bytes. One reader, one checker, one answer.
    */
   requiredScope: DelegableScope = GATEKEEPER_REVIEW_SCOPE,
+  /** Where the platform stop is read; absent in production. A test names a temporary directory. */
+  platformStopStateDir?: string | null,
 ): DelegatedDeciderResolution {
+  // EVERY DELEGATION IS SUSPENDED WHILE THE PLATFORM STOP IS ENGAGED (PROJECTOS-KERNEL-PLATFORM-STOP1A).
+  //
+  // This is the ONE resolver review, technical-continuation and closure-commit delegations all pass
+  // through, so refusing here suspends all three at once WITHOUT EDITING A RECORD: the committed
+  // delegation is untouched, and `enforcedOwnerOnlyActions` — given no proven delegation — puts commit
+  // and push back with the owner by its own rule. Lifting the stop needs nothing restored; the next
+  // resolution simply judges the record again.
+  const stopped = delegationSuspension(sys, platformStopStateDir);
+  if (stopped !== null) return { ok: false, problems: stopped };
   const rel = '.projectops/authority/closure-delegation.json';
   // `./` binds the read to the governed root; see the note in degradedMode.ts. This one had no
   // root-relative pre-check at all, so a nested checkout adopted the outer project's delegation —
@@ -331,7 +355,14 @@ export function resolveTechnicalDelegation(
   sys: System,
   root: string,
   programmeId: string,
+  platformStopStateDir?: string | null,
 ): TechnicalDelegationState {
+  // SUSPENDED UNDER A STOP, by the same check the resolver below asks — asked here too only so a caller
+  // can name where the stop is read, without changing how the resolver itself is called.
+  const suspended = delegationSuspension(sys, platformStopStateDir);
+  if (suspended !== null) {
+    return { problems: suspended, carriesTechnicalScope: committedScopes(sys, root).includes(TECHNICAL_CONTINUATION_SCOPE), delegatedTo: '' };
+  }
   const judged = resolveDelegatedDecider(sys, root, programmeId, TECHNICAL_CONTINUATION_SCOPE);
   if (!judged.ok) {
     // THE SCOPE QUESTION IS ANSWERED FROM THE COMMITTED RECORD, not from the refusal text. Reading it
@@ -356,7 +387,14 @@ export interface ClosureCommitDelegationState {
  * owner derived from committed configuration, never from the record being judged. A record that is
  * invalid for any reason grants nothing, so the owner's closure commit stays required.
  */
-export function resolveClosureCommitDelegation(sys: System, root: string, programmeId: string): ClosureCommitDelegationState {
+export function resolveClosureCommitDelegation(
+  sys: System,
+  root: string,
+  programmeId: string,
+  platformStopStateDir?: string | null,
+): ClosureCommitDelegationState {
+  const suspended = delegationSuspension(sys, platformStopStateDir);
+  if (suspended !== null) return { granted: false, problems: suspended };
   const judged = resolveDelegatedDecider(sys, root, programmeId, CLOSURE_DECISION_COMMIT_SCOPE);
   if (!judged.ok) return { granted: false, problems: judged.problems };
   // AND THE OWNER MADE IT (ECC SECURITY H1 against this phase). ProjectOS itself commits reviewed
@@ -725,7 +763,13 @@ export function admitGatekeeperSpend(
    * already answered, and the safe answer is not to ask again.
    */
   answered: () => BrokerAnsweredState = () => 'unknown',
+  /** Where the platform stop is read; absent in production. A test names a temporary directory. */
+  platformStopStateDir?: string | null,
 ): SpendAdmission {
+  // NO PAID CALL IS ADMITTED WHILE THE PLATFORM STOP IS ENGAGED. Refused before the lock is taken and
+  // before the ledger is read or written, so a stop leaves no reservation behind.
+  const stopped = platformStopRefusal(sys, platformStopStateDir);
+  if (stopped !== null) return { allowed: false, reasons: ['no provider call is admitted while the platform stop is engaged', ...stopped] };
   return underCostLedgerLock<SpendAdmission>(
     sys,
     root,

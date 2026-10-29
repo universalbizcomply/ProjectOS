@@ -15,6 +15,7 @@
  */
 import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
+import { platformStopDirOf, platformStopRefusal } from '../loop/platformStop.js';
 import {
   planWorkflow,
   DEFAULT_WORKERS,
@@ -284,6 +285,11 @@ function composeAuthor(
 }
 
 function draft(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
+  // THE PLATFORM STOP, FIRST IN EVERY PLAN VERB THAT WRITES, SPENDS OR COMMITS. These are reached in
+  // process by the Control Center sidecar and its off-loop worker, past the CLI gate, so each asks itself.
+  // An authored draft is a paid provider call; a decision is committed; activation materialises a plan.
+  const halted = platformStopRefusal(ctx.sys, platformStopDirOf(ctx));
+  if (halted !== null) return fail(2, halted);
   const raw = flags['objective'];
   // DEFAULT UNCHANGED. `plan draft` stays corpus-led import so no existing behaviour regresses;
   // objective-led authoring is opted into explicitly.
@@ -407,6 +413,8 @@ function show(ctx: CommandContext, flags: Record<string, string | boolean>): Com
  * only thing that verifies delegation, decision, digest, decider and readiness.
  */
 function activate(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
+  const halted = platformStopRefusal(ctx.sys, platformStopDirOf(ctx));
+  if (halted !== null) return fail(2, halted);
   const s = (k: string): string => (typeof flags[k] === 'string' ? (flags[k] as string) : '');
   const draftId = s('id');
   const decisionId = s('decision');
@@ -532,6 +540,8 @@ function activate(ctx: CommandContext, flags: Record<string, string | boolean>):
 }
 
 function approve(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
+  const halted = platformStopRefusal(ctx.sys, platformStopDirOf(ctx));
+  if (halted !== null) return fail(2, halted);
   const s = (k: string): string => (typeof flags[k] === 'string' ? (flags[k] as string) : '');
   const draftId = s('id');
   const decisionId = s('decision');
@@ -628,6 +638,8 @@ function approve(ctx: CommandContext, flags: Record<string, string | boolean>): 
  * any record whose `decision` is not `approve`.
  */
 function decide(ctx: CommandContext, flags: Record<string, string | boolean>): CommandResult {
+  const halted = platformStopRefusal(ctx.sys, platformStopDirOf(ctx));
+  if (halted !== null) return fail(2, halted);
   const s = (k: string): string => (typeof flags[k] === 'string' ? (flags[k] as string) : '');
   const draftId = s('id');
   const verdict = s('decision');

@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { System } from '../src/system.js';
+import { PLATFORM_STOP_STATEMENT, platformStopRefusal } from '../src/loop/platformStop.js';
 import {
   handleBridgeRpc,
   IMPLEMENTED_OPERATIONS,
@@ -290,6 +291,20 @@ describe('what it answers, and what it never says', () => {
       error: { code: number };
     };
     expect(bad.error.code).toBe(-32601);
+  });
+
+  it('[PLATFORM-STOP] stop-work really engages the platform stop, and says what it cannot undo', () => {
+    const w = world();
+    const response = handleBridgeRpc(call('stop-work'), w.deps);
+    const text = textOf(response);
+    expect(isError(response)).toBe(false);
+    expect(text).toContain('PLATFORM STOP ENGAGED');
+    expect(text).toContain(PLATFORM_STOP_STATEMENT);
+    expect(text).not.toContain(w.stateDir);
+    // THE CLAIM IS TRUE NOW: the record exists, and every governed entry point refuses on it.
+    const record = JSON.parse(readFileSync(join(w.stateDir, 'platform-stop.json'), 'utf8')) as { state: string };
+    expect(record.state).toBe('engaged');
+    expect(platformStopRefusal(w.sys, w.stateDir)?.join('\n')).toContain('REFUSED (PLATFORM_STOP)');
   });
 });
 

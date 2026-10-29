@@ -104,6 +104,7 @@ import { unprovisionedResolver } from '../loop/credentialResolver.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
 import { nodeInstallationStateDir } from '../nodeRuntimeRoot.js';
 import { readBrokerAnsweredState } from '../installation/brokerAnsweredState.js';
+import { platformStopDirOf, platformStopRefusal } from '../loop/platformStop.js';
 import { resolveBoundGit } from '../system.js';
 import { phase as phaseCommand } from './phase.js';
 import { brokerRouteOptedIn, GATE_WAIT_INVALID, gateWaitMinutesFrom, run as runCommand, trustedBroker } from './run.js';
@@ -658,6 +659,9 @@ function boundRun(
  */
 export function closurePrepare(ctx: CommandContext, flags: Flags): CommandResult {
   const { sys, root } = ctx;
+  // THE PLATFORM STOP FIRST: preparation runs the phase's checks and can commit and push its records.
+  const halted = platformStopRefusal(sys, platformStopDirOf(ctx));
+  if (halted !== null) return fail(2, halted);
   const id = str(flags, 'id');
   if (id === '') return fail(1, ['`closure prepare` requires --id <PHASE-ID>']);
   if (!isSafeClosurePhaseId(id)) {
@@ -881,6 +885,10 @@ function closureReportText(
  */
 export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: MakeClosureDeps): CommandResult {
   const { sys, root } = ctx;
+  // THE PLATFORM STOP FIRST — and again before the question is paid for, and again before anything is
+  // committed, because an interactive answer can take up to the gate wait to arrive.
+  const halted = platformStopRefusal(sys, platformStopDirOf(ctx));
+  if (halted !== null) return fail(2, halted);
   const id = str(flags, 'id');
   if (id === '') return fail(1, ['`closure request` requires --id <PHASE-ID>']);
   // THE PHASE ID MUST BE A SAFE NAME BEFORE ANY PATH IS BUILT FROM IT.
@@ -1082,6 +1090,10 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
     unresolvedHighIds: g4.facts.unresolvedHighIds,
     at: sys.now(),
   };
+  // NOT ASKED UNDER A STOP. Re-read here, at the last moment before a paid call or an owner wait: the
+  // checks above take real time, and the stop is judged when the action executes.
+  const haltedBeforeAsk = platformStopRefusal(sys, platformStopDirOf(ctx));
+  if (haltedBeforeAsk !== null) return fail(2, [...haltedBeforeAsk, '', 'The closure authority was not asked and nothing was spent.']);
   // ONE QUESTION, TWO ACQUISITION PATHS. Everything after the turn — the decision write, the bundle,
   // the owner's commit and `phase advance` — is the same code whichever route produced the answer.
   const turn: ClosureTurnResult =
@@ -1154,6 +1166,13 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
       '  bytes presented to the owner could not be remembered and a later commit could not be checked',
       `  against them. The decision at ${written.relPath} is NOT to be committed until this is resolved.`,
     ]);
+  }
+
+  // A STOP ENGAGED WHILE THE QUESTION WAS OUT: the answer is written and presented, and ProjectOS commits
+  // none of it. The owner committing it by hand is an act in person, which R7 leaves with the owner.
+  const haltedBeforeCommit = platformStopRefusal(sys, platformStopDirOf(ctx));
+  if (haltedBeforeCommit !== null) {
+    return fail(2, [...trace, '', ...haltedBeforeCommit, '', 'ProjectOS committed and pushed nothing.', ...ownerAskLines(wait)]);
   }
 
   // ZERO-TOUCH CLOSURE — PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A. Where the owner has granted
@@ -1377,6 +1396,9 @@ function awaitOwnerCommit<T extends { readonly committed: boolean; readonly matc
  */
 export function closureResume(ctx: CommandContext, flags: Flags, ownerWait: OwnerCommitWaitPorts = {}): CommandResult {
   const { sys, root } = ctx;
+  // THE PLATFORM STOP FIRST — and again after the owner wait, which can last up to 240 minutes.
+  const halted = platformStopRefusal(sys, platformStopDirOf(ctx));
+  if (halted !== null) return fail(2, halted);
   const id = str(flags, 'id');
   if (id === '') return fail(1, ['`closure resume` requires --id <PHASE-ID>']);
   const ownerWaitMinutes = ownerWaitMinutesFrom(flags);
@@ -1470,6 +1492,13 @@ export function closureResume(ctx: CommandContext, flags: Flags, ownerWait: Owne
     `  committed by ${observed.committedBy ?? '<unattributable>'}`,
     'handing the closure to the existing G4 / closure-delegation path',
   ];
+
+  // NO DELEGATED CLOSE UNDER A STOP. The owner's commit is observed and stays exactly as it is; the close
+  // that would follow from it waits until the stop is lifted and `closure resume` is run again.
+  const haltedBeforeClose = platformStopRefusal(sys, platformStopDirOf(ctx));
+  if (haltedBeforeClose !== null) {
+    return fail(2, [...lines.slice(0, -1), '', ...haltedBeforeClose, '', `${id} was NOT closed; nothing was committed or pushed.`]);
+  }
 
   // THE EXISTING PATH, CALLED WITH NOTHING BUT THE PHASE AND THE BASIS.
   //

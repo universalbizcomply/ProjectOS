@@ -60,6 +60,7 @@ import { commitOwnRecordsFor } from '../loop/technicalContinuation.js';
 import { GATEKEEPER_DECISIONS_REL, GATEKEEPER_LEDGER_REL, GATEKEEPER_THREAD_REL } from '../loop/gatekeeperConfig.js';
 import { GATEKEEPER_INTERACTIVE_REL, INTERACTIVE_RECORD_FILENAME } from '../loop/gatekeeperHandoff.js';
 import { WORK_RECORD_REL } from '../loop/workRecord.js';
+import { platformStopDirOf, platformStopRefusal } from '../loop/platformStop.js';
 
 /** The governed project's declared id, from its own configuration. Empty when there is none. */
 function governedProjectId(ctx: CommandContext): string {
@@ -304,6 +305,10 @@ export function composeGatekeeper(
 }
 
 export function run(ctx: CommandContext, flags: Flags): CommandResult {
+  // THE PLATFORM STOP, BEFORE ANYTHING ELSE. `closure resume --continue` calls this in process, past the
+  // CLI gate, so the command asks for itself — and the loop asks again at every step that can act.
+  const halted = platformStopRefusal(ctx.sys, platformStopDirOf(ctx));
+  if (halted !== null) return fail(2, halted);
   const worker = str(flags, 'worker');
   const dryRun = bool(flags, 'dry-run');
   const execute = bool(flags, 'execute');
@@ -505,6 +510,7 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
    * first phase's stale view of the money.
    */
   const runLoopOnce = (): RunResult => runLoop(ctx.sys, ctx.root, {
+    platformStopStateDir: platformStopDirOf(ctx),
     onWorkState,
     workforce: true,
     ...(worker === '' ? {} : { workerId: worker }),
@@ -809,6 +815,9 @@ function continueRouteCommand(route: ContinueRoute): string {
 }
 
 export function continueCommand(ctx: CommandContext, flags: Flags, ownerWait: OwnerCommitWaitPorts = {}): CommandResult {
+  // THE PLATFORM STOP, BEFORE THE ROUTE IS EVEN WORKED OUT — `--dry-run` included, since it writes briefs.
+  const halted = platformStopRefusal(ctx.sys, platformStopDirOf(ctx));
+  if (halted !== null) return fail(2, halted);
   const dryRun = bool(flags, 'dry-run');
   const execute = bool(flags, 'execute');
   if (dryRun === execute) {

@@ -27,6 +27,7 @@
 import type { HostReviewPort } from '@projectos/core';
 import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
+import { platformStopDirOf, platformStopRefusal } from '../loop/platformStop.js';
 import type { Flags } from '../flags.js';
 import { loadGovernedContext } from '../governedContext.js';
 import {
@@ -86,6 +87,9 @@ export interface ReconcileSeams {
 }
 
 export function reconcile(ctx: CommandContext, flags: Flags, seams: ReconcileSeams = {}): CommandResult {
+  // THE PLATFORM STOP FIRST: reconciliation asks a reviewer, can spend, and writes the owner's debt record.
+  const halted = platformStopRefusal(ctx.sys, platformStopDirOf(ctx));
+  if (halted !== null) return fail(2, halted);
   const grantId = str(flags, 'grant');
   const workId = str(flags, 'work');
   if (grantId === '' || workId === '') {

@@ -22,7 +22,16 @@ import { run as runPhase, continueCommand } from './commands/run.js';
 import { reconcile } from './commands/reconcile.js';
 import { mcp } from './commands/mcp.js';
 import { workforce } from './commands/workforce.js';
+import { stop } from './commands/stop.js';
+import { platformStopDirOf, platformStopRefusal } from './loop/platformStop.js';
 import { CORE_VERSION } from '@projectos/core';
+
+/**
+ * RE-EXPORTED FOR THE CONTROL CENTER SIDECAR, which dispatches `phase`, `approve`, `report` and `plan`
+ * in process and so never passes through the gate below. It imports `@projectos/agent`, whose index
+ * re-exports this module, so this is how it reaches the ONE check rather than keeping a copy of it.
+ */
+export { platformStopRefusal, PLATFORM_STOP_STATEMENT } from './loop/platformStop.js';
 
 export const AGENT_VERSION = '0.1.0';
 
@@ -82,13 +91,66 @@ export const HELP: readonly string[] = [
   '  plugins                      List the integration catalog (inert)',
   '  close --phase <ID>           Refuses — closure is owner-gated',
   '  closure <request|resume|status> --id <ID>  Ask the closure authority, wait for the owner’s commit, resume',
+  '  stop [engage|status|lift]    Platform-wide emergency stop: engage (no authority), status, owner-only lift',
   '  version                      Print versions',
   '  help                         Show this help',
 ];
 
+/**
+ * WHAT MAY STILL RUN WHILE THE PLATFORM STOP IS ENGAGED — an ALLOWLIST, and everything else refuses.
+ *
+ * DENY BY DEFAULT, because the failure the other way round is silent: a command added next month and
+ * forgotten here would keep working through an emergency stop and nobody would notice until it mattered.
+ * Forgotten here, it refuses instead, which is loud and safe. What is listed reads and reports only:
+ * the stop itself (engaging is always safe, status reads, and the lift carries its own owner-commit
+ * check), help and versions, and the read-only views of each command.
+ *
+ * `--dry-run` IS NOT ON IT. A dry run writes a worker brief and session records, and "prepare everything
+ * for the moment the stop is lifted" is not a read; it refuses like the live form.
+ */
+export function readOnlyUnderPlatformStop(command: string, positionals: readonly string[], flags: Flags): boolean {
+  const sub = positionals[0];
+  switch (command) {
+    case 'stop':
+    case 'help':
+    case '--help':
+    case 'version':
+    case '--version':
+    case 'doctor':
+    case 'status':
+    case 'plugins':
+    case 'validate':
+    case 'prompt':
+      return true;
+    case 'closure':
+      return sub === undefined || sub === 'status';
+    case 'phase':
+    case 'approve':
+      return sub === undefined || sub === 'show' || sub === 'list';
+    case 'plan':
+      return sub === undefined || sub === 'show' || sub === 'drafts';
+    case 'workforce':
+      return sub === 'roster' || sub === 'team' || sub === 'check-update';
+    case 'mcp':
+      return sub === undefined || sub === 'status';
+    case 'report':
+      return flags['phase'] === undefined;
+    default:
+      return false;
+  }
+}
+
 export function run(ctx: CommandContext, argv: readonly string[]): CommandResult {
   const { command, flags, positionals } = parseArgs(argv);
+  // THE PLATFORM STOP, ASKED BEFORE ANY COMMAND IS DISPATCHED. One file read, nothing run; a refusal is
+  // the command's whole answer and nothing has been written, spawned, spent, committed or pushed.
+  if (!readOnlyUnderPlatformStop(command, positionals, flags)) {
+    const halted = platformStopRefusal(ctx.sys, platformStopDirOf(ctx));
+    if (halted !== null) return { code: 2, lines: halted };
+  }
   switch (command) {
+    case 'stop':
+      return stop(ctx, flags, positionals);
     case 'phase':
       return phase(ctx, flags, positionals);
     case 'approve':

@@ -18,6 +18,7 @@
  */
 import type { CommandContext, CommandResult } from '../context.js';
 import { ok, fail } from '../context.js';
+import { platformStopDirOf, platformStopRefusal } from '../loop/platformStop.js';
 import { type Flags, str } from '../flags.js';
 import {
   canTransition,
@@ -225,6 +226,10 @@ function durableScope(
 
 function phaseNew(ctx: CommandContext, flags: Flags): CommandResult {
   const { sys, root } = ctx;
+  // THE PLATFORM STOP FIRST. The Control Center sidecar calls `phase new` and `phase advance` in process,
+  // and `closure resume` calls `phase advance` for a delegated close — none of them through the CLI gate.
+  const halted = platformStopRefusal(ctx.sys, platformStopDirOf(ctx));
+  if (halted !== null) return fail(2, halted);
   const id = str(flags, 'id');
   if (id === '') return fail(1, ['`phase new` requires --id <PHASE-ID>']);
   // Governed context BEFORE any state is written: an invalid or wrong-project context must not be
@@ -358,6 +363,8 @@ function effectiveRoleFor(flags: Flags, role: Role, to: PhaseStatus): Role {
 
 function phaseAdvance(ctx: CommandContext, flags: Flags): CommandResult {
   const { sys, root } = ctx;
+  const halted = platformStopRefusal(ctx.sys, platformStopDirOf(ctx));
+  if (halted !== null) return fail(2, halted);
   const id = str(flags, 'id');
   if (id === '') return fail(1, ['`phase advance` requires --id <PHASE-ID>']);
   const to = str(flags, 'to');

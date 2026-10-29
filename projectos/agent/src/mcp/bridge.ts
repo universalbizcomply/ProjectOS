@@ -45,6 +45,7 @@ import { listApprovalIds, loadApproval } from '../approvalStore.js';
 import { readLedger } from '../loop/gatekeeperConfig.js';
 import { reconciliationDebtBlock } from '../loop/degradedMode.js';
 import type { DurableBinding } from '../loop/degradedMode.js';
+import { engagePlatformStop } from '../loop/platformStop.js';
 
 /** The protocol revision this bridge speaks. Fixed: a bridge that negotiates is a bridge that guesses. */
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
@@ -237,11 +238,20 @@ function costStatus(ctx: CommandContext): readonly string[] {
 /**
  * Run one allowed operation.
  *
- * `stop-work` RETURNS AN INSTRUCTION, NOT AN EFFECT. The bridge does not hold the running loop and
- * must not pretend to: what it can honestly do is record that a stop was asked for and say so. A
- * bridge that claimed to have stopped something it cannot reach would be worse than one that cannot
- * stop anything.
+ * `stop-work` ENGAGES THE PLATFORM-WIDE EMERGENCY STOP (PROJECTOS-KERNEL-PLATFORM-STOP1A). It used to
+ * answer "stop requested and recorded" while recording nothing, which was the one claim this surface
+ * must never make. It now writes the same stop record `projectos stop` writes, in the installation state
+ * directory this bridge already owns, and reports what that record means and what it cannot do: the
+ * bridge does not hold the running loop, so a worker already running ends at its next check, and nothing
+ * that already left this machine is recalled. A write that failed is reported as a failure.
  */
+function stopWork(deps: BridgeDeps): ReturnType<typeof engagePlatformStop> {
+  return engagePlatformStop(deps.ctx.sys, deps.stateDir, {
+    reason: 'requested through the private owner bridge (stop-work)',
+    engagedBy: 'owner bridge caller',
+  });
+}
+
 function perform(operation: BridgeOperation, deps: BridgeDeps): readonly string[] {
   switch (operation) {
     case 'project-state':
@@ -257,10 +267,7 @@ function perform(operation: BridgeOperation, deps: BridgeDeps): readonly string[
     case 'cost-status':
       return costStatus(deps.ctx);
     case 'stop-work':
-      return [
-        'stop requested and recorded',
-        'ProjectOS stops at the next bounded step; nothing in flight is killed by this bridge',
-      ];
+      return stopWork(deps).lines;
     default:
       return [`'${operation}' is not implemented by this bridge revision`];
   }
@@ -362,5 +369,11 @@ export function handleBridgeRpc(request: JsonRpcRequest, deps: BridgeDeps): Json
     );
   }
 
+  // A STOP THAT COULD NOT BE RECORDED IS AN ERROR, AND IS MARKED ONE: the far end must not read a failed
+  // emergency stop as a successful one.
+  if (verdict.operation === 'stop-work') {
+    const engaged = stopWork(deps);
+    return ok(request, toolResult(engaged.lines, engaged.kind === 'FAILED'));
+  }
   return ok(request, toolResult(perform(verdict.operation, deps), false));
 }

@@ -46,6 +46,7 @@ import type { System } from '../system.js';
 import { computeCandidateIdentity, describeCandidateDrift } from './candidateIdentity.js';
 import { classifyOwnerGates } from './brief.js';
 import { resolveClosureCommitDelegation, resolveTechnicalDelegation } from './gatekeeperConfig.js';
+import { platformStopRefusal } from './platformStop.js';
 import type { GovernedContext } from '../governedContext.js';
 import {
   TECHNICAL_ACTIONS,
@@ -95,6 +96,8 @@ export interface ContinuationRequest {
   /** The phase's declared owner gates. The constitutional floor is added here, not by the caller. */
   readonly phaseOwnerGates: readonly string[];
   readonly at: string;
+  /** Where the platform stop is read; absent in production. A test names a temporary directory. */
+  readonly platformStopStateDir?: string | null | undefined;
 }
 
 export type ContinuationOutcome =
@@ -159,6 +162,10 @@ const PROJECTOS_COMMIT_IDENTITY: readonly string[] = ['-c', `user.name=${PROJECT
  * plus a second candidate re-derivation. (`commitOwnRecords` commits records, never work.)
  */
 export function runTechnicalContinuation(sys: System, request: ContinuationRequest): ContinuationOutcome {
+  // THE PLATFORM STOP FIRST, before git is asked anything: under a stop nothing here runs at all, and the
+  // refusal says nothing was attempted — which is true, because nothing was.
+  const stopped = platformStopRefusal(sys, request.platformStopStateDir);
+  if (stopped !== null) return refuse(['no technical continuation runs while the platform stop is engaged', ...stopped]);
   const { context } = request;
   const lines: string[] = [];
 
@@ -722,7 +729,15 @@ export function commitOwnRecordsFor(
   phaseId: string,
   kind: OwnRecordsKind,
   isOwnRecord: (path: string) => boolean,
+  /** Where the platform stop is read; absent in production. A test names a temporary directory. */
+  platformStopStateDir?: string | null,
 ): OwnRecordsOutcome {
+  // NO RECORDS COMMIT OR PUSH UNDER A STOP. The delegation would be suspended anyway (and commit and push
+  // would fall back to the owner), but refusing here says WHY in one line, before git is asked anything.
+  const stopped = platformStopRefusal(sys, platformStopStateDir);
+  if (stopped !== null) {
+    return { kind: 'REFUSED', reasons: ['ProjectOS commits and pushes none of its records while the platform stop is engaged', ...stopped], nothingAttempted: true };
+  }
   const phases = Array.isArray(context.plan['phases']) ? (context.plan['phases'] as unknown[]) : [];
   const phase = phases.find((ph) => typeof ph === 'object' && ph !== null && (ph as Record<string, unknown>)['phaseId'] === phaseId) as
     | Record<string, unknown>
