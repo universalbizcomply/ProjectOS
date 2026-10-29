@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-FOLLOWUP1A",
+  "evidenceSubjectHead": "610f331490cac00369423f55f38f5081a88f0014",
+  "baselineCommit": "841f38bca6c1f32a29c88205ab5d340813600dda",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-29T22:18:55.698Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-KERNEL-FOLLOWUP1A, phase 17 of 17 of plan v1.20, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 610f331 on 841f38b (plan v1.19 activation): 3f5bdee, df1b5ac (track A), fac070a, 8c07a48, 252b819 (track B), 3c1c073 (plan v1.20 writePath repair), 54c0bd2 (lifecycle validator, schema, comment), 5f9e8aa (security fixes), 69062f3 (recheck fix), 610f331 (evidence).",
+    "validatorsPass: val-projectos-kernel-followup1a (51 named mutations), val-projectos-boot-continue1a (16), worker-lifecycle-bounded1a, role-review1a, platform-stop1a, closure-transport1a and validate-no-secrets all PASS; validate-all 153/155 PASS (the 2 known baseline failures: validate-desktop-e2e, val-cd-b4-sealed-expected-window-facts1a).",
+    "checksPass: core 781/781; agent 2857/2857 at 5f9e8aa, changed suites 186/186 at 69062f3; tsc and typecheck:tests clean.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review (54c0bd2: APPROVE WITH CHANGES, 0 CRITICAL, 1 HIGH, 3 MEDIUM, 7 LOW; HIGH 1/M2/M4/L5/L6/L7/L9 fixed in 5f9e8aa) and recheck (5f9e8aa: APPROVE WITH CHANGES, no new CRITICAL/HIGH; the required PowerShell sandbox-wording item fixed in 69062f3).",
+    "unresolved: zero CRITICAL/HIGH open as defects. HIGH 1 (reviewer can read the owner Codex login) is MITIGATED by tripwires; its residual acceptance and a live read-only sandbox probe are preconditions of EXIT-PROOF1A. Other carried items in docs/finish/PROJECTOS-KERNEL-FOLLOWUP1A.md.",
+    "protected files: core gatekeeperMode.ts, closureWait.ts, commands/closure.ts, validate-all.cjs and val-projectos-boot-continue1a.cjs changed within the owner-approved plan v1.19 writePaths; closure authority, eligibility predicates and ownerOnlyActions unchanged.",
+    "protectedEffects NONE: no provider spend, Codex run, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
