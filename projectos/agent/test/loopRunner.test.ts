@@ -2073,6 +2073,10 @@ describe('D11: role-separated independent review inside the loop', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stop?.code).not.toBe('REVIEW_OUTSTANDING');
+    // Credited means the loop wrote the reviewer record with this verdict, not merely some other stop.
+    const record = JSON.parse(sys.readText(`${ROOT}/.projectops/execution/${SESSION}.reviewer.json`) ?? '{}') as Record<string, unknown>;
+    expect(record['verdict']).toBe('APPROVE');
+    expect(String(record['candidateDigest'])).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
   it('[R2] a reviewer reply without this dispatch’s nonce is not a verdict', () => {

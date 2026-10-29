@@ -264,7 +264,8 @@ export function commandLeavesCheckout(command: string, root: string | null): boo
 }
 
 /** Output that says the command was stopped by the sandbox or an approval, not that it merely failed. */
-const SANDBOX_REFUSAL = /sandbox|permission denied|access is denied|operation not permitted|read-only file system|\bEACCES\b|\bEPERM\b|approv/i;
+const SANDBOX_REFUSAL =
+  /sandbox|permission denied|access is denied|access to the path .* is denied|\bis denied\b|unauthorizedaccess|operation not permitted|read-only file system|\bEACCES\b|\bEPERM\b|approv/i;
 
 /**
  * MEDIUM 2. Why a `command_execution` item is beyond reading, or null. A command that was DECLINED, or
@@ -295,11 +296,20 @@ function isRead(item: Record<string, unknown>): boolean {
 const CREDENTIAL_CONTENT: readonly RegExp[] = [
   /\beyJ[A-Za-z0-9_-]{16,}/, // a JWT header (`{"` base64url-encoded): Codex's own id and access tokens
   /\bsk-[A-Za-z0-9_-]{16,}/, // an OpenAI-style secret key
+  /\bsk_(live|test)_[A-Za-z0-9]{16,}/, // a Stripe-style secret key
+  /\b(ghp|gho|ghs|ghu|ghr|github_pat)_[A-Za-z0-9_]{20,}/, // a GitHub token
+  /\bAKIA[0-9A-Z]{16}\b/, // an AWS access key id
+  /\brt_[A-Za-z0-9_-]{16,}/, // a refresh-token prefix
+  /-----BEGIN [A-Z ]*(PRIVATE )?KEY-----/, // a PEM key block
   /(access|refresh|id)_token|api[_-]?key/i, // the names Codex's login file and most key files use
   /\bbearer\s+[A-Za-z0-9._~+/=-]{8,}/i, // an HTTP bearer value
 ];
-/** A long unbroken base64 or hex run. `/` and `.` are excluded so a file path is never one. */
-const LONG_RUN = /[A-Za-z0-9+=_-]{41,}/g;
+/**
+ * A long unbroken base64 or hex run. `/` and `.` are excluded so a file path is never one. A mixed-class
+ * run counts from 30 characters (a 40-character cloud secret is one); a hex run only beyond 40, so a git
+ * commit id the reviewer cites is not one.
+ */
+const LONG_RUN = /[A-Za-z0-9+=_-]{30,}/g;
 
 /**
  * Does this reply text carry credential-shaped content? A heuristic: a false positive refuses a review
@@ -311,7 +321,7 @@ export function credentialShaped(text: string, instruction = ''): boolean {
   if (CREDENTIAL_CONTENT.some((re) => re.test(text))) return true;
   for (const [run] of text.matchAll(LONG_RUN)) {
     if (instruction.includes(run)) continue;
-    const hex = /^[0-9a-f]+$/i.test(run);
+    const hex = run.length > 40 && /^[0-9a-f]+$/i.test(run);
     const mixed = /[0-9]/.test(run) && /[A-Z]/.test(run) && /[a-z]/.test(run);
     if (hex || mixed) return true;
   }

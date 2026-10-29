@@ -410,6 +410,17 @@ describe('HIGH 1(c): a reply carrying credential-shaped content is withheld', ()
     expect(credentialShaped(`I reviewed candidate ${digest}`, INSTRUCTION)).toBe(true);
   });
 
+  it.each([
+    ['a Stripe-style key', `sk_live_${'Ab3'.repeat(8)}`],
+    ['a GitHub token', `ghp_${'aB3'.repeat(10)}`],
+    ['an AWS access key id', 'AKIAIOSFODNN7EXAMPLE'],
+    ['a refresh-token prefix', `rt_${'xY9'.repeat(8)}`],
+    ['a PEM key block', '-----BEGIN RSA PRIVATE KEY-----'],
+    ['a 40-character mixed-class secret', 'wJalrXUtnFEMI7K7MDENGbPxRfiCYEXAMPLEKEYx'],
+  ])('withholds %s', (_label, secret) => {
+    expect(credentialShaped(`The file holds ${secret} here.`, INSTRUCTION)).toBe(true);
+  });
+
   it('a clean reply passes through untouched', () => {
     const body = envelopeOf(CLEAN_STREAM);
     expect(body['result']).toBe(`Reviewed.\n${VERDICT_LINE}`);
@@ -430,6 +441,9 @@ describe('MEDIUM 2: only a command that completed with exit 0 is a read', () => 
     'blocked by the sandbox policy',
     'Operation not permitted',
     'rejected: command not approved',
+    // The PowerShell wording on this Windows host (recheck finding): not caught before.
+    "Set-Content : Access to the path 'C:\\Users\\owner\\x.txt' is denied.",
+    'System.UnauthorizedAccessException: Attempted to perform an unauthorized operation.',
   ])('a failed command the sandbox or an approval stopped is a denial, not a read: %s', (output) => {
     const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command: 'touch a.ts', aggregated_output: output, exit_code: 1, status: 'failed' }));
     expect(body['permission_denials']).toEqual([{ tool_name: 'command_execution: stopped by the sandbox or an approval' }]);

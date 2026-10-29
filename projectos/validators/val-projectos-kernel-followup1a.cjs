@@ -139,7 +139,7 @@ const PIN = {
   skShape: "/\\bsk-[A-Za-z0-9_-]{16,}/,",
   tokenNames: "/(access|refresh|id)_token|api[_-]?key/i,",
   bearerShape: "/\\bbearer\\s+[A-Za-z0-9._~+/=-]{8,}/i,",
-  longRun: "const LONG_RUN = /[A-Za-z0-9+=_-]{41,}/g;",
+  longRun: "const LONG_RUN = /[A-Za-z0-9+=_-]{30,}/g;",
   longRunCounts: "if (hex || mixed) return true;",
   // CX-11 (MEDIUM 2)
   readIsExitZero: "return item['status'] === 'completed' && item['exit_code'] === 0;",
