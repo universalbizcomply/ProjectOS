@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-FOLLOWUP1A",
+  "project": "ProjectOS",
+  "objective": "Finishes what Stage 1 carried: the closure-route halves of D9 (broker provenance as a positive class through closureTurn, the closure wait and closure.ts, with a transitional rule for unstamped waits) and D3 (the closure funding sentence derived from the receipt question scope); a pin and named mutations for validate-all's registry rule; the cached-runner resync with validate-speed-validation-cache registered; the validate-claude-worker inv50 repair. Adds a Codex CLI worker adapter so the Stage 1 exit proof can use a reviewer from a different provider (owner: \"Codex CLI (OpenAI)\").",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-29T22:18:53.006Z",
+      "note": "Owner-approved plan v1.19 (PLANDEC-c958d7514b26e968705c069d, activation 841f38b), writePaths repaired in v1.20 (3c1c073). Implemented by agents under the lead (Claude) in two parallel worktrees; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-29T22:18:53.436Z",
+      "note": "closure-route D9/D3, registry pin, cached-runner resync, validate-claude-worker repair, read-only Codex CLI reviewer adapter (3f5bdee..69062f3)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-29T22:18:53.875Z",
+      "note": "agent 2857/2857; validators PASS via run(); validate-all 153/155 PASS (the 2 known baseline failures: validate-desktop-e2e, val-cd-b4-sealed-expected-window-facts1a)."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-29T22:18:54.333Z",
+      "note": "Evidence: docs/finish/PROJECTOS-KERNEL-FOLLOWUP1A.md (610f331)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-29T22:18:54.780Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (54c0bd2: APPROVE WITH CHANGES, 0 CRITICAL, 1 HIGH, 3 MEDIUM, 7 LOW; HIGH 1/M2/M4/L5/L6/L7/L9 fixed in 5f9e8aa) and recheck (5f9e8aa: APPROVE WITH CHANGES, no new CRITICAL/HIGH; the required PowerShell sandbox-wording item fixed in 69062f3)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-29T22:18:55.214Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
