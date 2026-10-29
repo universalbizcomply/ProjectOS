@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-cf8eafee0ef2759c4e8efadb",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "0f85a78f9a3f894bbec3d10af373589bacce3979",
+  "draftId": "d746ae1ee19f2485",
+  "planDigest": "sha256:599ebef797a58ea2554622b55a00957686f47f47408dc10a5160c5aa7753509b",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-29T11:47:13.313Z",
+  "note": "Owner (Murad), 2026-10-29, verbatim, answering \"Emergency stop ... Which do you want?\": \"Full stop, all files (Recommended)\". Standing grant: \"You have full authority\" and \"You are running on Admin mode, continue work without me.\" (2026-10-28). Amends PLATFORM-STOP1A scope, repairs HYGIENE1A writePaths/reviews, and records no Grok API (\"I want no API from GROK\", 2026-10-29).",
+  "recordedBy": "projectos plan decide"
+}
