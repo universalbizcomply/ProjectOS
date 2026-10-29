@@ -45,8 +45,14 @@
  *   - "a test list may name a file twice"              — and the first list's needles are never checked
  *   - "the helper exists, so the sentence is fixed"     — and closure.ts keeps the hard-coded line unnoticed
  *
- * Each section (15) rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only
- * when THAT rule, and no other rule in this validator, fires.
+ * PROJECTOS-KERNEL-FOLLOWUP1A finishes D9 and D3 on the closure route, in rules ZT-4 and TR-7:
+ *
+ *   - "the closure turn can leave the broker unstamped" — and resume infers the route from silence again
+ *   - "an unstamped wait is probably the broker's"     — and a legacy wait is committed by ProjectOS
+ *   - "the old sentence was close enough"              — and the funding line misdescribes the receipt
+ *
+ * Each section (15) rule, and each of those ZT-4 and TR-7 cases, has a NAMED MUTATION; `selfTest` applies
+ * it in memory and counts it killed only when THAT rule, and no other rule in this validator, fires.
  *
  * Every rule names one file and one construct. Comments are stripped first, so prose describing a rule
  * can neither satisfy nor break it. Reads files; runs nothing, calls no provider, mutates nothing.
@@ -85,6 +91,7 @@ const GK_CONFIG_REL = "projectos/agent/src/loop/gatekeeperConfig.ts";
 const CLOSURE_RESPONSES_REL = "projectos/agent/src/loop/transports/closureResponses.ts";
 const GK_TURN_REL = "projectos/agent/src/loop/gatekeeperTurn.ts";
 const RECEIPTS_REL = "projectos/agent/src/loop/ownerGateReceipts.ts";
+const CORE_MODE_REL = "projectos/core/src/gatekeeperMode.ts";
 const SELF_REL = "projectos/validators/val-projectos-boot-continue1a.cjs";
 
 /** The proofs. A pinned shape whose behaviour nobody runs is a shape, not a protection. */
@@ -144,12 +151,27 @@ const TESTS = {
   "projectos/core/test/closure-eligibility.test.ts": ["a governed project other than projectos satisfies G4-1", "a plan for another project, or an unknown project, refuses"],
   // PROJECTOS-FINISH-API-GATEKEEPER1A.
   "projectos/agent/test/hostReviewPath.e2e.test.ts": ["NO broker opt-in, nothing is composed", "the trusted BROKER is composed in the pre-hybrid shape", "refused before dispatch: nothing posted, no ledger", "reaches the broker exactly once", "refused as ambiguous"],
-  "projectos/agent/test/hybridClosureReconcile.test.ts": ["closure composes the trusted broker only on the committed opt-in with no Host route; reconcile composes none", "on the broker opt-in, a project the installation does not allowlist is refused before the closure request", "ProjectOS commits the decision, the phase closes and the close is persisted", "an INTERACTIVE answer is never committed by ProjectOS, grant or not", "without the grant the owner commit is required exactly as before, and a ProjectOS-identity commit is refused", "a delegation ProjectOS committed itself grants nothing", "a wait whose provenance was stripped is not an answer produced in the call", "with the grant but no technical delegation, nothing is committed"],
+  "projectos/agent/test/hybridClosureReconcile.test.ts": ["closure composes the trusted broker only on the committed opt-in with no Host route; reconcile composes none", "on the broker opt-in, a project the installation does not allowlist is refused before the closure request", "ProjectOS commits the decision, the phase closes and the close is persisted", "an INTERACTIVE answer is never committed by ProjectOS, grant or not", "without the grant the owner commit is required exactly as before, and a ProjectOS-identity commit is refused", "a delegation ProjectOS committed itself grants nothing", "a wait whose provenance was stripped is not an answer produced in the call", "with the grant but no technical delegation, nothing is committed",
+    // PROJECTOS-KERNEL-FOLLOWUP1A.
+    "the answer is stamped InstallationBrokerProviderAnswer with its response id, and ProjectOS commits and closes under the grant",
+    "a broker-stamped wait is an answer produced in the call: a ProjectOS commit of it is accepted",
+    "an UNSTAMPED broker-route wait fails closed",
+    "the funding line is derived from the committed receipt scope, never the hard-coded sentence",
+    "a receipt that records no scope is said to record none"],
+  "projectos/core/test/gatekeeper-mode.test.ts": ["names the installation broker as an evidence class of its own, which no mode produces"],
   // PROJECTOS-FINISH-CONTINUE-INTEGRITY1A.
   "projectos/agent/test/continueIntegrity.test.ts": ["is added for a required validator the write paths name exactly", "is NOT added when the write paths do not cover the validator", "never turns an unsafe validator name into a path", "a phase copy that changes the checkout while it runs FAILS", "reads the checkout picture with a buffer large enough for a real checkout"],
   // PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A.
   "projectos/agent/test/zeroTouchClosure.test.ts": ["with the grant, commits and pushes exactly the closure decision", "without the grant — absent, refused or judged invalid — commits nothing", "the grant never lifts a reserved commit or push", "with the grant, every other implementer-shaped or foreign identity is still refused"],
-  "projectos/agent/test/closureTurn.test.ts": ["an invented decision time", "the request actually sent names the time of the question"],
+  "projectos/agent/test/closureTurn.test.ts": [
+    "an invented decision time",
+    "the request actually sent names the time of the question",
+    // PROJECTOS-KERNEL-FOLLOWUP1A.
+    "stamps an accepted closure broker answer InstallationBrokerProviderAnswer, with the provider response id",
+    "stamps nothing for the pre-hybrid direct closure route",
+    "stamps nothing for a closure rehearsal answer, even with a broker configured",
+    "a Host-attested closure answer stays Host-stamped even when a broker is also composed",
+  ],
   "projectos/core/test/closure-transport.test.ts": ["refuses the invented time the live agency closure carried", "an interactive answer saved while an earlier run waited has no lower bound"],
   // PROJECTOS-KERNEL-TRUTH1A.
   "projectos/agent/test/programmeContinuation.test.ts": ["never that closure is not continued through"],
@@ -667,7 +689,7 @@ function check() {
 
   // (13) ZERO-TOUCH CLOSURE — PROJECTOS-FINISH-ZERO-TOUCH-CLOSURE1A.
   const zt = {};
-  for (const rel of [CORE_AUTHORITY_REL, CORE_TRANSPORT_REL, CLOSURE_WAIT_REL, CLOSURE_TURN_REL, GK_CONFIG_REL]) {
+  for (const rel of [CORE_AUTHORITY_REL, CORE_TRANSPORT_REL, CLOSURE_WAIT_REL, CLOSURE_TURN_REL, GK_CONFIG_REL, CORE_MODE_REL]) {
     const raw = read(rel);
     zt[rel] = raw === null ? "" : code(raw.replace(/\r\n/g, "\n"));
     if (raw === null) E(`ZT: ${rel} is missing`);
@@ -710,10 +732,20 @@ function check() {
   // ZT-4: closure passes that identity only under the grant and never for an interactive wait; ProjectOS
   // self-commits only an UNATTENDED answer (ECC SECURITY C1), and only the presented bundle and the exact
   // post-close records (ECC SECURITY M2: the two path sets are pinned whole).
+  // PROJECTOS-KERNEL-FOLLOWUP1A (D9): the broker answer is a core class, STAMPED by the closure turn with
+  // the run loop's route precedence and persisted with its response id; resume tests for it BY NAME, still
+  // under the opt-in, and an unstamped wait is never read as the broker's (the transitional rule fails closed).
   const closure13 = files[CLOSURE_REL];
   const resume13 = fnBody(closure13, "closureResume") || "";
   const request13 = fnBody(closure13, "closureRequest") || "";
-  if (!/const answeredInCall =\s*committedMode\.ok &&\s*committedMode\.mode === 'unattended' &&\s*\(waiting\.provenance === 'HostIndependentProviderAttestation' \|\| \(waiting\.provenance === undefined && brokerRouteOptedIn\(sys, root\)\)\);/.test(resume13) ||
+  const takeTurn13 = fnBody(zt[CLOSURE_TURN_REL], "takeClosureTurn") || "";
+  const provenances13 = /export const GATEKEEPER_PROVENANCES = \[([^\]]*)\] as const;/.exec(zt[CORE_MODE_REL]);
+  if (provenances13 === null || !provenances13[1].includes("'InstallationBrokerProviderAnswer'") ||
+      !/const viaBroker = hosted === null && !rehearsed && deps\.broker !== undefined;/.test(takeTurn13) ||
+      !/: viaBroker\s*\? \{ kind: INSTALLATION_BROKER_PROVENANCE, providerResponseId: outcome\.providerResponseId \}\s*: undefined;/.test(takeTurn13) ||
+      !/\.\.\.\(obtained\.provenance === INSTALLATION_BROKER_PROVENANCE \? \{ providerResponseId: obtained\.providerResponseId \} : \{\}\),/.test(fnBody(closure13, "closureWaitFrom") || "") ||
+      /waiting\.provenance === undefined/.test(resume13) ||
+      !/const answeredInCall =\s*committedMode\.ok &&\s*committedMode\.mode === 'unattended' &&\s*\(waiting\.provenance === 'HostIndependentProviderAttestation' \|\|\s*\(waiting\.provenance === INSTALLATION_BROKER_PROVENANCE && brokerRouteOptedIn\(sys, root\)\)\);/.test(resume13) ||
       !/const committedMode = resolveGatekeeperMode\(sys, root\);/.test(resume13) ||
       !/const delegatedCommitter = grant\.granted && answeredInCall \? \{ name: PROJECTOS_COMMIT_NAME, email: PROJECTOS_COMMIT_EMAIL \} : null;/.test(resume13) ||
       !/observeOwnerCommit\(sys, root, waiting, planOwner\(gc\.context\.plan\), delegatedCommitter\)/.test(resume13) ||
@@ -723,7 +755,7 @@ function check() {
       !/const bundlePaths = new Set\(bundle\.entries\.map\(\(b\) => b\.path\)\);/.test(request13) ||
       !/commitOwnRecordsFor\(sys, root, gc\.context, id, 'closure-decision', \(p\) => bundlePaths\.has\(p\)\)/.test(request13) ||
       !/const DEFAULT_STATE_REL = '\.projectops\/current-state\.json';/.test(closure13)) {
-    E("ZT-4: closure commits or accepts a ProjectOS closure commit without the owner's grant, for an interactive answer, or beyond the presented bundle and the post-close records");
+    E("ZT-4: closure commits or accepts a ProjectOS closure commit without the owner's grant, for an interactive or unstamped answer, or beyond the presented bundle and the post-close records; or the closure route no longer stamps and keeps the broker's class");
   }
   // ZT-6: the closure prompt tells the authority the time of the question, in the priced and the sent body alike.
   const responses13 = read(CLOSURE_RESPONSES_REL);
@@ -826,13 +858,15 @@ function check() {
       (funding15.match(/covers closure questions/g) || []).length !== 1 || /did not when it was written/.test(receipts15)) {
     E("TR-4: the closure funding-line helper (advisory only: not wired into closure.ts, not enforced by the broker) is no longer derived from the receipt's question scope");
   }
-  // TR-7 (D3, read-only): the CURRENT hard-coded funding sentence in closure.ts, pinned as it stands. The helper
-  // above is not wired in; the Stage 1 follow-up that wires it must flip this pin deliberately, not drift past it.
+  // TR-7 (D3), FLIPPED in PROJECTOS-KERNEL-FOLLOWUP1A: closure.ts prints the DERIVED line, from the committed
+  // receipt's scope, for a broker answer only, and the hard-coded sentence is gone. Still advisory: the broker
+  // does not enforce questionKinds, and nothing here claims it does.
   const closure15 = files[CLOSURE_REL];
-  if (!closure15.includes("`this call is funded by the committed secrets-handling receipt for ${id}; that receipt now also ` +") ||
-      !closure15.includes("'covers closure questions, which it did not when it was written';") ||
-      !closure15.includes("...(config === null ? [] : [fundedBy]),")) {
-    E("TR-7: the hard-coded D3 funding sentence in closure.ts changed; the follow-up that wires closureFundingLine must update this pin with it");
+  const request15 = fnBody(closure15, "closureRequest") || "";
+  if (!request15.includes("turn.provenance === INSTALLATION_BROKER_PROVENANCE ? [closureFundingLine(id, secretsHandlingReceiptScope(sys, root, id))] : [];") ||
+      !request15.includes("...fundedBy,") ||
+      /did not when it was written|that receipt now also/.test(closure15)) {
+    E("TR-7: closure.ts no longer derives its funding line from the committed receipt's scope for a broker answer, or the hard-coded D3 sentence is back");
   }
   // TR-6: no test file is named twice in TESTS. A second key silently replaces the first in a JS object
   // literal, so the first list's needles would never be checked; only the source can show the repeat.
@@ -895,10 +929,29 @@ const TRUTH_MUTATIONS = [
   { name: "tests-key-repeated", rule: "TR-6", rel: SELF_REL,
     from: '  "projectos/agent/test/programmeContinuation' + '.test.ts": [',
     to: '  "projectos/agent/test/ownerGateReceipts' + '.test.ts": [' },
-  // TR-7
-  { name: "closure-funding-sentence-edited", rule: "TR-7", rel: CLOSURE_REL,
-    from: "'covers closure questions, which it did not when it was written';",
-    to: "'covers closure questions';" },
+  // TR-7 (flipped in PROJECTOS-KERNEL-FOLLOWUP1A)
+  { name: "closure-funding-sentence-hard-coded", rule: "TR-7", rel: CLOSURE_REL,
+    from: "turn.provenance === INSTALLATION_BROKER_PROVENANCE ? [closureFundingLine(id, secretsHandlingReceiptScope(sys, root, id))] : [];",
+    to: "turn.provenance === INSTALLATION_BROKER_PROVENANCE ? [`this call is funded by the committed secrets-handling receipt for ${id}; that receipt now also covers closure questions, which it did not when it was written`] : [];" },
+  { name: "closure-funding-scope-from-working-tree", rule: "TR-7", rel: CLOSURE_REL,
+    from: "closureFundingLine(id, secretsHandlingReceiptScope(sys, root, id))",
+    to: "closureFundingLine(id, receiptQuestionScope(readJson(sys, join(root, '.projectops', 'gates', `${id}.secrets-handling.json`))))" },
+  // ZT-4 (PROJECTOS-KERNEL-FOLLOWUP1A, D9)
+  { name: "closure-broker-answer-unstamped", rule: "ZT-4", rel: CLOSURE_TURN_REL,
+    from: "      : viaBroker\n        ? { kind: INSTALLATION_BROKER_PROVENANCE, providerResponseId: outcome.providerResponseId }\n        : undefined;",
+    to: "      : undefined;" },
+  { name: "closure-resume-infers-broker-from-undefined", rule: "ZT-4", rel: CLOSURE_REL,
+    from: "(waiting.provenance === INSTALLATION_BROKER_PROVENANCE && brokerRouteOptedIn(sys, root))",
+    to: "(waiting.provenance === undefined && brokerRouteOptedIn(sys, root))" },
+  { name: "unstamped-legacy-wait-accepted", rule: "ZT-4", rel: CLOSURE_REL,
+    from: "(waiting.provenance === INSTALLATION_BROKER_PROVENANCE && brokerRouteOptedIn(sys, root))",
+    to: "((waiting.provenance === INSTALLATION_BROKER_PROVENANCE || waiting.provenance === undefined) && brokerRouteOptedIn(sys, root))" },
+  { name: "closure-wait-drops-broker-response-id", rule: "ZT-4", rel: CLOSURE_REL,
+    from: "    ...(obtained.provenance === INSTALLATION_BROKER_PROVENANCE ? { providerResponseId: obtained.providerResponseId } : {}),\n",
+    to: "" },
+  { name: "broker-class-not-in-core", rule: "ZT-4", rel: CORE_MODE_REL,
+    from: "  'InstallationBrokerProviderAnswer',\n] as const;",
+    to: "] as const;" },
 ];
 
 /** Every named mutation must be killed by its own rule, and only by it. */

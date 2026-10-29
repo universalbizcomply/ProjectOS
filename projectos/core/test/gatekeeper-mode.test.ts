@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_GATEKEEPER_MODE,
   GATEKEEPER_MODES,
+  GATEKEEPER_PROVENANCES,
   HOST_VERDICT_FOR,
   checkHostAttestation,
   hostCorrelationFor,
@@ -57,6 +58,16 @@ describe('the two gatekeeper modes', () => {
   it('gives each mode its own provenance, and never the same one', () => {
     expect(provenanceOfMode('interactive')).toBe('InteractiveGatekeeperDecision');
     expect(provenanceOfMode('unattended')).toBe('HostIndependentProviderAttestation');
+  });
+
+  // PROJECTOS-KERNEL-FOLLOWUP1A (D9): the broker is a route's class, never a mode's.
+  it('names the installation broker as an evidence class of its own, which no mode produces', () => {
+    expect([...GATEKEEPER_PROVENANCES]).toEqual([
+      'InteractiveGatekeeperDecision',
+      'HostIndependentProviderAttestation',
+      'InstallationBrokerProviderAnswer',
+    ]);
+    expect(GATEKEEPER_MODES.map(provenanceOfMode)).not.toContain('InstallationBrokerProviderAnswer');
   });
 });
 

@@ -142,10 +142,20 @@ export interface ClosureWaitRecord {
   /**
    * How the closure decision was obtained, as the ROUTE that received it stated — the evidence class,
    * never authority. Carried into the closing history note. Absent on waits written before hybrid
-   * routing, which read as unrecorded rather than as either class.
+   * routing, which read as unrecorded rather than as any class.
+   *
+   * A BROKER ANSWER IS STAMPED, NOT INFERRED — PROJECTOS-KERNEL-FOLLOWUP1A (D9). Waits written before
+   * this carry no class for a broker answer either, and `closureResume` no longer reads that silence as
+   * the broker: an unstamped wait is never an answer produced in the call, so it is the owner's to commit
+   * or to have asked again.
    */
   readonly provenance?: GatekeeperProvenance;
   readonly hostAttestationId?: string;
+  /**
+   * The provider's id for the broker call that produced the answer, recorded with the broker's class and
+   * only with it, so the answer can be traced to the call. Null when the provider returned none.
+   */
+  readonly providerResponseId?: string | null;
   /** `WAITING_OWNER` until a closure consumes it, then `CLOSED`. Never authority; only truthfulness. */
   readonly state: 'WAITING_OWNER' | 'CLOSED';
   readonly resolvedAt?: string;

@@ -99,6 +99,8 @@ import {
   type GatekeeperConfig,
 } from '../loop/gatekeeperConfig.js';
 import { CLOSURE_INTERACTIVE_REL, GATEKEEPER_INTERACTIVE_REL, nodeInteractivePort, resolveGatekeeperMode } from '../loop/gatekeeperHandoff.js';
+import { INSTALLATION_BROKER_PROVENANCE } from '../loop/gatekeeperTurn.js';
+import { closureFundingLine, secretsHandlingReceiptScope } from '../loop/ownerGateReceipts.js';
 import { WORK_RECORD_REL } from '../loop/workRecord.js';
 import { unprovisionedResolver } from '../loop/credentialResolver.js';
 import { nodeHttpPort } from '../loop/transports/nodeHttpPort.js';
@@ -272,6 +274,29 @@ function ownerAskLines(wait: ClosureWaitRecord): readonly string[] {
     'predates this route; it is not something the closure transport added.',
     '',
     `Then run:  projectos closure resume --id ${wait.phaseId}`,
+  ];
+}
+
+/**
+ * What the owner is told about an UNSTAMPED wait under the closure-decision-commit grant — PROJECTOS-
+ * KERNEL-FOLLOWUP1A (D9). `[]` for any other wait.
+ *
+ * THE TRANSITIONAL RULE FAILS CLOSED. A broker answer used to carry no class, and `closureResume` read
+ * that silence, on a broker-opted project, as "the broker answered in the call". The broker is now stamped
+ * by the route that made the call, so an unstamped wait — written before that, or stripped since — is no
+ * longer read as the broker's: ProjectOS's own commit cannot stand in for the owner's on it. Nothing is
+ * relabelled after the fact, because the wait cannot prove which route answered. The owner's own commit
+ * is accepted exactly as before; asking again records the route.
+ */
+function unstampedWaitLines(wait: ClosureWaitRecord, unattendedUnderGrant: boolean): readonly string[] {
+  if (!unattendedUnderGrant || wait.provenance !== undefined) return [];
+  return [
+    'THIS CLOSURE WAIT RECORDS NO PROVENANCE. It was written before the closure route stamped a broker answer,',
+    '  or its class was removed since, so it is NOT treated as an answer produced in the call: under the',
+    "  closure-decision-commit grant, a ProjectOS commit of it cannot stand in for the owner's.",
+    '  To proceed, either commit the presented bundle under your own identity (accepted exactly as before),',
+    `  or have the question asked again: remove ${closureWaitRelPath(wait.phaseId) ?? 'the closure wait'} and the uncommitted decision at`,
+    `  ${closureDecisionRelPath(wait.phaseId)}, then re-run \`projectos closure request --id ${wait.phaseId} --execute\`.`,
   ];
 }
 
@@ -970,9 +995,15 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
   const waitRead = readClosureWait(sys, root, id);
   if (!waitRead.ok) return fail(2, [`REFUSED (CLOSURE_WAIT_UNREADABLE): ${waitRead.problem}`]);
   if (waitRead.value !== null && waitRead.value.state === 'WAITING_OWNER') {
+    // A wait written before the broker was stamped is said to be one, here as at resume (D9).
+    const unstamped = unstampedWaitLines(
+      waitRead.value,
+      modeResolution.mode === 'unattended' && closureCommitGrant(sys, root, gc.context).granted,
+    );
     return ok([
       `${id} is already waiting on the owner; the closure authority was NOT asked again.`,
       '',
+      ...(unstamped.length === 0 ? [] : [...unstamped, '']),
       ...ownerAskLines(waitRead.value),
     ]);
   }
@@ -1053,15 +1084,6 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
     current as unknown as Record<string, unknown>,
   );
 
-  // WHICH AUTHORITY IS FUNDING THIS CALL, SAID OUT LOUD. The trusted broker admits a closure question
-  // under the phase's committed `secrets-handling` receipt, exactly as it does the seven technical
-  // asks — so a receipt committed before this route existed also pays for this. That is bounded (a
-  // paid question closes nothing) but it is a real widening of what an old receipt covers, and the
-  // owner should see it at the moment it is being used rather than infer it later.
-  const fundedBy =
-    `this call is funded by the committed secrets-handling receipt for ${id}; that receipt now also ` +
-    'covers closure questions, which it did not when it was written';
-
   const shared = {
     sys,
     root,
@@ -1114,10 +1136,31 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
   // SETTLE, DO NOT APPEND: admission already wrote this request id at its estimate, and the ledger
   // keeps the first entry it sees for an id — so appending the truth beside it would leave the
   // estimate standing as the recorded cost.
+  //
+  // WHICH AUTHORITY FUNDED THIS CALL, SAID OUT LOUD — AND DERIVED, NOT FIXED (PROJECTOS-KERNEL-FOLLOWUP1A,
+  // D3). The trusted broker admits a closure question under the phase's committed `secrets-handling`
+  // receipt, exactly as it does the seven technical asks. This line used to say, of every receipt, that it
+  // "now also covers closure questions, which it did not when it was written" — false for a receipt whose
+  // recorded scope names closure. It now says what the COMMITTED receipt records: `secretsHandlingReceiptScope`
+  // reads `questionKinds` through `receiptQuestionScope` from the git object of an approving receipt only,
+  // never from the working tree.
+  //
+  // ADVISORY ONLY, and said so: the broker does NOT enforce `questionKinds`. It admits the closure question
+  // under the receipt whatever this line says; the line stops misdescribing the receipt and nothing more.
+  // Enforcement is the separate amendment D3 named.
+  //
+  // PRINTED FOR A BROKER ANSWER ONLY, read from the route's own stamp: the broker is the one route that
+  // admits under this receipt, so on the Host route the sentence would be the same untruth in a new place.
+  const fundedBy =
+    turn.provenance === INSTALLATION_BROKER_PROVENANCE ? [closureFundingLine(id, secretsHandlingReceiptScope(sys, root, id))] : [];
   const trace = [
-    ...(config === null ? [] : [fundedBy]),
+    ...fundedBy,
     ...turn.lines,
-    ...(turn.provenance === undefined ? [] : [`closure decision provenance: ${turn.provenance}`]),
+    ...(turn.provenance === undefined
+      ? []
+      : turn.provenance === INSTALLATION_BROKER_PROVENANCE
+        ? [`closure decision provenance: ${turn.provenance} (provider response ${turn.providerResponseId ?? 'not returned'})`]
+        : [`closure decision provenance: ${turn.provenance}`]),
   ];
   if (turn.ledgerEntry !== null) {
     settleGatekeeperSpend(sys, root, turn.ledgerEntry.requestId, turn.ledgerEntry);
@@ -1223,11 +1266,13 @@ function closureWaitFrom(
   bundle: readonly ClosureBundleEntry[],
   headAtRequest: string,
   at: string,
-  obtained: Pick<ClosureTurnResult, 'provenance' | 'hostAttestationId'>,
+  obtained: Pick<ClosureTurnResult, 'provenance' | 'hostAttestationId' | 'providerResponseId'>,
 ): ClosureWaitRecord {
   return {
     ...(obtained.provenance === undefined ? {} : { provenance: obtained.provenance }),
     ...(obtained.hostAttestationId === undefined ? {} : { hostAttestationId: obtained.hostAttestationId }),
+    // The broker's trace, kept with the broker's class and only with it (PROJECTOS-KERNEL-FOLLOWUP1A, D9).
+    ...(obtained.provenance === INSTALLATION_BROKER_PROVENANCE ? { providerResponseId: obtained.providerResponseId } : {}),
     schemaVersion: CLOSURE_WAIT_SCHEMA_VERSION,
     projectId: request.projectId,
     phaseId: request.phaseId,
@@ -1441,15 +1486,20 @@ export function closureResume(ctx: CommandContext, flags: Flags, ownerWait: Owne
   // UNDER THE OWNER'S `closure-decision-commit` GRANT, AND ONLY THEN, the ProjectOS commit identity —
   // exactly that name and email — may stand in for the owner's. Everything else below is unchanged.
   // And only for an answer produced in the call, ALLOWLISTED rather than "not interactive" (ECC SECURITY C1,
-  // round 2 M1): the committed mode is unattended, and the wait is either Host-attested or — the broker route
-  // stamps no provenance — carries none on a project whose committed configuration opts in to the broker.
+  // round 2 M1): the committed mode is unattended, and the wait is either Host-attested or stamped as the
+  // broker's on a project whose committed configuration opts in to the broker. The broker's class is
+  // TESTED BY NAME (PROJECTOS-KERNEL-FOLLOWUP1A, D9): it used to be inferred from a wait carrying no class,
+  // and an unstamped wait now FAILS CLOSED — see `unstampedWaitLines`. The opt-in is still required, so
+  // the class accepts nothing the inference did not.
   // An interactive answer stays the owner's to commit whatever the grant says.
   const grant = closureCommitGrant(sys, root, gc.context);
   const committedMode = resolveGatekeeperMode(sys, root);
   const answeredInCall =
     committedMode.ok &&
     committedMode.mode === 'unattended' &&
-    (waiting.provenance === 'HostIndependentProviderAttestation' || (waiting.provenance === undefined && brokerRouteOptedIn(sys, root)));
+    (waiting.provenance === 'HostIndependentProviderAttestation' ||
+      (waiting.provenance === INSTALLATION_BROKER_PROVENANCE && brokerRouteOptedIn(sys, root)));
+  const unstamped = unstampedWaitLines(waiting, grant.granted && committedMode.ok && committedMode.mode === 'unattended');
   const delegatedCommitter = grant.granted && answeredInCall ? { name: PROJECTOS_COMMIT_NAME, email: PROJECTOS_COMMIT_EMAIL } : null;
   const observed = awaitOwnerCommit(
     () => observeOwnerCommit(sys, root, waiting, planOwner(gc.context.plan), delegatedCommitter),
@@ -1468,6 +1518,7 @@ export function closureResume(ctx: CommandContext, flags: Flags, ownerWait: Owne
       ),
       ...(observed.committedBy === null ? [] : [`  the last commit touching the decision was made by ${observed.committedBy}`]),
       ...observed.problems.map((p) => `  ${p}`),
+      ...(unstamped.length === 0 ? [] : ['', ...unstamped]),
       '',
       ...ownerAskLines(waiting),
     ]);

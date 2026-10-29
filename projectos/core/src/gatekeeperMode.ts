@@ -52,26 +52,39 @@ export function isGatekeeperMode(value: unknown): value is GatekeeperMode {
 }
 
 /**
- * The two evidence classes a gatekeeper decision may carry. Downstream handling of ALLOW and REFUSE is
+ * The evidence classes a gatekeeper decision may carry. Downstream handling of ALLOW and REFUSE is
  * shared; the class is never erased.
+ *
+ * `InstallationBrokerProviderAnswer` is the trusted installation broker's class — PROJECTOS-KERNEL-
+ * FOLLOWUP1A (EXTERNAL-PROOF2A D9). It is NOT a mode: `provenanceOfMode` never returns it, and only a
+ * route that actually made the call through the broker stamps it. It vouches for nothing the Host
+ * attests; it says which route made the call, so that fact is recorded rather than inferred from the
+ * absence of the other two classes. The run loop names it `INSTALLATION_BROKER_PROVENANCE`.
  */
 export const GATEKEEPER_PROVENANCES = [
   'InteractiveGatekeeperDecision',
   'HostIndependentProviderAttestation',
+  'InstallationBrokerProviderAnswer',
 ] as const;
 export type GatekeeperProvenance = (typeof GATEKEEPER_PROVENANCES)[number];
+
+/**
+ * The classes a MODE produces: every class but the broker's. Kept apart so a stamp of this shape can
+ * never claim the broker without the broker's own trace (the agent's `BrokerProvenanceStamp`).
+ */
+export type ModeProvenance = Exclude<GatekeeperProvenance, 'InstallationBrokerProviderAnswer'>;
 
 /**
  * What the route that obtained a decision stamps onto its evidence. Never read from the record itself.
  * `hostAttestationId` is present exactly when the class is `HostIndependentProviderAttestation`.
  */
 export interface DecisionProvenanceStamp {
-  readonly kind: GatekeeperProvenance;
+  readonly kind: ModeProvenance;
   readonly hostAttestationId?: string;
 }
 
-/** The provenance each mode produces. One route, one class. */
-export function provenanceOfMode(mode: GatekeeperMode): GatekeeperProvenance {
+/** The provenance each mode produces. One route, one class. The broker's class is a route's, never a mode's. */
+export function provenanceOfMode(mode: GatekeeperMode): ModeProvenance {
   return mode === 'interactive' ? 'InteractiveGatekeeperDecision' : 'HostIndependentProviderAttestation';
 }
 

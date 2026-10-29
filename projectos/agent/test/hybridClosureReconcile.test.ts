@@ -463,6 +463,76 @@ function hostClosureDeps(host: HostClosureReviewPort): MakeClosureDeps {
   };
 }
 
+/**
+ * The unattended composition with the TRUSTED INSTALLATION BROKER, in the shape `productionClosureDeps`
+ * builds on the committed opt-in (no `mode`) — PROJECTOS-KERNEL-FOLLOWUP1A. The broker is a deterministic
+ * fake behind the real `BrokeredTransport` port: it answers `close`, bound to the request it was sent.
+ */
+function brokerClosureDeps(posted: { n: number }): MakeClosureDeps {
+  return (args) => {
+    if (args.mode !== 'unattended') throw new Error('this fixture project is in unattended mode');
+    const { config } = args;
+    return {
+      broker: {
+        governedRoot: args.root,
+        installationAllows: () => ({ allowed: true, reasons: [] }),
+        transport: {
+          post(call) {
+            posted.n += 1;
+            if (call.kind !== 'gatekeeper') throw new Error('the closure route sends a gatekeeper-kind call');
+            const sent = JSON.parse(call.body) as { input: { content: { text: string }[] }[] };
+            const digest = /^requestDigest: (\S+)$/m.exec(sent.input[0]?.content[0]?.text ?? '')?.[1] ?? '';
+            const record = {
+              schemaVersion: CLOSURE_DECISION_SCHEMA_VERSION,
+              decisionId: `${PHASE}-BROKER-DECISION1A`,
+              decision: 'close',
+              projectId: call.projectId,
+              phaseId: call.phaseId,
+              scope: PHASE_CLOSURE_SCOPE,
+              decidedBy: DELEGATE,
+              decidedAt: '2026-09-10T20:00:30Z',
+              evidenceSubjectHead: call.subjectCommit,
+              requestDigest: digest,
+              note: 'reviewed through the broker: closable',
+              ownerAcceptedFindings: [],
+            };
+            return {
+              kind: 'response',
+              status: 200,
+              body: JSON.stringify({
+                id: 'resp_broker_fixture',
+                output: [{ content: [{ type: 'output_text', text: JSON.stringify(record) }] }],
+                usage: { input_tokens: 1_000, input_tokens_details: { cached_tokens: 0 }, output_tokens: 100 },
+              }),
+            };
+          },
+        },
+      },
+      transport: config.transport,
+      availability: { reachable: true },
+      resolver: unprovisionedResolver('the broker resolves the credential, never the agent'),
+      http: {
+        post() {
+          throw new Error('the in-process provider route must never be reached on the broker route');
+        },
+      },
+      modelPolicy: config.modelPolicy,
+      rateCards: config.rateCards,
+      budget: config.budget,
+      ledger: [],
+      threadBinding: config.threadBinding,
+      consumedDecisionIds: args.consumedDecisionIds,
+    };
+  };
+}
+
+/** The owner's committed opt-in to the installation broker, exactly as `brokerRouteOptedIn` reads it. */
+function optInToBroker(root: string): void {
+  const path = join(root, '.projectops', 'gatekeeper.json');
+  writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, 'utf8')), route: 'installation-broker' }, null, 2));
+  commitAndPush(root, 'owner opts in to the installation broker');
+}
+
 const text = (lines: readonly string[]): string => lines.join('\n');
 const LEDGER = ['.projectops', 'gatekeeper-ledger.json'];
 
@@ -629,6 +699,8 @@ describe('UNATTENDED closure: Host-independent attestation, and nothing else', (
     const wait = readClosureWait(w.ctx.sys, w.root, PHASE);
     expect(wait.ok && wait.value?.provenance).toBe('HostIndependentProviderAttestation');
     expect(wait.ok && wait.value?.hostAttestationId).toBe('d'.repeat(64));
+    // The Host route does not admit under the secrets-handling receipt, so no funding line names it (D3).
+    expect(text(asked.lines)).not.toContain('funded by the committed secrets-handling receipt');
     // No interactive question was ever written: there is no fallback between modes.
     expect(filesIn(w.root, CLOSURE_INTERACTIVE_REL)).toEqual([]);
 
@@ -667,6 +739,39 @@ describe('UNATTENDED closure: Host-independent attestation, and nothing else', (
     expect(existsSync(join(w.root, ...LEDGER))).toBe(false);
     expect(existsSync(join(w.root, '.projectops', 'closure', 'decisions', `${PHASE}.json`))).toBe(false);
     expect(filesIn(w.root, CLOSURE_INTERACTIVE_REL)).toEqual([]);
+  });
+
+  // PROJECTOS-KERNEL-FOLLOWUP1A (D3): the funding line is DERIVED from the committed receipt's recorded
+  // scope, and the old hard-coded "now also covers closure questions" sentence is gone.
+  it('on the broker route the funding line is derived from the committed receipt scope, never the hard-coded sentence', () => {
+    const w = world('unattended');
+    optInToBroker(w.root);
+    mkdirSync(join(w.root, '.projectops', 'gates'), { recursive: true });
+    writeFileSync(
+      join(w.root, '.projectops', 'gates', `${PHASE}.secrets-handling.json`),
+      JSON.stringify({ gateName: 'secrets-handling', phaseId: PHASE, ownerChoice: 'APPROVE', scope: 'owner-gate-only', questionKinds: ['technical', 'closure'] }, null, 2),
+    );
+    commitAndPush(w.root, 'owner: secrets-handling receipt naming closure questions');
+    startAndDeliverPhase(w);
+    const posted = { n: 0 };
+    const asked = closureRequest(w.ctx, { id: PHASE, execute: true }, brokerClosureDeps(posted));
+    expect(asked.code, text(asked.lines)).toBe(0);
+    expect(posted.n).toBe(1);
+    expect(text(asked.lines)).toContain(
+      `this call is funded by the committed secrets-handling receipt for ${PHASE}, whose recorded scope (technical, closure) covers closure questions`,
+    );
+    expect(text(asked.lines)).not.toContain('which it did not when it was written');
+  });
+
+  it('on the broker route a receipt that records no scope is said to record none — advisory, the broker admits it all the same', () => {
+    const w = world('unattended');
+    optInToBroker(w.root);
+    startAndDeliverPhase(w);
+    const asked = closureRequest(w.ctx, { id: PHASE, execute: true }, brokerClosureDeps({ n: 0 }));
+    expect(asked.code, text(asked.lines)).toBe(0);
+    expect(text(asked.lines)).toContain('records no machine-readable question scope');
+    expect(text(asked.lines)).toContain('the broker admits them under it all the same');
+    expect(text(asked.lines)).not.toContain('which it did not when it was written');
   });
 
   it('an unavailable Host fails closed', () => {
@@ -1040,6 +1145,63 @@ describe('ZERO-TOUCH closure: the owner granted closure-decision-commit', () => 
     const resumed = closure(w.ctx, { id: PHASE }, ['resume']);
     expect(resumed.code).not.toBe(0);
     expect(text(resumed.lines)).toContain('which is the implementer');
+    expect(phaseRecord(w.root).status).toBe('awaiting_closure');
+  });
+
+  // PROJECTOS-KERNEL-FOLLOWUP1A (D9): the broker answer is STAMPED by the closure route and tested for by
+  // name at resume; an unstamped wait is no longer read as the broker's.
+  it('on the broker route the answer is stamped InstallationBrokerProviderAnswer with its response id, and ProjectOS commits and closes under the grant', () => {
+    const w = zeroTouchWorld('unattended', ALL);
+    optInToBroker(w.root);
+    deliver(w);
+    const posted = { n: 0 };
+    const r = closureRequest(w.ctx, { id: PHASE, execute: true }, brokerClosureDeps(posted));
+    expect(r.code, text(r.lines)).toBe(0);
+    expect(posted.n).toBe(1);
+    expect(text(r.lines)).toContain('closure decision provenance: InstallationBrokerProviderAnswer (provider response resp_broker_fixture)');
+    expect(text(r.lines)).toContain("ProjectOS committed the closure bundle under the owner's closure-decision-commit grant");
+    const wait = readClosureWait(w.ctx.sys, w.root, PHASE);
+    expect(wait.ok && wait.value?.provenance).toBe('InstallationBrokerProviderAnswer');
+    expect(wait.ok && wait.value?.providerResponseId).toBe('resp_broker_fixture');
+    const record = phaseRecord(w.root);
+    expect(record.status).toBe('closed');
+    expect((record.history[record.history.length - 1] as { note: string }).note).toContain('InstallationBrokerProviderAnswer');
+  });
+
+  it('under the grant, a broker-stamped wait is an answer produced in the call: a ProjectOS commit of it is accepted', () => {
+    const w = zeroTouchWorld('unattended', ['closure-decision-commit']);
+    optInToBroker(w.root);
+    deliver(w);
+    expect(closureRequest(w.ctx, { id: PHASE, execute: true }, brokerClosureDeps({ n: 0 })).code).toBe(0);
+    projectosCommits(w.root);
+    const resumed = closure(w.ctx, { id: PHASE }, ['resume']);
+    expect(resumed.code, text(resumed.lines)).toBe(0);
+    expect(text(resumed.lines)).toContain("ProjectOS committed the closure bundle under the owner's closure-decision-commit grant");
+    expect(phaseRecord(w.root).status).toBe('closed');
+  });
+
+  it('under the grant, an UNSTAMPED broker-route wait fails closed: a ProjectOS commit is refused and the owner is told to commit it or have it asked again', () => {
+    const w = zeroTouchWorld('unattended', ['closure-decision-commit']);
+    optInToBroker(w.root);
+    deliver(w);
+    expect(closureRequest(w.ctx, { id: PHASE, execute: true }, brokerClosureDeps({ n: 0 })).code).toBe(0);
+    // A wait as this route wrote it before the broker was stamped: no class, no response id.
+    const waitPath = join(w.root, '.projectops', 'closure', 'waits', `${PHASE}.json`);
+    const wait = JSON.parse(readFileSync(waitPath, 'utf8')) as Record<string, unknown>;
+    expect(wait['provenance']).toBe('InstallationBrokerProviderAnswer');
+    delete wait['provenance'];
+    delete wait['providerResponseId'];
+    writeFileSync(waitPath, JSON.stringify(wait, null, 2));
+    // Asking again re-prints the ask, and says plainly what the unstamped wait means.
+    const again = closureRequest(w.ctx, { id: PHASE, execute: true }, brokerClosureDeps({ n: 0 }));
+    expect(again.code, text(again.lines)).toBe(0);
+    expect(text(again.lines)).toContain('THIS CLOSURE WAIT RECORDS NO PROVENANCE');
+    projectosCommits(w.root);
+    const resumed = closure(w.ctx, { id: PHASE }, ['resume']);
+    expect(resumed.code).not.toBe(0);
+    expect(text(resumed.lines)).toContain('which is the implementer');
+    expect(text(resumed.lines)).toContain('THIS CLOSURE WAIT RECORDS NO PROVENANCE');
+    expect(text(resumed.lines)).toContain(`re-run \`projectos closure request --id ${PHASE} --execute\``);
     expect(phaseRecord(w.root).status).toBe('awaiting_closure');
   });
 

@@ -22,6 +22,7 @@ import {
   CLOSURE_ASK,
   CLOSURE_DECISION_SCHEMA_VERSION,
   CLOSURE_REQUEST_SCHEMA_VERSION,
+  HOST_VERDICT_FOR_CLOSURE,
   PHASE_CLOSURE_SCOPE,
   closureEvidenceDigest,
   closureRequestDigest,
@@ -369,5 +370,112 @@ describe('the request body binds what the trusted broker will check', () => {
     const d = deps();
     takeClosureTurn(input(), d.deps);
     expect(d.sent[0]).not.toContain('sk-test');
+  });
+});
+
+/**
+ * PROJECTOS-KERNEL-FOLLOWUP1A (EXTERNAL-PROOF2A D9) — the closure route stamps the broker as its own class,
+ * with the run loop's route precedence, so `closureResume` tests for the class by name and never infers the
+ * broker from a wait that carries none.
+ */
+describe('KERNEL-FOLLOWUP1A: a broker closure answer is stamped as its own class', () => {
+  const broker = (reply: HttpResponse) => ({
+    transport: { post: () => reply },
+    governedRoot: ROOT,
+    installationAllows: () => ({ allowed: true, reasons: [] as readonly string[] }),
+  });
+  const viaBroker = (reply: HttpResponse = okReply(answer())) =>
+    deps({ broker: broker(reply), resolver: unprovisionedResolver('the broker resolves the credential, never the agent') });
+
+  it('stamps an accepted closure broker answer InstallationBrokerProviderAnswer, with the provider response id', () => {
+    const result = takeClosureTurn(input(), viaBroker().deps);
+    expect(result.outcome).toBe('DECIDED_CLOSE');
+    expect(result.provenance).toBe('InstallationBrokerProviderAnswer');
+    expect(result.providerResponseId).toBe('resp_closure_0001');
+    expect(result.hostAttestationId).toBeUndefined();
+  });
+
+  it('stamps a broker do-not-close answer too: the class says which route answered, not what it decided', () => {
+    const result = takeClosureTurn(input(), viaBroker(okReply(answer({ decision: 'do-not-close' }))).deps);
+    expect(result.outcome).toBe('DECIDED_NOT_CLOSE');
+    expect(result.provenance).toBe('InstallationBrokerProviderAnswer');
+  });
+
+  it('stamps nothing for a refused broker answer, which was not accepted', () => {
+    const result = takeClosureTurn(input(), viaBroker(okReply(answer({ phaseId: 'ANOTHER-PHASE1A' }))).deps);
+    expect(result.outcome).toBe('ANSWER_REFUSED');
+    expect(result.provenance).toBeUndefined();
+  });
+
+  it('stamps nothing for the pre-hybrid direct closure route, which was not the broker', () => {
+    const result = takeClosureTurn(input(), deps().deps);
+    expect(result.outcome).toBe('DECIDED_CLOSE');
+    expect(result.provenance).toBeUndefined();
+  });
+
+  it('stamps nothing for a closure rehearsal answer, even with a broker configured: the broker made no call', () => {
+    let posted = 0;
+    const result = takeClosureTurn(
+      input(),
+      deps({
+        transport: { ...TRANSPORT, kind: 'local-rehearsal', commercialApproval: false },
+        rehearsalOnly: true,
+        rehearsalReviewer: () => ({
+          kind: 'response',
+          record: answer() as never,
+          providerResponseId: null,
+          usage: { inputTokens: 10, cachedInputTokens: 0, outputTokens: 10 },
+        }),
+        broker: {
+          transport: { post: () => { posted += 1; return okReply(answer()); } },
+          governedRoot: ROOT,
+          installationAllows: () => ({ allowed: true, reasons: [] }),
+        },
+      }).deps,
+    );
+    expect(result.outcome).toBe('DECIDED_CLOSE');
+    expect(posted).toBe(0);
+    expect(result.provenance).toBeUndefined();
+  });
+
+  it('a Host-attested closure answer stays Host-stamped even when a broker is also composed', () => {
+    let posted = 0;
+    const request = expectedRequest();
+    const result = takeClosureTurn(
+      input(),
+      deps({
+        mode: 'unattended',
+        hostReview: {
+          reviewClosure: (call) => ({
+            kind: 'attested',
+            record: answer() as never,
+            attestation: {
+              schemaVersion: 1,
+              attestationId: 'e'.repeat(64),
+              requestCorrelation: call.correlation,
+              providerResponseId: 'resp_host_0001',
+              provider: 'fake-independent-provider',
+              model: 'fake-model',
+              verdict: HOST_VERDICT_FOR_CLOSURE.close,
+              allowedActions: [],
+              ownerApprovalRequired: true,
+              costMicroUsd: 3_000,
+              attestedAtEpochS: 1_788_000_000,
+            },
+            usage: { inputTokens: 1_000, cachedInputTokens: 0, outputTokens: 100 },
+          }),
+        },
+        broker: {
+          transport: { post: () => { posted += 1; return okReply(answer()); } },
+          governedRoot: ROOT,
+          installationAllows: () => ({ allowed: true, reasons: [] }),
+        },
+      }).deps,
+    );
+    expect(result.request?.requestId).toBe(request.requestId);
+    expect(result.outcome).toBe('DECIDED_CLOSE');
+    expect(posted).toBe(0);
+    expect(result.provenance).toBe('HostIndependentProviderAttestation');
+    expect(result.hostAttestationId).toBe('e'.repeat(64));
   });
 });

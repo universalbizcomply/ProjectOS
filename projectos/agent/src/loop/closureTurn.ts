@@ -74,7 +74,6 @@ import {
   hostCorrelationFor,
   provenanceClaimsIn,
   type ClosureResponseExpectations,
-  type DecisionProvenanceStamp,
   type GatekeeperProvenance,
   type HostAttestationSummary,
   type HostClosureReviewOutcome,
@@ -90,7 +89,7 @@ import type { CredentialResolver } from './credentialResolver.js';
 import type { BrokeredTransport } from './transports/brokeredHttpPort.js';
 import { GATEKEEPER_OUTPUT_TOKEN_LIMIT, gatekeeperOutputAnomaly, type HttpPort } from './transports/openaiResponses.js';
 import { submitClosureRequest, buildClosureResponsesBody, type ClosureTransportOutcome } from './transports/closureResponses.js';
-import { lastBilledUsage } from './gatekeeperTurn.js';
+import { INSTALLATION_BROKER_PROVENANCE, lastBilledUsage, type LoopDecisionProvenance } from './gatekeeperTurn.js';
 
 export interface ClosureTurnInput {
   readonly projectId: string;
@@ -218,7 +217,9 @@ export interface ClosureTurnResult {
   readonly providerResponseId: string | null;
   /**
    * The evidence class of an ACCEPTED answer, stamped by the route that obtained it — never read from
-   * the answer. Absent whenever no answer was accepted, and for the pre-hybrid composition.
+   * the answer. Absent whenever no answer was accepted, for the pre-hybrid direct route (no Host, no
+   * broker) and for a rehearsal. A broker answer is `InstallationBrokerProviderAnswer`, and its trace is
+   * `providerResponseId` above (PROJECTOS-KERNEL-FOLLOWUP1A, D9).
    */
   readonly provenance?: GatekeeperProvenance;
   readonly hostAttestationId?: string;
@@ -494,10 +495,15 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
       body: requestBody,
     }) ?? null;
   const attestation: HostAttestationSummary | null = hosted !== null && hosted.kind === 'attested' ? hosted.attestation : null;
+  const rehearsed = deps.rehearsalOnly === true && deps.rehearsalReviewer !== undefined;
+  // WHICH ROUTE ANSWERED, decided here where the call is made rather than inferred later from what is
+  // missing — the run loop's precedence exactly (`takeGatekeeperTurn`): a Host answer stays the Host's, a
+  // rehearsal was not the broker's call, and only then does a composed broker mean the broker answered.
+  const viaBroker = hosted === null && !rehearsed && deps.broker !== undefined;
   const outcome =
     hosted !== null
       ? closureFromHost(hosted)
-      : deps.rehearsalOnly === true && deps.rehearsalReviewer !== undefined
+      : rehearsed && deps.rehearsalReviewer !== undefined
       ? deps.rehearsalReviewer(request, input.evidenceText)
       : submitClosureRequest(
           request,
@@ -569,18 +575,24 @@ export function takeClosureTurn(input: ClosureTurnInput, deps: ClosureTurnDeps):
   const checkedWithAnomaly = anomaly === null ? checked : [anomaly, ...checked];
   const problems = [...checkedWithAnomaly, ...attestationProblems];
   const answered = typeof record.decision === 'string' ? record.decision : null;
-  // The route's own statement of how this answer was obtained. Never read from the answer.
-  const stamp: DecisionProvenanceStamp | undefined =
+  // The route's own statement of how this answer was obtained. Never read from the answer. A broker answer
+  // is stamped as its own class (PROJECTOS-KERNEL-FOLLOWUP1A, D9): it used to carry nothing, and
+  // `closureResume` then had to infer the broker from that silence. Its trace is `providerResponseId`.
+  const stamp: LoopDecisionProvenance | undefined =
     deps.mode === 'unattended' && attestation !== null && typeof attestation.attestationId === 'string'
       ? { kind: 'HostIndependentProviderAttestation', hostAttestationId: attestation.attestationId }
-      : undefined;
+      : viaBroker
+        ? { kind: INSTALLATION_BROKER_PROVENANCE, providerResponseId: outcome.providerResponseId }
+        : undefined;
   const provenance =
     stamp === undefined
       ? {}
-      : {
-          provenance: stamp.kind,
-          ...(stamp.hostAttestationId === undefined ? {} : { hostAttestationId: stamp.hostAttestationId }),
-        };
+      : stamp.kind === INSTALLATION_BROKER_PROVENANCE
+        ? { provenance: stamp.kind }
+        : {
+            provenance: stamp.kind,
+            ...(stamp.hostAttestationId === undefined ? {} : { hostAttestationId: stamp.hostAttestationId }),
+          };
 
   if (problems.length > 0) {
     return {
