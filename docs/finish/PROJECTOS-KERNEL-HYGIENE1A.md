@@ -7,7 +7,7 @@
 
 ## What was missing
 
-At `e1e1e72`, `projectos/validators/` held 156 validator files (`val-*.cjs`, `validate-*.cjs`, not counting
+At `e1e1e72`, `projectos/validators/` held 155 validator files (`val-*.cjs`, `validate-*.cjs`, not counting
 `validate-all.cjs`). `validate-all` ran 147 of them. Eight were never run by the suite, including the two
 added in plan v1.17. Nothing stopped this from happening again: a new validator only ran if someone
 remembered to register it.

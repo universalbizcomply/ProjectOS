@@ -163,13 +163,14 @@ function registryProblems() {
     .filter((f) => /^(val|validate)-.+\.cjs$/.test(f) && f !== "validate-all.cjs")
     .map((f) => f.slice(0, -".cjs".length));
   const retiredNames = RETIRED.map((r) => r.name);
+  if (new Set(MODULES).size !== MODULES.length) problems.push("MODULES lists a validator more than once");
   for (const f of files) {
     if (!MODULES.includes(f) && !retiredNames.includes(f)) problems.push(f + " is neither registered nor retired");
   }
   for (const r of RETIRED) {
     if (MODULES.includes(r.name)) problems.push(r.name + " is both registered and retired");
     if (!files.includes(r.name)) problems.push(r.name + " is retired but no such validator file exists");
-    if (typeof r.reason !== "string" || r.reason.trim().length === 0) problems.push(r.name + " is retired without a reason");
+    if (typeof r.reason !== "string" || r.reason.trim().length < 20) problems.push(r.name + " is retired without a real reason");
   }
   return problems;
 }
@@ -191,7 +192,11 @@ for (const m of MODULES) {
   let errs;
   // Release this validator's scratch as soon as it finishes — on pass, fail or crash. Without this,
   // every validator's directory stays alive until process exit and peak disk is the whole suite at once.
-  try { errs = require("./" + m + ".cjs").run(); }
+  // A result that is not an array (an async run() returns a Promise) is a CRASH, never a silent PASS.
+  try {
+    errs = require("./" + m + ".cjs").run();
+    if (!Array.isArray(errs)) throw new Error("run() did not return an array of errors (async or malformed validator)");
+  }
   catch (e) {
     console.error("[" + m + "] CRASH: " + e.message);
     total += 1; scratch.cleanupAll();
