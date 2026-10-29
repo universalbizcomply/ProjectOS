@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "fe8eccbbe2de4125",
+  "objective": "Plan v1.19 (V4 Stage 1, follow-up): append PROJECTOS-KERNEL-FOLLOWUP1A (closure-route D3/D9, registry pin, cached-runner resync, validate-claude-worker repair, Codex CLI reviewer adapter); the exit proof PROJECTOS-KERNEL-EXIT-PROOF1A runs after it.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "a67d446eaa94371a8a5736d7e1ea9592c69368a5",
+  "submittedAt": "2026-10-29T17:03:07.549Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
