@@ -258,3 +258,8 @@ Forge, the signed installer, and the Host unattended-review route.
   SECURITY review + recheck, APPROVE WITH CHANGES, all required items fixed; HIGH 1 (reviewer can read the owner's
   Codex login) mitigated by tripwires, its residual and a live sandbox probe carried as EXIT-PROOF1A preconditions.
   Agent 2857/2857. Evidence: `docs/finish/PROJECTOS-KERNEL-FOLLOWUP1A.md`.
+- 2026-10-29: plan v1.21 (`37af3b7`) added PROJECTOS-KERNEL-CODEX-LIVE1A from the EXIT-PROOF1A precondition probe: the Codex
+  reviewer could run no command without a fixed Windows sandbox mode and misread its PowerShell wrapper. Fixed in
+  `b350f2d`, `65c42d6` (fixed elevated mode as the one override; inner-command judging; fetch/decode tripwire). Live:
+  writes blocked inside and outside the checkout, internet blocked, loopback open, profile readable (owner-accepted
+  residual). ECC SECURITY APPROVE WITH CHANGES, all LOWs fixed. Evidence: `docs/finish/PROJECTOS-KERNEL-CODEX-LIVE1A.md`.
