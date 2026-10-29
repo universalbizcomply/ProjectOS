@@ -743,7 +743,7 @@ function check() {
   if (provenances13 === null || !provenances13[1].includes("'InstallationBrokerProviderAnswer'") ||
       !/const viaBroker = hosted === null && !rehearsed && deps\.broker !== undefined;/.test(takeTurn13) ||
       !/: viaBroker\s*\? \{ kind: INSTALLATION_BROKER_PROVENANCE, providerResponseId: outcome\.providerResponseId \}\s*: undefined;/.test(takeTurn13) ||
-      !/\.\.\.\(obtained\.provenance === INSTALLATION_BROKER_PROVENANCE \? \{ providerResponseId: obtained\.providerResponseId \} : \{\}\),/.test(fnBody(closure13, "closureWaitFrom") || "") ||
+      !/\.\.\.\(obtained\.provenance === INSTALLATION_BROKER_PROVENANCE \? \{ providerResponseId: safeProviderResponseId\(obtained\.providerResponseId\) \} : \{\}\),/.test(fnBody(closure13, "closureWaitFrom") || "") ||
       /waiting\.provenance === undefined/.test(resume13) ||
       !/const answeredInCall =\s*committedMode\.ok &&\s*committedMode\.mode === 'unattended' &&\s*\(waiting\.provenance === 'HostIndependentProviderAttestation' \|\|\s*\(waiting\.provenance === INSTALLATION_BROKER_PROVENANCE && brokerRouteOptedIn\(sys, root\)\)\);/.test(resume13) ||
       !/const committedMode = resolveGatekeeperMode\(sys, root\);/.test(resume13) ||
@@ -947,7 +947,7 @@ const TRUTH_MUTATIONS = [
     from: "(waiting.provenance === INSTALLATION_BROKER_PROVENANCE && brokerRouteOptedIn(sys, root))",
     to: "((waiting.provenance === INSTALLATION_BROKER_PROVENANCE || waiting.provenance === undefined) && brokerRouteOptedIn(sys, root))" },
   { name: "closure-wait-drops-broker-response-id", rule: "ZT-4", rel: CLOSURE_REL,
-    from: "    ...(obtained.provenance === INSTALLATION_BROKER_PROVENANCE ? { providerResponseId: obtained.providerResponseId } : {}),\n",
+    from: "    ...(obtained.provenance === INSTALLATION_BROKER_PROVENANCE ? { providerResponseId: safeProviderResponseId(obtained.providerResponseId) } : {}),\n",
     to: "" },
   { name: "broker-class-not-in-core", rule: "ZT-4", rel: CORE_MODE_REL,
     from: "  'InstallationBrokerProviderAnswer',\n] as const;",

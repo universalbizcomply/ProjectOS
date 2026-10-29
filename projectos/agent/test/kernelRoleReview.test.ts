@@ -122,6 +122,17 @@ describe('H2 / F2 — what the reviewer is told and what it may be steered by', 
       '.claude/settings.json', 'docs/CLAUDE.md', '.mcp.json', 'AGENTS.md', '.claude', '.codex/config.toml',
     ]);
   });
+  it('names the files Codex loads too: AGENTS.override.md and anything under .agents/ (ECC SECURITY M4)', () => {
+    expect(reviewerConfigPaths([
+      'AGENTS.override.md', 'docs/AGENTS.override.md', '.agents', '.agents/skills/x/SKILL.md', 'sub/.agents/x.md',
+      'src/agents.ts', 'my.agents/x', 'AGENTS.override.md.bak', 'notes/AGENTS-override.md',
+    ])).toEqual(['AGENTS.override.md', 'docs/AGENTS.override.md', '.agents', '.agents/skills/x/SKILL.md', 'sub/.agents/x.md']);
+  });
+  it('tells the reviewer it may only read, in words true of both adapters (no shell grant for Claude, a read-only shell for Codex)', () => {
+    const text = reviewInstruction('b.json', SUBJECT, ['a.ts'], ['ECC CODE review'], NONCE);
+    expect(text).toContain('You may only read: you hold no write grant, and any shell you are given is read-only; change nothing.');
+    expect(text).not.toContain('no write or shell grant');
+  });
 });
 
 describe('R4 — the verdict and the record are bound', () => {

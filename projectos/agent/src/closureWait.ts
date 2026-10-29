@@ -161,6 +161,20 @@ export interface ClosureWaitRecord {
   readonly resolvedAt?: string;
 }
 
+/** What a provider response id may look like when ProjectOS prints or persists it. */
+const PROVIDER_RESPONSE_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+/**
+ * The provider's response id, or null when it is not a plain bounded identifier — PROJECTOS-KERNEL-
+ * FOLLOWUP1A (ECC SECURITY L7). The id arrives from the provider through the broker and is printed in
+ * the owner's trace and written into the closure wait; anything else in that slot (a newline, a control
+ * character, an unbounded string) would be provider text reaching a console and a record, so it is
+ * dropped rather than escaped. The one helper both the trace line and the wait use.
+ */
+export function safeProviderResponseId(value: unknown): string | null {
+  return typeof value === 'string' && PROVIDER_RESPONSE_ID.test(value) ? value : null;
+}
+
 /** The canonical bytes of a decision record. One serialisation, so one digest. */
 export function closureDecisionBytes(record: ClosureDecisionRecord): string {
   return `${JSON.stringify(record, null, 2)}\n`;

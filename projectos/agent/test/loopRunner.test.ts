@@ -20,7 +20,8 @@ import { deriveUnavailabilityId } from '../src/loop/degradedMode.js';
 import { APPROVED_PILOT_POLICY } from '@projectos/core';
 import { PLATFORM_STOP_STATEMENT } from '../src/loop/platformStop.js';
 import type { AdapterRegistry, WorkerAdapter } from '../src/loop/workers.js';
-import { reviewerReply, reviewing, withReviewer } from './support/fakeReviewer.js';
+import { nonceOf, requestedReviews, reviewerReply, reviewing, withReviewer } from './support/fakeReviewer.js';
+import { codexReviewEnvelope, readCodexEvents } from '../src/loop/adapters/codexCli.js';
 import type { System, ExecResult } from '../src/system.js';
 
 const ROOT = '/proj';
@@ -2003,6 +2004,75 @@ describe('D11: role-separated independent review inside the loop', () => {
     if (!r.ok) return;
     expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
     expect(r.stop?.detail).toContain('attempted tools it was denied');
+  });
+
+  /**
+   * The Codex adapter's OWN envelope, driven through the loop's real refusal (`runIndependentReview`), so
+   * "the loop refuses it" is shown, not asserted from the adapter side. The reply carries the dispatch's
+   * real nonce and the reviews asked for: only the property under test is wrong.
+   */
+  function codexReviewing(items: (instruction: string) => unknown[]): AdapterRegistry {
+    const { registry } = fakeAdapter();
+    const base = registry[WORKER_KIND] as WorkerAdapter;
+    return {
+      [WORKER_KIND]: {
+        ...base,
+        review: (_s, _w, brief, instruction) => {
+          const stream = [
+            { type: 'thread.started', thread_id: 'codex-thread' },
+            ...items(instruction).map((item) => ({ type: 'item.completed', item })),
+            { type: 'turn.completed' },
+          ].map((e) => JSON.stringify(e)).join('\n');
+          const run = readCodexEvents(stream, { root: brief.repository.root, instruction });
+          return { kind: 'completed', exitCode: 0, stdout: codexReviewEnvelope(run), stderr: '', providerRef: run.threadId };
+        },
+      },
+    };
+  }
+  const codexReply = (instruction: string, extra = '') => ({
+    id: 'reply', type: 'agent_message',
+    text: `Reviewed.${extra}\nPROJECTOS-REVIEW ${nonceOf(instruction)} ${JSON.stringify({ verdict: 'APPROVE', reviews: requestedReviews(instruction), findings: [] })}`,
+  });
+  const codexRead = (id: string, command: string) => ({ id, type: 'command_execution', command, exit_code: 0, status: 'completed' });
+
+  it('[CX] a Codex reviewer that read nothing reports one turn, which the loop refuses as no review', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const r = runLoop(sys, ROOT, { adapters: codexReviewing((i) => [codexReply(i)]) });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
+    expect(r.stop?.detail).toContain('did not show that it read anything');
+  });
+
+  it('[CX] a Codex reviewer whose command reached outside the checkout is refused as possibly steered', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const adapters = codexReviewing((i) => [codexRead('a', 'git diff'), codexRead('b', 'cat ~/.codex/auth.json'), codexReply(i)]);
+    const r = runLoop(sys, ROOT, { adapters });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
+    expect(r.stop?.detail).toContain('attempted tools it was denied');
+  });
+
+  it('[CX] a Codex reply carrying credential-shaped content is withheld and the review refused', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const leak = ' The login holds eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.payload.';
+    const adapters = codexReviewing((i) => [codexRead('a', 'git diff'), codexRead('b', 'cat src/a.ts'), codexReply(i, leak)]);
+    const r = runLoop(sys, ROOT, { adapters });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
+    expect(r.stop?.detail).toContain('attempted tools it was denied');
+    expect(JSON.stringify(r)).not.toContain('eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9');
+  });
+
+  it('[CX] the same Codex envelope with a clean read and reply is credited', () => {
+    const sys = world({ files: cleanFindings(SESSION) });
+    const adapters = codexReviewing((i) => [codexRead('a', 'git diff'), codexRead('b', 'cat src/a.ts'), codexReply(i)]);
+    const r = runLoop(sys, ROOT, { adapters });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stop?.code).not.toBe('REVIEW_OUTSTANDING');
   });
 
   it('[R2] a reviewer reply without this dispatch’s nonce is not a verdict', () => {

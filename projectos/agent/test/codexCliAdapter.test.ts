@@ -12,9 +12,12 @@ import { describe, it, expect } from 'vitest';
 import {
   CODEX_CLI,
   CODEX_NOT_AN_IMPLEMENTER,
+  CODEX_REPLY_WITHHELD,
   codexArgProblems,
   codexCliAdapter,
   codexReviewArgv,
+  commandLeavesCheckout,
+  credentialShaped,
   readCodexEvents,
   sandboxProblem,
 } from '../src/loop/adapters/codexCli.js';
@@ -104,7 +107,9 @@ describe('the Codex reviewer command line', () => {
     expect(options?.timeoutMs).toBe(600_000);
     expect(options?.maxOutputBytes).toBeGreaterThan(0);
     expect(options?.scrubCredentials).toBe(true);
-    expect(Object.keys(options ?? {})).not.toContain('env');
+    // `ExecOptions` has no environment field, so "no env key" could never fail. What can: the spawn options
+    // are EXACTLY these five, so nothing else, however typed or cast, rides along with the spawn.
+    expect(Object.keys(options ?? {}).sort()).toEqual(['cwd', 'ensureSystemPath', 'maxOutputBytes', 'scrubCredentials', 'timeoutMs']);
     for (const a of calls[0]?.args.slice(0, -1) ?? []) expect(a).not.toMatch(/key|token|secret|password|auth/i);
   });
 
@@ -136,7 +141,11 @@ describe('the Codex reviewer command line', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it.each([[['--api-key', 'sk-x']], [['-m', 'model', 'OPENAI_API_KEY=sk-x']], [['--token=abc']], [['--auth', 'x']]])(
+  it.each([
+    [['--api-key', 'sk-x']], [['-m', 'model', 'OPENAI_API_KEY=sk-x']], [['--token=abc']], [['--auth', 'x']],
+    // LOW 5: the VALUE of a permitted valued flag is tested too, in both spellings.
+    [['-m', 'my-token']], [['--model', 'secret-model']], [['--model=my-token']], [['--local-provider', 'bearer-x']],
+  ])(
     'refuses a credential-shaped argument %j and passes nothing',
     (args) => {
       const { sys, calls } = fakeSystem(ok(CLEAN_STREAM));
@@ -146,6 +155,19 @@ describe('the Codex reviewer command line', () => {
       expect(calls).toHaveLength(0);
     },
   );
+
+  it.each([
+    [['-m', 'workspace-write'], 'is a writable sandbox'],
+    [['--model', 'danger-full-access'], 'removes the sandbox'],
+    [['--model=workspace-write'], 'is a writable sandbox'],
+    [['--local-provider', '--full-auto'], 'no value'],
+  ])('refuses a sandbox token %j given as the value of a permitted flag, and spawns nothing', (args, why) => {
+    const { sys, calls } = fakeSystem(ok(CLEAN_STREAM));
+    const r = codexCliAdapter.review?.(sys, worker(args), BRIEF, INSTRUCTION);
+    expect(r?.kind).toBe('refused');
+    if (r?.kind === 'refused') expect(r.detail).toContain(why);
+    expect(calls).toHaveLength(0);
+  });
 
   it('refuses a valued argument with no value, and an instruction that would read as a flag', () => {
     expect(codexArgProblems(['-m']).join(' ')).toContain('no value');
@@ -213,7 +235,9 @@ describe('the Codex reply is read by the shared reviewer parser', () => {
     expect(parsed).toEqual({ ok: true, verdict: 'APPROVE', reviews: ['code-review'], findings: [] });
   });
 
-  it('a reviewer that read nothing reports one turn, which the loop refuses as no review', () => {
+  // The loop's refusal of fewer than two turns is driven for real, with this envelope, in loopRunner.test.ts
+  // ("[CX] a Codex reviewer that read nothing ..."). Here: the adapter reports the one turn it must.
+  it('a reviewer that read nothing reports one turn (the loop refuses fewer than two)', () => {
     const r = reviewed(jsonl(
       { type: 'thread.started', thread_id: 't' },
       { type: 'item.completed', item: { id: 'i', type: 'agent_message', text: VERDICT_LINE } },
@@ -224,7 +248,7 @@ describe('the Codex reply is read by the shared reviewer parser', () => {
 
   it('an attempted write or tool call is a denial, counted once per item', () => {
     const r = reviewed(jsonl(
-      { type: 'item.completed', item: { id: 'c', type: 'command_execution', status: 'completed' } },
+      { type: 'item.completed', item: { id: 'c', type: 'command_execution', command: 'git diff', exit_code: 0, status: 'completed' } },
       { type: 'item.started', item: { id: 'f', type: 'file_change', status: 'in_progress' } },
       { type: 'item.completed', item: { id: 'f', type: 'file_change', status: 'failed' } },
       { type: 'item.completed', item: { id: 'm', type: 'mcp_tool_call', status: 'completed' } },
@@ -253,6 +277,184 @@ describe('the Codex reply is read by the shared reviewer parser', () => {
     const run = readCodexEvents(`warning: something\n${CLEAN_STREAM}not json\n`);
     expect(run.reads).toBe(2);
     expect(run.turnCompleted).toBe(true);
+  });
+});
+
+/** One command run to completion, the given items, then the clean reply. */
+function streamWith(...items: unknown[]): string {
+  return jsonl(
+    { type: 'thread.started', thread_id: 't' },
+    { type: 'item.completed', item: { id: 'r0', type: 'command_execution', command: 'git diff', exit_code: 0, status: 'completed' } },
+    ...items.map((item) => ({ type: 'item.completed', item })),
+    { type: 'item.completed', item: { id: 'reply', type: 'agent_message', text: `Reviewed.\n${VERDICT_LINE}` } },
+    { type: 'turn.completed' },
+  );
+}
+
+function envelopeOf(stdout: string): Record<string, unknown> {
+  const { sys } = fakeSystem(ok(stdout));
+  const r = codexCliAdapter.review?.(sys, worker(), BRIEF, INSTRUCTION);
+  if (r?.kind !== 'completed') throw new Error(`expected a completed review, got ${JSON.stringify(r)}`);
+  return JSON.parse(r.stdout) as Record<string, unknown>;
+}
+
+describe('HIGH 1(b): a command that names a path outside the checkout is a denial', () => {
+  it.each([
+    ['an absolute drive path elsewhere', 'type C:\\Users\\owner\\notes.txt'],
+    ['a forward-slash drive path elsewhere', 'cat D:/other/repo/a.ts'],
+    ['a sibling that only shares a prefix', 'cat C:/dev/candidate-other/a.ts'],
+    ['a Git Bash drive mount', 'cat /c/Users/owner/.ssh/id_rsa'],
+    ['a WSL drive mount', 'cat /mnt/c/Users/owner/x'],
+    ['a POSIX home', 'cat /home/owner/x'],
+    ['the home shorthand', 'cat ~/notes.txt'],
+    ['$HOME', 'cat "$HOME/notes.txt"'],
+    ['${HOME}', 'cat ${HOME}/notes.txt'],
+    ['%USERPROFILE%', 'type %USERPROFILE%\\notes.txt'],
+    ['the PowerShell profile drive', 'Get-Content $env:USERPROFILE\\notes.txt'],
+    ['a parent escape', 'cat ../secrets.txt'],
+    ['a parent escape inside a path', 'cat src/../../x'],
+    ['a UNC path', 'type \\\\server\\share\\x'],
+    ['a forward-slash UNC path', 'cat //server/share/x'],
+    ["the owner's Codex home", 'cat auth.json --dir .codex'],
+    ['the Codex login file through the checkout', 'Get-Content C:/dev/candidate/../../Users/o/.codex/auth.json'],
+  ])('%s: %s', (_label, command) => {
+    expect(commandLeavesCheckout(command, ROOT)).toBe(true);
+    const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command, exit_code: 0, status: 'completed' }));
+    expect(body['permission_denials']).toEqual([{ tool_name: 'command_execution: names a path outside the repository' }]);
+    // Not counted as a read either: only the clean `git diff` is.
+    expect(body['num_turns']).toBe(2);
+  });
+
+  it.each([
+    'git diff',
+    'git diff HEAD..main',
+    'git log HEAD~1',
+    'cat src/a.ts',
+    'cat C:/dev/candidate/src/a.ts',
+    'type C:\\dev\\candidate\\src\\a.ts',
+    'cat /c/dev/candidate/src/a.ts',
+    'rg -n "https://example.com" src',
+    'cat projectos/agent/src/loop/adapters/codexCli.ts',
+  ])('a command inside the checkout is not a denial: %s', (command) => {
+    expect(commandLeavesCheckout(command, ROOT)).toBe(false);
+    const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command, exit_code: 0, status: 'completed' }));
+    expect(body['permission_denials']).toEqual([]);
+    expect(body['num_turns']).toBe(3);
+  });
+
+  it('an outside path seen when the command STARTS is a denial too, counted once per item', () => {
+    const cmd = 'cat ~/.codex/auth.json';
+    const body = envelopeOf(jsonl(
+      { type: 'item.started', item: { id: 'x', type: 'command_execution', command: cmd, status: 'in_progress' } },
+      { type: 'item.completed', item: { id: 'x', type: 'command_execution', command: cmd, exit_code: 0, status: 'completed' } },
+      { type: 'item.completed', item: { id: 'a', type: 'agent_message', text: VERDICT_LINE } },
+      { type: 'turn.completed' },
+    ));
+    expect(body['permission_denials']).toEqual([{ tool_name: 'command_execution: names a path outside the repository' }]);
+  });
+
+  it('a command whose text was not reported cannot be checked, so it is a denial', () => {
+    const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', exit_code: 0, status: 'completed' }));
+    expect(body['permission_denials']).toEqual([{ tool_name: 'command_execution: the command was not reported' }]);
+  });
+
+  it('with no checkout known, every absolute path is outside one', () => {
+    expect(commandLeavesCheckout('cat C:/dev/candidate/a.ts', null)).toBe(true);
+    const run = readCodexEvents(streamWith({ id: 'x', type: 'command_execution', command: 'cat C:/dev/candidate/a.ts', exit_code: 0, status: 'completed' }));
+    expect(run.beyondReading).toEqual(['command_execution: names a path outside the repository']);
+  });
+});
+
+describe('HIGH 1(c): a reply carrying credential-shaped content is withheld', () => {
+  const JWT = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ4In0.sig';
+
+  it.each([
+    ['a JWT-like run', `Found: ${JWT}`],
+    ['an sk- key', 'the key is sk-proj-abcdefghijklmnop0123'],
+    ['an access_token', '{"access_token": "abc"}'],
+    ['a refresh_token', 'refresh_token=rt_1'],
+    ['an api_key', 'OPENAI api_key: x'],
+    ['a bearer value', 'the header carried Bearer abcdefgh12345'],
+    ['a long mixed base64 run', `blob ${'Ab9'.repeat(15)}`],
+    ['a long hex run not in the instruction', `digest ${'0123456789abcdef'.repeat(4)}`],
+  ])('%s, in the reply text and in a finding summary', (_label, leak) => {
+    expect(credentialShaped(leak, INSTRUCTION)).toBe(true);
+    const finding = { id: 'f', severity: 'LOW', category: 'x', summary: leak };
+    const replies = [
+      `${leak}\n${VERDICT_LINE}`,
+      `${verdictMarker(NONCE)}${JSON.stringify({ verdict: 'APPROVE', reviews: ['code-review'], findings: [finding] })}`,
+    ];
+    for (const text of replies) {
+      const stream = jsonl(
+        { type: 'thread.started', thread_id: 't' },
+        { type: 'item.completed', item: { id: 'r0', type: 'command_execution', command: 'git diff', exit_code: 0, status: 'completed' } },
+        { type: 'item.completed', item: { id: 'a', type: 'agent_message', text } },
+        { type: 'turn.completed' },
+      );
+      const body = envelopeOf(stream);
+      // Withheld whole: no part of the reply reaches the loop, and the withholding is a denial.
+      expect(body['result']).toBe('');
+      expect(JSON.stringify(body)).not.toContain(leak.slice(-10));
+      expect(body['permission_denials']).toEqual([{ tool_name: CODEX_REPLY_WITHHELD }]);
+    }
+  });
+
+  it('a digest the loop itself put in the instruction is not a credential, nor is a commit, a path or a hyphenated name', () => {
+    const digest = `sha256:${'ab'.repeat(32)}`;
+    const instruction = `${INSTRUCTION} (candidate digest ${digest})`;
+    expect(credentialShaped(`I reviewed candidate ${digest} on ${'a'.repeat(40)}`, instruction)).toBe(false);
+    expect(credentialShaped('see projectos/agent/src/loop/adapters/codexCli.ts and C:/dev/ProjectOS-worktrees/host-review-path1b/x', instruction)).toBe(false);
+    expect(credentialShaped('closure-wait-drops-broker-response-id-and-more-hyphenated-words', instruction)).toBe(false);
+    expect(credentialShaped(VERDICT_LINE, INSTRUCTION)).toBe(false);
+    // The same digest NOT in the instruction is withheld: the exemption is the loop's own values only.
+    expect(credentialShaped(`I reviewed candidate ${digest}`, INSTRUCTION)).toBe(true);
+  });
+
+  it('a clean reply passes through untouched', () => {
+    const body = envelopeOf(CLEAN_STREAM);
+    expect(body['result']).toBe(`Reviewed.\n${VERDICT_LINE}`);
+    expect(body['permission_denials']).toEqual([]);
+  });
+});
+
+describe('MEDIUM 2: only a command that completed with exit 0 is a read', () => {
+  it('a declined command is a denial, not a read', () => {
+    const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command: 'cat a.ts', status: 'declined' }));
+    expect(body['permission_denials']).toEqual([{ tool_name: 'command_execution: declined' }]);
+    expect(body['num_turns']).toBe(2);
+  });
+
+  it.each([
+    'Permission denied',
+    'Access is denied.',
+    'blocked by the sandbox policy',
+    'Operation not permitted',
+    'rejected: command not approved',
+  ])('a failed command the sandbox or an approval stopped is a denial, not a read: %s', (output) => {
+    const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command: 'touch a.ts', aggregated_output: output, exit_code: 1, status: 'failed' }));
+    expect(body['permission_denials']).toEqual([{ tool_name: 'command_execution: stopped by the sandbox or an approval' }]);
+    expect(body['num_turns']).toBe(2);
+  });
+
+  it('a failed command that merely failed (grep with no match) is neither a read nor a denial', () => {
+    const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command: 'grep nothing a.ts', aggregated_output: '', exit_code: 1, status: 'failed' }));
+    expect(body['permission_denials']).toEqual([]);
+    expect(body['num_turns']).toBe(2);
+  });
+
+  it('a completed command with a non-zero or missing exit code is not a read', () => {
+    const body = envelopeOf(streamWith(
+      { id: 'x', type: 'command_execution', command: 'cat a.ts', exit_code: 2, status: 'completed' },
+      { id: 'y', type: 'command_execution', command: 'cat b.ts', status: 'completed' },
+    ));
+    expect(body['num_turns']).toBe(2);
+  });
+
+  it('an error ITEM is a failure (the conservative choice), so the review is refused before any reply is read', () => {
+    const { sys } = fakeSystem(ok(streamWith({ id: 'e', type: 'error', message: 'command timed out' })));
+    const r = codexCliAdapter.review?.(sys, worker(), BRIEF, INSTRUCTION);
+    expect(r).toEqual({ kind: 'refused', detail: "the Codex reviewer's turn failed: command timed out" });
+    expect(readCodexEvents(streamWith({ id: 'e', type: 'error' })).failure).toBe('the run reported an error item');
   });
 });
 

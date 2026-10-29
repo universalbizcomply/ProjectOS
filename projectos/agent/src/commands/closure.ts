@@ -72,6 +72,7 @@ import {
   observeOwnerCommit,
   readClosureWait,
   resolveClosureWait,
+  safeProviderResponseId,
   writeClosureDecisionForOwner,
   writeClosureWait,
   type ClosureBundleEntry,
@@ -286,7 +287,14 @@ function ownerAskLines(wait: ClosureWaitRecord): readonly string[] {
  * by the route that made the call, so an unstamped wait — written before that, or stripped since — is no
  * longer read as the broker's: ProjectOS's own commit cannot stand in for the owner's on it. Nothing is
  * relabelled after the fact, because the wait cannot prove which route answered. The owner's own commit
- * is accepted exactly as before; asking again records the route.
+ * is accepted exactly as before.
+ *
+ * ONE REMEDY, NOT TWO (ECC SECURITY L6). This used to offer a second: remove the wait and the decision and
+ * re-run `closure request`. That is a dead end, and was checked: the request id is DERIVED
+ * (`deriveClosureRequestId` over project, phase, subject head and evidence digest), so the same question
+ * gets the same id; the paid call left a settled entry under that id in the ledger, which G4-13 reads as
+ * residue once the decision it paid for is gone, and which `admitGatekeeperSpend` refuses to admit again
+ * ("already in the ledger; it is not asked again") — as does the broker's own replay guard.
  */
 function unstampedWaitLines(wait: ClosureWaitRecord, unattendedUnderGrant: boolean): readonly string[] {
   if (!unattendedUnderGrant || wait.provenance !== undefined) return [];
@@ -294,9 +302,7 @@ function unstampedWaitLines(wait: ClosureWaitRecord, unattendedUnderGrant: boole
     'THIS CLOSURE WAIT RECORDS NO PROVENANCE. It was written before the closure route stamped a broker answer,',
     '  or its class was removed since, so it is NOT treated as an answer produced in the call: under the',
     "  closure-decision-commit grant, a ProjectOS commit of it cannot stand in for the owner's.",
-    '  To proceed, either commit the presented bundle under your own identity (accepted exactly as before),',
-    `  or have the question asked again: remove ${closureWaitRelPath(wait.phaseId) ?? 'the closure wait'} and the uncommitted decision at`,
-    `  ${closureDecisionRelPath(wait.phaseId)}, then re-run \`projectos closure request --id ${wait.phaseId} --execute\`.`,
+    '  To proceed, commit the presented bundle under your own identity (accepted exactly as before).',
   ];
 }
 
@@ -1159,7 +1165,7 @@ export function closureRequest(ctx: CommandContext, flags: Flags, makeDeps?: Mak
     ...(turn.provenance === undefined
       ? []
       : turn.provenance === INSTALLATION_BROKER_PROVENANCE
-        ? [`closure decision provenance: ${turn.provenance} (provider response ${turn.providerResponseId ?? 'not returned'})`]
+        ? [`closure decision provenance: ${turn.provenance} (provider response ${safeProviderResponseId(turn.providerResponseId) ?? 'not returned'})`]
         : [`closure decision provenance: ${turn.provenance}`]),
   ];
   if (turn.ledgerEntry !== null) {
@@ -1272,7 +1278,7 @@ function closureWaitFrom(
     ...(obtained.provenance === undefined ? {} : { provenance: obtained.provenance }),
     ...(obtained.hostAttestationId === undefined ? {} : { hostAttestationId: obtained.hostAttestationId }),
     // The broker's trace, kept with the broker's class and only with it (PROJECTOS-KERNEL-FOLLOWUP1A, D9).
-    ...(obtained.provenance === INSTALLATION_BROKER_PROVENANCE ? { providerResponseId: obtained.providerResponseId } : {}),
+    ...(obtained.provenance === INSTALLATION_BROKER_PROVENANCE ? { providerResponseId: safeProviderResponseId(obtained.providerResponseId) } : {}),
     schemaVersion: CLOSURE_WAIT_SCHEMA_VERSION,
     projectId: request.projectId,
     phaseId: request.phaseId,

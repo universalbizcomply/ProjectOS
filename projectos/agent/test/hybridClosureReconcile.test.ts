@@ -43,7 +43,7 @@ import { closure, closureRequest, type MakeClosureDeps } from '../src/commands/c
 import { phase as phaseCommand } from '../src/commands/phase.js';
 import { reconcile } from '../src/commands/reconcile.js';
 import { CLOSURE_INTERACTIVE_REL, GATEKEEPER_INTERACTIVE_REL, nodeInteractivePort } from '../src/loop/gatekeeperHandoff.js';
-import { readClosureWait } from '../src/closureWait.js';
+import { readClosureWait, safeProviderResponseId } from '../src/closureWait.js';
 import { degradedGrantRelPath } from '../src/loop/degradedModeGrants.js';
 import { degradedStoreRelPath } from '../src/loop/degradedMode.js';
 import { canonicalRepositoryIdentity } from '../src/installation/projectAllowlist.js';
@@ -468,7 +468,7 @@ function hostClosureDeps(host: HostClosureReviewPort): MakeClosureDeps {
  * builds on the committed opt-in (no `mode`) — PROJECTOS-KERNEL-FOLLOWUP1A. The broker is a deterministic
  * fake behind the real `BrokeredTransport` port: it answers `close`, bound to the request it was sent.
  */
-function brokerClosureDeps(posted: { n: number }): MakeClosureDeps {
+function brokerClosureDeps(posted: { n: number }, responseId: string = 'resp_broker_fixture'): MakeClosureDeps {
   return (args) => {
     if (args.mode !== 'unattended') throw new Error('this fixture project is in unattended mode');
     const { config } = args;
@@ -500,7 +500,7 @@ function brokerClosureDeps(posted: { n: number }): MakeClosureDeps {
               kind: 'response',
               status: 200,
               body: JSON.stringify({
-                id: 'resp_broker_fixture',
+                id: responseId,
                 output: [{ content: [{ type: 'output_text', text: JSON.stringify(record) }] }],
                 usage: { input_tokens: 1_000, input_tokens_details: { cached_tokens: 0 }, output_tokens: 100 },
               }),
@@ -1168,6 +1168,26 @@ describe('ZERO-TOUCH closure: the owner granted closure-decision-commit', () => 
     expect((record.history[record.history.length - 1] as { note: string }).note).toContain('InstallationBrokerProviderAnswer');
   });
 
+  // ECC SECURITY L7: the provider's response id reaches the owner's trace and the wait only as a plain
+  // bounded identifier; anything else is dropped to null, never escaped and kept.
+  it.each([
+    ['a newline and a forged line', 'resp_x\nREFUSED (FORGED): nothing'],
+    ['a control character', 'resp_\u001b[31mred'],
+    ['a space', 'resp x'],
+    ['an over-long id', `resp_${'a'.repeat(200)}`],
+  ])('a provider response id with %s is printed as not returned and stored as null', (_label, responseId) => {
+    const w = zeroTouchWorld('unattended', ALL);
+    optInToBroker(w.root);
+    deliver(w);
+    const r = closureRequest(w.ctx, { id: PHASE, execute: true }, brokerClosureDeps({ n: 0 }, responseId));
+    expect(r.code, text(r.lines)).toBe(0);
+    expect(text(r.lines)).toContain('closure decision provenance: InstallationBrokerProviderAnswer (provider response not returned)');
+    expect(text(r.lines)).not.toContain(responseId);
+    const wait = readClosureWait(w.ctx.sys, w.root, PHASE);
+    expect(wait.ok && wait.value?.provenance).toBe('InstallationBrokerProviderAnswer');
+    expect(wait.ok && wait.value?.providerResponseId).toBeNull();
+  });
+
   it('under the grant, a broker-stamped wait is an answer produced in the call: a ProjectOS commit of it is accepted', () => {
     const w = zeroTouchWorld('unattended', ['closure-decision-commit']);
     optInToBroker(w.root);
@@ -1180,7 +1200,7 @@ describe('ZERO-TOUCH closure: the owner granted closure-decision-commit', () => 
     expect(phaseRecord(w.root).status).toBe('closed');
   });
 
-  it('under the grant, an UNSTAMPED broker-route wait fails closed: a ProjectOS commit is refused and the owner is told to commit it or have it asked again', () => {
+  it('under the grant, an UNSTAMPED broker-route wait fails closed: a ProjectOS commit is refused and the owner is told to commit it themselves', () => {
     const w = zeroTouchWorld('unattended', ['closure-decision-commit']);
     optInToBroker(w.root);
     deliver(w);
@@ -1201,7 +1221,9 @@ describe('ZERO-TOUCH closure: the owner granted closure-decision-commit', () => 
     expect(resumed.code).not.toBe(0);
     expect(text(resumed.lines)).toContain('which is the implementer');
     expect(text(resumed.lines)).toContain('THIS CLOSURE WAIT RECORDS NO PROVENANCE');
-    expect(text(resumed.lines)).toContain(`re-run \`projectos closure request --id ${PHASE} --execute\``);
+    expect(text(resumed.lines)).toContain('To proceed, commit the presented bundle under your own identity');
+    // The re-ask remedy is gone: the derived request id is already settled in the ledger, so it is a dead end.
+    expect(text(resumed.lines)).not.toContain('closure request --id');
     expect(phaseRecord(w.root).status).toBe('awaiting_closure');
   });
 
@@ -1214,4 +1236,16 @@ describe('ZERO-TOUCH closure: the owner granted closure-decision-commit', () => 
     expect(text(r.lines)).toContain('WAITING_OWNER');
     expect(phaseRecord(w.root).status).toBe('awaiting_closure');
   });
+});
+
+describe('safeProviderResponseId: the one gate on a provider response id (ECC SECURITY L7)', () => {
+  it.each(['resp_broker_fixture', 'resp-1.2:3', 'A', 'x'.repeat(128)])('keeps a plain bounded id %j', (id) => {
+    expect(safeProviderResponseId(id)).toBe(id);
+  });
+  it.each(['', 'x'.repeat(129), 'resp x', 'resp\nx', 'resp\u0000', 'resp/../x', 'résp', null, undefined, 42, { id: 'x' }])(
+    'drops anything else to null: %j',
+    (value) => {
+      expect(safeProviderResponseId(value)).toBeNull();
+    },
+  );
 });

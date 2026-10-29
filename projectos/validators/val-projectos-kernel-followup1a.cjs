@@ -21,6 +21,20 @@
  *   CX-7 "a review need not be bounded"                 — and a hung reviewer holds the run forever
  *   CX-8 "the adapter exists, so it is wired"           — and the kind is configurable but never runs
  *
+ * The ECC SECURITY review of this phase (APPROVE WITH CHANGES) added five more:
+ *
+ *   CX-9  "a read-only sandbox keeps the reviewer in the checkout" — it blocks writes, not reads, so the
+ *         reviewer could read the owner's Codex login; a command naming a path outside the checkout is a
+ *         denial (HIGH 1b)
+ *   CX-10 "the reply is the reviewer's to say"          — and a credential it read rides into a record; a
+ *         credential-shaped reply is withheld whole and reported as a denial (HIGH 1c)
+ *   CX-11 "a completed command is a read"               — and a sandbox refusal counts as reading; only exit
+ *         0 is a read, a declined or sandbox-stopped command is a denial, an error item a failure (MEDIUM 2)
+ *   RV-1  "AGENTS.md is the agent file"                 — and Codex also loads AGENTS.override.md and
+ *         .agents/, which a candidate could use to steer it (MEDIUM 4)
+ *   CW-1  "a provider id is just an id"                 — and provider text reaches a console and a record
+ *         unchecked; it is kept only as a plain bounded identifier (LOW 7)
+ *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT
  * rule fires. Comments are stripped first. Reads files; runs nothing, calls no provider, runs no Codex.
  */
@@ -34,7 +48,10 @@ const CR_REL = "projectos/speed/cached-runner.cjs";
 const CODEX_REL = "projectos/agent/src/loop/adapters/codexCli.ts";
 const CLAUDE_REL = "projectos/agent/src/loop/adapters/claudeCodeCli.ts";
 const REVIEW_REL = "projectos/agent/src/loop/independentReview.ts";
-const SOURCES = [VA_REL, CR_REL, CODEX_REL, CLAUDE_REL, REVIEW_REL];
+const ROLES_REL = "projectos/agent/src/loop/reviewRoles.ts";
+const CLOSURE_REL = "projectos/agent/src/commands/closure.ts";
+const WAIT_REL = "projectos/agent/src/closureWait.ts";
+const SOURCES = [VA_REL, CR_REL, CODEX_REL, CLAUDE_REL, REVIEW_REL, ROLES_REL, CLOSURE_REL, WAIT_REL];
 
 const TESTS = {
   "projectos/agent/test/codexCliAdapter.test.ts": [
@@ -47,8 +64,33 @@ const TESTS = {
     "rejoin refuses with the same reason and spawns nothing",
     "is wired into the built-in adapter registry under its own kind",
     "a clean run parses to the verdict, with the reads as turns and no denials",
-    "a reviewer that read nothing reports one turn, which the loop refuses as no review",
+    "a reviewer that read nothing reports one turn (the loop refuses fewer than two)",
     "an attempted write or tool call is a denial, counted once per item",
+    "refuses a sandbox token %j given as the value of a permitted flag, and spawns nothing",
+    "a command inside the checkout is not a denial: %s",
+    "an outside path seen when the command STARTS is a denial too, counted once per item",
+    "a command whose text was not reported cannot be checked, so it is a denial",
+    "%s, in the reply text and in a finding summary",
+    "a digest the loop itself put in the instruction is not a credential, nor is a commit, a path or a hyphenated name",
+    "a declined command is a denial, not a read",
+    "a failed command the sandbox or an approval stopped is a denial, not a read: %s",
+    "a failed command that merely failed (grep with no match) is neither a read nor a denial",
+    "a completed command with a non-zero or missing exit code is not a read",
+    "an error ITEM is a failure (the conservative choice), so the review is refused before any reply is read",
+  ],
+  "projectos/agent/test/loopRunner.test.ts": [
+    "[CX] a Codex reviewer that read nothing reports one turn, which the loop refuses as no review",
+    "[CX] a Codex reviewer whose command reached outside the checkout is refused as possibly steered",
+    "[CX] a Codex reply carrying credential-shaped content is withheld and the review refused",
+    "[CX] the same Codex envelope with a clean read and reply is credited",
+  ],
+  "projectos/agent/test/kernelRoleReview.test.ts": [
+    "names the files Codex loads too: AGENTS.override.md and anything under .agents/ (ECC SECURITY M4)",
+    "tells the reviewer it may only read, in words true of both adapters (no shell grant for Claude, a read-only shell for Codex)",
+  ],
+  "projectos/agent/test/hybridClosureReconcile.test.ts": [
+    "a provider response id with %s is printed as not returned and stored as null",
+    "drops anything else to null: %j",
   ],
 };
 
@@ -81,6 +123,40 @@ const PIN = {
   bounded: "timeoutMs: worker.timeoutMs, maxOutputBytes: WORKER_MAX_OUTPUT_BYTES,",
   boundRefused: "const unbounded = boundProblem(worker);\n    if (unbounded !== null) return { kind: 'refused', detail: unbounded };",
   wired: "[CODEX_CLI]: codexCliAdapter,",
+  valueChecked: "else problems.push(...valueProblems(arg, value));",
+  // CX-9 (HIGH 1b)
+  leavesHome: "if (HOME_REFERENCE.test(command) || CODEX_HOME_NAME.test(command) || PARENT_ESCAPE.test(command)) return true;",
+  leavesUnc: "if (UNC_PATH.test(command) || POSIX_HOME.test(command)) return true;",
+  leavesAbsolute: "return absolutePaths(command).some((p) => inside === null || (p !== inside && !p.startsWith(`${inside}/`)));",
+  codexHome: "const CODEX_HOME_NAME = /\\.codex/i;",
+  outsideDenied: "if (commandLeavesCheckout(command, root)) return 'command_execution: names a path outside the repository';",
+  commandChecked: "const problem = commandProblem(it, context?.root ?? null);",
+  contextPassed: "{ root: brief.repository.root, instruction },",
+  eventsWithContext: "const run = readCodexEvents(r.stdout, context);",
+  // CX-10 (HIGH 1c)
+  withheld: "if (lastMessage !== null && credentialShaped(lastMessage, context?.instruction ?? '')) {\n    lastMessage = null;\n    beyond.set(`${CODEX_REPLY_WITHHELD}#reply`, CODEX_REPLY_WITHHELD);",
+  jwtShape: "/\\beyJ[A-Za-z0-9_-]{16,}/,",
+  skShape: "/\\bsk-[A-Za-z0-9_-]{16,}/,",
+  tokenNames: "/(access|refresh|id)_token|api[_-]?key/i,",
+  bearerShape: "/\\bbearer\\s+[A-Za-z0-9._~+/=-]{8,}/i,",
+  longRun: "const LONG_RUN = /[A-Za-z0-9+=_-]{41,}/g;",
+  longRunCounts: "if (hex || mixed) return true;",
+  // CX-11 (MEDIUM 2)
+  readIsExitZero: "return item['status'] === 'completed' && item['exit_code'] === 0;",
+  readCounted: "} else if (type === 'item.completed' && isRead(it)) {",
+  declinedDenied: "if (item['status'] === 'declined') return 'command_execution: declined';",
+  sandboxDenied: "if (item['status'] === 'failed' && SANDBOX_REFUSAL.test(",
+  neutralNoError: "const NEUTRAL_ITEMS: ReadonlySet<string> = new Set(['agent_message', 'reasoning', 'todo_list']);",
+  errorItemFails: "} else if (itemType === 'error') {",
+  errorItemFailure: "if (failure === null) failure = inert(it['message']) || 'the run reported an error item';",
+  // RV-1 (MEDIUM 4)
+  agentsOverride: "AGENTS(\\.override)?\\.md$|\\.agents(\\/|$)|",
+  readOnlyWords: "'You may only read: you hold no write grant, and any shell you are given is read-only; change nothing. ' +",
+  // CW-1 (LOW 7)
+  idShape: "const PROVIDER_RESPONSE_ID = /^[A-Za-z0-9_.:-]{1,128}$/;",
+  idGate: "return typeof value === 'string' && PROVIDER_RESPONSE_ID.test(value) ? value : null;",
+  traceGated: "(provider response ${safeProviderResponseId(turn.providerResponseId) ?? 'not returned'})",
+  waitGated: "...(obtained.provenance === INSTALLATION_BROKER_PROVENANCE ? { providerResponseId: safeProviderResponseId(obtained.providerResponseId) } : {}),",
 };
 
 /** Sandbox-widening tokens. Each must be in the refusal map, and nowhere else in the adapter's code. */
@@ -119,6 +195,28 @@ const MUTATIONS = [
   { name: "review-unbounded", rule: "CX-7", rel: CODEX_REL, from: PIN.bounded, to: "maxOutputBytes: WORKER_MAX_OUTPUT_BYTES," },
   { name: "unbounded-worker-started", rule: "CX-7", rel: CODEX_REL, from: PIN.boundRefused, to: "const unbounded = boundProblem(worker);\n    if (false) return { kind: 'refused', detail: unbounded };" },
   { name: "kind-not-wired", rule: "CX-8", rel: CLAUDE_REL, from: PIN.wired, to: "" },
+  // ECC SECURITY review of this phase
+  { name: "valued-flag-value-unchecked", rule: "CX-6", rel: CODEX_REL, from: PIN.valueChecked, to: "else problems.push();" },
+  { name: "outside-path-not-a-denial", rule: "CX-9", rel: CODEX_REL, from: PIN.outsideDenied, to: "if (false) return 'command_execution: names a path outside the repository';" },
+  { name: "codex-home-not-caught", rule: "CX-9", rel: CODEX_REL, from: PIN.leavesHome, to: "if (HOME_REFERENCE.test(command) || PARENT_ESCAPE.test(command)) return true;" },
+  { name: "absolute-path-elsewhere-allowed", rule: "CX-9", rel: CODEX_REL, from: PIN.leavesAbsolute, to: "return false;" },
+  { name: "unc-path-allowed", rule: "CX-9", rel: CODEX_REL, from: PIN.leavesUnc, to: "if (POSIX_HOME.test(command)) return true;" },
+  { name: "checkout-root-not-passed", rule: "CX-9", rel: CODEX_REL, from: PIN.eventsWithContext, to: "const run = readCodexEvents(r.stdout);" },
+  { name: "credential-reply-passed-through", rule: "CX-10", rel: CODEX_REL, from: "credentialShaped(lastMessage, context?.instruction ?? '')", to: "false" },
+  { name: "withheld-reply-not-a-denial", rule: "CX-10", rel: CODEX_REL, from: "    beyond.set(`${CODEX_REPLY_WITHHELD}#reply`, CODEX_REPLY_WITHHELD);\n", to: "" },
+  { name: "jwt-shape-dropped", rule: "CX-10", rel: CODEX_REL, from: PIN.jwtShape, to: "" },
+  { name: "token-names-dropped", rule: "CX-10", rel: CODEX_REL, from: PIN.tokenNames, to: "" },
+  { name: "long-run-ignored", rule: "CX-10", rel: CODEX_REL, from: PIN.longRunCounts, to: "if (false) return true;" },
+  { name: "any-completed-command-is-a-read", rule: "CX-11", rel: CODEX_REL, from: PIN.readIsExitZero, to: "return item['status'] === 'completed';" },
+  { name: "declined-not-a-denial", rule: "CX-11", rel: CODEX_REL, from: PIN.declinedDenied, to: "" },
+  { name: "sandbox-failure-not-a-denial", rule: "CX-11", rel: CODEX_REL, from: PIN.sandboxDenied, to: "if (false && SANDBOX_REFUSAL.test(" },
+  { name: "error-item-ignored", rule: "CX-11", rel: CODEX_REL, from: PIN.neutralNoError, to: "const NEUTRAL_ITEMS: ReadonlySet<string> = new Set(['agent_message', 'reasoning', 'todo_list', 'error']);" },
+  { name: "agents-override-unguarded", rule: "RV-1", rel: ROLES_REL, from: "AGENTS(\\.override)?\\.md$", to: "AGENTS\\.md$" },
+  { name: "dot-agents-unguarded", rule: "RV-1", rel: ROLES_REL, from: "|\\.agents(\\/|$)", to: "" },
+  { name: "shell-grant-claim-back", rule: "RV-1", rel: ROLES_REL, from: "You may only read: you hold no write grant, and any shell you are given is read-only; change nothing. ", to: "You hold no write or shell grant; change nothing. " },
+  { name: "response-id-unbounded", rule: "CW-1", rel: WAIT_REL, from: PIN.idShape, to: "const PROVIDER_RESPONSE_ID = /^.*$/;" },
+  { name: "trace-prints-raw-response-id", rule: "CW-1", rel: CLOSURE_REL, from: "safeProviderResponseId(turn.providerResponseId)", to: "turn.providerResponseId" },
+  { name: "wait-stores-raw-response-id", rule: "CW-1", rel: CLOSURE_REL, from: "providerResponseId: safeProviderResponseId(obtained.providerResponseId)", to: "providerResponseId: obtained.providerResponseId" },
 ];
 
 function read(rel) {
@@ -230,12 +328,30 @@ function check(raw) {
   if (!cx.includes(PIN.scrub) || !cx.includes(PIN.credentialRefused) || /\benv\s*:/.test(cx) || CREDENTIAL_LITERALS.test(cx)) {
     E("CX-5", "the Codex reviewer can be handed a credential argument or environment variable");
   }
-  if (!cx.includes(PIN.argsChecked) || !cx.includes(PIN.unknownRefused)) {
+  if (!cx.includes(PIN.argsChecked) || !cx.includes(PIN.unknownRefused) || !cx.includes(PIN.valueChecked)) {
     E("CX-6", "configured Codex arguments are no longer a closed allowlist");
   }
   if (!cx.includes(PIN.bounded) || !cx.includes(PIN.boundRefused)) E("CX-7", "the Codex review is no longer bounded");
   if (!src[CLAUDE_REL].includes(PIN.wired) || !/import \{ CODEX_CLI, codexCliAdapter \} from '\.\/codexCli\.js';/.test(src[CLAUDE_REL])) {
     E("CX-8", "the codex-cli kind is not wired into BUILT_IN_ADAPTERS");
+  }
+  if (![PIN.leavesHome, PIN.leavesUnc, PIN.leavesAbsolute, PIN.codexHome, PIN.outsideDenied, PIN.commandChecked, PIN.contextPassed, PIN.eventsWithContext].every((p) => cx.includes(p))) {
+    E("CX-9", "a Codex command that names a path outside the checkout (home, .codex, .., UNC, an absolute path elsewhere) is no longer reported as a denial");
+  }
+  if (![PIN.withheld, PIN.jwtShape, PIN.skShape, PIN.tokenNames, PIN.bearerShape, PIN.longRun, PIN.longRunCounts].every((p) => cx.includes(p))) {
+    E("CX-10", "a Codex reply carrying credential-shaped content is no longer withheld whole and reported as a denial");
+  }
+  if (![PIN.readIsExitZero, PIN.readCounted, PIN.declinedDenied, PIN.sandboxDenied, PIN.neutralNoError, PIN.errorItemFails, PIN.errorItemFailure].every((p) => cx.includes(p))) {
+    E("CX-11", "a Codex read is no longer only a command that completed with exit 0, or a declined, sandbox-stopped or error item is no longer refused");
+  }
+  const roles = src[ROLES_REL];
+  if (!roles.includes(PIN.agentsOverride) || !roles.includes(PIN.readOnlyWords) || roles.includes("no write or shell grant")) {
+    E("RV-1", "the steering guard no longer covers AGENTS.override.md and .agents/, or the reviewer is told something untrue of a Codex reviewer");
+  }
+  const closureSrc = src[CLOSURE_REL];
+  if (!src[WAIT_REL].includes(PIN.idShape) || !src[WAIT_REL].includes(PIN.idGate) || !closureSrc.includes(PIN.traceGated) ||
+      !closureSrc.includes(PIN.waitGated) || /turn\.providerResponseId \?\?|providerResponseId: obtained\.providerResponseId/.test(closureSrc)) {
+    E("CW-1", "a provider response id reaches the closure trace or wait without passing the one bounded-identifier gate");
   }
   return errors;
 }
