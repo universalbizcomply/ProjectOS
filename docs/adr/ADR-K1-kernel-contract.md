@@ -47,7 +47,7 @@ C1–C6 in `docs/recon/V4_Capability_Recon.md` depend on it.
 | `scope` | What may be touched | Phase `writePaths`, the plan's `approvedScope`, `exclusions` | Yes for code. **New** for connectors, channels and records |
 | `budget` | Maximum spend for this envelope | None. The reservation is not a bound | **New**, as its own field (PROJECTOS-KERNEL-COST-CAP1A). A missing budget on a paid action is a refusal |
 | `expiry` | When authority lapses | The closure `decidedAt` window; gate timeouts | Partial. **New**: every grant expires |
-| `idempotencyKey` | The same effect never happens twice | Host durable replay (§10C); the GKREQ and CLREQ ids | Partial. **Derived by the kernel from the intent**: a hash of `tenant`, `project`, `action` and `subjectHash`. A retry of the same intent therefore carries the same key and is refused as a duplicate; a new envelope id never produces a new key |
+| `idempotencyKey` | The same effect never happens twice | Host durable replay (§10C); the GKREQ and CLREQ ids | Partial. **Derived by the kernel from the intent**: a hash of `tenant`, `project`, `action`, `subjectHash` and an `intentScope`. The `intentScope` is the parent task or run id, or for a schedule the occurrence id, so a legitimate repeat such as next week's reminder gets a new key. A duplicate **returns the earlier outcome** rather than running again. A *failed* attempt can be retried under the same key, with an attempt counter recorded. A new envelope id alone never produces a new key |
 
 ## 3. Classes: how dangerous an action is (never lowered)
 
@@ -66,7 +66,7 @@ C1–C6 in `docs/recon/V4_Capability_Recon.md` depend on it.
 |---|---|---|---|
 | P1 | The role | — | `permissions.ts` roles |
 | P2 | The approved plan's `writePaths` and the pinned validators | — | Write-path grant; after-attempt scan of new files |
-| P3 | **The owner** (`commit` and `push` are in `ALWAYS_OWNER_ONLY`, `ownerOnlyActions.ts:80-86`) | Two separate named grants. **Commit and push:** a technical delegation plus gatekeeper approval (`CONDITIONALLY_DELEGABLE_TECHNICAL`, `:71`; capability token `technicalDelegationCondition`, `:113-120`); nothing else may be added to that list without an owner decision. **Paid provider call:** a *provider-spend grant*. Today that is the project's owner-committed secrets-handling receipt plus the installation allowlist entry (AG-5), always bounded by the envelope `budget` within the hard cap. The gatekeeper's own call uses this grant, not gatekeeper approval, so there is no circularity | As named; the cap is planned |
+| P3 | **The owner** (`commit` and `push` are in `ALWAYS_OWNER_ONLY`, `ownerOnlyActions.ts:80-86`) | Two separate named grants. **Commit and push:** a technical delegation plus gatekeeper approval (`CONDITIONALLY_DELEGABLE_TECHNICAL`, `:71`; capability token `technicalDelegationCondition`, `:113-120`); nothing else may be added to that list without an owner decision. **Paid provider call:** a *provider-spend grant*. The target is a dedicated, expiring, owner-committed record naming the provider, the cap and the expiry, built in PROJECTOS-KERNEL-COST-CAP1A. *Until then* the interim basis is the project's owner-committed secrets-handling receipt plus the installation allowlist entry (AG-5). It is recorded as interim because it has no expiry. Either way the call is bounded by the envelope `budget` within the hard cap. The gatekeeper's own call uses this grant, not gatekeeper approval, so there is no circularity | As named; the cap is planned |
 | P4 | **None exists yet**, so the action cannot run | Only after the Stage 5.3 delegated-authority design is approved | Gap, by design |
 | P5 | **The owner, every time** (`ABSOLUTE_OWNER_ONLY`: phase-closure, secrets-handling, payment-or-live-charge, `:56`) | Phase closure only: the `closure-decision-commit` delegation (`closureAuthority.ts:92`), where the owner made the last commit to the delegation file. The class stays P5; only the grant is delegated | phase-closure, secrets and payment in code. **The rest are enforced by having no capability**: the agent has no deploy, send or merge path. Stage 5 must register each new capability as P5 *before* it ships |
 | P6 | **Nobody, ever, including the platform owner.** P6 is never grantable | — | Credential router and broker (the agent never holds the key); wildcard refusal in the allowlist reader; tenant isolation is Stage 2 |
@@ -99,7 +99,9 @@ The owner-only governance actions `approve`, `reject`, `close_phase` and `overri
   the work. It refuses every new or pending operation that a non-owner executor would run. That
   includes approved-but-not-yet-executed P3–P5 work, such as an owner-pre-approved send that an agent
   would carry out, or a delegated closure. Only an operation the owner performs directly, in person,
-  is unaffected. Stop and `expiry` are checked **when the action executes**, not only at admission. The stop
+  is unaffected. "In person" means either Host peer authentication of the owner's interactive session
+  (kernel peer capture over the named pipe) or an owner-authored git commit. A CLI `--as owner` flag is
+  not evidence. Stop and `expiry` are checked **when the action executes**, not only at admission. The stop
   cannot undo P5 effects that have already happened, and the UI says so.
 
 ## 6. Consequences
@@ -140,6 +142,14 @@ The owner-only governance actions `approve`, `reject`, `close_phase` and `overri
   `installationAllowsProject`).
 - **N2 HIGH**, the key was minted per admission, so a retry could double-send: fixed. The key is
   derived from intent.
+
+### Final round (revision 3 → 3.1)
+Verdict **APPROVE**: F4, F5, F9, N1, N2 and N3 resolved. The new notes, each fixed:
+- **M1 MEDIUM**, an intent-only key would block legitimate repeats: `intentScope` added; a duplicate
+  returns the earlier outcome; a failed attempt can be retried.
+- **M2 MEDIUM**, the provider-spend grant had no expiry: a dedicated expiring record is the target
+  (COST-CAP1A), and today's basis is marked interim.
+- **L1 LOW**, the evidence for "in person": named, and `--as owner` excluded.
 
 ## 8. Alternatives rejected
 - **A model-judged risk class** (Hermes's `smart` mode). It can be steered by prompt injection.
