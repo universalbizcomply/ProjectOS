@@ -139,8 +139,8 @@ architecture ADR goes to `software-architect`.
   from the implementer's, and a deliberately low cap is shown to refuse a call.
 
 **Parallel [SPIKE]s: DONE 2026-10-28, `60aab03` (`docs/adr/ADR-S1..S4`):**
-- S1 Hermes: REFERENCE.
-- S2 OpenClaw: REFERENCE.
+- S1 Hermes: ADOPT (owner 2026-10-29: clone the code and adapt it; MIT notices kept). Was REFERENCE.
+- S2 OpenClaw: ADOPT (owner 2026-10-29, as S1). Was REFERENCE.
 - S3 SCIP + `cargo metadata`: ADAPTER, never authority, with a tree-sitter fallback. A live Windows
   probe is still needed.
 - S4 LiveKit: ADAPTER, for Stage 8 only.
@@ -251,3 +251,10 @@ Forge, the signed installer, and the Host unattended-review route.
   each with one combined review (owner: "Faster, keep safety"), stacked and verified together: agent 2729/2729,
   validate-all 151/153 (the 2 baseline failures). Carried to a Stage 1 follow-up: the closure-route halves of D3/D9,
   the registry-rule pin, the cached-runner resync and the validate-claude-worker inv50 repair.
+- 2026-10-29: plan v1.19 (`841f38b`) added PROJECTOS-KERNEL-FOLLOWUP1A (owner: "Yes, add and do it"; reviewer
+  "Codex CLI (OpenAI)"); v1.20 (`3c1c073`) repaired its writePaths. Delivered `3f5bdee`..`69062f3`: closure-route D9
+  (broker class stamped, legacy unstamped waits fail closed) and D3 (funding line from the committed receipt);
+  registry pin, cached-runner resync, validate-claude-worker repair; a read-only Codex CLI REVIEWER adapter. ECC
+  SECURITY review + recheck, APPROVE WITH CHANGES, all required items fixed; HIGH 1 (reviewer can read the owner's
+  Codex login) mitigated by tripwires, its residual and a live sandbox probe carried as EXIT-PROOF1A preconditions.
+  Agent 2857/2857. Evidence: `docs/finish/PROJECTOS-KERNEL-FOLLOWUP1A.md`.
