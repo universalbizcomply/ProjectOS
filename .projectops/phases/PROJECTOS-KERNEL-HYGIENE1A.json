@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-HYGIENE1A",
+  "project": "ProjectOS",
+  "objective": "Register or retire the unregistered validators, including those added in plan v1.17 (val-projectos-kernel-role-review1a, val-projectos-kernel-cost-cap1a, val-projectos-kernel-platform-stop1a); add an engines field (Node 24) and rust-toolchain.toml (1.96.1) matching the locked stack in docs/04_TRD.md. Amended in v1.18: its v1.17 writePaths named a validator directory and two bare filenames, which the write-path rules refuse.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-29T15:52:57.765Z",
+      "note": "Owner-approved plan v1.18 (PLANDEC-cf8eafee0ef2759c4e8efadb, activation e1e1e72). Implemented by agents under the lead (Claude) in a parallel worktree, under the owner's grant; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-29T15:52:58.160Z",
+      "note": "validate-all registers every validator (153) or retires with a reason (3) with a registry check; Node 24 engines; rust-toolchain 1.96.1 (426bcbc..aefd3b0)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-29T15:52:58.788Z",
+      "note": "agent 2729/2729 on the stacked branch; validators PASS via run(); validate-all 151/153 (baseline)."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-29T15:52:59.232Z",
+      "note": "Evidence: docs/finish/PROJECTOS-KERNEL-HYGIENE1A.md (d086042)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-29T15:52:59.809Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC CODE review (APPROVE; M1 non-array run() fixed in 7e25739; M2 registry-rule pin carried)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-29T15:53:00.282Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
