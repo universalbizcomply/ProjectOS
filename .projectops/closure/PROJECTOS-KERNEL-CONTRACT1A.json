@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-CONTRACT1A",
+  "evidenceSubjectHead": "0409573b27c5ce9e53071ff321f0a3932f9774d9",
+  "baselineCommit": "04bcd4ad4baa953498529479db242fbab2788aef",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-29T00:06:17.474Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-KERNEL-CONTRACT1A, phase 10 of 16 of plan v1.17, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 0409573 — docs only on 04bcd4a: docs/adr/ADR-K1-kernel-contract.md (19396c8, 900114e, 0608b64, aa1353b), docs/04_TRD.md section 5, docs/finish/PROJECTOS-KERNEL-CONTRACT1A.md, docs/06_Plan.md tick. 0 source, validator, schema or record change.",
+    "validatorsPass: validate-no-secrets PASS at aa1353b (the phase's only required validator).",
+    "checksPass: lead verification — rollback declared only at permissions.ts:27,36; closure delegation is the separate CLOSURE_DECISION_COMMIT_SCOPE path (closureAuthority.ts:92); broker requires receipt + allowlist (PROJECTOS-COMPLETION1A ECC SECURITY review).",
+    "reviewsComplete: Claude self-review; Agency software-architect (AMBER, corpus ad9264e3, governed agency-specialist route): round 1 CONCERNS 5H/4M, round 2 6 resolved/3 partial/3 new (2H/1M), round 3 APPROVE + 2M/1L, all fixed in rev 3.1; 18 found, 18 confirmed, 0 false positive; history.tsv row appended and workforce rebuilt.",
+    "unresolved: zero CRITICAL/HIGH. Carried: ADR-K1 Accepted status is the owner's; code scan for deploy/send/merge paths is an open item for KERNEL-ROLE-REVIEW1A; registry, envelope and R1-R7 code lands in later phases.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
