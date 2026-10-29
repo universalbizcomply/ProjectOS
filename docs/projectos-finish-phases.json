@@ -18,7 +18,8 @@
     "A phase whose write grant covers one of its own required validators is judged by the phase's copy of that validator as well as the base copy, both required to pass (EXTERNAL-PROOF2A D8).",
     "A third agency phase, fixing the gaps in its site validator, carried with one continue and no owner act, as the live proof.",
     "By the owner's approval of the completion delta in Plan Mode (2026-10-28): retire the temporary seo-agency installation allowlist entry, update its validator pin, disable the agency gatekeeper, and record ProjectOS's completion.",
-    "Proposed for owner approval (plan v1.17, V4 Stage 1): kernel hardening per docs/06_Plan.md Stage 1. D11 is owner-approved as written in 06_Plan 1.1 (\"D11 approved as written in 06_Plan 1.1\", 2026-10-28); the rest of v1.17 awaits plan decide."
+    "Proposed for owner approval (plan v1.17, V4 Stage 1): kernel hardening per docs/06_Plan.md Stage 1. D11 is owner-approved as written in 06_Plan 1.1 (\"D11 approved as written in 06_Plan 1.1\", 2026-10-28); the rest of v1.17 awaits plan decide.",
+    "Proposed for owner approval (plan v1.18): amends KERNEL-PLATFORM-STOP1A to the full scope the owner chose (\"Full stop, all files\", 2026-10-29), repairs KERNEL-HYGIENE1A writePaths and reviews, and records that the exit proof's second provider is not Grok."
   ],
   "environments": [
     {
@@ -616,27 +617,40 @@
       ],
       "phaseId": "PROJECTOS-KERNEL-PLATFORM-STOP1A",
       "title": "Platform-wide emergency stop",
-      "description": "One owner command halts every loop, suspends technical delegations and refuses new operations until the owner lifts it. It reuses the per-operation emergency stop in core/src/execution/controller.ts and says honestly that it cannot undo sends or payments already made.",
-      "scope": "Add the stop command and the loop/run entry checks; add tests and a validator.",
+      "description": "One owner command halts every loop, suspends technical delegations and refuses new operations until the owner lifts it, and says honestly that it cannot undo sends, payments, pushes or provider calls already made. Owner decision, 2026-10-29: \"Full stop, all files\" — the check reaches every entry point, including the protected closure, run, plan, reconcile, phase, gatekeeper-config, technical-continuation and Control Center sidecar paths, so nothing that bypasses the CLI or the run loop keeps working.",
+      "scope": "Add the stop record reader and the owner stop/lift command; call one check at every entry point that can start work, spend, commit, push or close; suspend delegations at their single resolver; add tests and a validator.",
       "writePaths": [
+        "projectos/agent/src/loop/platformStop.ts",
         "projectos/agent/src/commands/stop.ts",
         "projectos/agent/src/cli.ts",
         "projectos/agent/src/loop/runner.ts",
+        "projectos/agent/src/commands/run.ts",
+        "projectos/agent/src/commands/closure.ts",
+        "projectos/agent/src/commands/plan.ts",
+        "projectos/agent/src/commands/reconcile.ts",
+        "projectos/agent/src/commands/phase.ts",
+        "projectos/agent/src/loop/gatekeeperConfig.ts",
+        "projectos/agent/src/loop/technicalContinuation.ts",
+        "projectos/agent/src/mcp/bridge.ts",
         "projectos/agent/test/",
+        "projectos/control-center/sidecar/host.mjs",
         "projectos/validators/val-projectos-kernel-platform-stop1a.cjs",
         "docs/finish/",
         "docs/06_Plan.md"
       ],
       "exclusions": [
-        "No change to closure authority or the Host service."
+        "The stop only refuses; it never decides a closure, changes an eligibility predicate, edits ownerOnlyActions, or edits or deletes a committed authority record.",
+        "No change to the Host service binary."
       ],
       "dependsOn": [
         "PROJECTOS-KERNEL-COST-CAP1A"
       ],
       "acceptanceCriteria": [
-        "With the stop set, continue, run and closure carry-on all refuse before any worker or provider call; tested.",
-        "Only the owner can lift the stop; tested.",
-        "The command output states that completed external effects are not reversed."
+        "With the stop engaged, run, continue, closure prepare/request/resume, reconcile, authored plan draft, phase advance and the technical continuation all refuse before any worker, provider, commit or push; tested with counting fakes.",
+        "Delegations are suspended while the stop is engaged without editing any committed record; tested.",
+        "Only the owner can lift the stop, proven by an owner-authored commit of the lift record, never by a flag or the ProjectOS implementer identity; tested.",
+        "Every stop output states that completed external effects are not reversed and that a worker already running ends at its next check.",
+        "Validator pin and named mutations."
       ],
       "requiredValidators": [
         "val-projectos-kernel-platform-stop1a",
@@ -699,14 +713,14 @@
       ],
       "phaseId": "PROJECTOS-KERNEL-HYGIENE1A",
       "title": "Validator registry and toolchain pins",
-      "description": "Register or retire the six unregistered validators (baseline 5.3); add an engines field (Node 24) and rust-toolchain.toml (1.96.1) matching the locked stack in docs/04_TRD.md.",
+      "description": "Register or retire the unregistered validators, including those added in plan v1.17 (val-projectos-kernel-role-review1a, val-projectos-kernel-cost-cap1a, val-projectos-kernel-platform-stop1a); add an engines field (Node 24) and rust-toolchain.toml (1.96.1) matching the locked stack in docs/04_TRD.md. Amended in v1.18: its v1.17 writePaths named a validator directory and two bare filenames, which the write-path rules refuse.",
       "scope": "Edit validate-all registration, package manifests and add the toolchain file.",
       "writePaths": [
-        "projectos/validators/",
-        "package.json",
+        "projectos/validators/validate-all.cjs",
+        "./package.json",
         "projectos/agent/package.json",
         "projectos/core/package.json",
-        "rust-toolchain.toml",
+        "./rust-toolchain.toml",
         "docs/finish/",
         "docs/06_Plan.md"
       ],
@@ -723,7 +737,8 @@
         "validate-no-secrets"
       ],
       "requiredReviews": [
-        "Claude self-review"
+        "Claude self-review",
+        "ECC CODE review"
       ]
     },
     {
@@ -738,7 +753,7 @@
       ],
       "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
       "title": "Stage 1 exit proof: cross-provider review and a refusing cap, live",
-      "description": "One governed Develop phase closes from one continue where the reviewer provider differs from the implementer provider, and a deliberately low cap is shown to refuse a provider call. Evidence only.",
+      "description": "One governed Develop phase closes from one continue where the reviewer provider differs from the implementer provider, and a deliberately low cap is shown to refuse a provider call. Evidence only. The second provider is not xAI/Grok (owner, 2026-10-29: \"I want no API from GROK\").",
       "scope": "Add the evidence record under docs/finish/.",
       "writePaths": [
         "docs/finish/",
