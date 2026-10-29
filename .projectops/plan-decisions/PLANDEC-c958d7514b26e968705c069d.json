@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-29T17:05:02.084Z",
   "note": "Owner (Murad), 2026-10-29, verbatim, answering \"May I add one small follow-up phase to the plan (version 1.19) and do it now?\": \"Yes, add and do it (Recommended)\"; second reviewer: \"Codex CLI (OpenAI) (Recommended)\"; key: \"Keep the current key\". Standing grant: \"You have full authority\" (2026-10-28). Redraft of 133b8530690fb56d: the engine keeps active phases first, so EXIT-PROOF1A stays in place and runs after the appended follow-up.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-29T17:05:09.674Z"
 }
