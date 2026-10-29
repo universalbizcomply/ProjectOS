@@ -53,8 +53,15 @@ It ends with one live exit proof. There are no new domains, and no owner gate is
 - **Governance engines and schemas:** `planDecision.ts`, `governanceEngines.ts`,
   `projectos/validators/plan-*-engine.cjs`, `projectos/schemas/**`.
 - **Elsewhere:**
-  - `projectos/host/**`, `projectos/control-center/**` (including the Supabase SQL, which is
-    Stage 2), `projectos/watchdog/**`.
+  - `projectos/host/**` (except the COST-CAP change below), `projectos/control-center/**`
+    (including the Supabase SQL, which is Stage 2), `projectos/watchdog/**`.
+- **Owner-approved exceptions, 2026-10-29:**
+  - `projectos/host/gatekeeper-ledger/**` (KERNEL-COST-CAP1A). The Rust Host spend ledger learns the
+    per-phase and per-day caps, so it never admits what the TypeScript admission refuses. Owner: "Update
+    it now".
+  - KERNEL-PLATFORM-STOP1A covers every entry point, including protected ones: closure, run, plan,
+    reconcile, phase, the gatekeeper config, the technical continuation and the Control Center sidecar.
+    Owner: "Full stop, all files". Granted through the plan v1.18 amendment.
   - Every existing `.projectops/` authority record.
   - The agency repo. Stage 1.8 runs under the agency's own plan.
 

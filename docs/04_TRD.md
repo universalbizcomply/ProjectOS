@@ -20,6 +20,18 @@ phase. Ranges are the manifest values; resolved versions are the lockfile values
 | Rust host | rustc; crates `windows` 0.61.3, `windows-sys` 0.59, `serde` 1, `serde_json` 1, `thiserror` 1, `sha2` 0.10, `zeroize` 1 | edition 2021 | rustc 1.96.1 (recorded) |
 | Watchdog | Deno (typecheck), `node --test` | — | — |
 
+**Approved for later addition (owner, 2026-10-29).** For the Hermes/OpenClaw/OpenBot ports in
+`docs/recon/V4_Port_Map.md`. Each is added only when the phase that needs it is built, at an exact
+version recorded here at that time, and runs locally with no network service:
+
+| Package | Plain purpose | For | Stage |
+|---|---|---|---|
+| `sqlite-vec` | Search by meaning over memory and documents (keyword search works without it) | C8, C10 | 3 |
+| `cron-parser` | Read schedule expressions such as "every weekday at 9am" | C13 routines | 4 |
+| `cel-js` | Check every agent action against written safety rules before it happens | C14 agent computer | 4 |
+
+Owner's answer to "Which may I add when their features are built?": all three.
+
 TypeScript settings: `strict: true` everywhere; target ES2022; module NodeNext (agent, core, daemon)
 or ESNext with Bundler resolution and `jsx: react-jsx` (control-center).
 
