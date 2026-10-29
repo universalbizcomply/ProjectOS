@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "projectos:PROJECTOS-KERNEL-COST-CAP1A:owner-closure:1056a5c0",
+  "phaseId": "PROJECTOS-KERNEL-COST-CAP1A",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-28T23:31:00.000Z",
+  "evidenceSubjectHead": "1056a5c08a0ad5147728fe04d6c246aed0f2df1f",
+  "decision": "close",
+  "note": "OWNER-DIRECT CLOSURE of PROJECTOS-KERNEL-COST-CAP1A, phase 12 of 16 of plan v1.17, bound to evidence subject 1056a5c08a0ad5147728fe04d6c246aed0f2df1f. AUTHORITY: the owner's own words, verbatim: \"You are running on Admin mode, continue work without me.\" (2026-10-28) and \"You have full authority\" (2026-10-28); for the caps \"Confirm\" and \"Raise to $1.50\", and for the Rust Host ledger \"Update it now\" (2026-10-29). The implementer (Claude) carried out this closure on that grant and recorded it here; no gatekeeper closure ruling was obtained for this phase and none is claimed. ACCEPTED PROOF: all three acceptance criteria met (docs/finish/PROJECTOS-KERNEL-COST-CAP1A.md); ECC SECURITY 0 CRITICAL/HIGH open after two rounds; Rust review APPROVE WITH WARNINGS with follow-ups fixed; validator 13 rules / 26 mutations; core 780/780, agent 2596/2597 with the one pre-existing failure. OWNER STATEMENT on rotation, carried forward verbatim from 2026-09-28: \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\" Carried forward: the items in the closure evidence and docs/finish/PROJECTOS-KERNEL-COST-CAP1A.md. decidedAt is the time of the owner's grant. Authorises nothing beyond this closure tail and its normal fast-forward push: no production, further provider spend, credential, messaging, payment, database or live specialist activity.",
+  "ownerAcceptedFindings": []
+}
