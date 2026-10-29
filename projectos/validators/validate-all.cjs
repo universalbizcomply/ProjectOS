@@ -126,7 +126,9 @@ const MODULES = [
   "validate-v2-closure-evidence",
   "validate-wsl2-provider",
   "val-projectos-kernel-role-review1a",
-  "val-projectos-kernel-cost-cap1a"
+  "val-projectos-kernel-cost-cap1a",
+  // PROJECTOS-KERNEL-PLATFORM-STOP1A — the platform emergency stop.
+  "val-projectos-kernel-platform-stop1a"
 ];
 
 // RETIRED: validator files that are deliberately NOT run by this suite, each with its recorded reason.
