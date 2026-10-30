@@ -268,3 +268,7 @@ Forge, the signed installer, and the Host unattended-review route.
   approved plan, closed by its COMMITTED record (last step into closed) and still declaring the reviews the active plan
   approved (`e73c9f7`, `8e2be81`; owner: "Fix ProjectOS properly"). ECC SECURITY APPROVE WITH CHANGES, items fixed.
   Evidence: `docs/finish/PROJECTOS-KERNEL-PLAN-HISTORY1A.md`.
+- 2026-10-30: plan v1.23 (`f3f2a9e`) added PROJECTOS-KERNEL-CODEX-UNC1A: the exit proof's first run had its Codex review
+  refused; a traced re-run showed the only denial was the UNC tripwire reading the string `"\\nExpires` in a reviewer probe
+  script as a network path. A UNC path now needs a host and a separator (`fd2fe55`). ECC SECURITY reviewed.
+  Evidence: `docs/finish/PROJECTOS-KERNEL-CODEX-UNC1A.md`.
