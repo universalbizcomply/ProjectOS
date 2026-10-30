@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-KERNEL-REVIEW-READONLY1A",
   "project": "ProjectOS",
   "objective": "The exit proof's second run (2026-10-30 10:56) had its Codex review refused again as \"attempted tools it was denied\", with no record of which tripwire fired. Five traced reviews of the same candidate showed why: Codex writes and runs Node scripts that execute the candidate's own validator, and those scripts trip the text tripwires on innocent content (a JavaScript \"..\" string read as a parent escape; a failed script whose output carried git's own sandbox warning \"unable to access '.../.config/git/ignore': Permission denied\"). With one added sentence telling the reviewer to review by reading only (git diff/show/log and file reads; no scripts; run no repository code, the loop already ran it), three of three traced reviews ran no script, tripped nothing, and still found the candidate's real defect. Separately, a reviewer REJECT whose findings are all MEDIUM or LOW reaches the gatekeeper as \"returned REJECT\" with no finding text, so the gatekeeper cannot name a correction. This phase: (1) adds the read-only reviewing sentence to the review instruction; (2) names the reviewer's denial reasons in the refusal; (3) carries a rejection's findings (bounded, inert) into the stop detail when none is CRITICAL or HIGH; (4) ignores git's own config-access warning line when deciding that a failed Codex command was stopped by the sandbox. The exit proof runs after it.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-30T12:39:27.646Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-30T12:39:29.451Z",
+      "note": "Owner-direct closure under the owner's grant. — closed by owner Murad, decision projectos:PROJECTOS-KERNEL-REVIEW-READONLY1A:owner-closure:de67b2c8"
     }
   ]
 }
