@@ -560,9 +560,36 @@ export interface MaterialiseInputs {
    * stays exactly where the project's active plan already puts it — carried forward, not invented.
    */
   readonly closureDelegation?: PlanApprovalDelegationRecord | null;
+  /**
+   * D11 R5 HISTORY (PROJECTOS-KERNEL-PLAN-HISTORY1A). Phases that are BOTH in the active approved plan
+   * AND closed by a COMMITTED phase record (`closedHistoryPhases`). A closed phase is history: no review
+   * can be added to it now, and refusing every later plan because of it left a project whose phases
+   * closed before D11 unable to plan at all. Absent means none: every phase is held to R5.
+   */
+  readonly closedHistory?: ReadonlySet<string>;
   readonly planId: string;
   readonly programmeId: string;
   readonly now: string;
+}
+
+/** A phase id that can name a record file: no separators, no `..`, no leading dot. */
+const PHASE_FILE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
+ * The phases R5 does not re-judge: in the active approved plan AND closed by the phase record as it is
+ * COMMITTED at HEAD. A working-tree record that says closed is not history anyone approved; a phase the
+ * active plan never held is not history at all.
+ */
+export function closedHistoryPhases(sys: System, root: string, activePlan: Record<string, unknown>): ReadonlySet<string> {
+  const phases = Array.isArray(activePlan['phases']) ? (activePlan['phases'] as Record<string, unknown>[]) : [];
+  const closed = new Set<string>();
+  for (const phase of phases) {
+    const id = strOf(phase['phaseId']);
+    if (id === null || id.includes('..') || !PHASE_FILE_ID.test(id)) continue;
+    const record = readCommittedJson(sys, root, `.projectops/phases/${id}.json`);
+    if (record !== null && record['phaseId'] === id && record['status'] === 'closed') closed.add(id);
+  }
+  return closed;
 }
 
 export type MaterialiseResult =
@@ -649,8 +676,9 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
     if (risk === null) problems.push(`phase ${id} does not state a risk level`);
     if (autonomy === null) problems.push(`phase ${id} does not state an autonomy level`);
     if (typeof proof !== 'boolean') problems.push(`phase ${id} does not state whether browser proof is required`);
-    // D11 R5: a phase nobody but its implementer reviews is refused here, before it can be approved.
-    problems.push(...planReviewProblems(id, arrOfStrings(c['requiredReviews'])));
+    // D11 R5: a phase nobody but its implementer reviews is refused here, before it can be approved —
+    // unless it is history: already in the active plan and closed by its committed record.
+    if (!(input.closedHistory?.has(id) ?? false)) problems.push(...planReviewProblems(id, arrOfStrings(c['requiredReviews'])));
     // THE WRITE GRANT IS PROJECTED EXACTLY — PROJECTOS-FINISH-WRITEPATHS1A. It is bound by the approval
     // digest like every other phase field, and a list that is not a list of non-empty strings is refused
     // here, at approval, rather than narrowed into something the owner never saw. Whether each path may
@@ -1717,6 +1745,7 @@ export function approvePlan(sys: System, root: string, opts: ApproveOptions): Ap
     delegation: decided.delegation,
     closureDelegation,
     governanceSource,
+    closedHistory: closedHistoryPhases(sys, root, activePlan),
     planId: opts.planId,
     programmeId: opts.programmeId,
     now,

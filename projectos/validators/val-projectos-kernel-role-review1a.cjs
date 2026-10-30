@@ -101,7 +101,17 @@ const MUTATIONS = [
   { name: "no-independent-required", rule: "RR-5", rel: OUTCOME_REL,
     from: "if (independentReviews(input.brief.phase.requiredReviews).length === 0) {", to: "if (false) {" },
   { name: "approval-skips-reviews", rule: "RR-6", rel: APPROVAL_REL,
-    from: "problems.push(...planReviewProblems(id, arrOfStrings(c['requiredReviews'])));", to: "" },
+    from: "if (!(input.closedHistory?.has(id) ?? false)) problems.push(...planReviewProblems(id, arrOfStrings(c['requiredReviews'])));", to: "" },
+  { name: "history-skips-every-phase", rule: "RR-6", rel: APPROVAL_REL,
+    from: "if (!(input.closedHistory?.has(id) ?? false)) problems", to: "if (false) problems" },
+  { name: "history-from-working-tree", rule: "RR-6", rel: APPROVAL_REL,
+    from: "const record = readCommittedJson(sys, root, `.projectops/phases/${id}.json`);", to: "const record = readJson(sys, `${root}/.projectops/phases/${id}.json`);" },
+  { name: "history-any-status", rule: "RR-6", rel: APPROVAL_REL,
+    from: "if (record !== null && record['phaseId'] === id && record['status'] === 'closed') closed.add(id);", to: "if (record !== null) closed.add(id);" },
+  { name: "history-beyond-active-plan", rule: "RR-6", rel: APPROVAL_REL,
+    from: "const phases = Array.isArray(activePlan['phases']) ? (activePlan['phases'] as Record<string, unknown>[]) : [];", to: "const phases = Array.isArray(input) ? input : [];" },
+  { name: "history-path-shaped-id", rule: "RR-6", rel: APPROVAL_REL,
+    from: "if (id === null || id.includes('..') || !PHASE_FILE_ID.test(id)) continue;", to: "if (id === null) continue;" },
   { name: "gatekeeper-not-shown-record", rule: "RR-7", rel: RUNNER_REL,
     from: "independentReview: reviewerRecord !== null", to: "unrelated: reviewerRecord !== null" },
   { name: "reviewer-is-default", rule: "RR-8", rel: WORKERS_REL,
@@ -243,8 +253,17 @@ function check(raw) {
   if (r5 < 0 || r5 > outcome.indexOf("const outstanding = outstandingReviews(")) {
     E("RR-5", "decideContinuation no longer stops a phase with no independent review before certification");
   }
-  if (!src[APPROVAL_REL].includes("problems.push(...planReviewProblems(id, arrOfStrings(c['requiredReviews'])));")) {
-    E("RR-6", "materialisePlan no longer refuses a phase with no independent review");
+  const approval = src[APPROVAL_REL];
+  const historyPins = [
+    "if (!(input.closedHistory?.has(id) ?? false)) problems.push(...planReviewProblems(id, arrOfStrings(c['requiredReviews'])));",
+    "closedHistory: closedHistoryPhases(sys, root, activePlan),",
+    "const phases = Array.isArray(activePlan['phases']) ? (activePlan['phases'] as Record<string, unknown>[]) : [];",
+    "if (id === null || id.includes('..') || !PHASE_FILE_ID.test(id)) continue;",
+    "const record = readCommittedJson(sys, root, `.projectops/phases/${id}.json`);",
+    "if (record !== null && record['phaseId'] === id && record['status'] === 'closed') closed.add(id);",
+  ];
+  if (!historyPins.every((p) => approval.includes(p))) {
+    E("RR-6", "materialisePlan no longer refuses a phase with no independent review, except one in the active plan closed by its COMMITTED record");
   }
   const dispatched = runner.indexOf("runIndependentReview(sys, root, {");
   const asked = runner.indexOf("const answered = applyReviewerAnswer(decision.reason, evidenceFor(decision.reason, {");

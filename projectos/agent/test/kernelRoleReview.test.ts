@@ -18,7 +18,7 @@ import {
   workerReviewable,
   type ReviewerRecord,
 } from '../src/loop/reviewRoles.js';
-import { materialisePlan } from '../src/planApproval.js';
+import { closedHistoryPhases, materialisePlan } from '../src/planApproval.js';
 import { argvGrants, toolGrantProblems, type AuthorisedWorker } from '../src/loop/workers.js';
 
 const worker = (workerId: string, args: string[] = []): AuthorisedWorker => ({ workerId, kind: 'k', command: '/bin/w', args, timeoutMs: 1000 });
@@ -188,5 +188,66 @@ describe('R5 — at approval', () => {
     } as unknown as Parameters<typeof materialisePlan>[0]);
     expect(r.ok).toBe(false);
     expect(r.ok ? '' : r.problems.join('\n')).toContain('phase AGENCY1A declares only Claude self-review');
+  });
+});
+
+describe('R5 history — PROJECTOS-KERNEL-PLAN-HISTORY1A: a phase already closed in the active plan is not re-judged', () => {
+  const draftOf = (...ids: string[]) =>
+    ({
+      proposal: {
+        imported: {
+          draft: {
+            phaseCandidates: ids.map((phaseId) => ({
+              phaseId, purpose: 'p', acceptanceCriteria: ['a'], riskLevel: 'low', autonomyLevel: 'x', requiredBrowserProof: false, requiredReviews: ['Claude self-review'],
+            })),
+          },
+        },
+      },
+      config: {},
+      activePlan: { planVersion: '1.0', governance: {} },
+      decision: { decidedAt: '2026-10-30T00:00:00Z' },
+      delegation: null,
+      planId: 'p',
+      programmeId: 'g',
+      now: '2026-10-30T00:00:00Z',
+    }) as unknown as Parameters<typeof materialisePlan>[0];
+
+  it('skips R5 for a closed-history phase, and still refuses a new one beside it', () => {
+    const r = materialisePlan({ ...draftOf('OLD1A', 'NEW1A'), closedHistory: new Set(['OLD1A']) });
+    const text = r.ok ? '' : r.problems.join('\n');
+    expect(text).not.toContain('phase OLD1A declares only');
+    expect(text).toContain('phase NEW1A declares only Claude self-review');
+  });
+
+  /** A fake System whose committed tree holds exactly these phase records. */
+  const committed = (records: Record<string, unknown>) => {
+    const asked: string[] = [];
+    const sys = {
+      exec: (_cmd: string, args: readonly string[]) => {
+        const spec = String(args[args.length - 1]);
+        asked.push(spec);
+        const rel = spec.replace(/^HEAD:\.\//, '');
+        return rel in records ? { code: 0, stdout: JSON.stringify(records[rel]), stderr: '' } : { code: 128, stdout: '', stderr: 'not in HEAD' };
+      },
+    } as unknown as Parameters<typeof closedHistoryPhases>[0];
+    return { sys, asked };
+  };
+
+  it('counts a phase only when it is in the active plan AND its COMMITTED record says closed', () => {
+    const { sys, asked } = committed({
+      '.projectops/phases/CLOSED1A.json': { phaseId: 'CLOSED1A', status: 'closed' },
+      '.projectops/phases/OPEN1A.json': { phaseId: 'OPEN1A', status: 'implementing' },
+      '.projectops/phases/LIAR1A.json': { phaseId: 'SOMEONE-ELSE', status: 'closed' },
+      '.projectops/phases/NOTPLANNED1A.json': { phaseId: 'NOTPLANNED1A', status: 'closed' },
+    });
+    const active = { phases: [{ phaseId: 'CLOSED1A' }, { phaseId: 'OPEN1A' }, { phaseId: 'LIAR1A' }, { phaseId: 'UNCOMMITTED1A' }, { phaseId: '../escape' }, { phaseId: '.hidden' }] };
+    expect([...closedHistoryPhases(sys, '/repo', active)]).toEqual(['CLOSED1A']);
+    // A path-shaped id is never turned into a read.
+    expect(asked.some((a) => a.includes('escape') || a.includes('.hidden'))).toBe(false);
+  });
+
+  it('a first plan (no active phases) has no history', () => {
+    const { sys } = committed({});
+    expect(closedHistoryPhases(sys, '/repo', { governance: {} }).size).toBe(0);
   });
 });
