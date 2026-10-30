@@ -75,7 +75,7 @@ const DENIAL_NAME_MAX = 120;
  * are the adapter's own reasons or the CLI's tool names; they reach the stop detail, so each is made inert
  * and bounded, and one that is not a string is named as such.
  */
-function reviewerDenials(stdout: string): readonly string[] {
+function reviewerDenialNames(stdout: string): readonly string[] {
   const denials = structuredField(stdout, 'permission_denials');
   if (!Array.isArray(denials)) return [];
   return denials.map((d) => {
@@ -83,6 +83,11 @@ function reviewerDenials(stdout: string): readonly string[] {
     // The same sanitiser as the reviewer's own text: control, bidi, zero-width and tag characters (ECC SECURITY LOW).
     return typeof name === 'string' ? inert(name, DENIAL_NAME_MAX) : 'an unnamed denial';
   });
+}
+
+/** How many tool uses the CLI denied the reviewer. A CLI that reports no list denied none. */
+function reviewerDenials(stdout: string): number {
+  return reviewerDenialNames(stdout).length;
 }
 
 /** The denial reasons as the refusal names them: the first few, and how many more there were. */
@@ -165,12 +170,9 @@ export function runIndependentReview(sys: System, root: string, input: Independe
   if (turns === null || turns < 2) {
     return { ok: false, problems: [`the reviewer '${worker.workerId}' did not show that it read anything, which is not a review`] };
   }
-  const denied = reviewerDenials(outcome.stdout);
-  if (denied.length > 0) {
-    return {
-      ok: false,
-      problems: [`the reviewer '${worker.workerId}' attempted tools it was denied (${deniedNames(denied)}), so it may have been steered by the candidate`],
-    };
+  if (reviewerDenials(outcome.stdout) > 0) {
+    const denied = deniedNames(reviewerDenialNames(outcome.stdout));
+    return { ok: false, problems: [`the reviewer '${worker.workerId}' attempted tools it was denied (${denied}), so it may have been steered by the candidate`] };
   }
   const parsed = parseReviewerVerdict(reviewerText(outcome.stdout), nonce);
   if (!parsed.ok) return { ok: false, problems: [parsed.problem] };
