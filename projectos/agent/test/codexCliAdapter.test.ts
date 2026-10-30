@@ -392,6 +392,9 @@ describe('HIGH 1(b): a command that names a path outside the checkout is a denia
     ['a parent escape inside a path', 'cat src/../../x'],
     ['a UNC path', 'type \\\\server\\share\\x'],
     ['a forward-slash UNC path', 'cat //server/share/x'],
+    ['a long-path UNC prefix', 'type \\\\?\\UNC\\server\\share\\x'],
+    ['a named pipe', 'type \\\\.\\pipe\\x'],
+    ['a loopback admin share', 'Get-ChildItem "\\\\localhost\\c$\\Users"'],
     ["the owner's Codex home", 'cat auth.json --dir .codex'],
     ['the Codex login file through the checkout', 'Get-Content C:/dev/candidate/../../Users/o/.codex/auth.json'],
   ])('%s: %s', (_label, command) => {
@@ -417,6 +420,22 @@ describe('HIGH 1(b): a command that names a path outside the checkout is a denia
     const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command, exit_code: 0, status: 'completed' }));
     expect(body['permission_denials']).toEqual([]);
     expect(body['num_turns']).toBe(3);
+  });
+
+  // The exit proof's first run (2026-10-30): the reviewer piped this probe script into node, and its
+  // string `"\\nExpires: …` was read as the UNC path `\\nExpires:`, refusing an innocent review.
+  const EXIT_PROOF_PROBE =
+    "\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"@'\nconst fs=require('fs'),vm=require('vm'),path=require('path'),cp=require('child_process');\nconst filename=path.resolve('projectos/validators/validate-site.cjs');\nconst source=fs.readFileSync(filename,'utf8');\nfunction run(src, sec){let code=0;let logs=[];const fake=Object.create(fs);fake.readFileSync=(p,...a)=>String(p).endsWith(path.join('.well-known','security.txt'))&&sec\"'!==undefined?sec:fs.readFileSync(p,...a);vm.runInNewContext(src,{require:n=>n==='\"'fs'?fake:require(n),__dirname:path.dirname(filename),process:{argv:['node',filename],exit:n=>{code=n}},console:{log:s=>logs.push(s),error:s=>logs.push(s)}});return {code,logs};}\nconsole.log('candidate current site',JSON.stringify(run(source)));\nconst base=cp.execFileSync('git',['show','122654e97de23dce4e95f638c288aaaad823161e:projectos/validators/validate-site.cjs'],{encoding:'utf8'});\nconsole.log('base current site',JSON.stringify(run(base)));\nfor(const expires of ['October 29, 2027','2027-02-30T00:00:00.000Z','not-a-date']){console.log(expires,JSON.stringify(run(source,\"'`Contact: mailto:security@example.com'\"\\\\nExpires: \"'${expires}'\"\\\\n\"'`)));}\n'\"'@ | node\"";
+
+  it.each([
+    ["the exit proof reviewer's probe, exactly as reported", EXIT_PROOF_PROBE],
+    ['a quoted escaped newline', 'node -e \'console.log("\\\\nExpires: x")\''],
+    ['a quoted escaped tab at the end', "node -e \"console.log('a' + '\\\\t')\""],
+    ['a quoted unicode escape', 'node -e \'console.log("\\\\u0041")\''],
+  ])('does not read a quoted escape in a probe script as a UNC path: %s', (_label, command) => {
+    expect(commandLeavesCheckout(command, ROOT)).toBe(false);
+    const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command, exit_code: 0, status: 'completed' }));
+    expect(body['permission_denials']).toEqual([]);
   });
 
   it('an outside path seen when the command STARTS is a denial too, counted once per item', () => {

@@ -25,7 +25,8 @@
  *
  *   CX-9  "a read-only sandbox keeps the reviewer in the checkout" — it blocks writes, not reads, so the
  *         reviewer could read the owner's Codex login; a command naming a path outside the checkout is a
- *         denial (HIGH 1b)
+ *         denial (HIGH 1b). A UNC path is a host FOLLOWED BY A SEPARATOR, so `\\?\UNC\…` and `\\.\pipe\…`
+ *         still deny and a quoted escape in a probe script does not (PROJECTOS-KERNEL-CODEX-UNC1A)
  *   CX-10 "the reply is the reviewer's to say"          — and a credential it read rides into a record; a
  *         credential-shaped reply is withheld whole and reported as a denial (HIGH 1c)
  *   CX-11 "a completed command is a read"               — and a sandbox refusal counts as reading; only exit
@@ -78,6 +79,9 @@ const TESTS = {
     "an attempted write or tool call is a denial, counted once per item",
     "refuses a sandbox token %j given as the value of a permitted flag, and spawns nothing",
     "a command inside the checkout is not a denial: %s",
+    "does not read a quoted escape in a probe script as a UNC path: %s",
+    "['a long-path UNC prefix', 'type \\\\\\\\?\\\\UNC\\\\server\\\\share\\\\x'],",
+    "['a named pipe', 'type \\\\\\\\.\\\\pipe\\\\x'],",
     "an outside path seen when the command STARTS is a denial too, counted once per item",
     "a command whose text was not reported cannot be checked, so it is a denial",
     "%s, in the reply text and in a finding summary",
@@ -155,6 +159,7 @@ const PIN = {
   // CX-9 (HIGH 1b)
   leavesHome: "if (HOME_REFERENCE.test(command) || CODEX_HOME_NAME.test(command) || PARENT_ESCAPE.test(command)) return true;",
   leavesUnc: "if (UNC_PATH.test(command) || POSIX_HOME.test(command)) return true;",
+  uncShape: "const UNC_PATH = new RegExp(String.raw`" + String.raw`(^|[\s'"=(])(\\\\|//)[^\s\\/'"|;&<>()]+[\\/][^\s\\/]` + "`);",
   leavesAbsolute: "return absolutePaths(command).some((p) => inside === null || (p !== inside && !p.startsWith(`${inside}/`)));",
   codexHome: "const CODEX_HOME_NAME = /\\.codex/i;",
   outsideDenied: "if (commandLeavesCheckout(command, root)) return 'command_execution: names a path outside the repository';",
@@ -244,6 +249,7 @@ const MUTATIONS = [
   { name: "codex-home-not-caught", rule: "CX-9", rel: CODEX_REL, from: PIN.leavesHome, to: "if (HOME_REFERENCE.test(command) || PARENT_ESCAPE.test(command)) return true;" },
   { name: "absolute-path-elsewhere-allowed", rule: "CX-9", rel: CODEX_REL, from: PIN.leavesAbsolute, to: "return false;" },
   { name: "unc-path-allowed", rule: "CX-9", rel: CODEX_REL, from: PIN.leavesUnc, to: "if (POSIX_HOME.test(command)) return true;" },
+  { name: "unc-long-path-and-pipe-escape", rule: "CX-9", rel: CODEX_REL, from: PIN.uncShape, to: "const UNC_PATH = new RegExp(String.raw`" + String.raw`(^|[\s'"=(])(\\\\|//)[A-Za-z0-9-]+[\\/][^\s\\/]` + "`);" },
   { name: "checkout-root-not-passed", rule: "CX-9", rel: CODEX_REL, from: PIN.eventsWithContext, to: "const run = readCodexEvents(r.stdout);" },
   { name: "credential-reply-passed-through", rule: "CX-10", rel: CODEX_REL, from: "credentialShaped(lastMessage, context?.instruction ?? '')", to: "false" },
   { name: "withheld-reply-not-a-denial", rule: "CX-10", rel: CODEX_REL, from: "    beyond.set(`${CODEX_REPLY_WITHHELD}#reply`, CODEX_REPLY_WITHHELD);\n", to: "" },
@@ -378,7 +384,7 @@ function check(raw) {
   if (!src[CLAUDE_REL].includes(PIN.wired) || !/import \{ CODEX_CLI, codexCliAdapter \} from '\.\/codexCli\.js';/.test(src[CLAUDE_REL])) {
     E("CX-8", "the codex-cli kind is not wired into BUILT_IN_ADAPTERS");
   }
-  if (![PIN.leavesHome, PIN.leavesUnc, PIN.leavesAbsolute, PIN.codexHome, PIN.outsideDenied, PIN.commandChecked, PIN.contextPassed, PIN.eventsWithContext].every((p) => cx.includes(p))) {
+  if (![PIN.leavesHome, PIN.leavesUnc, PIN.uncShape, PIN.leavesAbsolute, PIN.codexHome, PIN.outsideDenied, PIN.commandChecked, PIN.contextPassed, PIN.eventsWithContext].every((p) => cx.includes(p))) {
     E("CX-9", "a Codex command that names a path outside the checkout (home, .codex, .., UNC, an absolute path elsewhere) is no longer reported as a denial");
   }
   if (![PIN.withheld, PIN.jwtShape, PIN.skShape, PIN.tokenNames, PIN.bearerShape, PIN.longRun, PIN.longRunCounts].every((p) => cx.includes(p))) {

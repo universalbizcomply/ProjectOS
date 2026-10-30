@@ -241,8 +241,12 @@ const HOME_REFERENCE = new RegExp(
 const CODEX_HOME_NAME = /\.codex/i;
 /** A `..` path component: a climb out of the checkout the command was started in. */
 const PARENT_ESCAPE = /(^|[\s'"=(\\/])\.\.(?=$|[\\/\s'"])/;
-/** A UNC path: `\\server\share` or `//server/share` (not a URL's `://`, which is preceded by a colon). */
-const UNC_PATH = /(^|[\s'"=(])(\\\\|\/\/)[^\s\\/]/;
+/**
+ * A UNC path: `\\server\share` or `//server/share` (not a URL's `://`, which is preceded by a colon),
+ * including `\\?\UNC\…` and `\\.\pipe\…`. The host must be followed by a separator, as every path into a
+ * share is: a quoted escape in a probe script (`"\\nExpires: …"`) is not one (EXIT-PROOF1A, first run).
+ */
+const UNC_PATH = new RegExp(String.raw`(^|[\s'"=(])(\\\\|//)[^\s\\/'"|;&<>()]+[\\/][^\s\\/]`);
 /** The rest of a path once its start is found. */
 const PATH_TAIL = String.raw`[^\s'"|;&<>()]*`;
 /** A drive path: `C:\x` or `C:/x`. */
