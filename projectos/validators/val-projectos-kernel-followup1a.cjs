@@ -58,7 +58,10 @@
  *         it is asked to cite every file by its repository-relative path
  *   GK-1  "the gatekeeper knows how to ask for a fix"  — but it was shown only "Edit(path)", copied that
  *         placeholder and named no file, so no correction could be authorised; it is told to name every
- *         file by its full repository-relative path from workerWritableMaximum
+ *         file by its full repository-relative path from workerWritableMaximum (or told none is correctable)
+ *   RC-1  "an independent rejection ends on the owner" — owner, 2026-10-30: "Claude fixes, re-review"; the
+ *         implementer is re-dispatched with the phase's approved grant inside the existing budget, pointed at
+ *         the reviewer record, and reviewed again
  *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT
  * rule fires. Comments are stripped first. Reads files; runs nothing, calls no provider, runs no Codex.
@@ -121,6 +124,9 @@ const TESTS = {
     "[CX] the same Codex envelope with a clean read and reply is credited",
     "a refused review names the denial reasons, inert and bounded, so the stop says which tripwire fired",
     "tells the gatekeeper to name every file to correct by its repository-relative path, with an example from the maximum",
+    "with no correction maximum, the gatekeeper is told no file is correctable, not pointed at an empty list (ECC SECURITY F1)",
+    "a REJECT re-dispatches the implementer with the approved write grant, then a fresh review approves",
+    "a rejection that persists spends the existing budget of three corrections, then stops REVIEW_OUTSTANDING as before",
   ],
   "projectos/agent/test/kernelRoleReview.test.ts": [
     "names the files Codex loads too: AGENTS.override.md and anything under .agents/ (ECC SECURITY M4)",
@@ -225,7 +231,15 @@ const PIN = {
   citeNotBare: ", not its bare name. ` +",
   askNamesPaths: "'In nextInstruction, name every file to correct by its full repository-relative path, exactly as listed in workerWritableMaximum' +",
   askRefusesNone: "'an amendment that names none is refused before any worker starts.',",
-  noPlaceholder: "'Edit(path) and Write(path) only",
+  askExample: "` (for example ${correctionMaximum[0]}), with forward slashes, and name no other file. Only the files named there are granted; ` +",
+  askEmptySaid: "'No file is correctable by an amendment in this phase: workerWritableMaximum is empty, so an amendment is refused before any worker starts.'",
+  citeQuoted: "` (for example ${JSON.stringify(shown[0])})`",
+  // RC-1 (owner, 2026-10-30: "Claude fixes, re-review")
+  rejectBounded: "if (attempts < MAX_CORRECTION_ATTEMPTS && writeGrant.grants.length > 0) {",
+  rejectCounted: "attempts += 1;",
+  rejectRegrant: "correctionGrants = writeGrant.grants;",
+  rejectOnlyOnRejection: "if (!reviewPassed(reviewed.record) && decision.kind === 'stop' && decision.reason.code === 'REVIEW_OUTSTANDING') {",
+  correctionReadsReviewer: "\"If it exists, also read the independent reviewer's record beside the evidence record (the same name ending .reviewer.json) \" +",
   // CW-1 (LOW 7)
   idShape: "const PROVIDER_RESPONSE_ID = /^[A-Za-z0-9_.:-]{1,128}$/;",
   idGate: "return typeof value === 'string' && PROVIDER_RESPONSE_ID.test(value) ? value : null;",
@@ -309,7 +323,14 @@ const MUTATIONS = [
   { name: "reviewer-cites-bare-names", rule: "RV-3", rel: ROLES_REL, from: PIN.citePaths, to: "`In each summary, cite every file" },
   { name: "gatekeeper-not-told-to-name-paths", rule: "GK-1", rel: RUNNER_REL, from: PIN.askNamesPaths, to: "'In nextInstruction, say what to fix' +" },
   { name: "gatekeeper-not-told-unnamed-is-refused", rule: "GK-1", rel: RUNNER_REL, from: PIN.askRefusesNone, to: "'',"  },
-  { name: "placeholder-grant-text-back", rule: "GK-1", rel: RUNNER_REL, from: "grantsIssued: 'edit and write grants on the named files only;", to: "grantsIssued: 'Edit(path) and Write(path) only;" },
+  { name: "placeholder-grant-text-back", rule: "GK-1", rel: RUNNER_REL, from: "grantsIssued: 'edit and write grants on the named files only;", to: "grantsIssued: \"Edit(path) and Write(path) only;" },
+  { name: "gatekeeper-example-dropped", rule: "GK-1", rel: RUNNER_REL, from: PIN.askExample, to: "`. Only the files named there are granted; ` +" },
+  { name: "empty-maximum-not-said", rule: "GK-1", rel: RUNNER_REL, from: PIN.askEmptySaid, to: "''" },
+  { name: "reviewer-example-unquoted", rule: "RV-3", rel: ROLES_REL, from: PIN.citeQuoted, to: "` (for example ${shown[0]})`" },
+  { name: "rejection-budget-unbounded", rule: "RC-1", rel: RUNNER_REL, from: PIN.rejectBounded, to: "if (writeGrant.grants.length > 0) {" },
+  { name: "rejection-correction-not-counted", rule: "RC-1", rel: RUNNER_REL, from: "            attempts += 1;\n            // Through the per-attempt slot", to: "            // Through the per-attempt slot" },
+  { name: "approved-grant-leaks-to-another-dispatch", rule: "RC-1", rel: RUNNER_REL, from: "correctionGrants = authorised.correction.grants;", to: "correctionGrants = [...authorised.correction.grants, ...writeGrant.grants];" },
+  { name: "correction-blind-to-reviewer", rule: "RC-1", rel: CLAUDE_REL, from: PIN.correctionReadsReviewer, to: "" },
   { name: "reviewer-may-run-scripts", rule: "RV-2", rel: ROLES_REL, from: PIN.noScripts, to: "" },
   { name: "reviewer-not-told-to-read", rule: "RV-2", rel: ROLES_REL, from: PIN.readByReading, to: "" },
   { name: "git-warning-unanchored", rule: "CX-15", rel: CODEX_REL, from: PIN.gitWarningLine, to: PIN.gitWarningLine.replace("/^warning:", "/warning:") },
@@ -451,12 +472,22 @@ function check(raw) {
   if (!roles.includes(PIN.agentsOverride) || !roles.includes(PIN.readOnlyWords) || roles.includes("no write or shell grant")) {
     E("RV-1", "the steering guard no longer covers AGENTS.override.md and .agents/, or the reviewer is told something untrue of a Codex reviewer");
   }
-  if (!roles.includes(PIN.citePaths) || !roles.includes(PIN.citeNotBare)) {
-    E("RV-3", "the reviewer is no longer asked to cite each file by its repository-relative path");
+  if (!roles.includes(PIN.citePaths) || !roles.includes(PIN.citeNotBare) || !roles.includes(PIN.citeQuoted)) {
+    E("RV-3", "the reviewer is no longer asked to cite each file by its repository-relative path, with a quoted example");
   }
   const runner = src[RUNNER_REL];
-  if (!runner.includes(PIN.askNamesPaths) || !runner.includes(PIN.askRefusesNone) || runner.includes(PIN.noPlaceholder)) {
-    E("GK-1", "the gatekeeper is no longer told to name every file to correct by its repository-relative path, or is offered the placeholder Edit(path) again");
+  if (![PIN.askNamesPaths, PIN.askRefusesNone, PIN.askExample, PIN.askEmptySaid].every((p) => runner.includes(p)) || /Edit\(path\)/.test(runner)) {
+    E("GK-1", "the gatekeeper is no longer told to name every file to correct by its repository-relative path (or that none is correctable), or is offered the placeholder Edit(path) again");
+  }
+  // The re-grant sits inside the bounded branch, after the count: the branch body is checked whole.
+  const rejectBranch = /if \(attempts < MAX_CORRECTION_ATTEMPTS && writeGrant\.grants\.length > 0\) \{[\s\S]{0,900}?attempts \+= 1;[\s\S]{0,300}?correctionGrants = writeGrant\.grants;[\s\S]{0,500}?continue;/.test(runner);
+  // Every assignment to the per-attempt slot is one of exactly three: the authorised correction, the
+  // clearing after a dispatch, and this one re-grant. Anything else could carry the approved grant elsewhere.
+  const slotWrites = [...runner.matchAll(/correctionGrants = ([^;]+);/g)].map((m) => m[1].trim()).sort();
+  const slotOk = JSON.stringify(slotWrites) === JSON.stringify(["[]", "authorised.correction.grants", "writeGrant.grants"]);
+  if (!rejectBranch || !slotOk || ![PIN.rejectBounded, PIN.rejectCounted, PIN.rejectRegrant, PIN.rejectOnlyOnRejection].every((p) => runner.includes(p)) ||
+      !src[CLAUDE_REL].includes(PIN.correctionReadsReviewer)) {
+    E("RC-1", "a rejected independent review is no longer corrected by the implementer inside the existing budget, counted, and pointed at the reviewer record");
   }
   if (!roles.includes(PIN.readByReading) || !roles.includes(PIN.noScripts)) {
     E("RV-2", "the reviewer is no longer told to review by reading only and to run no script or repository code");

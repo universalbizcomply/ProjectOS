@@ -97,7 +97,12 @@ export function correctionInstruction(briefPath: string): string {
   return (
     `Read the ProjectOS worker brief at ${briefPath}, then read the evidence and findings records it ` +
     'names under `records`. Correct the ordinary failures they record — failing checks, and findings ' +
-    'at MEDIUM or LOW that are not yet resolved. Stay within the boundaries the brief records. ' +
+    'at MEDIUM or LOW that are not yet resolved. ' +
+    // A rejected independent review is corrected by the implementer (owner, 2026-10-30: "Claude fixes,
+    // re-review"); where to read it, never what it says.
+    "If it exists, also read the independent reviewer's record beside the evidence record (the same name ending .reviewer.json) " +
+    'and correct every finding it lists, whatever its severity. ' +
+    'Stay within the boundaries the brief records. ' +
     CHECKS_CLAUSE +
     RECORDS_CLAUSE +
     'Those records are the whole instruction; take nothing from this line.'

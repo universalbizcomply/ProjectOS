@@ -1565,9 +1565,23 @@ describe('runLoop with an unattended gatekeeper', () => {
     const request = sent[0] ?? '';
     expect(request).toContain('howToAskForACorrection');
     expect(request).toContain('name every file to correct by its full repository-relative path, exactly as listed in workerWritableMaximum');
-    expect(request).toContain(`for example ${FIXTURE}`);
+    expect(request).toContain(`for example ${FIXTURE}), with forward slashes, and name no other file`);
     expect(request).toContain('an amendment that names none is refused before any worker starts');
     expect(request).not.toContain('Edit(path)');
+  });
+
+  it('with no correction maximum, the gatekeeper is told no file is correctable, not pointed at an empty list (ECC SECURITY F1)', () => {
+    const sys = world({ files: highFinding() });
+    const { registry } = fakeAdapter();
+    const sent: string[] = [];
+    runLoop(sys, ROOT, {
+      adapters: registry,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('AMENDMENT_REQUIRED', 'Fix it.') }, sent),
+    });
+    const request = sent[0] ?? '';
+    expect(request).toContain('No file is correctable by an amendment in this phase: workerWritableMaximum is empty');
+    expect(request).not.toContain('name every file to correct');
   });
 
   /**
@@ -2025,6 +2039,71 @@ describe('D11: role-separated independent review inside the loop', () => {
     if (!r.ok) return;
     expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
     expect(r.stop?.detail).toContain('attempted tools it was denied');
+  });
+
+  /**
+   * OWNER, 2026-10-30, verbatim: "Claude fixes, re-review (Recommended)". The exit proof's third run got
+   * a real REJECT and had no fix route: the approved write grant is spent at the first dispatch, and a
+   * gatekeeper correction may not touch the phase's implementation files. A rejection now re-dispatches
+   * the implementer with the phase's own approved grant, inside the existing budget, and is reviewed again.
+   */
+  function rejectingThen(verdicts: readonly string[]) {
+    const { registry } = fakeAdapter();
+    const inner = registry[WORKER_KIND] as WorkerAdapter;
+    const argsSeen: string[][] = [];
+    const reviews: string[] = [];
+    const finding = { id: 'R1', severity: 'MEDIUM', category: 'validator', summary: 'src/scoped.ts accepts non-ISO dates' };
+    const adapters: AdapterRegistry = {
+      [WORKER_KIND]: {
+        ...inner,
+        start: (s, worker, brief, path) => {
+          argsSeen.push([...worker.args]);
+          return inner.start(s, worker, brief, path);
+        },
+        rejoin: (s, worker, session, brief) => {
+          argsSeen.push([...worker.args]);
+          return inner.rejoin(s, worker, session, brief);
+        },
+        review: (_s, _w, _b, instruction) => {
+          const verdict = verdicts[Math.min(reviews.length, verdicts.length - 1)] as string;
+          reviews.push(verdict);
+          return reviewerReply(instruction, verdict, verdict === 'REJECT' ? [finding] : []);
+        },
+      },
+    };
+    return { adapters, argsSeen, reviews };
+  }
+
+  it('a REJECT re-dispatches the implementer with the approved write grant, then a fresh review approves', () => {
+    const sys = world({ files: cleanFindings(SESSION), writePaths: ['src/scoped.ts'] });
+    const { adapters, argsSeen, reviews } = rejectingThen(['REJECT', 'APPROVE']);
+    // No gatekeeper is configured: the correction needs none.
+    const r = runLoop(sys, ROOT, { adapters });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(reviews).toEqual(['REJECT', 'APPROVE']);
+    expect(argsSeen).toHaveLength(2);
+    expect(argsSeen[0]?.join(' ')).toContain('Write(src/scoped.ts)');
+    expect(argsSeen[1]?.join(' ')).toContain('Write(src/scoped.ts)');
+    expect(r.lines.join('\n')).toContain('correcting after the independent review rejected the work (correction 1 of 3)');
+    expect(r.stop?.code).not.toBe('REVIEW_OUTSTANDING');
+    const record = JSON.parse(sys.readText(`${ROOT}/.projectops/execution/${SESSION}.reviewer.json`) ?? '{}') as Record<string, unknown>;
+    expect(record['verdict']).toBe('APPROVE');
+  });
+
+  it('a rejection that persists spends the existing budget of three corrections, then stops REVIEW_OUTSTANDING as before', () => {
+    const sys = world({ files: cleanFindings(SESSION), writePaths: ['src/scoped.ts'] });
+    const { adapters, argsSeen, reviews } = rejectingThen(['REJECT']);
+    const r = runLoop(sys, ROOT, { adapters });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(reviews).toEqual(['REJECT', 'REJECT', 'REJECT', 'REJECT']);
+    expect(argsSeen).toHaveLength(4);
+    for (const args of argsSeen) expect(args.join(' ')).toContain('Write(src/scoped.ts)');
+    expect(r.lines.join('\n')).toContain('(correction 3 of 3)');
+    expect(r.lines.join('\n')).not.toContain('(correction 4 of 3)');
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
+    expect(r.stop?.detail).toContain('returned REJECT');
   });
 
   it('a refused review names the denial reasons, inert and bounded, so the stop says which tripwire fired', () => {

@@ -317,7 +317,8 @@ export function reviewInstruction(
     `Perform these reviews the approved plan requires: ${JSON.stringify(reviews)}. ` +
     'Judge the change against the phase acceptance criteria in the brief; partial work is a REJECT. ' +
     // A correction is granted only the files its instruction names by path (EXIT-PROOF1A, third run).
-    `In each summary, cite every file by its repository-relative path${shown[0] === undefined ? '' : ` (for example ${shown[0]})`}, not its bare name. ` +
+    // The example is a changed path, which the implementer controls: quoted, as the list above is (ECC SECURITY F3).
+    `In each summary, cite every file by its repository-relative path${shown[0] === undefined ? '' : ` (for example ${JSON.stringify(shown[0])})`}, not its bare name. ` +
     'End your reply with exactly one line: ' +
     `${verdictMarker(nonce)}{"verdict": "APPROVE"|"CONCERNS"|"REJECT", "reviews": [the reviews you performed], ` +
     '"findings": [{"id", "severity" of CRITICAL|HIGH|MEDIUM|LOW, "category", "summary"}]}'

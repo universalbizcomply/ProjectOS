@@ -360,6 +360,12 @@ describe('the Claude Code CLI adapter', () => {
     expect(correctionInstruction(briefPath)).not.toBe(pointerInstruction(briefPath));
   });
 
+  it("the correction points at the independent reviewer's record too, so a rejection can be fixed (owner: Claude fixes, re-review)", () => {
+    const line = correctionInstruction(briefPath);
+    expect(line).toContain("the independent reviewer's record beside the evidence record (the same name ending .reviewer.json)");
+    expect(line).toContain('correct every finding it lists, whatever its severity');
+  });
+
   it('the correction sentence carries no finding content — only where to read it', () => {
     const b = brief();
     const line = correctionInstruction(briefPath);

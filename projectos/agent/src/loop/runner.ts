@@ -1301,10 +1301,13 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
           grantsIssued: 'edit and write grants on the named files only; no shell, so no git, no commit, no push',
           // The worker is granted only the files the amendment's instruction names by path; the
           // gatekeeper was never told, and named none (EXIT-PROOF1A, third run).
+          // An empty maximum is said plainly, not pointed at (ECC SECURITY F1).
           howToAskForACorrection:
-            'In nextInstruction, name every file to correct by its full repository-relative path, exactly as listed in workerWritableMaximum' +
-            `${correctionMaximum[0] === undefined ? '' : ` (for example ${correctionMaximum[0]})`}. Only the files named there are granted; ` +
-            'an amendment that names none is refused before any worker starts.',
+            correctionMaximum[0] === undefined
+              ? 'No file is correctable by an amendment in this phase: workerWritableMaximum is empty, so an amendment is refused before any worker starts.'
+              : 'In nextInstruction, name every file to correct by its full repository-relative path, exactly as listed in workerWritableMaximum' +
+                ` (for example ${correctionMaximum[0]}), with forward slashes, and name no other file. Only the files named there are granted; ` +
+                'an amendment that names none is refused before any worker starts.',
           correctionsApplied: correctionsApplied.length,
           correctionBudgetRemaining: MAX_CORRECTION_ATTEMPTS - correctionsApplied.length,
           unresolvedCritical: f.available
@@ -2036,6 +2039,28 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         // A REJECTION STAYS REVIEW_OUTSTANDING, whose route offers no "proceed" (ECC SECURITY H1).
         if (!reviewPassed(reviewed.record) && decision.kind === 'stop' && decision.reason.code === 'REVIEW_OUTSTANDING') {
           decision = { kind: 'stop', reason: { code: 'REVIEW_OUTSTANDING', detail: `${decision.reason.detail}. ${reviewerObjection(reviewed.record)}` } };
+          // THE IMPLEMENTER CORRECTS A REJECTION, then it is reviewed again. Owner, 2026-10-30, verbatim:
+          // "Claude fixes, re-review (Recommended)". Inside the objective's existing budget, and with
+          // exactly the phase's approved write grant re-issued for the ONE next dispatch — the grant the
+          // implementer already held, never a gatekeeper-directed correction's. The review credits
+          // nothing until a fresh one passes; once the budget is spent this stop stands as before.
+          if (attempts < MAX_CORRECTION_ATTEMPTS && writeGrant.grants.length > 0) {
+            const correctionPreflight = runDoctor(sys, root, { checkCommands: suites.checks.map((c) => c.command) });
+            if (!correctionPreflight.safeToActAutonomously) {
+              lines.push(...doctorRefusalLines(correctionPreflight, 'autonomous-execution'));
+              stop = { code: 'DOCTOR_PREFLIGHT_FAILED', detail: 'the machine became unfit for autonomous work mid-run' };
+              break;
+            }
+            attempts += 1;
+            // Through the per-attempt slot, which the next dispatch consumes and clears: the first
+            // dispatch's spent-flag (BC-8n) is untouched, and nothing outlives this one dispatch.
+            correctionGrants = writeGrant.grants;
+            lines.push(
+              `  correcting after the independent review rejected the work (correction ${attempts} of ${MAX_CORRECTION_ATTEMPTS}); ` +
+                `re-granted the approved write paths: ${declaredWritePaths.entries.join(', ')}`,
+            );
+            continue;
+          }
         }
       } else {
         reviewerProblems = reviewed.problems;
