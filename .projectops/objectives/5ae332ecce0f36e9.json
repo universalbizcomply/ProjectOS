@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "5ae332ecce0f36e9",
+  "objective": "Plan v1.26: PROJECTOS-KERNEL-CORRECTION-PATHS1A also gives an independent rejection a fix route (the implementer corrects within the approved writePaths, inside the correction budget, then a fresh review); the exit proof runs after it.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "2da75cdcc9e484c78ca7687bd17b31eacd6afd9b",
+  "submittedAt": "2026-10-30T15:35:51.065Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
