@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "58561ad6e7246636",
+  "objective": "Plan v1.27: PROJECTOS-KERNEL-CORRECTION-PATHS1A may reword the protected rule BC-8n to state the owner-approved exception (the dispatch right after an independent rejection); the exit proof runs after it.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "4cc8dca2649404a6b71c44d4b45c3a4760fd41b0",
+  "submittedAt": "2026-10-30T16:58:16.577Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
