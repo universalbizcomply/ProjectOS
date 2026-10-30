@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-cbcab1119d5ddd1cd0e33fc9",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "a0f9ed69d0618786bfd167fb16042e0db13a1dcc",
+  "draftId": "58561ad6e7246636",
+  "planDigest": "sha256:f5b62496fcaaafb6bebccd511996eff40133b89404824a09bd496041ddd130d6",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-30T16:58:22.872Z",
+  "note": "Owner (Murad), 2026-10-30, verbatim: \"Yes, reword it (Recommended)\", approving the edit of the PROTECTED validator val-projectos-boot-continue1a.cjs so BC-8n states that a correction never carries the implementer's write grant except the one dispatch right after an independent reviewer rejects the work, limited to the phase's approved files and the existing three-attempt budget (checked by RC-1). Earlier the same day: \"Claude fixes, re-review (Recommended)\".",
+  "recordedBy": "projectos plan decide"
+}
