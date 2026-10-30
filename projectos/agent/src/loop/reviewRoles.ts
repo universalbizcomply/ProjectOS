@@ -75,6 +75,7 @@ export interface ReviewSubject {
 export type ReviewVerdict = 'APPROVE' | 'CONCERNS' | 'REJECT';
 const VERDICTS: ReadonlySet<string> = new Set<ReviewVerdict>(['APPROVE', 'CONCERNS', 'REJECT']);
 const SEVERITIES: ReadonlySet<string> = new Set<Severity>(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
+const SEVERITY_RANK: Readonly<Record<Severity, number>> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 const MAX_REVIEWER_FINDINGS = 50;
 
 /** Written by the LOOP, from the reviewer's output. The reviewer never writes this file. */
@@ -127,7 +128,7 @@ export function verdictMarker(nonce: string): string {
 }
 
 /** Reviewer text reaches consoles, records and the gatekeeper prompt: no control characters, bounded. */
-function inert(value: unknown, max: number): string {
+export function inert(value: unknown, max: number): string {
   const text = typeof value === 'string' ? value : '';
   // eslint-disable-next-line no-control-regex
   return text.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]|\udb40[\udc00-\udc7f]/g, ' ').slice(0, max);
@@ -265,7 +266,9 @@ export const OBJECTION_FINDINGS_SHOWN = 5;
 export function reviewerObjection(record: ReviewerRecord): string {
   const blocking = record.findings.filter((f) => f.severity === 'CRITICAL' || f.severity === 'HIGH');
   const named = blocking.length > 0 ? blocking : record.verdict === 'REJECT' ? record.findings : [];
-  const shown = named.slice(0, OBJECTION_FINDINGS_SHOWN).map((f) => `${f.severity} ${f.id} - ${f.summary}`);
+  // Most severe first, so a MEDIUM behind LOWs is not the one cut off (ECC SECURITY LOW).
+  const ranked = [...named].sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+  const shown = ranked.slice(0, OBJECTION_FINDINGS_SHOWN).map((f) => `${f.severity} ${f.id} - ${f.summary}`);
   const more = named.length - shown.length;
   const listed = `${shown.join('; ')}${more > 0 ? `; and ${more} more` : ''}`;
   return `the independent reviewer '${record.reviewerWorkerId}' returned ${record.verdict}${listed === '' ? '' : `: ${listed}`}`;
@@ -308,7 +311,8 @@ export function reviewInstruction(
     'You may only read: you hold no write grant, and any shell you are given is read-only; change nothing. ' +
     // A reviewer that writes probe scripts runs the candidate's code and trips the tripwires on innocent
     // text; reading alone found the real defect in every traced review (EXIT-PROOF1A, second run).
-    'Review by reading only: use git diff, git show, git log and plain file reads inside this repository; ' +
+    // Conditional, because a Claude reviewer holds no shell at all (ECC SECURITY MEDIUM).
+    'Review by reading only, inside this repository: read files with your read tools, and where you were given a read-only shell, use git diff, git show, git log and plain file reads; ' +
     'do not write, pipe or run any script, and do not run any code from the repository, including its validators and tests (the loop has already run them). ' +
     `Perform these reviews the approved plan requires: ${JSON.stringify(reviews)}. ` +
     'Judge the change against the phase acceptance criteria in the brief; partial work is a REJECT. ' +

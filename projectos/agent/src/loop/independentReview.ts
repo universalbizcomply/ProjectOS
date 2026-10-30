@@ -19,6 +19,7 @@ import { candidateDigest, computeCandidateIdentity } from './candidateIdentity.j
 import type { CandidateEntry } from '@projectos/core';
 import {
   REVIEW_PATHS_SHOWN,
+  inert,
   parseReviewerVerdict,
   reviewerConfigPaths,
   reviewInstruction,
@@ -79,8 +80,8 @@ function reviewerDenials(stdout: string): readonly string[] {
   if (!Array.isArray(denials)) return [];
   return denials.map((d) => {
     const name = d !== null && typeof d === 'object' ? (d as Record<string, unknown>)['tool_name'] : undefined;
-    // eslint-disable-next-line no-control-regex
-    return typeof name === 'string' ? name.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, DENIAL_NAME_MAX) : 'an unnamed denial';
+    // The same sanitiser as the reviewer's own text: control, bidi, zero-width and tag characters (ECC SECURITY LOW).
+    return typeof name === 'string' ? inert(name, DENIAL_NAME_MAX) : 'an unnamed denial';
   });
 }
 

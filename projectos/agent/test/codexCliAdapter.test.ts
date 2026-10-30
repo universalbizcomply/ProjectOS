@@ -571,6 +571,12 @@ describe('MEDIUM 2: only a command that completed with exit 0 is a read', () => 
     `${GIT_WARNING}\nAccess is denied.`,
     `prefix ${GIT_WARNING}`,
     "warning: unable to access 'x': Permission denied; and more",
+    // Only git's own default config paths are set aside; any other quoted path is a refusal to report
+    // (ECC SECURITY LOW-MEDIUM: a hidden excludesFile outside the checkout).
+    "warning: unable to access 'C:\\Users\\owner\\.codex\\auth.json': Permission denied",
+    "warning: unable to access 'C:\\Users\\owner\\AppData\\Local\\Temp\\x': Permission denied",
+    "warning: unable to access 'link/x': Permission denied",
+    "warning: unable to access 'x blocked by sandbox: Access is denied': Permission denied",
   ])('any other sandbox wording beside or around the git warning is still a denial: %j', (output) => {
     const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command: 'git show nope', aggregated_output: output, exit_code: 1, status: 'failed' }));
     expect(body['permission_denials']).toEqual([{ tool_name: 'command_execution: stopped by the sandbox or an approval' }]);

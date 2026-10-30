@@ -136,8 +136,10 @@ describe('H2 / F2 — what the reviewer is told and what it may be steered by', 
   });
   it('tells the reviewer to review by reading only and to run no script or repository code (EXIT-PROOF1A, second run)', () => {
     const text = reviewInstruction('b.json', SUBJECT, ['a.ts'], ['ECC CODE review'], NONCE);
-    expect(text).toContain('Review by reading only: use git diff, git show, git log and plain file reads inside this repository;');
+    expect(text).toContain('Review by reading only, inside this repository: read files with your read tools, and where you were given a read-only shell, use git diff, git show, git log and plain file reads;');
     expect(text).toContain('do not write, pipe or run any script, and do not run any code from the repository, including its validators and tests');
+    // A Claude reviewer holds no shell at all: the words must not send it to one (ECC SECURITY MEDIUM).
+    expect(text).not.toContain('Review by reading only: use git');
   });
 });
 
@@ -158,6 +160,12 @@ describe('a rejection says what it objected to', () => {
     const text = reviewerObjection(record({ verdict: 'REJECT', findings: many }));
     expect(text).toContain('LOW reviewer:F4 - s4');
     expect(text).not.toContain('reviewer:F5');
+    expect(text).toMatch(/and 2 more$/);
+  });
+  it('names the most severe findings first, so a MEDIUM behind six LOWs is not cut off', () => {
+    const lows = Array.from({ length: 6 }, (_, i) => finding(`L${i}`, 'LOW', `low ${i}`));
+    const text = reviewerObjection(record({ verdict: 'REJECT', findings: [...lows, finding('M', 'MEDIUM', 'the real one')] }));
+    expect(text).toMatch(/returned REJECT: MEDIUM reviewer:M - the real one; LOW reviewer:L0/);
     expect(text).toMatch(/and 2 more$/);
   });
   it('a CONCERNS verdict with only MEDIUM findings is not an objection to list', () => {

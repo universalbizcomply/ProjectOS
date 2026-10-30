@@ -118,6 +118,7 @@ const TESTS = {
     "tells the reviewer to review by reading only and to run no script or repository code (EXIT-PROOF1A, second run)",
     "a REJECT whose findings are all MEDIUM or LOW names them, so a correction can be named",
     "names at most five findings and says how many more there were",
+    "names the most severe findings first, so a MEDIUM behind six LOWs is not cut off",
   ],
   "projectos/agent/test/hybridClosureReconcile.test.ts": [
     "a provider response id with %s is printed as not returned and stored as null",
@@ -203,9 +204,9 @@ const PIN = {
   agentsOverride: "AGENTS(\\.override)?\\.md$|\\.agents(\\/|$)|",
   readOnlyWords: "'You may only read: you hold no write grant, and any shell you are given is read-only; change nothing. ' +",
   // RV-2 and CX-15 (PROJECTOS-KERNEL-REVIEW-READONLY1A)
-  readByReading: "'Review by reading only: use git diff, git show, git log and plain file reads inside this repository; ' +",
+  readByReading: "'Review by reading only, inside this repository: read files with your read tools, and where you were given a read-only shell, use git diff, git show, git log and plain file reads; ' +",
   noScripts: "'do not write, pipe or run any script, and do not run any code from the repository, including its validators and tests (the loop has already run them). ' +",
-  gitWarningLine: String.raw`const GIT_CONFIG_WARNING_LINE = /^warning: unable to access '[^'\r\n]*': Permission denied\r?$/gm;`,
+  gitWarningLine: "const GIT_CONFIG_WARNING_LINE =\n  " + String.raw`/^warning: unable to access '[^'\r\n]*[\\/]\.config[\\/]git[\\/](?:ignore|attributes)': Permission denied\r?$/gm;`,
   gitWarningStripped: "const output = typeof item['aggregated_output'] === 'string' ? item['aggregated_output'].replace(GIT_CONFIG_WARNING_LINE, '') : '';",
   sandboxOnStripped: "if (item['status'] === 'failed' && SANDBOX_REFUSAL.test(output)) {",
   // CW-1 (LOW 7)
@@ -291,7 +292,8 @@ const MUTATIONS = [
   { name: "reviewer-may-run-scripts", rule: "RV-2", rel: ROLES_REL, from: PIN.noScripts, to: "" },
   { name: "reviewer-not-told-to-read", rule: "RV-2", rel: ROLES_REL, from: PIN.readByReading, to: "" },
   { name: "git-warning-unanchored", rule: "CX-15", rel: CODEX_REL, from: PIN.gitWarningLine, to: PIN.gitWarningLine.replace("/^warning:", "/warning:") },
-  { name: "any-permission-denied-line-set-aside", rule: "CX-15", rel: CODEX_REL, from: PIN.gitWarningLine, to: String.raw`const GIT_CONFIG_WARNING_LINE = /^.*Permission denied\r?$/gm;` },
+  { name: "any-permission-denied-line-set-aside", rule: "CX-15", rel: CODEX_REL, from: PIN.gitWarningLine, to: "const GIT_CONFIG_WARNING_LINE =\n  " + String.raw`/^.*Permission denied\r?$/gm;` },
+  { name: "git-warning-any-quoted-path", rule: "CX-15", rel: CODEX_REL, from: PIN.gitWarningLine, to: PIN.gitWarningLine.replace(String.raw`[\\/]\.config[\\/]git[\\/](?:ignore|attributes)'`, "'") },
   { name: "sandbox-test-on-raw-output-dropped", rule: "CX-15", rel: CODEX_REL, from: PIN.sandboxOnStripped, to: "if (item['status'] === 'failed' && SANDBOX_REFUSAL.test(output.slice(0, 0))) {" },
   { name: "shell-grant-claim-back", rule: "RV-1", rel: ROLES_REL, from: "You may only read: you hold no write grant, and any shell you are given is read-only; change nothing. ", to: "You hold no write or shell grant; change nothing. " },
   { name: "response-id-unbounded", rule: "CW-1", rel: WAIT_REL, from: PIN.idShape, to: "const PROVIDER_RESPONSE_ID = /^.*$/;" },

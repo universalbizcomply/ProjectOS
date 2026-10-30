@@ -326,10 +326,13 @@ const SANDBOX_REFUSAL =
   /sandbox|blocked by policy|permission denied|access is denied|access to the path .* is denied|\bis denied\b|unauthorizedaccess|operation not permitted|read-only file system|\bEACCES\b|\bEPERM\b|approv/i;
 /**
  * Git's own warning, printed on EVERY command in the sandbox because it cannot read the owner's global
- * config. A whole line of exactly this shape is removed before `SANDBOX_REFUSAL` is applied, so a git step
- * that fails for its own reason is not read as the sandbox stopping it (EXIT-PROOF1A, second run).
+ * config. A whole line of exactly this shape, naming git's own default `.config/git/ignore` or
+ * `attributes`, is removed before `SANDBOX_REFUSAL` is applied, so a git step that fails for its own
+ * reason is not read as the sandbox stopping it (EXIT-PROOF1A, second run). Any other quoted path — an
+ * excludes file the command pointed elsewhere — is still a refusal to report (ECC SECURITY).
  */
-const GIT_CONFIG_WARNING_LINE = /^warning: unable to access '[^'\r\n]*': Permission denied\r?$/gm;
+const GIT_CONFIG_WARNING_LINE =
+  /^warning: unable to access '[^'\r\n]*[\\/]\.config[\\/]git[\\/](?:ignore|attributes)': Permission denied\r?$/gm;
 
 /**
  * MEDIUM 2. Why a `command_execution` item is beyond reading, or null. A command that was DECLINED, or

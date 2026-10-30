@@ -2012,7 +2012,7 @@ describe('D11: role-separated independent review inside the loop', () => {
     const denials = [
       { tool_name: 'command_execution: names a path outside the repository' },
       { tool_name: 'Bash' },
-      { tool_name: 'x\u001b[31mred\u0007' },
+      { tool_name: 'x\u001b[31mred\u0007‮󠁁' },
       { tool_name: 'y'.repeat(500) },
       { tool_name: 'five' },
       { tool_name: 'six' },
@@ -2034,8 +2034,11 @@ describe('D11: role-separated independent review inside the loop', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const detail = r.stop?.detail ?? '';
-    expect(detail).toContain('attempted tools it was denied (command_execution: names a path outside the repository; Bash; x [31mred ; ');
+    expect(detail).toContain('attempted tools it was denied (command_execution: names a path outside the repository; Bash; x [31mred   ; ');
     expect(detail).not.toContain('\u001b');
+    // Bidi overrides and tag characters too, as for the reviewer's own text (ECC SECURITY LOW).
+    expect(detail).not.toContain('‮');
+    expect(detail).not.toContain('󠁁');
     expect(detail).not.toContain('y'.repeat(121));
     expect(detail).toContain('and 2 more)');
     expect(detail).not.toContain('six');
