@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-0bf65bd3e185b87e1d5a9f36",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "4d00f2b0f4607ce86803efaf6664d4a3ec4f6db2",
+  "draftId": "984a453eba5306a1",
+  "planDigest": "sha256:e6d1450d55c0abab463189b625313137fff35ff722bd23b3d08d10d47f6c8b91",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-30T07:01:04.923Z",
+  "note": "Owner (Murad), 2026-10-30, verbatim: \"Fix ProjectOS properly (Recommended)\", answering how to get past D11 R5 refusing the agency plan for phases that closed before D11; this approves the change to the protected planApproval.ts. Earlier: \"Yes, run it (Recommended)\" (live exit proof). Standing grant: \"You have full authority\" (2026-10-28).",
+  "recordedBy": "projectos plan decide"
+}
