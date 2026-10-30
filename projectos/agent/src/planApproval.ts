@@ -37,6 +37,7 @@ import { CLOSURE_SCOPES, DELEGABLE_SCOPES, type DelegableScope } from '@projecto
 import { planReviewProblems } from './loop/reviewRoles.js';
 import { governanceEngines } from './governanceEngines.js';
 import type { System } from './system.js';
+import { isSafePhaseId } from './phaseStore.js';
 import { join, projectopsDir } from './context.js';
 import {
   buildProposal,
@@ -564,32 +565,43 @@ export interface MaterialiseInputs {
    * D11 R5 HISTORY (PROJECTOS-KERNEL-PLAN-HISTORY1A). Phases that are BOTH in the active approved plan
    * AND closed by a COMMITTED phase record (`closedHistoryPhases`). A closed phase is history: no review
    * can be added to it now, and refusing every later plan because of it left a project whose phases
-   * closed before D11 unable to plan at all. Absent means none: every phase is held to R5.
+   * closed before D11 unable to plan at all. Absent means none: every phase is held to R5. Each id maps
+   * to the `requiredReviews` the ACTIVE plan approved for it: a candidate under that id is exempt only
+   * while its reviews are unchanged, so a closed id cannot carry a new self-review-only definition.
    */
-  readonly closedHistory?: ReadonlySet<string>;
+  readonly closedHistory?: ReadonlyMap<string, readonly string[]>;
   readonly planId: string;
   readonly programmeId: string;
   readonly now: string;
 }
 
-/** A phase id that can name a record file: no separators, no `..`, no leading dot. */
-const PHASE_FILE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
 /**
  * The phases R5 does not re-judge: in the active approved plan AND closed by the phase record as it is
- * COMMITTED at HEAD. A working-tree record that says closed is not history anyone approved; a phase the
- * active plan never held is not history at all.
+ * COMMITTED at HEAD — status `closed` and a history whose last step is into `closed`. A working-tree
+ * record that says closed is not history anyone approved; a phase the active plan never held is not
+ * history at all. Ids are the phase store's own (`isSafePhaseId`), so nothing path-shaped is ever read.
+ * Each id maps to the reviews the active plan approved for it.
  */
-export function closedHistoryPhases(sys: System, root: string, activePlan: Record<string, unknown>): ReadonlySet<string> {
+export function closedHistoryPhases(sys: System, root: string, activePlan: Record<string, unknown>): ReadonlyMap<string, readonly string[]> {
   const phases = Array.isArray(activePlan['phases']) ? (activePlan['phases'] as Record<string, unknown>[]) : [];
-  const closed = new Set<string>();
+  const closed = new Map<string, readonly string[]>();
   for (const phase of phases) {
     const id = strOf(phase['phaseId']);
-    if (id === null || id.includes('..') || !PHASE_FILE_ID.test(id)) continue;
+    if (id === null || !isSafePhaseId(id)) continue;
     const record = readCommittedJson(sys, root, `.projectops/phases/${id}.json`);
-    if (record !== null && record['phaseId'] === id && record['status'] === 'closed') closed.add(id);
+    if (record === null || record['phaseId'] !== id || record['status'] !== 'closed') continue;
+    const history = Array.isArray(record['history']) ? (record['history'] as Record<string, unknown>[]) : [];
+    if (history.length === 0 || history[history.length - 1]?.['to'] !== 'closed') continue;
+    closed.set(id, arrOfStrings(phase['requiredReviews']));
   }
   return closed;
+}
+
+/** The same reviews, as sets of trimmed names: order and spacing are not a change of definition. */
+function sameReviews(a: readonly string[], b: readonly string[]): boolean {
+  const norm = (xs: readonly string[]) => [...new Set(xs.map((x) => x.trim()))].sort();
+  const [x, y] = [norm(a), norm(b)];
+  return x.length === y.length && x.every((v, i) => v === y[i]);
 }
 
 export type MaterialiseResult =
@@ -677,8 +689,11 @@ export function materialisePlan(input: MaterialiseInputs): MaterialiseResult {
     if (autonomy === null) problems.push(`phase ${id} does not state an autonomy level`);
     if (typeof proof !== 'boolean') problems.push(`phase ${id} does not state whether browser proof is required`);
     // D11 R5: a phase nobody but its implementer reviews is refused here, before it can be approved —
-    // unless it is history: already in the active plan and closed by its committed record.
-    if (!(input.closedHistory?.has(id) ?? false)) problems.push(...planReviewProblems(id, arrOfStrings(c['requiredReviews'])));
+    // unless it is history: already in the active plan, closed by its committed record, and still
+    // declaring exactly the reviews the active plan approved for it.
+    const approvedReviews = input.closedHistory?.get(id);
+    const isHistory = approvedReviews !== undefined && sameReviews(arrOfStrings(c['requiredReviews']), approvedReviews);
+    if (!isHistory) problems.push(...planReviewProblems(id, arrOfStrings(c['requiredReviews'])));
     // THE WRITE GRANT IS PROJECTED EXACTLY — PROJECTOS-FINISH-WRITEPATHS1A. It is bound by the approval
     // digest like every other phase field, and a list that is not a list of non-empty strings is refused
     // here, at approval, rather than narrowed into something the owner never saw. Whether each path may

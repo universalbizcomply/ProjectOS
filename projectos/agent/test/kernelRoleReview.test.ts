@@ -213,10 +213,15 @@ describe('R5 history — PROJECTOS-KERNEL-PLAN-HISTORY1A: a phase already closed
     }) as unknown as Parameters<typeof materialisePlan>[0];
 
   it('skips R5 for a closed-history phase, and still refuses a new one beside it', () => {
-    const r = materialisePlan({ ...draftOf('OLD1A', 'NEW1A'), closedHistory: new Set(['OLD1A']) });
+    const r = materialisePlan({ ...draftOf('OLD1A', 'NEW1A'), closedHistory: new Map([['OLD1A', [' Claude self-review']]]) });
     const text = r.ok ? '' : r.problems.join('\n');
     expect(text).not.toContain('phase OLD1A declares only');
     expect(text).toContain('phase NEW1A declares only Claude self-review');
+  });
+
+  it('a closed id carrying CHANGED reviews is judged by R5 again, not waived', () => {
+    const r = materialisePlan({ ...draftOf('OLD1A'), closedHistory: new Map([['OLD1A', ['Claude self-review', 'ECC CODE review']]]) });
+    expect(r.ok ? '' : r.problems.join('\n')).toContain('phase OLD1A declares only Claude self-review');
   });
 
   /** A fake System whose committed tree holds exactly these phase records. */
@@ -234,16 +239,33 @@ describe('R5 history — PROJECTOS-KERNEL-PLAN-HISTORY1A: a phase already closed
   };
 
   it('counts a phase only when it is in the active plan AND its COMMITTED record says closed', () => {
+    const toClosed = [{ from: 'awaiting_closure', to: 'closed' }];
     const { sys, asked } = committed({
-      '.projectops/phases/CLOSED1A.json': { phaseId: 'CLOSED1A', status: 'closed' },
-      '.projectops/phases/OPEN1A.json': { phaseId: 'OPEN1A', status: 'implementing' },
-      '.projectops/phases/LIAR1A.json': { phaseId: 'SOMEONE-ELSE', status: 'closed' },
-      '.projectops/phases/NOTPLANNED1A.json': { phaseId: 'NOTPLANNED1A', status: 'closed' },
+      '.projectops/phases/CLOSED1A.json': { phaseId: 'CLOSED1A', status: 'closed', history: toClosed },
+      '.projectops/phases/OPEN1A.json': { phaseId: 'OPEN1A', status: 'implementing', history: [] },
+      '.projectops/phases/LIAR1A.json': { phaseId: 'SOMEONE-ELSE', status: 'closed', history: toClosed },
+      '.projectops/phases/NOTPLANNED1A.json': { phaseId: 'NOTPLANNED1A', status: 'closed', history: toClosed },
+      '.projectops/phases/BLOCKED1A.json': { phaseId: 'BLOCKED1A', status: 'closed_as_blocked', history: [{ to: 'closed_as_blocked' }] },
+      '.projectops/phases/NOHISTORY1A.json': { phaseId: 'NOHISTORY1A', status: 'closed' },
+      '.projectops/phases/HANDEDIT1A.json': { phaseId: 'HANDEDIT1A', status: 'closed', history: [{ to: 'implementing' }] },
     });
-    const active = { phases: [{ phaseId: 'CLOSED1A' }, { phaseId: 'OPEN1A' }, { phaseId: 'LIAR1A' }, { phaseId: 'UNCOMMITTED1A' }, { phaseId: '../escape' }, { phaseId: '.hidden' }] };
-    expect([...closedHistoryPhases(sys, '/repo', active)]).toEqual(['CLOSED1A']);
-    // A path-shaped id is never turned into a read.
-    expect(asked.some((a) => a.includes('escape') || a.includes('.hidden'))).toBe(false);
+    const active = {
+      phases: [
+        { phaseId: 'CLOSED1A', requiredReviews: ['Claude self-review'] }, { phaseId: 'OPEN1A' }, { phaseId: 'LIAR1A' }, { phaseId: 'BLOCKED1A' },
+        { phaseId: 'NOHISTORY1A' }, { phaseId: 'HANDEDIT1A' }, { phaseId: 'UNCOMMITTED1A' }, { phaseId: '../escape' }, { phaseId: '.hidden' },
+        { phaseId: 'a.b' }, { phaseId: 'X' },
+      ],
+    };
+    const history = closedHistoryPhases(sys, '/repo', active);
+    expect([...history.entries()]).toEqual([['CLOSED1A', ['Claude self-review']]]);
+    // An id the phase store could never have written is never turned into a read.
+    expect(asked.some((a) => /escape|\.hidden|a\.b|phases\/X\.json/.test(a))).toBe(false);
+  });
+
+  it('a record that says closed only in the working tree is not history (only HEAD is read)', () => {
+    // The fake System has no working tree at all: a working-tree read would throw.
+    const { sys } = committed({});
+    expect(closedHistoryPhases(sys, '/repo', { phases: [{ phaseId: 'WORKTREE1A' }] }).size).toBe(0);
   });
 
   it('a first plan (no active phases) has no history', () => {
