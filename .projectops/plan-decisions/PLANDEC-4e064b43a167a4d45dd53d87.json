@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-30T15:36:11.193Z",
   "note": "Owner (Murad), 2026-10-30, verbatim: \"Claude fixes, re-review (Recommended)\", answering what should happen when the independent reviewer rejects the implementer's work: the loop re-runs the same implementer with the reviewer's findings, writing only the files the plan already approved for the phase, up to the existing limit of three corrections, then re-runs the checks and gets a fresh independent review; no new permissions; a rejection still never counts as a pass. Standing: \"Yes, run it (Recommended)\" (2026-10-29); \"You have full authority\" (2026-10-28).",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-30T15:36:14.660Z"
 }
