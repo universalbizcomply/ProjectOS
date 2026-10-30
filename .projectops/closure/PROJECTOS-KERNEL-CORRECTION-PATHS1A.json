@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-CORRECTION-PATHS1A",
+  "evidenceSubjectHead": "82bddc43a11bb9ed5ff2428caa4f4b07d04c6d5a",
+  "baselineCommit": "a5d5b3264d57f7841299065bc4690aa1bcf9e3ee",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-30T17:33:43.325Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-KERNEL-CORRECTION-PATHS1A, phase 22 of 22 of plan v1.27, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 82bddc4 on a5d5b32 (plan v1.25 activation; widened by v1.26 18055ac and v1.27 9001de4): 5f262a1, 3e8832f, 9077c4a, 82bddc4 (evidence).",
+    "validatorsPass: val-projectos-kernel-followup1a (88 named mutations), val-projectos-boot-continue1a (all but AG-5; 18 mutations each killed by its own rule) and validate-no-secrets PASS; validate-all 152/155 PASS (the 2 known baseline failures, plus AG-5 from the owner-approved TEMPORARY seo-agency allowlist entry for the exit proof, by design).",
+    "checksPass: agent 2921/2921; tsc and typecheck:tests clean.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review (5f262a1: APPROVE WITH CHANGES, F1 led to the owner decision and plan v1.26, F3-F4 fixed in 3e8832f); one recheck (3e8832f: APPROVE WITH CHANGES, no CRITICAL/HIGH; BC-8n reworded on the owner approval, rejected rounds logged, RC-1 pins and tests in 9077c4a); no further round.",
+    "unresolved: zero CRITICAL/HIGH. Carried: pathsNamedIn cannot name .txt files; no production correction maximum (owner design decision); durable rejected-round field needs protected verification.ts; budget restarts per resume. See docs/finish/PROJECTOS-KERNEL-CORRECTION-PATHS1A.md.",
+    "protected file: projectos/validators/val-projectos-boot-continue1a.cjs (BC-8n), changed on the owner's explicit approval \"Yes, reword it (Recommended)\" (2026-10-30, plan v1.27).",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
