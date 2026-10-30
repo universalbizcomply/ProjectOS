@@ -135,8 +135,11 @@ architecture ADR goes to `software-architect`.
       `plan-decisions`), so the audit ledger is tamper-evident.
 - [ ] 1.8 Agency follow-up: close the residual `validate-site` bypasses, with the independent review
       declared in its plan.
-- **Exit proof:** one Develop phase closes from one `continue`, where the reviewer's provider differs
-  from the implementer's, and a deliberately low cap is shown to refuse a call.
+- [x] **Exit proof** (2026-10-30, `d068422`, closed `120a8b7`; agency `d6c50f5`: SEO-AGENCY-SITE-CHECK3A closed from one
+  `continue` with zero owner acts, Claude implementing and Codex (OpenAI) reviewing, `providerDistinct: true`; the cap
+  refused a call before it was made in run 1; four runs, three fix phases, $0.0076): one Develop phase closes from one
+  `continue`, where the reviewer's provider differs from the implementer's, and a deliberately low cap is shown to
+  refuse a call. **Stage 1 complete.**
 
 **Parallel [SPIKE]s: DONE 2026-10-28, `60aab03` (`docs/adr/ADR-S1..S4`):**
 - S1 Hermes: ADOPT (owner 2026-10-29: clone the code and adapt it; MIT notices kept). Was REFERENCE.
