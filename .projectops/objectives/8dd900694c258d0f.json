@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "8dd900694c258d0f",
+  "objective": "Plan v1.24: append PROJECTOS-KERNEL-REVIEW-READONLY1A (the independent reviewer reviews by reading only, a refused review names why, a rejection carries its findings); the exit proof runs after it.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "edbe24881ad7919c306bca8898c4771863fb7339",
+  "submittedAt": "2026-10-30T11:04:34.202Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
