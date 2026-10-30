@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-0bee6eda1f827c7079de926c",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "58936a0b1b5cea35fa67b8382decd67467485ff1",
+  "draftId": "654c15e800bf1287",
+  "planDigest": "sha256:c07efe134120119f67653b759823520d88b9a060525d282ade4ecaf943d8caa8",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-10-30T09:54:25.387Z",
+  "note": "Owner (Murad), standing answers, verbatim: \"Yes, run it (Recommended)\" (2026-10-29, live exit proof: Codex probe, then a governed phase under the caps); \"Accept tripwires (Recommended)\" (tripwires are the accepted protection for the Codex reviewer). The exit proof's first run showed the UNC tripwire refuses an innocent review (a quoted escape read as a network path); this small phase narrows that one rule before the proof runs. Standing grant: \"You have full authority\" (2026-10-28).",
+  "recordedBy": "projectos plan decide"
+}
