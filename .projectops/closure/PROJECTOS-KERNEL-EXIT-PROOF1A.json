@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
+  "evidenceSubjectHead": "d068422bf369d9f19c97b71cfa898ca5759f872b",
+  "baselineCommit": "9001de45e4ea9b814e36c968dd39297226a72583",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-30T18:04:34.134Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-KERNEL-EXIT-PROOF1A, phase 16 of 22 of plan v1.27, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. d068422 on 381acb1 (allowlist entry removed): evidence and 06_Plan log only. Agency proof commits 69d5107, da1cbe3, e727895, 4766735, d6c50f5 (all by ProjectOS implementer).",
+    "validatorsPass: validate-no-secrets PASS; val-projectos-boot-continue1a PASS (AG-5 green again); validate-all 153/155 PASS (the 2 known baseline failures: validate-desktop-e2e needs a Control Centre bundle, val-cd-b4-sealed-expected-window-facts1a V2; AG-5 green again).",
+    "checksPass: agency validate-site PASS and validate-site.fixtures 27/27 at d6c50f5.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review of the evidence against the agency records: APPROVE WITH CHANGES, no CRITICAL/HIGH; all six checks PASS on the committed agency records; corrections applied (one overstated fixture claim, owner-identity commits by Claude, fix-phase owner involvement, what Accept tripwires accepts, run logs committed with sha256).",
+    "unresolved: zero CRITICAL/HIGH. Carried: the items listed in the three fix phases evidence; key rotation at project completion. See docs/finish/PROJECTOS-KERNEL-EXIT-PROOF1A.md.",
+    "protected file: projectos/security/installation-project-allowlist.json restored byte-for-byte to d8ec61e^ (the owner-approved TEMPORARY entry removed, as the owner required).",
+    "protectedEffects: the proof spent 7,632 micro-USD of the owner's OpenAI key through the installation broker under the agency's committed secrets-handling receipt and the $1.50 cap the owner set; no deployment, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
