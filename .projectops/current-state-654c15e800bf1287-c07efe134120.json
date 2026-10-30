@@ -3,11 +3,11 @@
   "projectId": "projectos",
   "activePlanId": "plan-654c15e800bf1287-c07efe134120",
   "activePlanVersion": "1.23",
-  "currentStatus": "IN EXECUTION",
+  "currentStatus": "PLAN READY",
   "completionMethod": "phase-closure",
-  "acceptedPhaseCount": 18,
+  "acceptedPhaseCount": 19,
   "totalPhaseCount": 20,
-  "completionPercentage": 90,
+  "completionPercentage": 95,
   "completedPhases": [
     "PROJECTOS-FINISH-WRITEPATHS1A",
     "PROJECTOS-FINISH-MULTIPROJECT1A",
@@ -26,9 +26,10 @@
     "PROJECTOS-KERNEL-HYGIENE1A",
     "PROJECTOS-KERNEL-FOLLOWUP1A",
     "PROJECTOS-KERNEL-CODEX-LIVE1A",
-    "PROJECTOS-KERNEL-PLAN-HISTORY1A"
+    "PROJECTOS-KERNEL-PLAN-HISTORY1A",
+    "PROJECTOS-KERNEL-CODEX-UNC1A"
   ],
-  "activePhase": "PROJECTOS-KERNEL-CODEX-UNC1A",
+  "activePhase": null,
   "pendingPhases": [
     "PROJECTOS-KERNEL-EXIT-PROOF1A"
   ],
@@ -36,13 +37,13 @@
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-autonomy-bootstrap1a",
-  "currentHead": "12bbb838c11213c07b6f705b760d0eaecb67d6be",
+  "currentHead": "3658107c8b8297c1677aa211ba1002bc13c891ac",
   "currentRemoteHead": null,
   "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PLANDEC-0bee6eda1f827c7079de926c",
-  "nextRecommendedPhase": "PROJECTOS-KERNEL-CODEX-UNC1A",
-  "lastUpdated": "2026-10-30T10:55:12.195Z",
-  "updatedByRole": "implementer"
+  "nextRecommendedPhase": "PROJECTOS-KERNEL-EXIT-PROOF1A",
+  "lastUpdated": "2026-10-30T10:55:13.907Z",
+  "updatedByRole": "owner"
 }

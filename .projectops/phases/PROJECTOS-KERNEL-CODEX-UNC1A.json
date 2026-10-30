@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-KERNEL-CODEX-UNC1A",
   "project": "ProjectOS",
   "objective": "The exit proof's first run (2026-10-30 09:30, agency SEO-AGENCY-SITE-CHECK3A) had its Codex review refused as \"attempted tools it was denied\". A traced re-run of the same adapter path against the same candidate showed the only denial was a false positive: the reviewer piped a Node probe script into node, and the script's JavaScript string \"\\\\nExpires: ...\" (a quote followed by an escaped newline) matched the UNC tripwire as the network path \\\\nExpires. Nothing left the checkout. A denial ends the run on the owner, so this false positive alone defeats the zero-owner-act exit proof. This phase makes the UNC tripwire require a host followed by a separator (\\\\host\\share, //host/share, \\\\?\\UNC\\..., \\\\.\\pipe\\...), which every path into a share has, and which a quoted escape does not. The exit proof runs after it.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-30T10:55:12.029Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-30T10:55:13.773Z",
+      "note": "Owner-direct closure under the owner's grant. — closed by owner Murad, decision projectos:PROJECTOS-KERNEL-CODEX-UNC1A:owner-closure:12bbb838"
     }
   ]
 }
