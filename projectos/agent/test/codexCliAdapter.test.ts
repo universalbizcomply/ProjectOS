@@ -395,6 +395,10 @@ describe('HIGH 1(b): a command that names a path outside the checkout is a denia
     ['a long-path UNC prefix', 'type \\\\?\\UNC\\server\\share\\x'],
     ['a named pipe', 'type \\\\.\\pipe\\x'],
     ['a loopback admin share', 'Get-ChildItem "\\\\localhost\\c$\\Users"'],
+    ['a UNC path with a doubled separator', 'Get-Content \\\\localhost\\\\c$\\x'],
+    ['a forward-slash UNC path with a doubled separator', 'cat //localhost//c$/x'],
+    ['a UNC path with mixed separators', 'Get-Content \\\\localhost\\/c$\\x'],
+    ['a UNC host given as a PowerShell sub-expression', 'Get-ChildItem "\\\\$(hostname)\\c$\\x"'],
     ["the owner's Codex home", 'cat auth.json --dir .codex'],
     ['the Codex login file through the checkout', 'Get-Content C:/dev/candidate/../../Users/o/.codex/auth.json'],
   ])('%s: %s', (_label, command) => {
@@ -432,6 +436,9 @@ describe('HIGH 1(b): a command that names a path outside the checkout is a denia
     ['a quoted escaped newline', 'node -e \'console.log("\\\\nExpires: x")\''],
     ['a quoted escaped tab at the end', "node -e \"console.log('a' + '\\\\t')\""],
     ['a quoted unicode escape', 'node -e \'console.log("\\\\u0041")\''],
+    ['a quoted pair of escapes', 'node -e \'console.log("\\\\n\\\\t")\''],
+    // A bare host names no file: listing shares or querying a service reads nothing from one.
+    ['a bare host with no share', 'net view \\\\localhost'],
   ])('does not read a quoted escape in a probe script as a UNC path: %s', (_label, command) => {
     expect(commandLeavesCheckout(command, ROOT)).toBe(false);
     const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command, exit_code: 0, status: 'completed' }));

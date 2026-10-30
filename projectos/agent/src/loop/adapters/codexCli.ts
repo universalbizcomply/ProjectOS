@@ -245,8 +245,13 @@ const PARENT_ESCAPE = /(^|[\s'"=(\\/])\.\.(?=$|[\\/\s'"])/;
  * A UNC path: `\\server\share` or `//server/share` (not a URL's `://`, which is preceded by a colon),
  * including `\\?\UNC\…` and `\\.\pipe\…`. The host must be followed by a separator, as every path into a
  * share is: a quoted escape in a probe script (`"\\nExpires: …"`) is not one (EXIT-PROOF1A, first run).
+ * Windows also resolves doubled and mixed separators (`\\localhost\\c$`), so those count after a host of
+ * two or more characters — a one-letter "host" before `\\` is an escape pair (`"\\n\\t"`). A host
+ * computed by a PowerShell sub-expression (`\\$(hostname)\c$`) counts whatever follows it.
  */
-const UNC_PATH = new RegExp(String.raw`(^|[\s'"=(])(\\\\|//)[^\s\\/'"|;&<>()]+[\\/][^\s\\/]`);
+const UNC_PATH = new RegExp(
+  String.raw`(^|[\s'"=(])(\\\\|//)(?:[^\s\\/'"|;&<>()]+[\\/][^\s\\/]|[^\s\\/'"|;&<>()]{2,}[\\/]{2,}[^\s\\/]|\$\()`,
+);
 /** The rest of a path once its start is found. */
 const PATH_TAIL = String.raw`[^\s'"|;&<>()]*`;
 /** A drive path: `C:\x` or `C:/x`. */
