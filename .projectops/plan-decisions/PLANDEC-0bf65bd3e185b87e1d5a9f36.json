@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-30T07:01:04.923Z",
   "note": "Owner (Murad), 2026-10-30, verbatim: \"Fix ProjectOS properly (Recommended)\", answering how to get past D11 R5 refusing the agency plan for phases that closed before D11; this approves the change to the protected planApproval.ts. Earlier: \"Yes, run it (Recommended)\" (live exit proof). Standing grant: \"You have full authority\" (2026-10-28).",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-30T07:01:08.813Z"
 }
