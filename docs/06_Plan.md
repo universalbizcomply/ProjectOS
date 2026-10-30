@@ -282,3 +282,9 @@ Forge, the signed installer, and the Host unattended-review route.
   the protected rule BC-8n is reworded to state that one exception (owner: "Yes, reword it"; it supersedes BC-8n's earlier
   wording for this route only). The gatekeeper is told to name files by path (`9077c4a`). ECC SECURITY reviewed, one recheck.
   Evidence: `docs/finish/PROJECTOS-KERNEL-CORRECTION-PATHS1A.md`.
+- 2026-10-30: **Stage 1 exit proof CLOSED** (PROJECTOS-KERNEL-EXIT-PROOF1A). Agency SEO-AGENCY-SITE-CHECK3A closed from ONE
+  `continue` with zero owner acts (run 4, agency `d6c50f5`): Claude implemented, Codex (OpenAI) reviewed by reading and
+  rejected twice, Claude corrected twice, Codex approved (`providerDistinct: true`), ChatGPT closed. Run 1 proved the cap
+  refusal before any network call (`GKREQ-4bfc24adceb5683ac1d2a326`). It took four runs and three fix phases
+  (CODEX-UNC1A, REVIEW-READONLY1A, CORRECTION-PATHS1A). Phase spend $0.0076. TEMPORARY seo-agency allowlist entry removed
+  (`381acb1`). Evidence: `docs/finish/PROJECTOS-KERNEL-EXIT-PROOF1A.md`.
