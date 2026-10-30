@@ -26,7 +26,8 @@
     "Proposed for owner approval (plan v1.22): D11 R5 skips phases already closed in the active plan (owner: \"Fix ProjectOS properly (Recommended)\").",
     "Proposed for owner approval (plan v1.23): the Codex reviewer's UNC tripwire no longer reads a quoted escape such as \"\\\\nExpires\" in a reviewer's probe script as a network path, found by the exit proof's first run (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\").",
     "Proposed for owner approval (plan v1.24): the independent reviewer reviews by reading only, a refused review names its denial reasons, and a reviewer rejection carries its findings to the gatekeeper, found by the exit proof's second run (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\").",
-    "Proposed for owner approval (plan v1.25): the gatekeeper is told to name every file a correction must touch by its repository-relative path, and the reviewer to cite files that way, found by the exit proof's third run (owner: \"Yes, run it (Recommended)\")."
+    "Proposed for owner approval (plan v1.25): the gatekeeper is told to name every file a correction must touch by its repository-relative path, and the reviewer to cite files that way, found by the exit proof's third run (owner: \"Yes, run it (Recommended)\").",
+    "Proposed for owner approval (plan v1.26): PROJECTOS-KERNEL-CORRECTION-PATHS1A also gives an independent reviewer's rejection a fix route — the implementer corrects within the phase's approved writePaths, inside the existing correction budget, and a fresh independent review follows (owner, 2026-10-30, verbatim: \"Claude fixes, re-review (Recommended)\")."
   ],
   "environments": [
     {
@@ -1025,12 +1026,13 @@
         "payment-or-live-charge"
       ],
       "phaseId": "PROJECTOS-KERNEL-CORRECTION-PATHS1A",
-      "title": "A correction the gatekeeper asks for names its files",
-      "description": "The exit proof's third run (2026-10-30 12:40) got a clean cross-provider review for the first time: Codex read the candidate and returned REJECT with two real MEDIUM findings, and the gatekeeper, now shown them, answered AMENDMENT_REQUIRED with a precise instruction. The loop then refused the correction: \"the amendment named no path to correct\". ProjectOS grants a correction worker only the files the amendment instruction names (pathsNamedIn, inside the phase's approved maximum), but nothing tells the gatekeeper so: its evidence pack says only \"Edit(path) and Write(path) only\", which it copied as the literal allowedActions \"Edit(path)\"; and the reviewer cited \"validate-site.cjs:195\" without its folder. This phase tells the gatekeeper, in the correctionMechanism part of its evidence, to name each file to correct by its full repository-relative path from workerWritableMaximum, and asks the reviewer to cite files by their repository-relative path. The correction boundary itself (protected) is unchanged: an amendment that names no permitted path is still refused. The exit proof runs after it.",
-      "scope": "Edit the gatekeeper evidence pack's correction guidance, the review instruction's findings format, their tests and validator rules only.",
+      "title": "A rejected review is corrected by the implementer and reviewed again; a correction the gatekeeper asks for names its files",
+      "description": "The exit proof's third run (2026-10-30 12:40) got a clean cross-provider review for the first time: Codex read the candidate and returned REJECT with two real MEDIUM findings, and the gatekeeper, now shown them, answered AMENDMENT_REQUIRED with a precise instruction. The loop then refused the correction: \"the amendment named no path to correct\". ProjectOS grants a correction worker only the files the amendment instruction names (pathsNamedIn, inside the phase's approved maximum), but nothing tells the gatekeeper so: its evidence pack says only \"Edit(path) and Write(path) only\", which it copied as the literal allowedActions \"Edit(path)\"; and the reviewer cited \"validate-site.cjs:195\" without its folder. This phase tells the gatekeeper, in the correctionMechanism part of its evidence, to name each file to correct by its full repository-relative path from workerWritableMaximum, and asks the reviewer to cite files by their repository-relative path. The correction boundary itself (protected) is unchanged: an amendment that names no permitted path is still refused. The exit proof runs after it. The ECC SECURITY review of this phase then showed a deeper gap: the production run command never supplies a correction maximum (always empty), and by design a correction maximum may not include the phase's own implementation files, so an independent reviewer's REJECT had no fix route at all and every rejection ended on the owner. Owner, 2026-10-30, verbatim: \"Claude fixes, re-review (Recommended)\" — on an independent rejection, the loop re-runs the same implementer with the reviewer's findings, writing only the files the plan already approved for the phase, up to the existing limit of three corrections, then re-runs the checks and obtains a fresh independent review. No new permission: the grant is the phase's own approved writePaths, re-issued for that one dispatch only; a rejection still never counts as a pass; when the budget is spent the run stops as before.",
+      "scope": "Edit the loop runner, the review instruction, the Claude adapter's correction instruction, their tests and validator rules only.",
       "writePaths": [
         "projectos/agent/src/loop/runner.ts",
         "projectos/agent/src/loop/reviewRoles.ts",
+        "projectos/agent/src/loop/adapters/",
         "projectos/agent/test/",
         "projectos/validators/val-projectos-kernel-followup1a.cjs",
         "docs/finish/",
@@ -1038,7 +1040,8 @@
       ],
       "exclusions": [
         "No change to correctionBoundary.ts or any rule that authorises a correction: the amendment still only narrows the phase's approved maximum, and one that names no permitted path is still refused.",
-        "No relaxation of any owner gate, closure eligibility predicate or ownerOnlyActions."
+        "No relaxation of any owner gate, closure eligibility predicate or ownerOnlyActions.",
+        "The re-issued grant is exactly the phase's approved writePaths grant, for the one dispatch after a rejection; a gatekeeper-directed correction still never receives it."
       ],
       "dependsOn": [
         "PROJECTOS-KERNEL-REVIEW-READONLY1A"
@@ -1046,7 +1049,10 @@
       "acceptanceCriteria": [
         "The gatekeeper's evidence tells it to name every file to correct by its full repository-relative path, taken from workerWritableMaximum, with an example from that list, and that an amendment naming none is refused before any worker starts; it no longer offers the placeholder text Edit(path); tested and pinned.",
         "The review instruction asks the reviewer to cite each file by its repository-relative path; tested and pinned.",
-        "An amendment instruction that names a permitted file by that path is authorised, and one that names none is still refused; tested."
+        "An amendment instruction that names a permitted file by that path is authorised, and one that names none is still refused; tested.",
+        "An independent REJECT (or a CRITICAL/HIGH finding) with correction budget left re-dispatches the implementer with the phase's approved write grant and an instruction pointing at the reviewer record, counts one correction, re-runs the checks and obtains a fresh independent review; tested.",
+        "A rejection never credits the review; when the budget is spent the run stops REVIEW_OUTSTANDING as before; a gatekeeper-directed correction still never receives the approved write grant; tested and pinned.",
+        "When the correction maximum is empty, the gatekeeper is told that no file is correctable by it rather than pointed at an empty list; the reviewer prompt quotes its example path; tested."
       ],
       "requiredValidators": [
         "val-projectos-kernel-followup1a",
