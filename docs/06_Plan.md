@@ -276,3 +276,9 @@ Forge, the signed installer, and the Host unattended-review route.
   review refused again; traces showed the reviewer's own probe scripts trip the tripwires. The reviewer now reviews by
   reading, a refusal names its denials, and a MEDIUM-only rejection carries its findings (`434cbc1`). ECC SECURITY reviewed.
   Evidence: `docs/finish/PROJECTOS-KERNEL-REVIEW-READONLY1A.md`.
+- 2026-10-30: plans v1.25-v1.27 (`a5d5b32`, `18055ac`, `9001de4`) added PROJECTOS-KERNEL-CORRECTION-PATHS1A: the exit proof's
+  third run got a clean cross-provider REJECT that had no fix route. On the owner's "Claude fixes, re-review", a rejection now
+  re-dispatches the implementer with the phase's approved write grant inside the 3-correction budget and is reviewed again;
+  the protected rule BC-8n is reworded to state that one exception (owner: "Yes, reword it"; it supersedes BC-8n's earlier
+  wording for this route only). The gatekeeper is told to name files by path (`9077c4a`). ECC SECURITY reviewed, one recheck.
+  Evidence: `docs/finish/PROJECTOS-KERNEL-CORRECTION-PATHS1A.md`.
