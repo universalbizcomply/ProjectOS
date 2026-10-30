@@ -24,7 +24,8 @@
     "Plan v1.20 writePath repair for PROJECTOS-KERNEL-FOLLOWUP1A (no new scope): the approved Codex reviewer adapter also needs the worker-lifecycle validator to admit a closed list of two adapters, the project-config schema to accept the codex-cli worker kind, and a stale comment in reviewRoles.ts corrected (owner: \"Yes, add and do it\"; \"Codex CLI (OpenAI)\").",
     "Proposed for owner approval (plan v1.21): one small phase with the Codex reviewer fixes found by the live sandbox probe (fixed Windows sandbox mode; judge commands inside the shell wrapper), before the exit proof runs (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\").",
     "Proposed for owner approval (plan v1.22): D11 R5 skips phases already closed in the active plan (owner: \"Fix ProjectOS properly (Recommended)\").",
-    "Proposed for owner approval (plan v1.23): the Codex reviewer's UNC tripwire no longer reads a quoted escape such as \"\\\\nExpires\" in a reviewer's probe script as a network path, found by the exit proof's first run (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\")."
+    "Proposed for owner approval (plan v1.23): the Codex reviewer's UNC tripwire no longer reads a quoted escape such as \"\\\\nExpires\" in a reviewer's probe script as a network path, found by the exit proof's first run (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\").",
+    "Proposed for owner approval (plan v1.24): the independent reviewer reviews by reading only, a refused review names its denial reasons, and a reviewer rejection carries its findings to the gatekeeper, found by the exit proof's second run (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\")."
   ],
   "environments": [
     {
@@ -758,7 +759,7 @@
       ],
       "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
       "title": "Stage 1 exit proof: cross-provider review and a refusing cap, live",
-      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter, and AFTER PROJECTOS-KERNEL-CODEX-LIVE1A, which fixes what the live probe found, AFTER PROJECTOS-KERNEL-PLAN-HISTORY1A, which lets a pre-D11 project plan again, and AFTER PROJECTOS-KERNEL-CODEX-UNC1A, which stops the UNC tripwire refusing an innocent review (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
+      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter, and AFTER PROJECTOS-KERNEL-CODEX-LIVE1A, which fixes what the live probe found, AFTER PROJECTOS-KERNEL-PLAN-HISTORY1A, which lets a pre-D11 project plan again, AFTER PROJECTOS-KERNEL-CODEX-UNC1A, which stops the UNC tripwire refusing an innocent review, and AFTER PROJECTOS-KERNEL-REVIEW-READONLY1A, which keeps the reviewer to reading and carries its findings to the gatekeeper (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
       "scope": "Add the evidence record under docs/finish/.",
       "writePaths": [
         "docs/finish/",
@@ -957,6 +958,51 @@
       "acceptanceCriteria": [
         "The exact command the exit proof's reviewer ran is not a denial; \\\\host\\share, //host/share, \\\\?\\UNC\\host\\share and \\\\.\\pipe\\name paths still are; tested.",
         "The UNC rule has a validator pin and a named mutation that is killed."
+      ],
+      "requiredValidators": [
+        "val-projectos-kernel-followup1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-REVIEW-READONLY1A",
+      "title": "Independent reviewer: review by reading, say why a review was refused, carry a rejection's findings",
+      "description": "The exit proof's second run (2026-10-30 10:56) had its Codex review refused again as \"attempted tools it was denied\", with no record of which tripwire fired. Five traced reviews of the same candidate showed why: Codex writes and runs Node scripts that execute the candidate's own validator, and those scripts trip the text tripwires on innocent content (a JavaScript \"..\" string read as a parent escape; a failed script whose output carried git's own sandbox warning \"unable to access '.../.config/git/ignore': Permission denied\"). With one added sentence telling the reviewer to review by reading only (git diff/show/log and file reads; no scripts; run no repository code, the loop already ran it), three of three traced reviews ran no script, tripped nothing, and still found the candidate's real defect. Separately, a reviewer REJECT whose findings are all MEDIUM or LOW reaches the gatekeeper as \"returned REJECT\" with no finding text, so the gatekeeper cannot name a correction. This phase: (1) adds the read-only reviewing sentence to the review instruction; (2) names the reviewer's denial reasons in the refusal; (3) carries a rejection's findings (bounded, inert) into the stop detail when none is CRITICAL or HIGH; (4) ignores git's own config-access warning line when deciding that a failed Codex command was stopped by the sandbox. The exit proof runs after it.",
+      "scope": "Edit the review instruction, the independent review refusal and objection texts, the Codex adapter, their tests and validator rules only.",
+      "writePaths": [
+        "projectos/agent/src/loop/reviewRoles.ts",
+        "projectos/agent/src/loop/independentReview.ts",
+        "projectos/agent/src/loop/adapters/",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-kernel-followup1a.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No relaxation of any owner gate, closure eligibility predicate or ownerOnlyActions.",
+        "No tripwire is narrowed except the one git warning line, matched exactly; a reviewer rejection still credits nothing and stays non-approvable."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-CODEX-UNC1A"
+      ],
+      "acceptanceCriteria": [
+        "The review instruction tells the reviewer to review by reading only and to run no script or repository code; tested and pinned.",
+        "A review refused for denied tools names the denial reasons, bounded and inert; tested.",
+        "A REJECT with only MEDIUM or LOW findings puts those findings (bounded, inert) in the stop detail; a REJECT still credits no review; tested.",
+        "A failed Codex command whose only sandbox-shaped output is git's config-access warning is not a denial; any other sandbox wording still is; tested and pinned with a named mutation."
       ],
       "requiredValidators": [
         "val-projectos-kernel-followup1a",
