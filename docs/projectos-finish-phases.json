@@ -23,7 +23,8 @@
     "Proposed for owner approval (plan v1.19): one Stage 1 follow-up phase before the exit proof — closure-route halves of D3/D9, validator registry pin, cached-runner resync, validate-claude-worker repair, and a Codex CLI reviewer adapter (owner: \"Yes, add and do it\"; \"Codex CLI (OpenAI)\").",
     "Plan v1.20 writePath repair for PROJECTOS-KERNEL-FOLLOWUP1A (no new scope): the approved Codex reviewer adapter also needs the worker-lifecycle validator to admit a closed list of two adapters, the project-config schema to accept the codex-cli worker kind, and a stale comment in reviewRoles.ts corrected (owner: \"Yes, add and do it\"; \"Codex CLI (OpenAI)\").",
     "Proposed for owner approval (plan v1.21): one small phase with the Codex reviewer fixes found by the live sandbox probe (fixed Windows sandbox mode; judge commands inside the shell wrapper), before the exit proof runs (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\").",
-    "Proposed for owner approval (plan v1.22): D11 R5 skips phases already closed in the active plan (owner: \"Fix ProjectOS properly (Recommended)\")."
+    "Proposed for owner approval (plan v1.22): D11 R5 skips phases already closed in the active plan (owner: \"Fix ProjectOS properly (Recommended)\").",
+    "Proposed for owner approval (plan v1.23): the Codex reviewer's UNC tripwire no longer reads a quoted escape such as \"\\\\nExpires\" in a reviewer's probe script as a network path, found by the exit proof's first run (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\")."
   ],
   "environments": [
     {
@@ -757,7 +758,7 @@
       ],
       "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
       "title": "Stage 1 exit proof: cross-provider review and a refusing cap, live",
-      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter, and AFTER PROJECTOS-KERNEL-CODEX-LIVE1A, which fixes what the live probe found, and AFTER PROJECTOS-KERNEL-PLAN-HISTORY1A, which lets a pre-D11 project plan again (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
+      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter, and AFTER PROJECTOS-KERNEL-CODEX-LIVE1A, which fixes what the live probe found, AFTER PROJECTOS-KERNEL-PLAN-HISTORY1A, which lets a pre-D11 project plan again, and AFTER PROJECTOS-KERNEL-CODEX-UNC1A, which stops the UNC tripwire refusing an innocent review (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
       "scope": "Add the evidence record under docs/finish/.",
       "writePaths": [
         "docs/finish/",
@@ -918,6 +919,47 @@
       ],
       "requiredValidators": [
         "val-projectos-kernel-role-review1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-CODEX-UNC1A",
+      "title": "Codex reviewer: the UNC tripwire reads a quoted escape as a path",
+      "description": "The exit proof's first run (2026-10-30 09:30, agency SEO-AGENCY-SITE-CHECK3A) had its Codex review refused as \"attempted tools it was denied\". A traced re-run of the same adapter path against the same candidate showed the only denial was a false positive: the reviewer piped a Node probe script into node, and the script's JavaScript string \"\\\\nExpires: ...\" (a quote followed by an escaped newline) matched the UNC tripwire as the network path \\\\nExpires. Nothing left the checkout. A denial ends the run on the owner, so this false positive alone defeats the zero-owner-act exit proof. This phase makes the UNC tripwire require a host followed by a separator (\\\\host\\share, //host/share, \\\\?\\UNC\\..., \\\\.\\pipe\\...), which every path into a share has, and which a quoted escape does not. The exit proof runs after it.",
+      "scope": "Edit the Codex adapter, its tests and its validator rules only.",
+      "writePaths": [
+        "projectos/agent/src/loop/adapters/",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-kernel-followup1a.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No relaxation of any owner gate, closure eligibility predicate or ownerOnlyActions.",
+        "No other tripwire is narrowed: home, .codex, parent escape, POSIX home, absolute paths, fetch/decode and the credential-shaped reply checks stay as they are."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-PLAN-HISTORY1A"
+      ],
+      "acceptanceCriteria": [
+        "The exact command the exit proof's reviewer ran is not a denial; \\\\host\\share, //host/share, \\\\?\\UNC\\host\\share and \\\\.\\pipe\\name paths still are; tested.",
+        "The UNC rule has a validator pin and a named mutation that is killed."
+      ],
+      "requiredValidators": [
+        "val-projectos-kernel-followup1a",
         "validate-no-secrets"
       ],
       "requiredReviews": [
