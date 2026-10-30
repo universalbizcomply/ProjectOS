@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-REVIEW-READONLY1A",
+  "evidenceSubjectHead": "de67b2c8fe0ca6777f28aae58189b96a16e0dc31",
+  "baselineCommit": "aef3d07a65a679e7cf6e0c7153c5b69da2866ffa",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-30T12:39:28.253Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-KERNEL-REVIEW-READONLY1A, phase 21 of 21 of plan v1.24, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. de67b2c on aef3d07 (plan v1.24 activation): acf6a3e (implementation), 434cbc1 (review items), de67b2c (evidence).",
+    "validatorsPass: val-projectos-kernel-followup1a (76 named mutations) and validate-no-secrets PASS; validate-all 152/155 PASS (the 2 known baseline failures, plus AG-5 from the owner-approved TEMPORARY seo-agency allowlist entry for the exit proof, by design).",
+    "checksPass: agent 2913/2913; tsc and typecheck:tests clean; touched suites 257/257.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review (acf6a3e: APPROVE WITH CHANGES, no CRITICAL/HIGH; MEDIUM and three LOW fixed in 4ec1416 as proposed); validate-all then caught RR-17, fixed in 434cbc1 by keeping the pinned gate text; no further round, every change only tightens or restores a pin.",
+    "unresolved: zero CRITICAL/HIGH. Carried: the reading rule is an instruction, not a grant; git default-path warning set aside even under a redirected XDG_CONFIG_HOME inside the checkout; UNC quote-in-host and prefix gaps from CODEX-UNC1A. See docs/finish/PROJECTOS-KERNEL-REVIEW-READONLY1A.md.",
+    "protected file: none; reviewRoles.ts, independentReview.ts and adapters/codexCli.ts are not in 00_Baseline_State section 4.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit. The diagnostic Codex runs used the owner's ChatGPT sign-in in its read-only sandbox.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
