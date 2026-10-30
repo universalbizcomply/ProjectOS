@@ -3,14 +3,12 @@
   "projectId": "projectos",
   "activePlanId": "plan-654c15e800bf1287-c07efe134120",
   "activePlanVersion": "1.23",
-  "currentStatus": "PLAN READY",
+  "currentStatus": "IN EXECUTION",
   "completionMethod": "phase-closure",
-  "acceptedPhaseCount": 0,
+  "acceptedPhaseCount": 18,
   "totalPhaseCount": 20,
-  "completionPercentage": 0,
-  "completedPhases": [],
-  "activePhase": null,
-  "pendingPhases": [
+  "completionPercentage": 90,
+  "completedPhases": [
     "PROJECTOS-FINISH-WRITEPATHS1A",
     "PROJECTOS-FINISH-MULTIPROJECT1A",
     "PROJECTOS-FINISH-API-GATEKEEPER1A",
@@ -26,23 +24,25 @@
     "PROJECTOS-KERNEL-PLATFORM-STOP1A",
     "PROJECTOS-KERNEL-TRUTH1A",
     "PROJECTOS-KERNEL-HYGIENE1A",
-    "PROJECTOS-KERNEL-EXIT-PROOF1A",
     "PROJECTOS-KERNEL-FOLLOWUP1A",
     "PROJECTOS-KERNEL-CODEX-LIVE1A",
-    "PROJECTOS-KERNEL-PLAN-HISTORY1A",
-    "PROJECTOS-KERNEL-CODEX-UNC1A"
+    "PROJECTOS-KERNEL-PLAN-HISTORY1A"
+  ],
+  "activePhase": "PROJECTOS-KERNEL-CODEX-UNC1A",
+  "pendingPhases": [
+    "PROJECTOS-KERNEL-EXIT-PROOF1A"
   ],
   "blockedPhases": [],
   "deferredPhases": [],
   "acceptedCarryForward": [],
   "currentBranch": "projectos-autonomy-bootstrap1a",
-  "currentHead": "b5da64eadbbc74c6f02147efed618267770aedda",
+  "currentHead": "12bbb838c11213c07b6f705b760d0eaecb67d6be",
   "currentRemoteHead": null,
-  "workingTreeStatus": "clean",
+  "workingTreeStatus": "dirty",
   "currentRisks": [],
   "currentBlockers": [],
   "lastEvidenceReference": "plan-approval decision PLANDEC-0bee6eda1f827c7079de926c",
-  "nextRecommendedPhase": "PROJECTOS-FINISH-WRITEPATHS1A",
-  "lastUpdated": "2026-10-30T09:54:33.951Z",
-  "updatedByRole": "gatekeeper"
+  "nextRecommendedPhase": "PROJECTOS-KERNEL-CODEX-UNC1A",
+  "lastUpdated": "2026-10-30T10:55:12.195Z",
+  "updatedByRole": "implementer"
 }

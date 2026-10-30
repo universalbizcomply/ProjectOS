@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-CODEX-UNC1A",
+  "project": "ProjectOS",
+  "objective": "The exit proof's first run (2026-10-30 09:30, agency SEO-AGENCY-SITE-CHECK3A) had its Codex review refused as \"attempted tools it was denied\". A traced re-run of the same adapter path against the same candidate showed the only denial was a false positive: the reviewer piped a Node probe script into node, and the script's JavaScript string \"\\\\nExpires: ...\" (a quote followed by an escaped newline) matched the UNC tripwire as the network path \\\\nExpires. Nothing left the checkout. A denial ends the run on the owner, so this false positive alone defeats the zero-owner-act exit proof. This phase makes the UNC tripwire require a host followed by a separator (\\\\host\\share, //host/share, \\\\?\\UNC\\..., \\\\.\\pipe\\...), which every path into a share has, and which a quoted escape does not. The exit proof runs after it.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-30T10:55:09.512Z",
+      "note": "Owner-approved plan v1.23 (PLANDEC-0bee6eda1f827c7079de926c, activation f3f2a9e). Implemented by the lead (Claude); the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-30T10:55:10.010Z",
+      "note": "the Codex UNC tripwire needs a host followed by a separator (fd2fe55)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-30T10:55:10.507Z",
+      "note": "agent 2898/2898; validators PASS; validate-all 152/155 PASS (the 2 known baseline failures, plus AG-5 from the owner-approved TEMPORARY seo-agency allowlist entry for the exit proof, by design)."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-30T10:55:10.984Z",
+      "note": "Evidence: docs/finish/PROJECTOS-KERNEL-CODEX-UNC1A.md (12bbb83)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-30T10:55:11.540Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (a78e96c: APPROVE WITH CHANGES, 2 MEDIUM fixed in 7e5c83b; recheck at 7e5c83b: APPROVE WITH CHANGES, both CLOSED, 1 new MEDIUM fixed in fd2fe55 as the reviewer proposed); no further round, the last change only tightens and is pinned."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-30T10:55:12.029Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
