@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
   "project": "ProjectOS",
   "objective": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter, and AFTER PROJECTOS-KERNEL-CODEX-LIVE1A, which fixes what the live probe found, AFTER PROJECTOS-KERNEL-PLAN-HISTORY1A, which lets a pre-D11 project plan again, AFTER PROJECTOS-KERNEL-CODEX-UNC1A, which stops the UNC tripwire refusing an innocent review, AFTER PROJECTOS-KERNEL-REVIEW-READONLY1A, which keeps the reviewer to reading and carries its findings to the gatekeeper, and AFTER PROJECTOS-KERNEL-CORRECTION-PATHS1A, which has the gatekeeper name the files a correction touches (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-10-30T18:04:33.493Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-10-30T18:04:35.406Z",
+      "note": "Owner-direct closure under the owner's grant. — closed by owner Murad, decision projectos:PROJECTOS-KERNEL-EXIT-PROOF1A:owner-closure:d068422b"
     }
   ]
 }
