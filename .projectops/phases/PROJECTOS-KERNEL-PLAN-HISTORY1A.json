@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-PLAN-HISTORY1A",
+  "project": "ProjectOS",
+  "objective": "Setting up the Stage 1 exit proof, the agency plan v1.4 was refused PLAN_INCOMPLETE because D11 R5 (\"every phase needs an independent review\") was applied to the agency's three phases that CLOSED before D11 existed. A closed phase is history: no review can now be added to it, and refusing every later plan for it leaves a pre-D11 project unable to plan at all. R5 is now skipped for a phase only when it is already in the ACTIVE approved plan AND its COMMITTED phase record says closed; a new or open phase still needs an independent review. Owner: \"Fix ProjectOS properly (Recommended)\", 2026-10-30, approving the change to the protected planApproval.ts.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-30T09:28:29.049Z",
+      "note": "Owner-approved plan v1.22 (PLANDEC-0bf65bd3e185b87e1d5a9f36, activation 2f69d7e). Implemented by the lead (Claude); the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-30T09:28:29.742Z",
+      "note": "D11 R5 at plan approval skips a phase already closed in the active plan with unchanged reviews (e73c9f7, 8e2be81)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-30T09:28:30.384Z",
+      "note": "agent 2882/2882; validators PASS; validate-all 152/155 PASS (the 2 known baseline failures, plus AG-5 from the owner-approved TEMPORARY seo-agency allowlist entry for the exit proof, by design)."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-30T09:28:31.004Z",
+      "note": "Evidence: docs/finish/PROJECTOS-KERNEL-PLAN-HISTORY1A.md (a04be7b)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-30T09:28:31.613Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (e73c9f7: APPROVE WITH CHANGES, no CRITICAL/HIGH; MEDIUM 1 and LOW 3-4 fixed, LOW 2 partly fixed in 8e2be81); no second round, every post-review change only tightens and is pinned."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-30T09:28:32.250Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
