@@ -263,3 +263,8 @@ Forge, the signed installer, and the Host unattended-review route.
   `b350f2d`, `65c42d6` (fixed elevated mode as the one override; inner-command judging; fetch/decode tripwire). Live:
   writes blocked inside and outside the checkout, internet blocked, loopback open, profile readable (owner-accepted
   residual). ECC SECURITY APPROVE WITH CHANGES, all LOWs fixed. Evidence: `docs/finish/PROJECTOS-KERNEL-CODEX-LIVE1A.md`.
+- 2026-10-30: plan v1.22 (`2f69d7e`) added PROJECTOS-KERNEL-PLAN-HISTORY1A: the agency plan v1.4 (exit-proof phase) was refused
+  because D11 R5 re-judged three agency phases that closed before D11. R5 now skips a phase only when it is in the active
+  approved plan, closed by its COMMITTED record (last step into closed) and still declaring the reviews the active plan
+  approved (`e73c9f7`, `8e2be81`; owner: "Fix ProjectOS properly"). ECC SECURITY APPROVE WITH CHANGES, items fixed.
+  Evidence: `docs/finish/PROJECTOS-KERNEL-PLAN-HISTORY1A.md`.
