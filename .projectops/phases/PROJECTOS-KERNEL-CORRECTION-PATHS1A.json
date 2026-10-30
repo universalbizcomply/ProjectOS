@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-CORRECTION-PATHS1A",
+  "project": "ProjectOS",
+  "objective": "The exit proof's third run (2026-10-30 12:40) got a clean cross-provider review for the first time: Codex read the candidate and returned REJECT with two real MEDIUM findings, and the gatekeeper, now shown them, answered AMENDMENT_REQUIRED with a precise instruction. The loop then refused the correction: \"the amendment named no path to correct\". ProjectOS grants a correction worker only the files the amendment instruction names (pathsNamedIn, inside the phase's approved maximum), but nothing tells the gatekeeper so: its evidence pack says only \"Edit(path) and Write(path) only\", which it copied as the literal allowedActions \"Edit(path)\"; and the reviewer cited \"validate-site.cjs:195\" without its folder. This phase tells the gatekeeper, in the correctionMechanism part of its evidence, to name each file to correct by its full repository-relative path from workerWritableMaximum, and asks the reviewer to cite files by their repository-relative path. The correction boundary itself (protected) is unchanged: an amendment that names no permitted path is still refused. The exit proof runs after it. The ECC SECURITY review of this phase then showed a deeper gap: the production run command never supplies a correction maximum (always empty), and by design a correction maximum may not include the phase's own implementation files, so an independent reviewer's REJECT had no fix route at all and every rejection ended on the owner. Owner, 2026-10-30, verbatim: \"Claude fixes, re-review (Recommended)\" — on an independent rejection, the loop re-runs the same implementer with the reviewer's findings, writing only the files the plan already approved for the phase, up to the existing limit of three corrections, then re-runs the checks and obtains a fresh independent review. No new permission: the grant is the phase's own approved writePaths, re-issued for that one dispatch only; a rejection still never counts as a pass; when the budget is spent the run stops as before. The ECC SECURITY recheck accepted the route as an owner-authorised narrowing but required the protected rule BC-8n (val-projectos-boot-continue1a.cjs: \"a correction dispatch never carries the implementer's write grant\") to be reworded honestly before closure. Owner, 2026-10-30, verbatim: \"Yes, reword it (Recommended)\" — BC-8n states that a correction never carries the implementer's write grant EXCEPT the one dispatch right after an independent reviewer's rejection, limited to the phase's approved files and the existing three-attempt budget, as rule RC-1 checks; its check still fails if the grant reaches any other dispatch.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-30T17:33:36.484Z",
+      "note": "Owner-approved plans v1.25-v1.27 (PLANDEC-616920b1533e51f1ebf404c0, PLANDEC-4e064b43a167a4d45dd53d87, PLANDEC-cbcab1119d5ddd1cd0e33fc9). Implemented by the lead (Claude); the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-30T17:33:37.564Z",
+      "note": "an independent rejection is corrected by the implementer and reviewed again; a gatekeeper correction names its files (9077c4a)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-30T17:33:38.543Z",
+      "note": "agent 2921/2921; validators PASS; validate-all 152/155 PASS (the 2 known baseline failures, plus AG-5 from the owner-approved TEMPORARY seo-agency allowlist entry for the exit proof, by design)."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-30T17:33:39.669Z",
+      "note": "Evidence: docs/finish/PROJECTOS-KERNEL-CORRECTION-PATHS1A.md (82bddc4)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-30T17:33:40.666Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (5f262a1: APPROVE WITH CHANGES, F1 led to the owner decision and plan v1.26, F3-F4 fixed in 3e8832f); one recheck (3e8832f: APPROVE WITH CHANGES, no CRITICAL/HIGH; BC-8n reworded on the owner approval, rejected rounds logged, RC-1 pins and tests in 9077c4a); no further round."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-30T17:33:42.065Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
