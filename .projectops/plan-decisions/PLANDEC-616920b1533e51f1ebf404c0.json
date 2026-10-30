@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-30T12:48:52.578Z",
   "note": "Owner (Murad), standing answers, verbatim: \"Yes, run it (Recommended)\" (2026-10-29, live exit proof under the caps, fixing what the live runs find in governed phases). The exit proof's third run got a clean cross-provider REJECT and a precise gatekeeper amendment, but the amendment named no file, so the loop could not authorise the correction; this small phase tells the gatekeeper and the reviewer to name files by repository-relative path, leaving the protected correction boundary unchanged. Standing grant: \"You have full authority\" (2026-10-28).",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-30T12:48:56.144Z"
 }
