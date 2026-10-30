@@ -22,7 +22,8 @@
     "Proposed for owner approval (plan v1.18): amends KERNEL-PLATFORM-STOP1A to the full scope the owner chose (\"Full stop, all files\", 2026-10-29), repairs KERNEL-HYGIENE1A writePaths and reviews, and records that the exit proof's second provider is not Grok.",
     "Proposed for owner approval (plan v1.19): one Stage 1 follow-up phase before the exit proof — closure-route halves of D3/D9, validator registry pin, cached-runner resync, validate-claude-worker repair, and a Codex CLI reviewer adapter (owner: \"Yes, add and do it\"; \"Codex CLI (OpenAI)\").",
     "Plan v1.20 writePath repair for PROJECTOS-KERNEL-FOLLOWUP1A (no new scope): the approved Codex reviewer adapter also needs the worker-lifecycle validator to admit a closed list of two adapters, the project-config schema to accept the codex-cli worker kind, and a stale comment in reviewRoles.ts corrected (owner: \"Yes, add and do it\"; \"Codex CLI (OpenAI)\").",
-    "Proposed for owner approval (plan v1.21): one small phase with the Codex reviewer fixes found by the live sandbox probe (fixed Windows sandbox mode; judge commands inside the shell wrapper), before the exit proof runs (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\")."
+    "Proposed for owner approval (plan v1.21): one small phase with the Codex reviewer fixes found by the live sandbox probe (fixed Windows sandbox mode; judge commands inside the shell wrapper), before the exit proof runs (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\").",
+    "Proposed for owner approval (plan v1.22): D11 R5 skips phases already closed in the active plan (owner: \"Fix ProjectOS properly (Recommended)\")."
   ],
   "environments": [
     {
@@ -756,7 +757,7 @@
       ],
       "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
       "title": "Stage 1 exit proof: cross-provider review and a refusing cap, live",
-      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter, and AFTER PROJECTOS-KERNEL-CODEX-LIVE1A, which fixes what the live probe found (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
+      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter, and AFTER PROJECTOS-KERNEL-CODEX-LIVE1A, which fixes what the live probe found, and AFTER PROJECTOS-KERNEL-PLAN-HISTORY1A, which lets a pre-D11 project plan again (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
       "scope": "Add the evidence record under docs/finish/.",
       "writePaths": [
         "docs/finish/",
@@ -876,6 +877,47 @@
       ],
       "requiredValidators": [
         "val-projectos-kernel-followup1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-PLAN-HISTORY1A",
+      "title": "D11 at plan approval: closed phases are history",
+      "description": "Setting up the Stage 1 exit proof, the agency plan v1.4 was refused PLAN_INCOMPLETE because D11 R5 (\"every phase needs an independent review\") was applied to the agency's three phases that CLOSED before D11 existed. A closed phase is history: no review can now be added to it, and refusing every later plan for it leaves a pre-D11 project unable to plan at all. R5 is now skipped for a phase only when it is already in the ACTIVE approved plan AND its COMMITTED phase record says closed; a new or open phase still needs an independent review. Owner: \"Fix ProjectOS properly (Recommended)\", 2026-10-30, approving the change to the protected planApproval.ts.",
+      "scope": "Edit planApproval.ts and the role-review validator; add tests.",
+      "writePaths": [
+        "projectos/agent/src/planApproval.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-kernel-role-review1a.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No relaxation for any phase that is not both in the active approved plan and closed by a committed phase record.",
+        "No change to any owner gate, closure eligibility predicate or ownerOnlyActions."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-CODEX-LIVE1A"
+      ],
+      "acceptanceCriteria": [
+        "A plan whose only self-review-only phases are closed (committed record) and already in the active plan is approved; the same phase not closed, closed only in the working tree, or absent from the active plan is refused; tested.",
+        "The role-review validator pins the exemption to exactly those two conditions with named mutations."
+      ],
+      "requiredValidators": [
+        "val-projectos-kernel-role-review1a",
         "validate-no-secrets"
       ],
       "requiredReviews": [
