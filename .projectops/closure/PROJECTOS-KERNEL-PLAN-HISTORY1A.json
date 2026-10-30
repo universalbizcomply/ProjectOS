@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-PLAN-HISTORY1A",
+  "evidenceSubjectHead": "a04be7b5750196a43b5e76903c45f402837c4036",
+  "baselineCommit": "2f69d7e5f99c3281281705a4663ca1746d9fb7c1",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-30T09:28:33.049Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-KERNEL-PLAN-HISTORY1A, phase 19 of 19 of plan v1.22, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. a04be7b on 2f69d7e (plan v1.22 activation): e73c9f7 (fix), 8e2be81 (review items), a04be7b (evidence).",
+    "validatorsPass: val-projectos-kernel-role-review1a (44 named mutations) and validate-no-secrets PASS; validate-all 152/155 PASS (the 2 known baseline failures, plus AG-5 from the owner-approved TEMPORARY seo-agency allowlist entry for the exit proof, by design).",
+    "checksPass: agent 2882/2882; tsc and typecheck:tests clean; kernelRoleReview 28/28.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review (e73c9f7: APPROVE WITH CHANGES, no CRITICAL/HIGH; MEDIUM 1 and LOW 3-4 fixed, LOW 2 partly fixed in 8e2be81); no second round, every post-review change only tightens and is pinned.",
+    "unresolved: zero CRITICAL/HIGH. Carried: no committer-identity gate on a closed record; waived ids not listed in the approval output. See docs/finish/PROJECTOS-KERNEL-PLAN-HISTORY1A.md.",
+    "protected file: projectos/agent/src/planApproval.ts, changed on the owner's explicit approval \"Fix ProjectOS properly (Recommended)\" (2026-10-30).",
+    "protectedEffects NONE: no provider call, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
