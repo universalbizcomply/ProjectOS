@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-REVIEW-READONLY1A",
+  "project": "ProjectOS",
+  "objective": "The exit proof's second run (2026-10-30 10:56) had its Codex review refused again as \"attempted tools it was denied\", with no record of which tripwire fired. Five traced reviews of the same candidate showed why: Codex writes and runs Node scripts that execute the candidate's own validator, and those scripts trip the text tripwires on innocent content (a JavaScript \"..\" string read as a parent escape; a failed script whose output carried git's own sandbox warning \"unable to access '.../.config/git/ignore': Permission denied\"). With one added sentence telling the reviewer to review by reading only (git diff/show/log and file reads; no scripts; run no repository code, the loop already ran it), three of three traced reviews ran no script, tripped nothing, and still found the candidate's real defect. Separately, a reviewer REJECT whose findings are all MEDIUM or LOW reaches the gatekeeper as \"returned REJECT\" with no finding text, so the gatekeeper cannot name a correction. This phase: (1) adds the read-only reviewing sentence to the review instruction; (2) names the reviewer's denial reasons in the refusal; (3) carries a rejection's findings (bounded, inert) into the stop detail when none is CRITICAL or HIGH; (4) ignores git's own config-access warning line when deciding that a failed Codex command was stopped by the sandbox. The exit proof runs after it.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-30T12:39:24.911Z",
+      "note": "Owner-approved plan v1.24 (PLANDEC-438e9e95261457ce90c81384, activation aef3d07). Implemented by the lead (Claude); the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-30T12:39:25.458Z",
+      "note": "the reviewer reviews by reading; a refusal names its denials; a rejection carries its findings (434cbc1)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-30T12:39:26.124Z",
+      "note": "agent 2913/2913; validators PASS; validate-all 152/155 PASS (the 2 known baseline failures, plus AG-5 from the owner-approved TEMPORARY seo-agency allowlist entry for the exit proof, by design)."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-30T12:39:26.615Z",
+      "note": "Evidence: docs/finish/PROJECTOS-KERNEL-REVIEW-READONLY1A.md (de67b2c)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-30T12:39:27.103Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (acf6a3e: APPROVE WITH CHANGES, no CRITICAL/HIGH; MEDIUM and three LOW fixed in 4ec1416 as proposed); validate-all then caught RR-17, fixed in 434cbc1 by keeping the pinned gate text; no further round, every change only tightens or restores a pin."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-30T12:39:27.646Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
