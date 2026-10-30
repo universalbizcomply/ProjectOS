@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
+  "project": "ProjectOS",
+  "objective": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter, and AFTER PROJECTOS-KERNEL-CODEX-LIVE1A, which fixes what the live probe found, AFTER PROJECTOS-KERNEL-PLAN-HISTORY1A, which lets a pre-D11 project plan again, AFTER PROJECTOS-KERNEL-CODEX-UNC1A, which stops the UNC tripwire refusing an innocent review, AFTER PROJECTOS-KERNEL-REVIEW-READONLY1A, which keeps the reviewer to reading and carries its findings to the gatekeeper, and AFTER PROJECTOS-KERNEL-CORRECTION-PATHS1A, which has the gatekeeper name the files a correction touches (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-10-30T18:04:30.325Z",
+      "note": "Owner-approved plan v1.27 (activation 9001de4). Evidence-only phase run by the lead (Claude); the live proof ran in the agency; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-10-30T18:04:30.956Z",
+      "note": "evidence only: the Stage 1 exit proof closed in the agency from one continue (run 4, agency d6c50f5); allowlist entry removed (381acb1)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-10-30T18:04:31.576Z",
+      "note": "validators PASS; validate-all 153/155 PASS (the 2 known baseline failures: validate-desktop-e2e needs a Control Centre bundle, val-cd-b4-sealed-expected-window-facts1a V2; AG-5 green again)."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-10-30T18:04:32.253Z",
+      "note": "Evidence: docs/finish/PROJECTOS-KERNEL-EXIT-PROOF1A.md (d068422)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-10-30T18:04:32.896Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review: APPROVE WITH CHANGES, no CRITICAL/HIGH; all six checks PASS on the committed agency records; corrections applied (one overstated fixture claim, owner-identity commits by Claude, fix-phase owner involvement, what Accept tripwires accepts, run logs committed with sha256)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-10-30T18:04:33.493Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
