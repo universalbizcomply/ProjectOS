@@ -556,6 +556,26 @@ describe('MEDIUM 2: only a command that completed with exit 0 is a read', () => 
     expect(body['num_turns']).toBe(2);
   });
 
+  // Git prints this on EVERY command in the sandbox (exit proof, second run); a git step that fails for
+  // its own reason must not read as the sandbox stopping it.
+  const GIT_WARNING = "warning: unable to access 'C:\\Users\\owner/.config/git/ignore': Permission denied";
+
+  it("a failed command whose only sandbox wording is git's own config-access warning is not a denial", () => {
+    for (const output of [GIT_WARNING, `${GIT_WARNING}\r\nfatal: bad revision 'nope'`, `${GIT_WARNING}\n${GIT_WARNING.replace('ignore', 'attributes')}\n`]) {
+      const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command: 'git show nope', aggregated_output: output, exit_code: 128, status: 'failed' }));
+      expect(body['permission_denials']).toEqual([]);
+    }
+  });
+
+  it.each([
+    `${GIT_WARNING}\nAccess is denied.`,
+    `prefix ${GIT_WARNING}`,
+    "warning: unable to access 'x': Permission denied; and more",
+  ])('any other sandbox wording beside or around the git warning is still a denial: %j', (output) => {
+    const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command: 'git show nope', aggregated_output: output, exit_code: 1, status: 'failed' }));
+    expect(body['permission_denials']).toEqual([{ tool_name: 'command_execution: stopped by the sandbox or an approval' }]);
+  });
+
   it('a failed command that merely failed (grep with no match) is neither a read nor a denial', () => {
     const body = envelopeOf(streamWith({ id: 'x', type: 'command_execution', command: 'grep nothing a.ts', aggregated_output: '', exit_code: 1, status: 'failed' }));
     expect(body['permission_denials']).toEqual([]);

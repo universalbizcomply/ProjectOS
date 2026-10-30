@@ -324,6 +324,12 @@ export function commandLeavesCheckout(reported: string, root: string | null): bo
 /** Output that says the command was stopped by the sandbox or an approval, not that it merely failed. */
 const SANDBOX_REFUSAL =
   /sandbox|blocked by policy|permission denied|access is denied|access to the path .* is denied|\bis denied\b|unauthorizedaccess|operation not permitted|read-only file system|\bEACCES\b|\bEPERM\b|approv/i;
+/**
+ * Git's own warning, printed on EVERY command in the sandbox because it cannot read the owner's global
+ * config. A whole line of exactly this shape is removed before `SANDBOX_REFUSAL` is applied, so a git step
+ * that fails for its own reason is not read as the sandbox stopping it (EXIT-PROOF1A, second run).
+ */
+const GIT_CONFIG_WARNING_LINE = /^warning: unable to access '[^'\r\n]*': Permission denied\r?$/gm;
 
 /**
  * MEDIUM 2. Why a `command_execution` item is beyond reading, or null. A command that was DECLINED, or
@@ -353,7 +359,8 @@ function commandProblem(item: Record<string, unknown>, root: string | null): str
   if (commandLeavesCheckout(command, root)) return 'command_execution: names a path outside the repository';
   if (FETCH_OR_DECODE.test(innerCommand(command))) return 'command_execution: a network fetch or decode-and-run command';
   if (item['status'] === 'declined') return 'command_execution: declined';
-  if (item['status'] === 'failed' && SANDBOX_REFUSAL.test(typeof item['aggregated_output'] === 'string' ? item['aggregated_output'] : '')) {
+  const output = typeof item['aggregated_output'] === 'string' ? item['aggregated_output'].replace(GIT_CONFIG_WARNING_LINE, '') : '';
+  if (item['status'] === 'failed' && SANDBOX_REFUSAL.test(output)) {
     return 'command_execution: stopped by the sandbox or an approval';
   }
   return null;

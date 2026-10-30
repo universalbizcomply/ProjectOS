@@ -65,10 +65,29 @@ function reviewerTurns(stdout: string): number | null {
   return typeof turns === 'number' ? turns : null;
 }
 
-/** How many tool uses the CLI denied the reviewer. A CLI that reports no list denied none. */
-function reviewerDenials(stdout: string): number {
+/** How many denial reasons a refusal names, and how long each may be. */
+const DENIALS_SHOWN = 5;
+const DENIAL_NAME_MAX = 120;
+
+/**
+ * The tool uses the CLI denied the reviewer, by name. A CLI that reports no list denied none. The names
+ * are the adapter's own reasons or the CLI's tool names; they reach the stop detail, so each is made inert
+ * and bounded, and one that is not a string is named as such.
+ */
+function reviewerDenials(stdout: string): readonly string[] {
   const denials = structuredField(stdout, 'permission_denials');
-  return Array.isArray(denials) ? denials.length : 0;
+  if (!Array.isArray(denials)) return [];
+  return denials.map((d) => {
+    const name = d !== null && typeof d === 'object' ? (d as Record<string, unknown>)['tool_name'] : undefined;
+    // eslint-disable-next-line no-control-regex
+    return typeof name === 'string' ? name.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, DENIAL_NAME_MAX) : 'an unnamed denial';
+  });
+}
+
+/** The denial reasons as the refusal names them: the first few, and how many more there were. */
+function deniedNames(names: readonly string[]): string {
+  const more = names.length - DENIALS_SHOWN;
+  return `${names.slice(0, DENIALS_SHOWN).join('; ')}${more > 0 ? `; and ${more} more` : ''}`;
 }
 
 /**
@@ -145,8 +164,12 @@ export function runIndependentReview(sys: System, root: string, input: Independe
   if (turns === null || turns < 2) {
     return { ok: false, problems: [`the reviewer '${worker.workerId}' did not show that it read anything, which is not a review`] };
   }
-  if (reviewerDenials(outcome.stdout) > 0) {
-    return { ok: false, problems: [`the reviewer '${worker.workerId}' attempted tools it was denied, so it may have been steered by the candidate`] };
+  const denied = reviewerDenials(outcome.stdout);
+  if (denied.length > 0) {
+    return {
+      ok: false,
+      problems: [`the reviewer '${worker.workerId}' attempted tools it was denied (${deniedNames(denied)}), so it may have been steered by the candidate`],
+    };
   }
   const parsed = parseReviewerVerdict(reviewerText(outcome.stdout), nonce);
   if (!parsed.ok) return { ok: false, problems: [parsed.problem] };

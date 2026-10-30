@@ -2006,6 +2006,41 @@ describe('D11: role-separated independent review inside the loop', () => {
     expect(r.stop?.detail).toContain('attempted tools it was denied');
   });
 
+  it('a refused review names the denial reasons, inert and bounded, so the stop says which tripwire fired', () => {
+    const { registry } = fakeAdapter();
+    const base = registry[WORKER_KIND] as WorkerAdapter;
+    const denials = [
+      { tool_name: 'command_execution: names a path outside the repository' },
+      { tool_name: 'Bash' },
+      { tool_name: 'x\u001b[31mred\u0007' },
+      { tool_name: 'y'.repeat(500) },
+      { tool_name: 'five' },
+      { tool_name: 'six' },
+      { notAName: 1 },
+    ];
+    const steered: AdapterRegistry = {
+      [WORKER_KIND]: {
+        ...base,
+        review: (_s, _w, _b, instruction) => {
+          const reply = reviewerReply(instruction);
+          if (reply.kind !== 'completed') return reply;
+          const body = JSON.parse(reply.stdout) as Record<string, unknown>;
+          return { ...reply, stdout: JSON.stringify({ ...body, permission_denials: denials }) };
+        },
+      },
+    };
+    const sys = world({ files: cleanFindings(SESSION) });
+    const r = runLoop(sys, ROOT, { adapters: steered });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const detail = r.stop?.detail ?? '';
+    expect(detail).toContain('attempted tools it was denied (command_execution: names a path outside the repository; Bash; x [31mred ; ');
+    expect(detail).not.toContain('\u001b');
+    expect(detail).not.toContain('y'.repeat(121));
+    expect(detail).toContain('and 2 more)');
+    expect(detail).not.toContain('six');
+  });
+
   /**
    * The Codex adapter's OWN envelope, driven through the loop's real refusal (`runIndependentReview`), so
    * "the loop refuses it" is shown, not asserted from the adapter side. The reply carries the dispatch's

@@ -45,6 +45,13 @@
  *   CX-14 "a sandbox stops what matters"               — and the live probe showed loopback is reachable from
  *         it; a network fetch or decode-and-run command, or a "blocked by policy" failure, is a denial
  *
+ * PROJECTOS-KERNEL-REVIEW-READONLY1A (the exit proof's second run) added two more:
+ *
+ *   RV-2  "a read-only shell keeps the reviewer harmless" — but a reviewer that writes probe scripts runs
+ *         the candidate's code and trips the tripwires on innocent text; it is told to review by reading
+ *   CX-15 "git's config warning is the sandbox stopping it" — git prints it on every sandboxed command; only
+ *         a whole line of exactly that shape is set aside, and every other sandbox wording still denies
+ *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT
  * rule fires. Comments are stripped first. Reads files; runs nothing, calls no provider, runs no Codex.
  */
@@ -81,6 +88,8 @@ const TESTS = {
     "refuses a sandbox token %j given as the value of a permitted flag, and spawns nothing",
     "a command inside the checkout is not a denial: %s",
     "does not read a quoted escape in a probe script as a UNC path: %s",
+    "a failed command whose only sandbox wording is git's own config-access warning is not a denial",
+    "any other sandbox wording beside or around the git warning is still a denial: %j",
     "['a long-path UNC prefix', 'type \\\\\\\\?\\\\UNC\\\\server\\\\share\\\\x'],",
     "['a named pipe', 'type \\\\\\\\.\\\\pipe\\\\x'],",
     "['a UNC path with a doubled separator', 'Get-Content \\\\\\\\localhost\\\\\\\\c$\\\\x'],",
@@ -101,10 +110,14 @@ const TESTS = {
     "[CX] a Codex reviewer whose command reached outside the checkout is refused as possibly steered",
     "[CX] a Codex reply carrying credential-shaped content is withheld and the review refused",
     "[CX] the same Codex envelope with a clean read and reply is credited",
+    "a refused review names the denial reasons, inert and bounded, so the stop says which tripwire fired",
   ],
   "projectos/agent/test/kernelRoleReview.test.ts": [
     "names the files Codex loads too: AGENTS.override.md and anything under .agents/ (ECC SECURITY M4)",
     "tells the reviewer it may only read, in words true of both adapters (no shell grant for Claude, a read-only shell for Codex)",
+    "tells the reviewer to review by reading only and to run no script or repository code (EXIT-PROOF1A, second run)",
+    "a REJECT whose findings are all MEDIUM or LOW names them, so a correction can be named",
+    "names at most five findings and says how many more there were",
   ],
   "projectos/agent/test/hybridClosureReconcile.test.ts": [
     "a provider response id with %s is printed as not returned and stored as null",
@@ -189,6 +202,12 @@ const PIN = {
   // RV-1 (MEDIUM 4)
   agentsOverride: "AGENTS(\\.override)?\\.md$|\\.agents(\\/|$)|",
   readOnlyWords: "'You may only read: you hold no write grant, and any shell you are given is read-only; change nothing. ' +",
+  // RV-2 and CX-15 (PROJECTOS-KERNEL-REVIEW-READONLY1A)
+  readByReading: "'Review by reading only: use git diff, git show, git log and plain file reads inside this repository; ' +",
+  noScripts: "'do not write, pipe or run any script, and do not run any code from the repository, including its validators and tests (the loop has already run them). ' +",
+  gitWarningLine: String.raw`const GIT_CONFIG_WARNING_LINE = /^warning: unable to access '[^'\r\n]*': Permission denied\r?$/gm;`,
+  gitWarningStripped: "const output = typeof item['aggregated_output'] === 'string' ? item['aggregated_output'].replace(GIT_CONFIG_WARNING_LINE, '') : '';",
+  sandboxOnStripped: "if (item['status'] === 'failed' && SANDBOX_REFUSAL.test(output)) {",
   // CW-1 (LOW 7)
   idShape: "const PROVIDER_RESPONSE_ID = /^[A-Za-z0-9_.:-]{1,128}$/;",
   idGate: "return typeof value === 'string' && PROVIDER_RESPONSE_ID.test(value) ? value : null;",
@@ -269,6 +288,11 @@ const MUTATIONS = [
   { name: "error-item-ignored", rule: "CX-11", rel: CODEX_REL, from: PIN.neutralNoError, to: "const NEUTRAL_ITEMS: ReadonlySet<string> = new Set(['agent_message', 'reasoning', 'todo_list', 'error']);" },
   { name: "agents-override-unguarded", rule: "RV-1", rel: ROLES_REL, from: "AGENTS(\\.override)?\\.md$", to: "AGENTS\\.md$" },
   { name: "dot-agents-unguarded", rule: "RV-1", rel: ROLES_REL, from: "|\\.agents(\\/|$)", to: "" },
+  { name: "reviewer-may-run-scripts", rule: "RV-2", rel: ROLES_REL, from: PIN.noScripts, to: "" },
+  { name: "reviewer-not-told-to-read", rule: "RV-2", rel: ROLES_REL, from: PIN.readByReading, to: "" },
+  { name: "git-warning-unanchored", rule: "CX-15", rel: CODEX_REL, from: PIN.gitWarningLine, to: PIN.gitWarningLine.replace("/^warning:", "/warning:") },
+  { name: "any-permission-denied-line-set-aside", rule: "CX-15", rel: CODEX_REL, from: PIN.gitWarningLine, to: String.raw`const GIT_CONFIG_WARNING_LINE = /^.*Permission denied\r?$/gm;` },
+  { name: "sandbox-test-on-raw-output-dropped", rule: "CX-15", rel: CODEX_REL, from: PIN.sandboxOnStripped, to: "if (item['status'] === 'failed' && SANDBOX_REFUSAL.test(output.slice(0, 0))) {" },
   { name: "shell-grant-claim-back", rule: "RV-1", rel: ROLES_REL, from: "You may only read: you hold no write grant, and any shell you are given is read-only; change nothing. ", to: "You hold no write or shell grant; change nothing. " },
   { name: "response-id-unbounded", rule: "CW-1", rel: WAIT_REL, from: PIN.idShape, to: "const PROVIDER_RESPONSE_ID = /^.*$/;" },
   { name: "trace-prints-raw-response-id", rule: "CW-1", rel: CLOSURE_REL, from: "safeProviderResponseId(turn.providerResponseId)", to: "turn.providerResponseId" },
@@ -403,6 +427,12 @@ function check(raw) {
   const roles = src[ROLES_REL];
   if (!roles.includes(PIN.agentsOverride) || !roles.includes(PIN.readOnlyWords) || roles.includes("no write or shell grant")) {
     E("RV-1", "the steering guard no longer covers AGENTS.override.md and .agents/, or the reviewer is told something untrue of a Codex reviewer");
+  }
+  if (!roles.includes(PIN.readByReading) || !roles.includes(PIN.noScripts)) {
+    E("RV-2", "the reviewer is no longer told to review by reading only and to run no script or repository code");
+  }
+  if (![PIN.gitWarningLine, PIN.gitWarningStripped, PIN.sandboxOnStripped].every((p) => cx.includes(p))) {
+    E("CX-15", "more than git's exact config-access warning line is set aside before a failed Codex command is judged as stopped by the sandbox");
   }
   const closureSrc = src[CLOSURE_REL];
   if (!src[WAIT_REL].includes(PIN.idShape) || !src[WAIT_REL].includes(PIN.idGate) || !closureSrc.includes(PIN.traceGated) ||

@@ -12,6 +12,7 @@ import {
   reviewInstruction,
   reviewPassed,
   reviewerConfigPaths,
+  reviewerObjection,
   reviewerRecordProblems,
   roleBindingProblems,
   verdictMarker,
@@ -132,6 +133,35 @@ describe('H2 / F2 — what the reviewer is told and what it may be steered by', 
     const text = reviewInstruction('b.json', SUBJECT, ['a.ts'], ['ECC CODE review'], NONCE);
     expect(text).toContain('You may only read: you hold no write grant, and any shell you are given is read-only; change nothing.');
     expect(text).not.toContain('no write or shell grant');
+  });
+  it('tells the reviewer to review by reading only and to run no script or repository code (EXIT-PROOF1A, second run)', () => {
+    const text = reviewInstruction('b.json', SUBJECT, ['a.ts'], ['ECC CODE review'], NONCE);
+    expect(text).toContain('Review by reading only: use git diff, git show, git log and plain file reads inside this repository;');
+    expect(text).toContain('do not write, pipe or run any script, and do not run any code from the repository, including its validators and tests');
+  });
+});
+
+describe('a rejection says what it objected to', () => {
+  const finding = (id: string, severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW', summary: string) =>
+    ({ id: `reviewer:${id}`, severity, category: 'validator', summary, resolved: false });
+  it('a REJECT whose findings are all MEDIUM or LOW names them, so a correction can be named', () => {
+    const text = reviewerObjection(record({ verdict: 'REJECT', findings: [finding('R1', 'MEDIUM', 'Expires accepts non-ISO dates')] }));
+    expect(text).toBe("the independent reviewer 'rev' returned REJECT: MEDIUM reviewer:R1 - Expires accepts non-ISO dates");
+    expect(reviewPassed(record({ verdict: 'REJECT', findings: [finding('R1', 'MEDIUM', 'x')] }))).toBe(false);
+  });
+  it('names only the blocking findings when there are any', () => {
+    const text = reviewerObjection(record({ verdict: 'REJECT', findings: [finding('a', 'LOW', 'minor'), finding('b', 'HIGH', 'broken')] }));
+    expect(text).toBe("the independent reviewer 'rev' returned REJECT: HIGH reviewer:b - broken");
+  });
+  it('names at most five findings and says how many more there were', () => {
+    const many = Array.from({ length: 7 }, (_, i) => finding(`F${i}`, 'LOW', `s${i}`));
+    const text = reviewerObjection(record({ verdict: 'REJECT', findings: many }));
+    expect(text).toContain('LOW reviewer:F4 - s4');
+    expect(text).not.toContain('reviewer:F5');
+    expect(text).toMatch(/and 2 more$/);
+  });
+  it('a CONCERNS verdict with only MEDIUM findings is not an objection to list', () => {
+    expect(reviewerObjection(record({ verdict: 'CONCERNS', findings: [finding('m', 'MEDIUM', 'x')] }))).toBe("the independent reviewer 'rev' returned CONCERNS");
   });
 });
 
