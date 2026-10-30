@@ -451,9 +451,17 @@ function check() {
   if (!/itself\.failure !== undefined/.test(fnBody(workers, "gitDirectoryInspector") || "")) {
     E("BC-8ag: a check-ignore that timed out or never started reads as 'not ignored'");
   }
+  // BC-8n. The implementer's approved write grant reaches the FIRST dispatch, and one other: the dispatch
+  // right after an independent reviewer's rejection, inside the existing correction budget (owner,
+  // 2026-10-30, verbatim: "Claude fixes, re-review (Recommended)" and, rewording this rule, "Yes, reword
+  // it (Recommended)"; RC-1 in val-projectos-kernel-followup1a pins that branch). No other dispatch — a
+  // gatekeeper-directed correction, an ordinary retry — may carry it: the grant is named exactly three
+  // times (the first dispatch, the budget guard, the one re-grant).
   if (!/const attemptGrants = \[\.\.\.\(writeGrantSpent \? \[\] : writeGrant\.grants\), \.\.\.correctionGrants\];\s*writeGrantSpent = true;/.test(runner) ||
-      (runner.match(/writeGrantSpent = /g) || []).length !== 2) {
-    E("BC-8n: a correction dispatch can carry the implementer's write grant, or the first dispatch lost it");
+      (runner.match(/writeGrantSpent = /g) || []).length !== 2 ||
+      (runner.match(/writeGrant\.grants/g) || []).length !== 3 ||
+      !/if \(attempts < MAX_CORRECTION_ATTEMPTS && writeGrant\.grants\.length > 0\) \{[\s\S]{0,900}?attempts \+= 1;[\s\S]{0,300}?correctionGrants = writeGrant\.grants;/.test(runner)) {
+    E("BC-8n: a correction dispatch can carry the implementer's write grant other than the one owner-approved dispatch after an independent rejection (RC-1), or the first dispatch lost it");
   }
   if (read(RETIRED_GRANT_REL) !== null) E(`BC-8o: the retired ${RETIRED_GRANT_REL} is present again`);
   // THE WORKER ARGS ONLY: the Speed benchmark CHECK legitimately names its own script.
@@ -949,6 +957,13 @@ const TRUTH_MUTATIONS = [
   { name: "closure-wait-drops-broker-response-id", rule: "ZT-4", rel: CLOSURE_REL,
     from: "    ...(obtained.provenance === INSTALLATION_BROKER_PROVENANCE ? { providerResponseId: safeProviderResponseId(obtained.providerResponseId) } : {}),\n",
     to: "" },
+  // BC-8n (owner, 2026-10-30: "Yes, reword it (Recommended)")
+  { name: "approved-grant-reaches-gatekeeper-correction", rule: "BC-8n", rel: RUNNER_REL,
+    from: "correctionGrants = authorised.correction.grants;",
+    to: "correctionGrants = [...authorised.correction.grants, ...writeGrant.grants];" },
+  { name: "rejection-regrant-outside-the-budget", rule: "BC-8n", rel: RUNNER_REL,
+    from: "if (attempts < MAX_CORRECTION_ATTEMPTS && writeGrant.grants.length > 0) {",
+    to: "if (writeGrant.grants.length > 0) {" },
   { name: "broker-class-not-in-core", rule: "ZT-4", rel: CORE_MODE_REL,
     from: "  'InstallationBrokerProviderAnswer',\n] as const;",
     to: "] as const;" },

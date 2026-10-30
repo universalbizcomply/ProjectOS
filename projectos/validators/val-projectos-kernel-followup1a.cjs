@@ -329,6 +329,7 @@ const MUTATIONS = [
   { name: "reviewer-example-unquoted", rule: "RV-3", rel: ROLES_REL, from: PIN.citeQuoted, to: "` (for example ${shown[0]})`" },
   { name: "rejection-budget-unbounded", rule: "RC-1", rel: RUNNER_REL, from: PIN.rejectBounded, to: "if (writeGrant.grants.length > 0) {" },
   { name: "rejection-correction-not-counted", rule: "RC-1", rel: RUNNER_REL, from: "            attempts += 1;\n            // Through the per-attempt slot", to: "            // Through the per-attempt slot" },
+  { name: "rejection-correction-skips-doctor", rule: "RC-1", rel: RUNNER_REL, from: "const correctionPreflight = runDoctor(sys, root, { checkCommands: suites.checks.map((c) => c.command) });", to: "const correctionPreflight = { safeToActAutonomously: true } as never;" },
   { name: "approved-grant-leaks-to-another-dispatch", rule: "RC-1", rel: RUNNER_REL, from: "correctionGrants = authorised.correction.grants;", to: "correctionGrants = [...authorised.correction.grants, ...writeGrant.grants];" },
   { name: "correction-blind-to-reviewer", rule: "RC-1", rel: CLAUDE_REL, from: PIN.correctionReadsReviewer, to: "" },
   { name: "reviewer-may-run-scripts", rule: "RV-2", rel: ROLES_REL, from: PIN.noScripts, to: "" },
@@ -480,7 +481,15 @@ function check(raw) {
     E("GK-1", "the gatekeeper is no longer told to name every file to correct by its repository-relative path (or that none is correctable), or is offered the placeholder Edit(path) again");
   }
   // The re-grant sits inside the bounded branch, after the count: the branch body is checked whole.
-  const rejectBranch = /if \(attempts < MAX_CORRECTION_ATTEMPTS && writeGrant\.grants\.length > 0\) \{[\s\S]{0,900}?attempts \+= 1;[\s\S]{0,300}?correctionGrants = writeGrant\.grants;[\s\S]{0,500}?continue;/.test(runner);
+  // ...and only INSIDE the rejection branch, before the review-not-obtained `else`, behind the doctor
+  // preflight (ECC SECURITY recheck F4: each of the three survived a mutation before).
+  const rejectBranch = new RegExp(
+    String.raw`if \(!reviewPassed\(reviewed\.record\) && decision\.kind === 'stop' && decision\.reason\.code === 'REVIEW_OUTSTANDING'\) \{` +
+      String.raw`[\s\S]{0,700}?` +
+      String.raw`if \(attempts < MAX_CORRECTION_ATTEMPTS && writeGrant\.grants\.length > 0\) \{\s*` +
+      String.raw`const correctionPreflight = runDoctor\(sys, root, [\s\S]{0,400}?if \(!correctionPreflight\.safeToActAutonomously\) \{[\s\S]{0,400}?break;\s*\}\s*` +
+      String.raw`attempts \+= 1;\s*correctionGrants = writeGrant\.grants;[\s\S]{0,700}?continue;\s*\}\s*\}\s*\} else \{\s*reviewerProblems = reviewed\.problems;`,
+  ).test(runner);
   // Every assignment to the per-attempt slot is one of exactly three: the authorised correction, the
   // clearing after a dispatch, and this one re-grant. Anything else could carry the approved grant elsewhere.
   const slotWrites = [...runner.matchAll(/correctionGrants = ([^;]+);/g)].map((m) => m[1].trim()).sort();

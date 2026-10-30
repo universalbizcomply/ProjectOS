@@ -2055,7 +2055,11 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
             // Through the per-attempt slot, which the next dispatch consumes and clears: the first
             // dispatch's spent-flag (BC-8n) is untouched, and nothing outlives this one dispatch.
             correctionGrants = writeGrant.grants;
+            // The rejected record is overwritten by the next review; its digest and findings stay in the log
+            // (ECC SECURITY recheck: a final APPROVE must not erase that earlier rounds rejected).
+            const rejected = reviewed.record.findings.map((f) => `${f.severity} ${f.id}`).join(', ');
             lines.push(
+              `  rejected review ${reviewed.recordSha256}: ${reviewed.record.verdict}${rejected === '' ? '' : ` (${rejected})`}`,
               `  correcting after the independent review rejected the work (correction ${attempts} of ${MAX_CORRECTION_ATTEMPTS}); ` +
                 `re-granted the approved write paths: ${declaredWritePaths.entries.join(', ')}`,
             );

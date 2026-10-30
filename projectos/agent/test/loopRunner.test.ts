@@ -890,6 +890,39 @@ describe('runLoop', () => {
  * configured. These four prove the other half: that when a reviewer IS configured, the loop actually
  * consults it at the point it used to end, and still refuses everything it always refused.
  */
+/**
+ * OWNER, 2026-10-30, verbatim: "Claude fixes, re-review (Recommended)". The exit proof's third run got a
+ * real REJECT and had no fix route: the approved write grant is spent at the first dispatch, and a
+ * gatekeeper correction may not touch the phase's implementation files. A rejection now re-dispatches the
+ * implementer with the phase's own approved grant, inside the existing budget, and is reviewed again.
+ */
+function rejectingThen(verdicts: readonly string[]) {
+  const { registry } = fakeAdapter();
+  const inner = registry[WORKER_KIND] as WorkerAdapter;
+  const argsSeen: string[][] = [];
+  const reviews: string[] = [];
+  const finding = { id: 'R1', severity: 'MEDIUM', category: 'validator', summary: 'src/scoped.ts accepts non-ISO dates' };
+  const adapters: AdapterRegistry = {
+    [WORKER_KIND]: {
+      ...inner,
+      start: (s, worker, brief, path) => {
+        argsSeen.push([...worker.args]);
+        return inner.start(s, worker, brief, path);
+      },
+      rejoin: (s, worker, session, brief) => {
+        argsSeen.push([...worker.args]);
+        return inner.rejoin(s, worker, session, brief);
+      },
+      review: (_s, _w, _b, instruction) => {
+        const verdict = verdicts[Math.min(reviews.length, verdicts.length - 1)] as string;
+        reviews.push(verdict);
+        return reviewerReply(instruction, verdict, verdict === 'REJECT' ? [finding] : []);
+      },
+    },
+  };
+  return { adapters, argsSeen, reviews };
+}
+
 describe('runLoop with an unattended gatekeeper', () => {
   const REF = 'PROJECTOS_GATEKEEPER_OPENAI_KEY';
   const RATE = {
@@ -1570,6 +1603,26 @@ describe('runLoop with an unattended gatekeeper', () => {
     expect(request).not.toContain('Edit(path)');
   });
 
+  it('a rejection the implementer could not fix in three corrections then goes to the gatekeeper, as before', () => {
+    const sys = world({ files: cleanFindings(SESSION), writePaths: ['src/scoped.ts'] });
+    const { adapters, reviews } = rejectingThen(['REJECT']);
+    const sent: string[] = [];
+    const r = runLoop(sys, ROOT, {
+      adapters,
+      expectedDecider: 'ChatGPT',
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('DO_NOT_PROCEED', 'Stop.') }, sent),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(reviews).toHaveLength(4);
+    // Asked once, only after the budget was spent, and shown the rejection's findings.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain('returned REJECT');
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
+    // Each rejected round left its record digest in the log before the next review overwrote it.
+    expect(r.lines.filter((l) => /^ {2}rejected review (sha256:)?[0-9a-f]{64}: REJECT \(MEDIUM reviewer:R1\)$/.test(l))).toHaveLength(3);
+  });
+
   it('with no correction maximum, the gatekeeper is told no file is correctable, not pointed at an empty list (ECC SECURITY F1)', () => {
     const sys = world({ files: highFinding() });
     const { registry } = fakeAdapter();
@@ -2041,38 +2094,7 @@ describe('D11: role-separated independent review inside the loop', () => {
     expect(r.stop?.detail).toContain('attempted tools it was denied');
   });
 
-  /**
-   * OWNER, 2026-10-30, verbatim: "Claude fixes, re-review (Recommended)". The exit proof's third run got
-   * a real REJECT and had no fix route: the approved write grant is spent at the first dispatch, and a
-   * gatekeeper correction may not touch the phase's implementation files. A rejection now re-dispatches
-   * the implementer with the phase's own approved grant, inside the existing budget, and is reviewed again.
-   */
-  function rejectingThen(verdicts: readonly string[]) {
-    const { registry } = fakeAdapter();
-    const inner = registry[WORKER_KIND] as WorkerAdapter;
-    const argsSeen: string[][] = [];
-    const reviews: string[] = [];
-    const finding = { id: 'R1', severity: 'MEDIUM', category: 'validator', summary: 'src/scoped.ts accepts non-ISO dates' };
-    const adapters: AdapterRegistry = {
-      [WORKER_KIND]: {
-        ...inner,
-        start: (s, worker, brief, path) => {
-          argsSeen.push([...worker.args]);
-          return inner.start(s, worker, brief, path);
-        },
-        rejoin: (s, worker, session, brief) => {
-          argsSeen.push([...worker.args]);
-          return inner.rejoin(s, worker, session, brief);
-        },
-        review: (_s, _w, _b, instruction) => {
-          const verdict = verdicts[Math.min(reviews.length, verdicts.length - 1)] as string;
-          reviews.push(verdict);
-          return reviewerReply(instruction, verdict, verdict === 'REJECT' ? [finding] : []);
-        },
-      },
-    };
-    return { adapters, argsSeen, reviews };
-  }
+  // OWNER, 2026-10-30, verbatim: "Claude fixes, re-review (Recommended)" — see `rejectingThen`.
 
   it('a REJECT re-dispatches the implementer with the approved write grant, then a fresh review approves', () => {
     const sys = world({ files: cleanFindings(SESSION), writePaths: ['src/scoped.ts'] });
@@ -2089,6 +2111,29 @@ describe('D11: role-separated independent review inside the loop', () => {
     expect(r.stop?.code).not.toBe('REVIEW_OUTSTANDING');
     const record = JSON.parse(sys.readText(`${ROOT}/.projectops/execution/${SESSION}.reviewer.json`) ?? '{}') as Record<string, unknown>;
     expect(record['verdict']).toBe('APPROVE');
+  });
+
+  it('a review that was not obtained (refused as possibly steered) is not a rejection: nothing is re-granted', () => {
+    const sys = world({ files: cleanFindings(SESSION), writePaths: ['src/scoped.ts'] });
+    const { adapters, argsSeen } = rejectingThen(['REJECT']);
+    const base = adapters[WORKER_KIND] as WorkerAdapter;
+    const steered: AdapterRegistry = {
+      [WORKER_KIND]: {
+        ...base,
+        review: (s, w, b, instruction) => {
+          const reply = base.review?.(s, w, b, instruction) ?? reviewerReply(instruction);
+          if (reply.kind !== 'completed') return reply;
+          const body = JSON.parse(reply.stdout) as Record<string, unknown>;
+          return { ...reply, stdout: JSON.stringify({ ...body, permission_denials: [{ tool_name: 'Bash' }] }) };
+        },
+      },
+    };
+    const r = runLoop(sys, ROOT, { adapters: steered });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(argsSeen).toHaveLength(1);
+    expect(r.lines.join('\n')).not.toContain('correcting after the independent review rejected the work');
+    expect(r.stop?.code).toBe('REVIEW_OUTSTANDING');
   });
 
   it('a rejection that persists spends the existing budget of three corrections, then stops REVIEW_OUTSTANDING as before', () => {
