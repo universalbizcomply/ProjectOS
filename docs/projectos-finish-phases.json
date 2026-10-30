@@ -25,7 +25,8 @@
     "Proposed for owner approval (plan v1.21): one small phase with the Codex reviewer fixes found by the live sandbox probe (fixed Windows sandbox mode; judge commands inside the shell wrapper), before the exit proof runs (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\").",
     "Proposed for owner approval (plan v1.22): D11 R5 skips phases already closed in the active plan (owner: \"Fix ProjectOS properly (Recommended)\").",
     "Proposed for owner approval (plan v1.23): the Codex reviewer's UNC tripwire no longer reads a quoted escape such as \"\\\\nExpires\" in a reviewer's probe script as a network path, found by the exit proof's first run (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\").",
-    "Proposed for owner approval (plan v1.24): the independent reviewer reviews by reading only, a refused review names its denial reasons, and a reviewer rejection carries its findings to the gatekeeper, found by the exit proof's second run (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\")."
+    "Proposed for owner approval (plan v1.24): the independent reviewer reviews by reading only, a refused review names its denial reasons, and a reviewer rejection carries its findings to the gatekeeper, found by the exit proof's second run (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\").",
+    "Proposed for owner approval (plan v1.25): the gatekeeper is told to name every file a correction must touch by its repository-relative path, and the reviewer to cite files that way, found by the exit proof's third run (owner: \"Yes, run it (Recommended)\")."
   ],
   "environments": [
     {
@@ -759,7 +760,7 @@
       ],
       "phaseId": "PROJECTOS-KERNEL-EXIT-PROOF1A",
       "title": "Stage 1 exit proof: cross-provider review and a refusing cap, live",
-      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter, and AFTER PROJECTOS-KERNEL-CODEX-LIVE1A, which fixes what the live probe found, AFTER PROJECTOS-KERNEL-PLAN-HISTORY1A, which lets a pre-D11 project plan again, AFTER PROJECTOS-KERNEL-CODEX-UNC1A, which stops the UNC tripwire refusing an innocent review, and AFTER PROJECTOS-KERNEL-REVIEW-READONLY1A, which keeps the reviewer to reading and carries its findings to the gatekeeper (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
+      "description": "One governed Develop phase closes from one continue where the reviewer (Codex CLI, OpenAI) is a different provider from the implementer (Claude Code), and a deliberately low cap is shown to refuse a provider call. Evidence only. Runs AFTER PROJECTOS-KERNEL-FOLLOWUP1A, which builds the Codex reviewer adapter, and AFTER PROJECTOS-KERNEL-CODEX-LIVE1A, which fixes what the live probe found, AFTER PROJECTOS-KERNEL-PLAN-HISTORY1A, which lets a pre-D11 project plan again, AFTER PROJECTOS-KERNEL-CODEX-UNC1A, which stops the UNC tripwire refusing an innocent review, AFTER PROJECTOS-KERNEL-REVIEW-READONLY1A, which keeps the reviewer to reading and carries its findings to the gatekeeper, and AFTER PROJECTOS-KERNEL-CORRECTION-PATHS1A, which has the gatekeeper name the files a correction touches (the planning engine keeps this phase before the appended follow-up). The second provider is not xAI/Grok (owner, 2026-10-29); the gatekeeper uses the current OpenAI key (owner: \"Keep the current key\"; rotation after project completion).",
       "scope": "Add the evidence record under docs/finish/.",
       "writePaths": [
         "docs/finish/",
@@ -1003,6 +1004,49 @@
         "A review refused for denied tools names the denial reasons, bounded and inert; tested.",
         "A REJECT with only MEDIUM or LOW findings puts those findings (bounded, inert) in the stop detail; a REJECT still credits no review; tested.",
         "A failed Codex command whose only sandbox-shaped output is git's config-access warning is not a denial; any other sandbox wording still is; tested and pinned with a named mutation."
+      ],
+      "requiredValidators": [
+        "val-projectos-kernel-followup1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-KERNEL-CORRECTION-PATHS1A",
+      "title": "A correction the gatekeeper asks for names its files",
+      "description": "The exit proof's third run (2026-10-30 12:40) got a clean cross-provider review for the first time: Codex read the candidate and returned REJECT with two real MEDIUM findings, and the gatekeeper, now shown them, answered AMENDMENT_REQUIRED with a precise instruction. The loop then refused the correction: \"the amendment named no path to correct\". ProjectOS grants a correction worker only the files the amendment instruction names (pathsNamedIn, inside the phase's approved maximum), but nothing tells the gatekeeper so: its evidence pack says only \"Edit(path) and Write(path) only\", which it copied as the literal allowedActions \"Edit(path)\"; and the reviewer cited \"validate-site.cjs:195\" without its folder. This phase tells the gatekeeper, in the correctionMechanism part of its evidence, to name each file to correct by its full repository-relative path from workerWritableMaximum, and asks the reviewer to cite files by their repository-relative path. The correction boundary itself (protected) is unchanged: an amendment that names no permitted path is still refused. The exit proof runs after it.",
+      "scope": "Edit the gatekeeper evidence pack's correction guidance, the review instruction's findings format, their tests and validator rules only.",
+      "writePaths": [
+        "projectos/agent/src/loop/runner.ts",
+        "projectos/agent/src/loop/reviewRoles.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-kernel-followup1a.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to correctionBoundary.ts or any rule that authorises a correction: the amendment still only narrows the phase's approved maximum, and one that names no permitted path is still refused.",
+        "No relaxation of any owner gate, closure eligibility predicate or ownerOnlyActions."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-REVIEW-READONLY1A"
+      ],
+      "acceptanceCriteria": [
+        "The gatekeeper's evidence tells it to name every file to correct by its full repository-relative path, taken from workerWritableMaximum, with an example from that list, and that an amendment naming none is refused before any worker starts; it no longer offers the placeholder text Edit(path); tested and pinned.",
+        "The review instruction asks the reviewer to cite each file by its repository-relative path; tested and pinned.",
+        "An amendment instruction that names a permitted file by that path is authorised, and one that names none is still refused; tested."
       ],
       "requiredValidators": [
         "val-projectos-kernel-followup1a",
