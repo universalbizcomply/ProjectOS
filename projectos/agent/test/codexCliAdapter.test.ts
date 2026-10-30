@@ -399,6 +399,9 @@ describe('HIGH 1(b): a command that names a path outside the checkout is a denia
     ['a forward-slash UNC path with a doubled separator', 'cat //localhost//c$/x'],
     ['a UNC path with mixed separators', 'Get-Content \\\\localhost\\/c$\\x'],
     ['a UNC host given as a PowerShell sub-expression', 'Get-ChildItem "\\\\$(hostname)\\c$\\x"'],
+    ['a long-path prefix with a doubled separator', 'Get-Content \\\\?\\\\UNC\\localhost\\c$\\x'],
+    ['a device prefix with a doubled separator', 'Get-Content //.//UNC/localhost/c$/x'],
+    ['a GLOBALROOT device path with a doubled separator', 'Get-Content \\\\?\\\\GLOBALROOT\\Device\\HarddiskVolume3\\x'],
     ["the owner's Codex home", 'cat auth.json --dir .codex'],
     ['the Codex login file through the checkout', 'Get-Content C:/dev/candidate/../../Users/o/.codex/auth.json'],
   ])('%s: %s', (_label, command) => {
