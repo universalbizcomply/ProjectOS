@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-10-30T11:04:47.354Z",
   "note": "Owner (Murad), standing answers, verbatim: \"Yes, run it (Recommended)\" (2026-10-29, live exit proof under the caps, fixing what the live runs find in governed phases); \"Accept tripwires (Recommended)\" (tripwires are the accepted protection for the Codex reviewer). The exit proof's second run showed the reviewer's own probe scripts trip the tripwires, a refused review does not say why, and a MEDIUM-only rejection reaches the gatekeeper without its findings; this small phase fixes those without narrowing any tripwire but one exact git warning line. Standing grant: \"You have full authority\" (2026-10-28).",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-10-30T11:04:55.478Z"
 }
