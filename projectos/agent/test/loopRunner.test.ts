@@ -1549,6 +1549,27 @@ describe('runLoop with an unattended gatekeeper', () => {
     expect(calls.slice(0, 2)).toEqual(['start', 'rejoin']);
   });
 
+  it('tells the gatekeeper to name every file to correct by its repository-relative path, with an example from the maximum', () => {
+    // EXIT-PROOF1A, third run: the evidence said only "Edit(path) and Write(path) only"; the gatekeeper
+    // answered with the literal allowedActions "Edit(path)" and an instruction naming no file, so no
+    // correction could be authorised.
+    const sys = world({ validatorExit: 1, files: cleanFindings(SESSION) });
+    const { registry } = fakeAdapter();
+    const sent: string[] = [];
+    runLoop(sys, ROOT, {
+      adapters: registry,
+      expectedDecider: 'ChatGPT',
+      correctionMaximumPaths: [FIXTURE],
+      gatekeeper: gatekeeper({ status: 200, body: decisionBody('AMENDMENT_REQUIRED', 'Fix it.') }, sent),
+    });
+    const request = sent[0] ?? '';
+    expect(request).toContain('howToAskForACorrection');
+    expect(request).toContain('name every file to correct by its full repository-relative path, exactly as listed in workerWritableMaximum');
+    expect(request).toContain(`for example ${FIXTURE}`);
+    expect(request).toContain('an amendment that names none is refused before any worker starts');
+    expect(request).not.toContain('Edit(path)');
+  });
+
   /**
    * ECC CODE round 2 NEW-1: a REVIEWER-DIRECTED correction does not advance `attempts`, so a scope grant
    * keyed on `attempts === 0` reached the correction worker and voided the correction boundary. The

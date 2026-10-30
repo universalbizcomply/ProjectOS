@@ -141,6 +141,10 @@ describe('H2 / F2 — what the reviewer is told and what it may be steered by', 
     // A Claude reviewer holds no shell at all: the words must not send it to one (ECC SECURITY MEDIUM).
     expect(text).not.toContain('Review by reading only: use git');
   });
+  it('asks the reviewer to cite each file by its repository-relative path, so a correction can name it (EXIT-PROOF1A, third run)', () => {
+    const text = reviewInstruction('b.json', SUBJECT, ['a.ts'], ['ECC CODE review'], NONCE);
+    expect(text).toContain('In each summary, cite every file by its repository-relative path (for example a.ts), not its bare name.');
+  });
 });
 
 describe('a rejection says what it objected to', () => {

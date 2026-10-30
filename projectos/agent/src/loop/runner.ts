@@ -1298,7 +1298,13 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
           what: 'a bounded correction worker, already implemented, tested and in use',
           workerWritableMaximum: correctionMaximum,
           workerMayNeverWrite: scopePaths,
-          grantsIssued: 'Edit(path) and Write(path) only; no shell, so no git, no commit, no push',
+          grantsIssued: 'edit and write grants on the named files only; no shell, so no git, no commit, no push',
+          // The worker is granted only the files the amendment's instruction names by path; the
+          // gatekeeper was never told, and named none (EXIT-PROOF1A, third run).
+          howToAskForACorrection:
+            'In nextInstruction, name every file to correct by its full repository-relative path, exactly as listed in workerWritableMaximum' +
+            `${correctionMaximum[0] === undefined ? '' : ` (for example ${correctionMaximum[0]})`}. Only the files named there are granted; ` +
+            'an amendment that names none is refused before any worker starts.',
           correctionsApplied: correctionsApplied.length,
           correctionBudgetRemaining: MAX_CORRECTION_ATTEMPTS - correctionsApplied.length,
           unresolvedCritical: f.available

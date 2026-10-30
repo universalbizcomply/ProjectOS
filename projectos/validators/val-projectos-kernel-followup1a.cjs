@@ -52,6 +52,14 @@
  *   CX-15 "git's config warning is the sandbox stopping it" — git prints it on every sandboxed command; only
  *         a whole line of exactly that shape is set aside, and every other sandbox wording still denies
  *
+ * PROJECTOS-KERNEL-CORRECTION-PATHS1A (the exit proof's third run) added two more:
+ *
+ *   RV-3  "the reviewer's findings say where"          — but it cited `validate-site.cjs:195` with no folder;
+ *         it is asked to cite every file by its repository-relative path
+ *   GK-1  "the gatekeeper knows how to ask for a fix"  — but it was shown only "Edit(path)", copied that
+ *         placeholder and named no file, so no correction could be authorised; it is told to name every
+ *         file by its full repository-relative path from workerWritableMaximum
+ *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT
  * rule fires. Comments are stripped first. Reads files; runs nothing, calls no provider, runs no Codex.
  */
@@ -68,7 +76,8 @@ const REVIEW_REL = "projectos/agent/src/loop/independentReview.ts";
 const ROLES_REL = "projectos/agent/src/loop/reviewRoles.ts";
 const CLOSURE_REL = "projectos/agent/src/commands/closure.ts";
 const WAIT_REL = "projectos/agent/src/closureWait.ts";
-const SOURCES = [VA_REL, CR_REL, CODEX_REL, CLAUDE_REL, REVIEW_REL, ROLES_REL, CLOSURE_REL, WAIT_REL];
+const RUNNER_REL = "projectos/agent/src/loop/runner.ts";
+const SOURCES = [VA_REL, CR_REL, CODEX_REL, CLAUDE_REL, REVIEW_REL, ROLES_REL, CLOSURE_REL, WAIT_REL, RUNNER_REL];
 
 const TESTS = {
   "projectos/agent/test/codexCliAdapter.test.ts": [
@@ -111,6 +120,7 @@ const TESTS = {
     "[CX] a Codex reply carrying credential-shaped content is withheld and the review refused",
     "[CX] the same Codex envelope with a clean read and reply is credited",
     "a refused review names the denial reasons, inert and bounded, so the stop says which tripwire fired",
+    "tells the gatekeeper to name every file to correct by its repository-relative path, with an example from the maximum",
   ],
   "projectos/agent/test/kernelRoleReview.test.ts": [
     "names the files Codex loads too: AGENTS.override.md and anything under .agents/ (ECC SECURITY M4)",
@@ -119,6 +129,7 @@ const TESTS = {
     "a REJECT whose findings are all MEDIUM or LOW names them, so a correction can be named",
     "names at most five findings and says how many more there were",
     "names the most severe findings first, so a MEDIUM behind six LOWs is not cut off",
+    "asks the reviewer to cite each file by its repository-relative path, so a correction can name it (EXIT-PROOF1A, third run)",
   ],
   "projectos/agent/test/hybridClosureReconcile.test.ts": [
     "a provider response id with %s is printed as not returned and stored as null",
@@ -209,6 +220,12 @@ const PIN = {
   gitWarningLine: "const GIT_CONFIG_WARNING_LINE =\n  " + String.raw`/^warning: unable to access '[^'\r\n]*[\\/]\.config[\\/]git[\\/](?:ignore|attributes)': Permission denied\r?$/gm;`,
   gitWarningStripped: "const output = typeof item['aggregated_output'] === 'string' ? item['aggregated_output'].replace(GIT_CONFIG_WARNING_LINE, '') : '';",
   sandboxOnStripped: "if (item['status'] === 'failed' && SANDBOX_REFUSAL.test(output)) {",
+  // RV-3 and GK-1 (PROJECTOS-KERNEL-CORRECTION-PATHS1A)
+  citePaths: "`In each summary, cite every file by its repository-relative path",
+  citeNotBare: ", not its bare name. ` +",
+  askNamesPaths: "'In nextInstruction, name every file to correct by its full repository-relative path, exactly as listed in workerWritableMaximum' +",
+  askRefusesNone: "'an amendment that names none is refused before any worker starts.',",
+  noPlaceholder: "'Edit(path) and Write(path) only",
   // CW-1 (LOW 7)
   idShape: "const PROVIDER_RESPONSE_ID = /^[A-Za-z0-9_.:-]{1,128}$/;",
   idGate: "return typeof value === 'string' && PROVIDER_RESPONSE_ID.test(value) ? value : null;",
@@ -289,6 +306,10 @@ const MUTATIONS = [
   { name: "error-item-ignored", rule: "CX-11", rel: CODEX_REL, from: PIN.neutralNoError, to: "const NEUTRAL_ITEMS: ReadonlySet<string> = new Set(['agent_message', 'reasoning', 'todo_list', 'error']);" },
   { name: "agents-override-unguarded", rule: "RV-1", rel: ROLES_REL, from: "AGENTS(\\.override)?\\.md$", to: "AGENTS\\.md$" },
   { name: "dot-agents-unguarded", rule: "RV-1", rel: ROLES_REL, from: "|\\.agents(\\/|$)", to: "" },
+  { name: "reviewer-cites-bare-names", rule: "RV-3", rel: ROLES_REL, from: PIN.citePaths, to: "`In each summary, cite every file" },
+  { name: "gatekeeper-not-told-to-name-paths", rule: "GK-1", rel: RUNNER_REL, from: PIN.askNamesPaths, to: "'In nextInstruction, say what to fix' +" },
+  { name: "gatekeeper-not-told-unnamed-is-refused", rule: "GK-1", rel: RUNNER_REL, from: PIN.askRefusesNone, to: "'',"  },
+  { name: "placeholder-grant-text-back", rule: "GK-1", rel: RUNNER_REL, from: "grantsIssued: 'edit and write grants on the named files only;", to: "grantsIssued: 'Edit(path) and Write(path) only;" },
   { name: "reviewer-may-run-scripts", rule: "RV-2", rel: ROLES_REL, from: PIN.noScripts, to: "" },
   { name: "reviewer-not-told-to-read", rule: "RV-2", rel: ROLES_REL, from: PIN.readByReading, to: "" },
   { name: "git-warning-unanchored", rule: "CX-15", rel: CODEX_REL, from: PIN.gitWarningLine, to: PIN.gitWarningLine.replace("/^warning:", "/warning:") },
@@ -429,6 +450,13 @@ function check(raw) {
   const roles = src[ROLES_REL];
   if (!roles.includes(PIN.agentsOverride) || !roles.includes(PIN.readOnlyWords) || roles.includes("no write or shell grant")) {
     E("RV-1", "the steering guard no longer covers AGENTS.override.md and .agents/, or the reviewer is told something untrue of a Codex reviewer");
+  }
+  if (!roles.includes(PIN.citePaths) || !roles.includes(PIN.citeNotBare)) {
+    E("RV-3", "the reviewer is no longer asked to cite each file by its repository-relative path");
+  }
+  const runner = src[RUNNER_REL];
+  if (!runner.includes(PIN.askNamesPaths) || !runner.includes(PIN.askRefusesNone) || runner.includes(PIN.noPlaceholder)) {
+    E("GK-1", "the gatekeeper is no longer told to name every file to correct by its repository-relative path, or is offered the placeholder Edit(path) again");
   }
   if (!roles.includes(PIN.readByReading) || !roles.includes(PIN.noScripts)) {
     E("RV-2", "the reviewer is no longer told to review by reading only and to run no script or repository code");
