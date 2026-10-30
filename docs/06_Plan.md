@@ -272,3 +272,7 @@ Forge, the signed installer, and the Host unattended-review route.
   refused; a traced re-run showed the only denial was the UNC tripwire reading the string `"\\nExpires` in a reviewer probe
   script as a network path. A UNC path now needs a host and a separator (`fd2fe55`). ECC SECURITY reviewed.
   Evidence: `docs/finish/PROJECTOS-KERNEL-CODEX-UNC1A.md`.
+- 2026-10-30: plan v1.24 (`aef3d07`) added PROJECTOS-KERNEL-REVIEW-READONLY1A: the exit proof's second run had its Codex
+  review refused again; traces showed the reviewer's own probe scripts trip the tripwires. The reviewer now reviews by
+  reading, a refusal names its denials, and a MEDIUM-only rejection carries its findings (`434cbc1`). ECC SECURITY reviewed.
+  Evidence: `docs/finish/PROJECTOS-KERNEL-REVIEW-READONLY1A.md`.
