@@ -1,0 +1,25 @@
+{
+  "phaseId": "PROJECTOS-KERNEL-CODEX-UNC1A",
+  "evidenceSubjectHead": "12bbb838c11213c07b6f705b760d0eaecb67d6be",
+  "baselineCommit": "f3f2a9e1eb49d5b5cd163b88b9a703e2bec076e1",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-10-30T10:55:12.626Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-KERNEL-CODEX-UNC1A, phase 20 of 20 of plan v1.23, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 12bbb83 on f3f2a9e (plan v1.23 activation): fd2fe55 (fix, tests, validator pin), 12bbb83 (evidence).",
+    "validatorsPass: val-projectos-kernel-followup1a (70 named mutations) and validate-no-secrets PASS; validate-all 152/155 PASS (the 2 known baseline failures, plus AG-5 from the owner-approved TEMPORARY seo-agency allowlist entry for the exit proof, by design).",
+    "checksPass: agent 2898/2898; tsc and typecheck:tests clean; codexCliAdapter 119/119.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review (a78e96c: APPROVE WITH CHANGES, 2 MEDIUM fixed in 7e5c83b; recheck at 7e5c83b: APPROVE WITH CHANGES, both CLOSED, 1 new MEDIUM fixed in fd2fe55 as the reviewer proposed); no further round, the last change only tightens and is pinned.",
+    "unresolved: zero CRITICAL/HIGH. Carried: LOW quote-in-host; bare host not a denial by design; pre-existing prefix gaps (::, ;, comma, <); fail-closed false positives. See docs/finish/PROJECTOS-KERNEL-CODEX-UNC1A.md.",
+    "protected file: none; projectos/agent/src/loop/adapters/codexCli.ts is not in 00_Baseline_State section 4.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit. The diagnostic Codex run used the owner's ChatGPT sign-in in its read-only sandbox.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
