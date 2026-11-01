@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PORT-SEARCH1A",
   "project": "ProjectOS",
   "objective": "Port the OpenClaw hybrid retrieval core (C8, C10), about 1.1k lines of TypeScript, MIT. This gives the Grok-like \"chat over your documents\": every answer names its file and line, and an uncited answer is refused. It uses the SQLite and FTS5 bundled with Node 24.14.1, checked on 2026-11-01, so it adds no dependency. Keyword search ships here; the vector seam is left unfilled because embeddings would need a paid provider and sqlite-vec is added only when that phase is approved.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-01T23:38:12.806Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-01T23:38:14.443Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PORT-SEARCH1A:owner-closure:cf5a316d"
     }
   ]
 }
