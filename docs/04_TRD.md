@@ -105,8 +105,9 @@ knowledge/      reports and the reports index
     commit where reserved.
 11. **The tenant is derived, never supplied.** Tenant and domain come only from
     `projectos/security/tenant-registry.json`, validated whole, through `resolveTenant`. An unlisted
-    project is refused by name. `cross-tenant-access` and `tenant-registry-change` are P5. The kernel
-    starts reading the registry in PROJECTOS-TENANT-PRINCIPAL1A.
+    project is refused by name. `cross-tenant-access`, `tenant-registry-change` and
+    `action-registry-change` are P5. The kernel starts reading the registry in
+    PROJECTOS-TENANT-PRINCIPAL1A.
 
 ## 5. Kernel contract (V4)
 

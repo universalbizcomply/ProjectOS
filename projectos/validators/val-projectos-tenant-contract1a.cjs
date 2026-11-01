@@ -40,6 +40,17 @@
  *   TC-32 "register it later"                       — and nothing ever runs this file
  *   TC-33 "the docs are nearly right"               — and they mislead the next reader
  *
+ * Added in the review round (ECC SECURITY, Agency software-architect):
+ *
+ *   TC-34 "a full-shape envelope is an envelope"    — and `{ ok: true, envelope: { ...'P1' } }` is admitted
+ *   TC-35 "the door only records"                   — and P5 and P6 walk through it
+ *   TC-36 "a crossing is a child of its run"        — and R3 bends, or the link to the run is lost
+ *   TC-37 "the shape looks fine"                    — and `C:/dev/x:y`, `~1`, `%41` and U+212A are aliases
+ *   TC-38 "a listing is a listing"                  — and one taken anywhere attaches a worktree anywhere
+ *   TC-39 "the table is in the file"                — and one word moves a class or an environment
+ *   TC-40 "the boundary actions are ordinary lines" — and a crossing drops below its floor
+ *   TC-T  "the tests exist"                         — and `.skip` keeps the proof while dropping the run
+ *
  * THE MUTATIONS ARE IN THE BODIES. A pin on a call site survives a gutted function, so each pin is taken
  * from inside the function that decides, and each mutation is named after what the function stops doing.
  * `selfTest` applies each in memory and counts it killed only when ITS OWN rule fires.
@@ -83,7 +94,7 @@ const TESTS = {
     "canonicalises each repository with the rule the allowlist uses, parseRemoteUrl",
     "a valid addition is accepted: the positive control for every refusal below",
     "a wildcard %s refuses the whole file, by name",
-    "a wildcard path is caught ONLY by the wildcard rule: its shape is otherwise legal",
+    "a wildcard is named as a wildcard, ahead of the shape rule that would also refuse it",
     "%s refuses the whole file, by name",
     "one bad line refuses the good lines too: nothing in the file can be resolved",
     "a project id using the reserved tenant prefix is refused, in any case",
@@ -94,7 +105,7 @@ const TESTS = {
     "refuses a registry that did not come from parseTenantRegistry",
     "a worktree the registered root lists takes its tenant and domain",
     "a directory the registered root does not list is refused, whatever the directory says",
-    "parses the listing git prints, skipping the main tree and anything prunable",
+    "parses the listing git prints, dropping the registered root and anything prunable",
     "a structurally perfect copy is not one",
   ],
   "projectos/core/test/action-registry.test.ts": [
@@ -131,10 +142,43 @@ const TESTS = {
     "nothing is admitted when the line could not be written: the same envelope, a failing port",
     "a recorder that throws is a recorder that failed, and the throw goes no further",
     "a refusal that cannot be recorded stays a refusal and says so",
-    "a forged { ok: true } is parsed again at the door",
-    "an unregistered action is admitted at P5, recorded at the class it deserves",
+    "a forged { ok: true } is refused at the door and recorded",
+    "an unregistered action is recorded at the class it deserves, and refused",
+  ],
+  "projectos/core/test/tenant-contract-review.test.ts": [
+    "the forged full-shape envelope the reviewer built is refused at the door, and recorded",
+    "a perfect copy of a minted envelope is not minted",
+    "parsing is not minting: parseEnvelope output is refused at the door",
+    "a persisted envelope is re-admitted through its derived binding and the registry",
+    "a persisted envelope with a different %s is refused, naming it",
+    "checkChildEnvelope re-derives the class: a child labelled lower than the registry is refused",
+    "R3 requires the principal to equal the parent: same everything else passes",
+    "a child cannot be minted from a forged parent: its budget would be a claim",
+    "P6 is refused by name even with a grant, and the port is not asked",
+    "an unregistered action mints at P5 (R5) and is refused at the door by name, with a grant, and recorded",
+    "a registered P5 is refused without a grant and admitted with one: the port decides",
+    "a grant port that throws or answers vaguely has not granted",
+    "P4 cannot run: ADR-K1 §4 gives it no grant, and a yes from the port changes nothing",
+    "the record line carries registered and via",
+    "neither fact became an envelope field: ADR-K1 is accepted, and action is the one addition",
+    "%s cannot be a child",
+    "a crossing linked to its run passes: the positive control",
+    "a crossing that does not name the run is refused, so a release cannot lose its run",
+    "a crossing that differs from its run in %s alone is refused, naming it",
+    "broker-call and push leave the machine, so neither is local",
+    "case folding is ASCII only: a Kelvin sign does not match a registered k",
+    "the same listing taken anywhere else attaches nothing",
+    "a checkout under another entry root is refused, even when listed",
+    "the listing drops the record equal to the root, wherever it sits, and not the first record",
+    "a registry root under another entry root refuses the whole file; a shared prefix does not",
+    "action-registry-change is registered as P5: ADR-T1 §3 \"same terms\" rests on this",
+    "a sparse scope is refused: every() skips holes",
+    "a paid action with no budget is refused (ADR-K1 §2); with one it mints",
   ],
 };
+const ALL_SOURCES = [...SOURCES, ...Object.keys(TESTS)];
+/** A proof that does not run proves nothing, and its name still satisfies a needle. */
+const NOT_RUN = /\b(?:it|test|describe|suite|bench)\.(?:skip|only|todo|fails|skipIf|runIf)\b|\.(?:skip|only)\(|\b(?:xit|fit|xdescribe|fdescribe)\(/;
 
 /** A pin: this text, in this file, inside this function when one is named. */
 const P = (rel, fn, pin) => ({ rel, fn, pin });
@@ -146,7 +190,7 @@ const E_ = (fn, pin) => P(ENVELOPE_REL, fn, pin);
 const LIMITS = {
   workerReach: "A worker can still reach any tenant's secrets and files outside the kernel, as the owner's Windows user",
   realFixes: "The real fixes are Host service custody for secrets and Stage 4.3 isolation for files.",
-  gitName: "The registry's owner check rests on a git name until signed commits exist",
+  gitName: "The registry's owner check rests on a git name, which cannot tell the owner from an agent",
   noProductFlow: "No product flow uses the tenant tables yet",
   eightOfNine: "Eight of the nine connector scenarios are defined in Stage 2 and first run in Stage 5.",
   bothTenants: "One owner sees both tenants, by membership",
@@ -156,7 +200,23 @@ const RULINGS = {
   principal: "The principal is the Windows operator plus the kernel-bound work context",
   supabase: "A Supabase identity carries no kernel authority.",
   tenantDomain: "Tenant = whose data and authority.",
-  trustBasis: "Committed bytes only, read from the installation's git object store.",
+  trustBasis: "Committed bytes only, read from the installation's git object store at `HEAD` of the installation checkout: `git show HEAD:./projectos/security/tenant-registry.json`",
+  selfHosted: "For `projectos`, the installation is the project.",
+  allMurad: "All commits on this machine carry the name Murad, agent commits included.",
+  ownerCheckLimit: "`tenant-registry-change` protects nothing beyond repo write access until an owner-only signature or an owner-gate receipt naming the registry blob sha exists.",
+  sameTerms: "changing it is the P5 action `action-registry-change`, with a floor in code",
+  domains: "The domain on each registry line is the lead's reading of what the project is, not an owner decision.",
+  r3Principal: "`tenant`, `domain`, `project`, `environment` and `principal` (R3)",
+  listingAtRoot: "one taken anywhere else attaches nothing",
+  allowlistScope: "The installation allowlist guards gatekeeper spend only, not session release",
+  worktreeSecret: "Worktree tenant identity alone must never release a secret.",
+  releaseOpen: "OPEN, the owner decides at PROJECTOS-TENANT-CREDENTIALS1A.",
+  releaseNoStep: "session release has no owner step today",
+  postgres: "Postgres is never authority.",
+  gitWins: "the git registry wins",
+  crossingsRoots: "Boundary crossings are roots.",
+  runLink: "`run:<envelopeId>` in its scope",
+  honestEnvironment: "`broker-call` and `push` are `production`",
   worktreeProof: "git -C <governedRoot> worktree list --porcelain",
   worktreeLimit: "It grants tenant identity and nothing else.",
   classProject: "Inherits its project's tenant",
@@ -174,7 +234,19 @@ const BINDINGS = [
   { projectId: "polygo", repository: "github.com/polygonia-apres/polygo", governedRoot: "C:/dev/Polygo/polygo", tenant: "owner-personal", domain: "develop" },
   { projectId: "seo-agency", repository: "127.0.0.1:47900/SEOAgency-remote/seo-agency", governedRoot: "C:/dev/SEOAgency", tenant: "agency-business", domain: "business" },
 ];
-const RESERVED_ACTIONS = ["cross-tenant-access", "tenant-registry-change"];
+const RESERVED_ACTIONS = ["cross-tenant-access", "tenant-registry-change", "action-registry-change"];
+/** The whole committed table. A new action is a deliberate change here as well as in the file. */
+const ACTION_TABLE = {
+  create_phase: "P2/local", prompt_phase: "P2/local", implement: "P2/local", run_validators: "P1/local",
+  generate_evidence: "P2/local", generate_report: "P2/local", request_approval: "P2/local", request_review: "P2/local",
+  perform_review: "P1/local", architect_phase: "P1/local", recommend_closure: "P1/local",
+  approve: "P5/local", reject: "P5/local", override_gate: "P5/local", rollback: "P2/local",
+  "phase-closure": "P5/local", commit: "P3/local", push: "P3/production",
+  "secrets-handling": "P5/local", "payment-or-live-charge": "P5/production",
+  "cross-tenant-access": "P5/production", "tenant-registry-change": "P5/local", "action-registry-change": "P5/local",
+  "run-start": "P2/local", "credential-release": "P5/local", "broker-call": "P3/production",
+  "project-selection": "P1/local", "bridge-read": "P1/local",
+};
 /** The class ADR-K1 §3 and §4 give each protected spelling. */
 const CLASS_OF = { "phase-closure": "P5", close_phase: "P5", approve: "P5", reject: "P5", override_gate: "P5", "secrets-handling": "P5", "payment-or-live-charge": "P5", commit: "P3", push: "P3" };
 
@@ -186,6 +258,7 @@ const RULES = [
       T("parseTenantRegistry", "...(tenants ?? []).flatMap((entry, index) => tenantProblems(entry, index)),"),
       T("parseTenantRegistry", "...(projects ?? []).flatMap((entry, index) => projectProblems(entry, index, new Set(tenantIds))),"),
       T("parseTenantRegistry", "...duplicateProblems(projects ?? []),"),
+      T("parseTenantRegistry", "...nestedRootProblems(projects ?? []),"),
       T("parseTenantRegistry", "if (problems.length > 0) return { ok: false, problems };"),
       T("parseTenantRegistry", "LIVE_REGISTRIES.add(registry);"),
       T("headerProblems", "if (root['schemaVersion'] !== TENANT_REGISTRY_SCHEMA_VERSION) {"),
@@ -207,12 +280,12 @@ const RULES = [
     rule: "TC-17",
     says: "a duplicate project, repository or root no longer refuses the tenant registry, in any case",
     pins: [
-      T("duplicateProblems", "['projectId', (value) => value.toLowerCase()],"),
-      T("duplicateProblems", "['repository', (value) => value.toLowerCase()],"),
+      T("duplicateProblems", "['projectId', asciiLower],"),
+      T("duplicateProblems", "['repository', asciiLower],"),
       T("duplicateProblems", "['governedRoot', rootKey],"),
       T("duplicateProblems", ".filter((value, index) => values.indexOf(value) !== index)"),
       T("duplicateProblems", "code: 'TENANT_REGISTRY_DUPLICATE'"),
-      T("rootKey", "return path.split(String.fromCharCode(92)).join('/').replace(/\\/+$/, '').toLowerCase();"),
+      T("rootKey", "return asciiLower(path.split(String.fromCharCode(92)).join('/').replace(/\\/+$/, ''));"),
     ],
   },
   {
@@ -220,7 +293,7 @@ const RULES = [
     says: "a project id may read as a tenant-class credential segment",
     pins: [
       T(null, "export const TENANT_CREDENTIAL_PREFIX = 'tenant.';"),
-      T("isReservedProjectId", "return projectId.toLowerCase().startsWith(TENANT_CREDENTIAL_PREFIX);"),
+      T("isReservedProjectId", "return asciiLower(projectId).startsWith(TENANT_CREDENTIAL_PREFIX);"),
       T("projectProblems", "if (typeof projectId === 'string' && isReservedProjectId(projectId)) {\n    problems.push({\n      code: 'TENANT_REGISTRY_RESERVED_ID',"),
     ],
   },
@@ -236,7 +309,7 @@ const RULES = [
     rule: "TC-20",
     says: "a checkout can take a listed project's tenant from a different repository or root",
     pins: [
-      T("resolveTenant", "if (checkout.repository === null || checkout.repository.toLowerCase() !== entry.repository.toLowerCase()) {\n    return {\n      ok: false,\n      code: 'TENANT_MISMATCH',"),
+      T("resolveTenant", "if (checkout.repository === null || asciiLower(checkout.repository) !== asciiLower(entry.repository)) {\n    return {\n      ok: false,\n      code: 'TENANT_MISMATCH',"),
       T("resolveTenant", "if (via === null) {\n    return {\n      ok: false,\n      code: 'TENANT_MISMATCH',"),
       T("checkoutRoute", "if (rootKey(entry.governedRoot) === rootKey(checkout.root)) return 'governed-root';"),
     ],
@@ -245,11 +318,11 @@ const RULES = [
     rule: "TC-21",
     says: "the linked-worktree rule no longer rests on the registered root's own listing, or it reached the allowlist",
     pins: [
-      T("checkoutRoute", "const attached = checkout.linkedWorktreesOfRegisteredRoot.some((path) => rootKey(path) === rootKey(checkout.root));"),
+      T("checkoutRoute", "const attached = listing.paths.some((path) => rootKey(path) === rootKey(checkout.root));"),
       T("checkoutRoute", "return attached ? 'linked-worktree' : null;"),
-      T("linkedWorktreesFromPorcelain", "return records.slice(1).flatMap((lines) => {"),
+      T("linkedWorktreesFromPorcelain", "if (rootKey(path) === rootKey(takenAtRoot)) return [];"),
       T("linkedWorktreesFromPorcelain", "if (!head.startsWith('worktree ')) return [];"),
-      T("linkedWorktreesFromPorcelain", "return lines.some((line) => line === 'prunable' || line.startsWith('prunable ')) ? [] : [head.slice('worktree '.length)];"),
+      T("linkedWorktreesFromPorcelain", "return lines.some((line) => line === 'prunable' || line.startsWith('prunable ')) ? [] : [path];"),
       T("registeredRootOf", "return registry.projects.find((entry) => entry.projectId === projectId)?.governedRoot ?? null;"),
       P(ALLOWLIST_REL, "checkoutShapeProblem", "'credential-bearing projects in that shape are not supported and are refused'"),
       P(ALLOWLIST_REL, "installationAllowsProject", "const shape = checkoutShapeProblem(sys, governedRoot);"),
@@ -282,6 +355,9 @@ const RULES = [
       E_("isActor", "return Object.keys(record).length === ACTOR_FIELDS.length && ACTOR_FIELDS.every((field) => nonBlank(record[field]));"),
       E_("nonBlank", "return typeof value === 'string' && value.trim() !== '';"),
       E_("envelopeExpired", "return expiry === null || at === null || expiry <= at;"),
+      E_(null, "scope: (value) => Array.isArray(value) && [...value].every(nonBlank),"),
+      E_("parseEnvelope", "...((PAID_ACTIONS as readonly unknown[]).includes(record['action']) && record['budget'] === 0"),
+      A(null, "export const PAID_ACTIONS = ['broker-call'] as const;"),
     ],
   },
   {
@@ -304,11 +380,11 @@ const RULES = [
     rule: "TC-25",
     says: "a child envelope may differ from its parent in tenant, domain, project or environment (R3)",
     pins: [
-      E_("checkChildEnvelope", "...(['tenant', 'domain', 'project', 'environment'] as const).flatMap((field) =>\n      down[field] === up[field] ? [] :"),
+      E_("checkChildEnvelope", "...(['tenant', 'domain', 'project', 'environment', 'principal'] as const).flatMap((field) =>\n      down[field] === up[field] ? [] :"),
       E_("checkChildEnvelope", "...(down.parentEnvelopeId === up.envelopeId ? [] :"),
       E_("checkChildEnvelope", "const parsedChild = parseEnvelope(child);\n  if (!parsedChild.ok) return parsedChild;"),
       E_("checkChildEnvelope", "return reasons.length > 0 ? refused('R3', reasons) : parsedChild;"),
-      E_("mintEnvelope", "return parent === null ? parseEnvelope(candidate) : checkChildEnvelope(parent, candidate);"),
+      E_("mintEnvelope", "const result = parent === null ? parseEnvelope(candidate) : checkChildEnvelope(parent, candidate, registry);"),
     ],
   },
   {
@@ -328,16 +404,17 @@ const RULES = [
     says: "an operation can proceed without its admission being recorded (R4)",
     pins: [
       E_("recorded", "return recorder(record) === true;\n  } catch {\n    return false;\n  }"),
-      E_("admitEnvelope", "const parsed = minted.ok ? parseEnvelope(minted.envelope) : minted;"),
-      E_("admitEnvelope", "if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope: parsed.envelope, reasons: [] })) {\n    return { admitted: false, rule: 'R4',"),
-      E_("admitEnvelope", "const wrote = recorded(recorder, { ...at, outcome: 'refused', rule: parsed.rule, envelope: null, reasons: parsed.reasons });"),
-      E_("admitEnvelope", "const wrote = recorded(recorder, { ...at, outcome: 'refused', rule: 'EXPIRED', envelope: parsed.envelope, reasons });"),
-      E_("admitEnvelope", "if (envelopeExpired(parsed.envelope, now)) {"),
-      E_("recordExecution", "return recorded(recorder, { stage: 'execution', outcome, rule, envelope, reasons: [], at: now });"),
+      E_("admitEnvelope", "if (!minted.ok) return refuse(minted.rule, minted.reasons, null, null);"),
+      E_("admitEnvelope", "if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {\n    return { admitted: false, rule: 'R4',"),
+      E_("admitEnvelope", "const wrote = recorded(recorder, { ...at, outcome: 'refused', rule, envelope,"),
+      E_("admitEnvelope", "if (envelopeExpired(envelope, now)) return refuse('EXPIRED',"),
+      E_("recordExecution", "return recorded(recorder, { stage: 'execution', outcome, rule, envelope,"),
     ],
     order: [
+      E_("admitEnvelope", "if (envelopeExpired(envelope, now)) return refuse('EXPIRED',"),
+      E_("admitEnvelope", "const refusal = classRefusal(envelope, provenance, grant);"),
       E_("admitEnvelope", "if (!recorded(recorder, { ...at, outcome: 'allowed',"),
-      E_("admitEnvelope", "return { admitted: true, envelope: parsed.envelope };"),
+      E_("admitEnvelope", "return { admitted: true, envelope };"),
     ],
   },
   {
@@ -372,7 +449,7 @@ const RULES = [
       A("floorProblems", "...(spellings.some((spelling) => (RESERVED_P5_ACTIONS as readonly string[]).includes(spelling)) && declared !== 'P5'"),
       A("floorProblems", "classAtMost(floor, declared) ? [] :"),
       A(null, "const OWNER_ONLY_FLOOR: ActionClass = 'P3';"),
-      A(null, "export const RESERVED_P5_ACTIONS = ['cross-tenant-access', 'tenant-registry-change'] as const;"),
+      A(null, "export const RESERVED_P5_ACTIONS = ['cross-tenant-access', 'tenant-registry-change', 'action-registry-change'] as const;"),
     ],
     order: [A("parseActionRegistry", "if (problems.length > 0) return { ok: false, problems };"), A("parseActionRegistry", "LIVE_REGISTRIES.set(registry, new Map(")],
   },
@@ -385,7 +462,7 @@ const RULES = [
       A("vocabularyProblems", "...vocabulary('governanceAction', actionsFor('owner'), 'permissions.ts'),"),
       A("vocabularyProblems", "...vocabulary('ownerOnlyAction', ALWAYS_OWNER_ONLY, 'ownerOnlyActions.ts'),"),
       A("vocabularyProblems", "...known.filter((spelling) => !named.includes(spelling)),\n      ...named.filter((spelling) => !known.includes(spelling)),"),
-      A("vocabularyProblems", "...RESERVED_P5_ACTIONS.filter((action) => !ids.includes(action)).map("),
+      A("vocabularyProblems", "...[...RESERVED_P5_ACTIONS, ...BOUNDARY_ACTIONS].filter((action) => !ids.includes(action)).map("),
     ],
   },
   {
@@ -395,6 +472,101 @@ const RULES = [
       P(BARREL_REL, null, "export * from './tenant.js';"),
       P(BARREL_REL, null, "export * from './actionRegistry.js';"),
       P(BARREL_REL, null, "export * from './taskEnvelope.js';"),
+    ],
+  },
+  {
+    rule: "TC-34",
+    says: "something other than a minted or re-derived envelope can reach the door",
+    pins: [
+      E_(null, "const LIVE_ENVELOPES = new WeakMap<TaskEnvelope, EnvelopeProvenance>();"),
+      E_("branded", "if (result.ok) LIVE_ENVELOPES.set(result.envelope, provenance);"),
+      E_("admitEnvelope", "const provenance = LIVE_ENVELOPES.get(envelope);\n  if (provenance === undefined) return refuse('R2',"),
+      E_("mintEnvelope", "if (parent !== null && !LIVE_ENVELOPES.has(parent)) {\n    return refused('R2',"),
+      E_("mintEnvelope", "return branded(result, { registered: resolved.registered, via: binding.via });"),
+      E_("readmitEnvelope", "if (!isDerivedBinding(binding)) {\n    return refused('R2',"),
+      E_("readmitEnvelope", "const parsed = parseEnvelope(raw);\n  if (!parsed.ok) return parsed;"),
+      E_("readmitEnvelope", "const resolved = resolveAction(registry, envelope.action);"),
+      E_("readmitEnvelope", "tenant: binding.tenant,"),
+      E_("readmitEnvelope", "domain: binding.domain,"),
+      E_("readmitEnvelope", "project: binding.projectId,"),
+      E_("readmitEnvelope", "environment: resolved.environment,"),
+      E_("readmitEnvelope", "actionClass: resolved.actionClass,"),
+      E_("readmitEnvelope", "envelope[field] === derived[field] ? [] :"),
+      E_("readmitEnvelope", "return reasons.length > 0 ? refused('R2', reasons) : branded(parsed, { registered: resolved.registered, via: binding.via });"),
+      E_("checkChildEnvelope", "const resolved = resolveAction(registry, down.action);"),
+      E_("checkChildEnvelope", "...(down.actionClass === resolved.actionClass ? [] :"),
+      E_("checkChildEnvelope", "...(down.environment === resolved.environment ? [] :"),
+    ],
+  },
+  {
+    rule: "TC-35",
+    says: "the door no longer gates the class, or its record lost what only the kernel knows",
+    pins: [
+      E_("classRefusal", "if (actionClass === 'P6') return { rule: 'P6_PROHIBITED',"),
+      E_("classRefusal", "if (!provenance.registered) return { rule: 'UNREGISTERED_ACTION',"),
+      E_("classRefusal", "if (actionClass === 'P4') return { rule: 'P4_NO_GRANT',"),
+      E_("classRefusal", "if (actionClass === 'P5' && !granted(grant, envelope)) return { rule: 'P5_NO_GRANT',"),
+      E_("granted", "return grant(envelope) === true;\n  } catch {\n    return false;\n  }"),
+      E_("admitEnvelope", "const refusal = classRefusal(envelope, provenance, grant);\n  if (refusal !== null) return refuse(refusal.rule, refusal.reasons, envelope, provenance);"),
+      E_("admitEnvelope", "registered: provenance?.registered ?? null, via: provenance?.via ?? null, reasons });"),
+      E_("admitEnvelope", "outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })"),
+      E_("recordExecution", "registered: provenance?.registered ?? null, via: provenance?.via ?? null, reasons: [], at: now });"),
+    ],
+    order: [
+      E_("classRefusal", "if (actionClass === 'P6') return { rule: 'P6_PROHIBITED',"),
+      E_("classRefusal", "if (!provenance.registered) return { rule: 'UNREGISTERED_ACTION',"),
+      E_("classRefusal", "if (actionClass === 'P5' && !granted(grant, envelope)) return { rule: 'P5_NO_GRANT',"),
+    ],
+  },
+  {
+    rule: "TC-36",
+    says: "a boundary crossing can be a child, or checkRunLink no longer ties it to its run",
+    pins: [
+      E_("checkChildEnvelope", "...(isBoundaryAction(down.action) ? ["),
+      A("isBoundaryAction", "return BOUNDARY_ACTIONS.includes(action);"),
+      A(null, "export const BOUNDARY_ACTIONS: readonly string[] = BOUNDARY_FLOORS.map(([action]) => action);"),
+      E_(null, "const RUN_ACTION = 'run-start';"),
+      E_("runLinkScope", "return `run:${runEnvelopeId}`;"),
+      E_("checkRunLink", "const parsedCrossing = parseEnvelope(crossing);\n  if (!parsedCrossing.ok) return"),
+      E_("checkRunLink", "...(up.action === RUN_ACTION ? [] :"),
+      E_("checkRunLink", "...(down.parentEnvelopeId === null ? [] :"),
+      E_("checkRunLink", "...(['tenant', 'domain', 'project', 'principal'] as const).flatMap((field) =>\n      down[field] === up[field] ? [] :"),
+      E_("checkRunLink", "...(down.scope.includes(link) ? [] :"),
+      E_("checkRunLink", "return reasons.length > 0 ? { ok: false, rule: 'RUN_LINK', reasons } : { ok: true };"),
+    ],
+  },
+  {
+    rule: "TC-37",
+    says: "a registry value can spell one identity two ways",
+    pins: [
+      T(null, String.raw`const GOVERNED_ROOT = /^[A-Za-z]:(?:\/[A-Za-z0-9_][A-Za-z0-9._ -]*)+$/;`),
+      T(null, String.raw`const GOVERNED_ROOT_ALIAS = /[. ](\/|$)/;`),
+      T(null, String.raw`const REPOSITORY = /^(?:[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+|127\.0\.0\.1:[0-9]{1,5})\/[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;`),
+      T(null, String.raw`const REPOSITORY_SUFFIX = /\.[Gg][Ii][Tt]$/;`),
+      T("bindingFieldProblem", "return REPOSITORY.test(value) && !REPOSITORY_SUFFIX.test(value) ? null :"),
+      T("bindingFieldProblem", "return GOVERNED_ROOT.test(value) && !GOVERNED_ROOT_ALIAS.test(value) ? null :"),
+      T("asciiLower", "return text.replace(/[A-Z]/g, (letter) => String.fromCharCode(letter.charCodeAt(0) + 32));"),
+    ],
+  },
+  {
+    rule: "TC-38",
+    says: "a listing or a nested root can attach a checkout to the wrong project",
+    pins: [
+      T("isAtOrUnder", "return path === root || path.startsWith(`${root}/`);"),
+      T("nestedRootProblems", ".filter((root) => roots.some((other) => other !== root && isAtOrUnder(root, other)))"),
+      T("nestedRootProblems", "code: 'TENANT_REGISTRY_NESTED_ROOT'"),
+      T("checkoutRoute", "if (listing === null || rootKey(listing.takenAtRoot) !== rootKey(entry.governedRoot)) return null;"),
+      T("resolveTenant", "const foreign = registry.projects.find((other) => other !== entry && isAtOrUnder(rootKey(checkout.root), rootKey(other.governedRoot)));\n  if (foreign !== undefined) {\n    return {\n      ok: false,\n      code: 'TENANT_MISMATCH',"),
+      T(null, "export interface WorktreeListing {\n  readonly takenAtRoot: string;\n  readonly paths: readonly string[];\n}"),
+    ],
+    order: [T("resolveTenant", "const foreign = registry.projects.find("), T("resolveTenant", "const via = checkoutRoute(entry, checkout);")],
+  },
+  {
+    rule: "TC-40",
+    says: "a boundary action lost its floor in code",
+    pins: [
+      A(null, "const BOUNDARY_FLOORS: readonly (readonly [string, ActionClass])[] = [\n  ['run-start', 'P2'],\n  ['credential-release', 'P5'],\n  ['broker-call', 'P3'],\n  ['project-selection', 'P1'],\n  ['bridge-read', 'P1'],\n];"),
+      A("floorProblems", "...BOUNDARY_FLOORS.filter(([action]) => spellings.includes(action)).flatMap(([, floor]) => lowered(floor, 'it is a boundary action')),"),
     ],
   },
 ];
@@ -407,7 +579,11 @@ const PURITY = {
   [ACTION_REL]: ["./ownerOnlyActions.js", "./permissions.js"],
   [ENVELOPE_REL]: ["node:crypto", "./types.js", "./actionRegistry.js", "./tenant.js"],
 };
-const IMPURE = /\bprocess\.|\brequire\(|Date\.now|new Date\(\)|Math\.random|\bfetch\(|\bconsole\.|\breadFile|\bwriteFile|\bexecSync|\bspawn\(/;
+/** Every way a module names another: `import x from`, `export x from`, and the bare `import 'x'`. */
+const SPECIFIERS = [/^\s*import\s+['"]([^'"]+)['"]/gm, /^\s*import\s[^'"]*?\sfrom\s*['"]([^'"]+)['"]/gm, /^\s*export\s[^'"=]*?\sfrom\s*['"]([^'"]+)['"]/gm];
+const IMPURE = /\bprocess\s*[.[]|\bglobalThis\b|\bglobal\s*[.[]|\bimport\s*\(|\bimport\.meta\b|\brequire\(|\beval\(|\bnew Function\b|Date\.now|new Date\(\)|Math\.random|\bfetch\(|\bconsole\.|\breadFile|\bwriteFile|\bexecSync|\bspawn\(/;
+/** Unicode case mapping folds U+212A onto `k`, so tenant.ts may not reach for it at all. */
+const UNICODE_FOLDING = /\.(?:toLowerCase|toUpperCase|toLocaleLowerCase|toLocaleUpperCase|localeCompare|normalize)\(/;
 
 const entryText = (id, governance, ownerOnly, cls) =>
   `"id": "${id}",\n      "governanceAction": ${governance},\n      "ownerOnlyAction": ${ownerOnly},\n      "class": "${cls}"`;
@@ -419,7 +595,7 @@ const MUTATIONS = [
   // TC-1
   { name: "adr-hides-worker-reach", rule: "TC-1", rel: ADR_T_REL, from: "- **A worker can still reach any tenant's secrets and files** outside the kernel, as the owner's Windows\n  user (F7).", to: "- Workers run inside the kernel's boundary." },
   { name: "adr-hides-the-real-fixes", rule: "TC-1", rel: ADR_T_REL, from: "The real fixes are Host service custody for secrets and Stage 4.3 isolation for files.", to: "This is acceptable." },
-  { name: "adr-hides-git-name-limit", rule: "TC-1", rel: ADR_T_REL, from: "- **The registry's owner check rests on a git name** until signed commits exist (§3).\n", to: "" },
+  { name: "adr-hides-git-name-limit", rule: "TC-1", rel: ADR_T_REL, from: "- **The registry's owner check rests on a git name,** which cannot tell the owner from an agent (§3).\n", to: "" },
   { name: "adr-hides-harness-only-proof", rule: "TC-1", rel: ADR_T_REL, from: "- **No product flow uses the tenant tables yet** (F2). The database boundary is proved by the harness.\n", to: "" },
   { name: "adr-hides-unrun-scenarios", rule: "TC-1", rel: ADR_T_REL, from: "- **Eight of the nine connector scenarios** are defined in Stage 2 and first run in Stage 5.\n", to: "" },
   { name: "adr-hides-owner-sees-both", rule: "TC-1", rel: ADR_T_REL, from: "- **One owner sees both tenants,** by membership (§7).\n", to: "" },
@@ -430,7 +606,23 @@ const MUTATIONS = [
   { name: "adr-drops-principal", rule: "TC-3", rel: ADR_T_REL, from: "- **The principal is the Windows operator plus the kernel-bound work context:** which project this run\n  or session is for. Both come from the kernel.\n", to: "" },
   { name: "adr-gives-supabase-authority", rule: "TC-3", rel: ADR_T_REL, from: "- **A Supabase identity carries no kernel authority.** Sign-in reaches the cloud tables only.", to: "- A Supabase identity selects the tenant." },
   { name: "adr-drops-tenant-versus-domain", rule: "TC-3", rel: ADR_T_REL, from: "- **Tenant** = whose data and authority.\n", to: "" },
-  { name: "adr-drops-trust-basis", rule: "TC-3", rel: ADR_T_REL, from: "- **Committed bytes only,** read from the installation's git object store. A working-tree edit has no\n  authority.\n", to: "" },
+  { name: "adr-drops-trust-basis", rule: "TC-3", rel: ADR_T_REL, from: "- **Committed bytes only,** read from the installation's git object store at `HEAD` of the installation\n", to: "- Read from the installation\n" },
+  { name: "adr-drops-self-hosted-rationale", rule: "TC-3", rel: ADR_T_REL, from: "- **For `projectos`, the installation is the project.**", to: "- **Self-hosting.**" },
+  { name: "adr-hides-that-all-commits-are-murad", rule: "TC-3", rel: ADR_T_REL, from: "the name Murad, agent commits included.**", to: "the owner's name.**" },
+  { name: "adr-overclaims-the-owner-check", rule: "TC-3", rel: ADR_T_REL, from: "protects nothing beyond repo write access", to: "protects the registry" },
+  { name: "adr-unbacks-same-terms", rule: "TC-3", rel: ADR_T_REL, from: "the same terms: changing it is the P5 action `action-registry-change`, with a floor in code, and the", to: "the same terms, and the" },
+  { name: "adr-claims-domains-were-decided", rule: "TC-3", rel: ADR_T_REL, from: "The domain on each registry line is the lead's reading of what the project is,\nnot an owner decision.", to: "D2 fixed the domains too." },
+  { name: "adr-drops-principal-from-r3", rule: "TC-3", rel: ADR_T_REL, from: "`environment` and\n  `principal` (R3).", to: "and `environment` (R3)." },
+  { name: "adr-any-listing-attaches", rule: "TC-3", rel: ADR_T_REL, from: "so one taken\n   anywhere else attaches nothing,", to: "so it should be\n   taken there," },
+  { name: "adr-claims-allowlist-guards-release", rule: "TC-3", rel: ADR_T_REL, from: "only, not session release, so it does not cover this.", to: "and session release, so it covers this." },
+  { name: "adr-worktree-may-release", rule: "TC-3", rel: ADR_T_REL, from: "**Worktree tenant identity alone must never", to: "**Worktree tenant identity may" },
+  { name: "adr-closes-the-release-grant", rule: "TC-3", rel: ADR_T_REL, from: "**OPEN, the owner decides at PROJECTOS-TENANT-CREDENTIALS1A.**", to: "**Decided.**" },
+  { name: "adr-hides-no-owner-step", rule: "TC-3", rel: ADR_T_REL, from: "release has no owner step today", to: "release is owner-gated today" },
+  { name: "adr-drops-postgres-rule", rule: "TC-3", rel: ADR_T_REL, from: "- **Postgres is never authority.**", to: "- **Postgres.**" },
+  { name: "adr-postgres-wins", rule: "TC-3", rel: ADR_T_REL, from: "disagree, the git registry wins,", to: "disagree, the cloud table wins," },
+  { name: "adr-drops-roots-ruling", rule: "TC-3", rel: ADR_T_REL, from: "- **Boundary crossings are roots.**", to: "- **Boundaries.**" },
+  { name: "adr-drops-run-link", rule: "TC-3", rel: ADR_T_REL, from: "`run:<envelopeId>` in its scope", to: "a note" },
+  { name: "adr-keeps-broker-call-local", rule: "TC-3", rel: ADR_T_REL, from: "`broker-call` and `push` are `production`", to: "`broker-call` and `push` are `local`" },
   { name: "adr-worktree-trusts-itself", rule: "TC-3", rel: ADR_T_REL, from: "`git -C <governedRoot> worktree list --porcelain`", to: "`git rev-parse --git-common-dir` in the worktree" },
   { name: "adr-worktree-grants-spend", rule: "TC-3", rel: ADR_T_REL, from: "**It grants tenant identity and nothing else.**", to: "**It grants the registered root's full authority.**" },
   { name: "adr-drops-tenant-class", rule: "TC-3", rel: ADR_T_REL, from: "| **Tenant** | `ProjectOS/tenant.<tenantId>/…` |", to: "| **Tenant** | to be decided |" },
@@ -461,12 +653,17 @@ const MUTATIONS = [
   { name: "registry-reserved-project-id", rule: "TC-7", rel: TREG_REL, from: "\"projectId\": \"seo-agency\",", to: "\"projectId\": \"Tenant.seo-agency\"," },
   { name: "registry-undeclared-tenant", rule: "TC-7", rel: TREG_REL, from: "\"tenantId\": \"agency-business\",", to: "\"tenantId\": \"agency\"," },
   { name: "registry-unknown-domain", rule: "TC-7", rel: TREG_REL, from: "\"domain\": \"business\",", to: "\"domain\": \"marketing\"," },
+  { name: "registry-nested-root", rule: "TC-7", rel: TREG_REL, from: "\"governedRoot\": \"C:/dev/Polygo/polygo\",", to: "\"governedRoot\": \"C:/dev/ProjectOS/polygo\"," },
   // TC-8
   { name: "schema-tolerates-extra-project-fields", rule: "TC-8", rel: SCHEMA_REL, from: "\"additionalProperties\": false,\n        \"required\": [\n          \"projectId\",", to: "\"additionalProperties\": true,\n        \"required\": [\n          \"projectId\"," },
   { name: "schema-domain-enum-drifts", rule: "TC-8", rel: SCHEMA_REL, from: "\"personal\",\n              \"phone\"", to: "\"personal\"" },
   { name: "schema-tenant-pattern-drifts", rule: "TC-8", rel: SCHEMA_REL, from: "\"pattern\": \"^[a-z][a-z0-9-]{1,56}$\",\n            \"description\": \"At most 57", to: "\"pattern\": \"^.+$\",\n            \"description\": \"At most 57" },
   { name: "schema-allows-reserved-prefix", rule: "TC-8", rel: SCHEMA_REL, from: "\"not\": {\n              \"pattern\": \"^[Tt][Ee][Nn][Aa][Nn][Tt]\\\\.\"\n            },\n", to: "" },
-  { name: "schema-allows-wildcard-root", rule: "TC-8", rel: SCHEMA_REL, from: "\"pattern\": \"^[A-Za-z]:/[^\\\\\\\\*?]*$\",", to: "\"pattern\": \"^[A-Za-z]:/.*$\"," },
+  { name: "schema-root-pattern-drifts", rule: "TC-8", rel: SCHEMA_REL, from: "\"pattern\": \"^[A-Za-z]:(?:/[A-Za-z0-9_][A-Za-z0-9._ -]*)+$\",", to: "\"pattern\": \"^[A-Za-z]:/.*$\"," },
+  { name: "schema-root-alias-dropped", rule: "TC-8", rel: SCHEMA_REL, from: "\"pattern\": \"[. ](/|$)\"", to: "\"pattern\": \"^$\"" },
+  { name: "schema-repository-pattern-drifts", rule: "TC-8", rel: SCHEMA_REL, from: "|127\\\\.0\\\\.0\\\\.1:[0-9]{1,5})", to: "|[^/]+:[0-9]+)" },
+  { name: "schema-allows-dot-git", rule: "TC-8", rel: SCHEMA_REL, from: "\"pattern\": \"\\\\.[Gg][Ii][Tt]$\"", to: "\"pattern\": \"^$\"" },
+  { name: "code-root-rule-drifts-from-schema", rule: "TC-8", rel: TENANT_REL, from: String.raw`const GOVERNED_ROOT = /^[A-Za-z]:(?:\/[A-Za-z0-9_][A-Za-z0-9._ -]*)+$/;`, to: String.raw`const GOVERNED_ROOT = /^[A-Za-z]:(?:\/[A-Za-z0-9_~][A-Za-z0-9._ ~-]*)+$/;` },
   // TC-9
   { name: "trust-boundary-omits-tenant-registry", rule: "TC-9", rel: TRUST_REL, from: "\"tenantRegistry\": \"projectos/security/tenant-registry.json\",", to: "\"tenantRegistry\": \"\"," },
   { name: "trust-boundary-omits-action-registry", rule: "TC-9", rel: TRUST_REL, from: "\"actionRegistry\": \"projectos/security/action-registry.json\",", to: "\"actionRegistry\": \"\"," },
@@ -482,6 +679,7 @@ const MUTATIONS = [
   lowered("cross-tenant-access-lowered", "TC-11", "cross-tenant-access", "null", "null", "P5", "P4"),
   lowered("tenant-registry-change-lowered", "TC-11", "tenant-registry-change", "null", "null", "P5", "P3"),
   { name: "cross-tenant-access-unlisted", rule: "TC-11", rel: AREG_REL, from: "\"id\": \"cross-tenant-access\",", to: "\"id\": \"cross-tenant-readonly\"," },
+  lowered("action-registry-change-lowered", "TC-11", "action-registry-change", "null", "null", "P5", "P3"),
   // TC-12
   lowered("phase-closure-lowered", "TC-12", "phase-closure", "\"close_phase\"", "\"phase-closure\"", "P5", "P4"),
   lowered("secrets-handling-lowered", "TC-12", "secrets-handling", "null", "\"secrets-handling\"", "P5", "P3"),
@@ -495,6 +693,10 @@ const MUTATIONS = [
   { name: "tenant-imports-the-filesystem", rule: "TC-14", rel: TENANT_REL, from: "export const TENANT_REGISTRY_SCHEMA_VERSION", to: "import { readFileSync } from 'node:fs';\nexport const TENANT_REGISTRY_SCHEMA_VERSION" },
   { name: "envelope-reads-the-clock", rule: "TC-14", rel: ENVELOPE_REL, from: "const at = instantOf(now);", to: "const at = Date.now();" },
   { name: "action-registry-imports-a-module", rule: "TC-14", rel: ACTION_REL, from: "export const ACTION_REGISTRY_SCHEMA_VERSION", to: "import { execSync } from 'node:child_process';\nexport const ACTION_REGISTRY_SCHEMA_VERSION" },
+  { name: "tenant-bare-import", rule: "TC-14", rel: TENANT_REL, from: "export const TENANT_REGISTRY_SCHEMA_VERSION", to: "import 'node:fs';\nexport const TENANT_REGISTRY_SCHEMA_VERSION" },
+  { name: "tenant-dynamic-import", rule: "TC-14", rel: TENANT_REL, from: "export const TENANT_REGISTRY_SCHEMA_VERSION", to: "void import('./outside.js');\nexport const TENANT_REGISTRY_SCHEMA_VERSION" },
+  { name: "tenant-reexport-from-a-module", rule: "TC-14", rel: TENANT_REL, from: "export const TENANT_REGISTRY_SCHEMA_VERSION", to: "export { readFileSync as read } from 'node:fs';\nexport const TENANT_REGISTRY_SCHEMA_VERSION" },
+  { name: "tenant-reaches-process-by-bracket", rule: "TC-14", rel: TENANT_REL, from: "const entry = registry.projects.find((candidate) => candidate.projectId === checkout.projectId);", to: "const entry = registry.projects.find((candidate) => candidate.projectId === ((globalThis as unknown as Record<string, { env: Record<string, string> }>)['process']?.env['X'] ?? checkout.projectId));" },
   // TC-15
   { name: "registry-live-despite-problems", rule: "TC-15", rel: TENANT_REL, from: "  if (problems.length > 0) return { ok: false, problems };\n\n  const registry: TenantRegistry", to: "  const registry: TenantRegistry" },
   { name: "registry-skips-project-lines", rule: "TC-15", rel: TENANT_REL, from: "    ...(projects ?? []).flatMap((entry, index) => projectProblems(entry, index, new Set(tenantIds))),\n", to: "" },
@@ -509,28 +711,28 @@ const MUTATIONS = [
   { name: "tenant-wildcard-falls-to-shape", rule: "TC-16", rel: TENANT_REL, from: "if (typeof id === 'string' && WILDCARD.test(id)) {", to: "if (false) {" },
   { name: "wildcard-scan-skips-repository", rule: "TC-16", rel: TENANT_REL, from: "const BINDING_FIELDS = ['projectId', 'repository', 'governedRoot', 'tenant', 'domain'] as const;", to: "const BINDING_FIELDS = ['projectId', 'tenant', 'domain'] as const;" },
   // TC-17
-  { name: "duplicate-project-case-sensitive", rule: "TC-17", rel: TENANT_REL, from: "['projectId', (value) => value.toLowerCase()],", to: "['projectId', (value) => value]," },
-  { name: "duplicate-ignores-repository", rule: "TC-17", rel: TENANT_REL, from: "    ['repository', (value) => value.toLowerCase()],\n", to: "" },
+  { name: "duplicate-project-case-sensitive", rule: "TC-17", rel: TENANT_REL, from: "['projectId', asciiLower],", to: "['projectId', (value) => value]," },
+  { name: "duplicate-ignores-repository", rule: "TC-17", rel: TENANT_REL, from: "    ['repository', asciiLower],\n", to: "" },
   { name: "duplicate-ignores-root", rule: "TC-17", rel: TENANT_REL, from: "    ['governedRoot', rootKey],\n", to: "" },
   { name: "duplicate-filter-keeps-nothing", rule: "TC-17", rel: TENANT_REL, from: ".filter((value, index) => values.indexOf(value) !== index)", to: ".filter(() => false)" },
-  { name: "root-key-case-sensitive", rule: "TC-17", rel: TENANT_REL, from: "return path.split(String.fromCharCode(92)).join('/').replace(/\\/+$/, '').toLowerCase();", to: "return path;" },
+  { name: "root-key-case-sensitive", rule: "TC-17", rel: TENANT_REL, from: "return asciiLower(path.split(String.fromCharCode(92)).join('/').replace(/\\/+$/, ''));", to: "return path;" },
   // TC-18
-  { name: "reserved-prefix-case-sensitive", rule: "TC-18", rel: TENANT_REL, from: "return projectId.toLowerCase().startsWith(TENANT_CREDENTIAL_PREFIX);", to: "return projectId.startsWith(TENANT_CREDENTIAL_PREFIX);" },
-  { name: "reserved-prefix-never-matches", rule: "TC-18", rel: TENANT_REL, from: "return projectId.toLowerCase().startsWith(TENANT_CREDENTIAL_PREFIX);", to: "return false;" },
+  { name: "reserved-prefix-case-sensitive", rule: "TC-18", rel: TENANT_REL, from: "return asciiLower(projectId).startsWith(TENANT_CREDENTIAL_PREFIX);", to: "return projectId.startsWith(TENANT_CREDENTIAL_PREFIX);" },
+  { name: "reserved-prefix-never-matches", rule: "TC-18", rel: TENANT_REL, from: "return asciiLower(projectId).startsWith(TENANT_CREDENTIAL_PREFIX);", to: "return false;" },
   { name: "reserved-check-not-asked", rule: "TC-18", rel: TENANT_REL, from: "if (typeof projectId === 'string' && isReservedProjectId(projectId)) {", to: "if (false) {" },
   // TC-19
   { name: "unlisted-falls-to-first-project", rule: "TC-19", rel: TENANT_REL, from: "const entry = registry.projects.find((candidate) => candidate.projectId === checkout.projectId);", to: "const entry = registry.projects.find((candidate) => candidate.projectId === checkout.projectId) ?? registry.projects[0];" },
   { name: "unvalidated-registry-resolves", rule: "TC-19", rel: TENANT_REL, from: "if (!LIVE_REGISTRIES.has(registry)) {", to: "if (false) {" },
   // TC-20
-  { name: "repository-not-compared", rule: "TC-20", rel: TENANT_REL, from: "if (checkout.repository === null || checkout.repository.toLowerCase() !== entry.repository.toLowerCase()) {", to: "if (checkout.repository === null) {" },
-  { name: "no-origin-accepted", rule: "TC-20", rel: TENANT_REL, from: "if (checkout.repository === null || checkout.repository.toLowerCase() !== entry.repository.toLowerCase()) {", to: "if (checkout.repository !== null && checkout.repository.toLowerCase() !== entry.repository.toLowerCase()) {" },
+  { name: "repository-not-compared", rule: "TC-20", rel: TENANT_REL, from: "if (checkout.repository === null || asciiLower(checkout.repository) !== asciiLower(entry.repository)) {", to: "if (checkout.repository === null) {" },
+  { name: "no-origin-accepted", rule: "TC-20", rel: TENANT_REL, from: "if (checkout.repository === null || asciiLower(checkout.repository) !== asciiLower(entry.repository)) {", to: "if (checkout.repository !== null && asciiLower(checkout.repository) !== asciiLower(entry.repository)) {" },
   { name: "root-compare-always-true", rule: "TC-20", rel: TENANT_REL, from: "if (rootKey(entry.governedRoot) === rootKey(checkout.root)) return 'governed-root';", to: "return 'governed-root';" },
   { name: "route-refusal-removed", rule: "TC-20", rel: TENANT_REL, from: "  if (via === null) {\n    return {\n      ok: false,\n      code: 'TENANT_MISMATCH',", to: "  if (false) {\n    return {\n      ok: false,\n      code: 'TENANT_REGISTRY_INVALID'," },
   // TC-21
   { name: "linked-worktree-any-directory", rule: "TC-21", rel: TENANT_REL, from: "return attached ? 'linked-worktree' : null;", to: "return 'linked-worktree';" },
-  { name: "linked-worktree-listing-not-matched", rule: "TC-21", rel: TENANT_REL, from: "const attached = checkout.linkedWorktreesOfRegisteredRoot.some((path) => rootKey(path) === rootKey(checkout.root));", to: "const attached = checkout.linkedWorktreesOfRegisteredRoot.length > 0;" },
-  { name: "porcelain-keeps-main-tree", rule: "TC-21", rel: TENANT_REL, from: "return records.slice(1).flatMap((lines) => {", to: "return records.flatMap((lines) => {" },
-  { name: "porcelain-keeps-prunable", rule: "TC-21", rel: TENANT_REL, from: "return lines.some((line) => line === 'prunable' || line.startsWith('prunable ')) ? [] : [head.slice('worktree '.length)];", to: "return [head.slice('worktree '.length)];" },
+  { name: "linked-worktree-listing-not-matched", rule: "TC-21", rel: TENANT_REL, from: "const attached = listing.paths.some((path) => rootKey(path) === rootKey(checkout.root));", to: "const attached = listing.paths.length > 0;" },
+  { name: "porcelain-keeps-the-root", rule: "TC-21", rel: TENANT_REL, from: "    if (rootKey(path) === rootKey(takenAtRoot)) return [];\n", to: "" },
+  { name: "porcelain-keeps-prunable", rule: "TC-21", rel: TENANT_REL, from: "return lines.some((line) => line === 'prunable' || line.startsWith('prunable ')) ? [] : [path];", to: "return [path];" },
   { name: "asked-root-is-not-the-registered-one", rule: "TC-21", rel: TENANT_REL, from: "return registry.projects.find((entry) => entry.projectId === projectId)?.governedRoot ?? null;", to: "return projectId;" },
   { name: "allowlist-now-admits-linked-worktrees", rule: "TC-21", rel: ALLOWLIST_REL, from: "    const shape = checkoutShapeProblem(sys, governedRoot);", to: "    const shape = null as string | null;" },
   { name: "allowlist-shape-check-gutted", rule: "TC-21", rel: ALLOWLIST_REL, from: "      'credential-bearing projects in that shape are not supported and are refused'", to: "      'noted'" },
@@ -554,6 +756,9 @@ const MUTATIONS = [
   { name: "action-name-shape-gutted", rule: "TC-23", rel: ACTION_REL, from: "return typeof value === 'string' && ACTION_ID.test(value);", to: "return typeof value === 'string';" },
   { name: "actor-shared-with-the-source", rule: "TC-23", rel: ENVELOPE_REL, from: "Object.freeze({ ...(record as unknown as TaskEnvelope), scope, actor })", to: "Object.freeze({ ...(record as unknown as TaskEnvelope), scope })" },
   { name: "expiry-never-expires", rule: "TC-23", rel: ENVELOPE_REL, from: "return expiry === null || at === null || expiry <= at;", to: "return false;" },
+  { name: "sparse-scope-accepted", rule: "TC-23", rel: ENVELOPE_REL, from: "scope: (value) => Array.isArray(value) && [...value].every(nonBlank),", to: "scope: (value) => Array.isArray(value) && value.every(nonBlank)," },
+  { name: "paid-action-needs-no-budget", rule: "TC-23", rel: ENVELOPE_REL, from: "...((PAID_ACTIONS as readonly unknown[]).includes(record['action']) && record['budget'] === 0", to: "...(false" },
+  { name: "broker-call-not-paid", rule: "TC-23", rel: ACTION_REL, from: "export const PAID_ACTIONS = ['broker-call'] as const;", to: "export const PAID_ACTIONS = [] as const;" },
   // TC-24
   { name: "mint-spreads-the-request", rule: "TC-24", rel: ENVELOPE_REL, from: "    idempotencyKey: deriveIdempotencyKey({ tenant: binding.tenant, project: binding.projectId, action, subjectHash, intentScope }),\n  };", to: "    idempotencyKey: deriveIdempotencyKey({ tenant: binding.tenant, project: binding.projectId, action, subjectHash, intentScope }),\n    ...request,\n  };" },
   { name: "mint-takes-tenant-from-the-request", rule: "TC-24", rel: ENVELOPE_REL, from: "    tenant: binding.tenant,\n    domain: binding.domain,", to: "    tenant: (request as unknown as { tenant?: string }).tenant ?? binding.tenant,\n    domain: binding.domain," },
@@ -563,15 +768,16 @@ const MUTATIONS = [
   { name: "mint-skips-the-registry", rule: "TC-24", rel: ENVELOPE_REL, from: "const resolved = resolveAction(registry, action);", to: "const resolved = { environment: 'local' as const, actionClass: 'P1' as const };" },
   { name: "idempotency-key-omits-tenant", rule: "TC-24", rel: ENVELOPE_REL, from: "const canonical = JSON.stringify([intent.tenant, intent.project, intent.action, intent.subjectHash, intent.intentScope]);", to: "const canonical = JSON.stringify([intent.project, intent.action, intent.subjectHash, intent.intentScope]);" },
   // TC-25
-  { name: "child-tenant-not-compared", rule: "TC-25", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'environment'] as const)", to: "...(['domain', 'project', 'environment'] as const)" },
-  { name: "child-domain-not-compared", rule: "TC-25", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'environment'] as const)", to: "...(['tenant', 'project', 'environment'] as const)" },
-  { name: "child-project-not-compared", rule: "TC-25", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'environment'] as const)", to: "...(['tenant', 'domain', 'environment'] as const)" },
-  { name: "child-environment-not-compared", rule: "TC-25", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'environment'] as const)", to: "...(['tenant', 'domain', 'project'] as const)" },
+  { name: "child-tenant-not-compared", rule: "TC-25", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'environment', 'principal'] as const)", to: "...(['domain', 'project', 'environment', 'principal'] as const)" },
+  { name: "child-domain-not-compared", rule: "TC-25", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'environment', 'principal'] as const)", to: "...(['tenant', 'project', 'environment', 'principal'] as const)" },
+  { name: "child-project-not-compared", rule: "TC-25", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'environment', 'principal'] as const)", to: "...(['tenant', 'domain', 'environment', 'principal'] as const)" },
+  { name: "child-environment-not-compared", rule: "TC-25", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'environment', 'principal'] as const)", to: "...(['tenant', 'domain', 'project', 'principal'] as const)" },
+  { name: "child-principal-not-compared", rule: "TC-25", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'environment', 'principal'] as const)", to: "...(['tenant', 'domain', 'project', 'environment'] as const)" },
   { name: "child-equality-always-holds", rule: "TC-25", rel: ENVELOPE_REL, from: "down[field] === up[field] ? [] :", to: "true ? [] :" },
   { name: "child-lineage-not-compared", rule: "TC-25", rel: ENVELOPE_REL, from: "...(down.parentEnvelopeId === up.envelopeId ? [] :", to: "...(true ? [] :" },
   { name: "child-not-parsed", rule: "TC-25", rel: ENVELOPE_REL, from: "  if (!parsedChild.ok) return parsedChild;\n", to: "" },
   { name: "child-reasons-do-not-refuse", rule: "TC-25", rel: ENVELOPE_REL, from: "return reasons.length > 0 ? refused('R3', reasons) : parsedChild;", to: "return parsedChild;" },
-  { name: "minted-child-not-checked", rule: "TC-25", rel: ENVELOPE_REL, from: "return parent === null ? parseEnvelope(candidate) : checkChildEnvelope(parent, candidate);", to: "return parseEnvelope(candidate);" },
+  { name: "minted-child-not-checked", rule: "TC-25", rel: ENVELOPE_REL, from: "const result = parent === null ? parseEnvelope(candidate) : checkChildEnvelope(parent, candidate, registry);", to: "const result = parseEnvelope(candidate);" },
   // TC-26
   { name: "child-scope-widens", rule: "TC-26", rel: ENVELOPE_REL, from: "...down.scope.filter((item) => !up.scope.includes(item)).map(", to: "...down.scope.filter(() => false).map(" },
   { name: "child-budget-widens", rule: "TC-26", rel: ENVELOPE_REL, from: "...(down.budget <= up.budget ? [] :", to: "...(true ? [] :" },
@@ -582,13 +788,13 @@ const MUTATIONS = [
   // TC-27
   { name: "recorder-falsy-accepted", rule: "TC-27", rel: ENVELOPE_REL, from: "return recorder(record) === true;", to: "return recorder(record) !== false;" },
   { name: "recorder-throw-reads-as-written", rule: "TC-27", rel: ENVELOPE_REL, from: "  } catch {\n    return false;\n  }", to: "  } catch {\n    return true;\n  }" },
-  { name: "admission-trusts-the-minted-object", rule: "TC-27", rel: ENVELOPE_REL, from: "const parsed = minted.ok ? parseEnvelope(minted.envelope) : minted;", to: "const parsed = minted;" },
-  { name: "unrecorded-admission-proceeds", rule: "TC-27", rel: ENVELOPE_REL, from: "if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope: parsed.envelope, reasons: [] })) {\n    return { admitted: false, rule: 'R4',", to: "recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope: parsed.envelope, reasons: [] });\n  if (false) {\n    return { admitted: false, rule: 'R4'," },
-  { name: "admitted-before-recorded", rule: "TC-27", rel: ENVELOPE_REL, from: "  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope: parsed.envelope, reasons: [] })) {", to: "  if (minted.ok) return { admitted: true, envelope: parsed.envelope };\n  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope: parsed.envelope, reasons: [] })) {" },
-  { name: "refusal-not-recorded", rule: "TC-27", rel: ENVELOPE_REL, from: "const wrote = recorded(recorder, { ...at, outcome: 'refused', rule: parsed.rule, envelope: null, reasons: parsed.reasons });", to: "const wrote = true;" },
-  { name: "expired-refusal-not-recorded", rule: "TC-27", rel: ENVELOPE_REL, from: "const wrote = recorded(recorder, { ...at, outcome: 'refused', rule: 'EXPIRED', envelope: parsed.envelope, reasons });", to: "const wrote = true;" },
-  { name: "expiry-not-asked-at-admission", rule: "TC-27", rel: ENVELOPE_REL, from: "if (envelopeExpired(parsed.envelope, now)) {", to: "if (false) {" },
-  { name: "execution-record-reports-success", rule: "TC-27", rel: ENVELOPE_REL, from: "return recorded(recorder, { stage: 'execution', outcome, rule, envelope, reasons: [], at: now });", to: "recorded(recorder, { stage: 'execution', outcome, rule, envelope, reasons: [], at: now });\n  return true;" },
+  { name: "minted-refusal-not-carried-to-the-door", rule: "TC-27", rel: ENVELOPE_REL, from: "  if (!minted.ok) return refuse(minted.rule, minted.reasons, null, null);\n", to: "  if (!minted.ok) return { admitted: false, rule: minted.rule, reasons: minted.reasons, recorded: false };\n" },
+  { name: "unrecorded-admission-proceeds", rule: "TC-27", rel: ENVELOPE_REL, from: "if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {\n    return { admitted: false, rule: 'R4',", to: "recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] });\n  if (false) {\n    return { admitted: false, rule: 'R4'," },
+  { name: "admitted-before-recorded", rule: "TC-27", rel: ENVELOPE_REL, from: "  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {", to: "  if (minted.ok) return { admitted: true, envelope };\n  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {" },
+  { name: "refusal-not-recorded", rule: "TC-27", rel: ENVELOPE_REL, from: "const wrote = recorded(recorder, { ...at, outcome: 'refused', rule, envelope, registered: provenance?.registered ?? null, via: provenance?.via ?? null, reasons });", to: "const wrote = true;" },
+  { name: "expiry-not-asked-at-admission", rule: "TC-27", rel: ENVELOPE_REL, from: "if (envelopeExpired(envelope, now)) return refuse('EXPIRED',", to: "if (false) return refuse('EXPIRED'," },
+  { name: "class-asked-after-the-line-is-written", rule: "TC-27", rel: ENVELOPE_REL, from: "  const refusal = classRefusal(envelope, provenance, grant);\n  if (refusal !== null) return refuse(refusal.rule, refusal.reasons, envelope, provenance);\n  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {\n    return { admitted: false, rule: 'R4', reasons: ['the admission could not be recorded, so the operation does not run'], recorded: false };\n  }\n", to: "  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {\n    return { admitted: false, rule: 'R4', reasons: ['the admission could not be recorded, so the operation does not run'], recorded: false };\n  }\n  const refusal = classRefusal(envelope, provenance, grant);\n  if (refusal !== null) return refuse(refusal.rule, refusal.reasons, envelope, provenance);\n" },
+  { name: "execution-record-reports-success", rule: "TC-27", rel: ENVELOPE_REL, from: "return recorded(recorder, { stage: 'execution', outcome, rule, envelope,", to: "void recorder;\n  return true || recorded(recorder, { stage: 'execution', outcome, rule, envelope," },
   // TC-28
   { name: "unregistered-action-is-p1", rule: "TC-28", rel: ACTION_REL, from: "export const UNREGISTERED_ACTION_CLASS: ActionClass = 'P5';", to: "export const UNREGISTERED_ACTION_CLASS: ActionClass = 'P1';" },
   { name: "unregistered-action-is-local", rule: "TC-28", rel: ACTION_REL, from: "export const UNREGISTERED_ACTION_ENVIRONMENT: KernelEnvironment = 'production';", to: "export const UNREGISTERED_ACTION_ENVIRONMENT: KernelEnvironment = 'local';" },
@@ -612,12 +818,12 @@ const MUTATIONS = [
   { name: "reserved-floor-allows-any-class", rule: "TC-29", rel: ACTION_REL, from: "(RESERVED_P5_ACTIONS as readonly string[]).includes(spelling)) && declared !== 'P5'", to: "(RESERVED_P5_ACTIONS as readonly string[]).includes(spelling)) && false" },
   { name: "floor-test-always-passes", rule: "TC-29", rel: ACTION_REL, from: "classAtMost(floor, declared) ? [] :", to: "true ? [] :" },
   { name: "owner-floor-lowered-in-code", rule: "TC-29", rel: ACTION_REL, from: "const OWNER_ONLY_FLOOR: ActionClass = 'P3';", to: "const OWNER_ONLY_FLOOR: ActionClass = 'P1';" },
-  { name: "reserved-action-unlisted-in-code", rule: "TC-29", rel: ACTION_REL, from: "export const RESERVED_P5_ACTIONS = ['cross-tenant-access', 'tenant-registry-change'] as const;", to: "export const RESERVED_P5_ACTIONS = ['cross-tenant-access'] as const;" },
+  { name: "reserved-action-unlisted-in-code", rule: "TC-29", rel: ACTION_REL, from: "export const RESERVED_P5_ACTIONS = ['cross-tenant-access', 'tenant-registry-change', 'action-registry-change'] as const;", to: "export const RESERVED_P5_ACTIONS = ['cross-tenant-access', 'tenant-registry-change'] as const;" },
   // TC-30
   { name: "governance-vocabulary-copied-locally", rule: "TC-30", rel: ACTION_REL, from: "...vocabulary('governanceAction', actionsFor('owner'), 'permissions.ts'),", to: "...vocabulary('governanceAction', ['approve'], 'permissions.ts')," },
   { name: "owner-vocabulary-copied-locally", rule: "TC-30", rel: ACTION_REL, from: "...vocabulary('ownerOnlyAction', ALWAYS_OWNER_ONLY, 'ownerOnlyActions.ts'),", to: "...vocabulary('ownerOnlyAction', ['commit'], 'ownerOnlyActions.ts')," },
   { name: "vocabulary-check-one-directional", rule: "TC-30", rel: ACTION_REL, from: "      ...named.filter((spelling) => !known.includes(spelling)),\n", to: "" },
-  { name: "reserved-presence-not-checked", rule: "TC-30", rel: ACTION_REL, from: "...RESERVED_P5_ACTIONS.filter((action) => !ids.includes(action)).map(", to: "...RESERVED_P5_ACTIONS.filter(() => false).map(" },
+  { name: "reserved-presence-not-checked", rule: "TC-30", rel: ACTION_REL, from: "...[...RESERVED_P5_ACTIONS, ...BOUNDARY_ACTIONS].filter((action) => !ids.includes(action)).map(", to: "...RESERVED_P5_ACTIONS.filter((action) => !ids.includes(action)).map(" },
   // TC-31
   { name: "barrel-omits-tenant", rule: "TC-31", rel: BARREL_REL, from: "export * from './tenant.js';\n", to: "" },
   { name: "barrel-omits-action-registry", rule: "TC-31", rel: BARREL_REL, from: "export * from './actionRegistry.js';\n", to: "" },
@@ -635,6 +841,84 @@ const MUTATIONS = [
   { name: "trd-loses-the-tenant-section", rule: "TC-33", rel: TRD_REL, from: "## 6. Tenant boundary (V4 Stage 2)", to: "## 6. Notes" },
   { name: "schema-doc-loses-tenant-registry", rule: "TC-33", rel: SCHEMADOC_REL, from: "| `projectos/security/tenant-registry.json` (installation record, not `.projectops/`) |", to: "| (removed) |" },
   { name: "schema-doc-loses-action-registry", rule: "TC-33", rel: SCHEMADOC_REL, from: "| `projectos/security/action-registry.json` (installation record, not `.projectops/`) |", to: "| (removed) |" },
+  // TC-34
+  { name: "door-takes-unbranded", rule: "TC-34", rel: ENVELOPE_REL, from: "if (provenance === undefined) return refuse('R2', ['this envelope was not minted or re-admitted by the kernel'], null, null);", to: "if (provenance === undefined) return { admitted: true, envelope };" },
+  { name: "brand-never-set", rule: "TC-34", rel: ENVELOPE_REL, from: "  if (result.ok) LIVE_ENVELOPES.set(result.envelope, provenance);\n", to: "" },
+  { name: "mint-does-not-brand", rule: "TC-34", rel: ENVELOPE_REL, from: "  return branded(result, { registered: resolved.registered, via: binding.via });\n}\n\n/**\n * Bring a persisted", to: "  return result;\n}\n\n/**\n * Bring a persisted" },
+  { name: "parse-brands-its-output", rule: "TC-34", rel: ENVELOPE_REL, from: "  return { ok: true, envelope: Object.freeze({ ...(record as unknown as TaskEnvelope), scope, actor }) };", to: "  return branded({ ok: true, envelope: Object.freeze({ ...(record as unknown as TaskEnvelope), scope, actor }) }, { registered: true, via: 'governed-root' });" },
+  { name: "forged-parent-accepted", rule: "TC-34", rel: ENVELOPE_REL, from: "if (parent !== null && !LIVE_ENVELOPES.has(parent)) {", to: "if (false) {" },
+  { name: "readmit-takes-a-copied-binding", rule: "TC-34", rel: ENVELOPE_REL, from: "export function readmitEnvelope(raw: unknown, binding: TenantBinding, registry: ActionRegistry): EnvelopeResult {\n  if (!isDerivedBinding(binding)) {", to: "export function readmitEnvelope(raw: unknown, binding: TenantBinding, registry: ActionRegistry): EnvelopeResult {\n  if (false) {" },
+  { name: "readmit-trusts-its-tenant", rule: "TC-34", rel: ENVELOPE_REL, from: "  const derived = {\n    tenant: binding.tenant,\n", to: "  const derived = {\n" },
+  { name: "readmit-trusts-its-domain", rule: "TC-34", rel: ENVELOPE_REL, from: "    domain: binding.domain,\n    project: binding.projectId,\n    environment: resolved.environment,\n    actionClass: resolved.actionClass,\n  } as const;", to: "    project: binding.projectId,\n    environment: resolved.environment,\n    actionClass: resolved.actionClass,\n  } as const;" },
+  { name: "readmit-trusts-its-project", rule: "TC-34", rel: ENVELOPE_REL, from: "    project: binding.projectId,\n    environment: resolved.environment,\n    actionClass: resolved.actionClass,\n  } as const;", to: "    environment: resolved.environment,\n    actionClass: resolved.actionClass,\n  } as const;" },
+  { name: "readmit-trusts-its-environment", rule: "TC-34", rel: ENVELOPE_REL, from: "    environment: resolved.environment,\n    actionClass: resolved.actionClass,\n  } as const;", to: "    actionClass: resolved.actionClass,\n  } as const;" },
+  { name: "readmit-trusts-its-class", rule: "TC-34", rel: ENVELOPE_REL, from: "    actionClass: resolved.actionClass,\n  } as const;", to: "  } as const;" },
+  { name: "readmit-compare-always-holds", rule: "TC-34", rel: ENVELOPE_REL, from: "envelope[field] === derived[field] ? [] :", to: "true ? [] :" },
+  { name: "readmit-reasons-do-not-refuse", rule: "TC-34", rel: ENVELOPE_REL, from: "return reasons.length > 0 ? refused('R2', reasons) : branded(parsed,", to: "return branded(parsed," },
+  { name: "readmit-derives-from-the-record", rule: "TC-34", rel: ENVELOPE_REL, from: "const resolved = resolveAction(registry, envelope.action);", to: "const resolved = { environment: envelope.environment, actionClass: envelope.actionClass, registered: true };" },
+  { name: "child-class-not-rederived", rule: "TC-34", rel: ENVELOPE_REL, from: "...(down.actionClass === resolved.actionClass ? [] :", to: "...(true ? [] :" },
+  { name: "child-environment-not-rederived", rule: "TC-34", rel: ENVELOPE_REL, from: "...(down.environment === resolved.environment ? [] :", to: "...(true ? [] :" },
+  { name: "child-derives-from-itself", rule: "TC-34", rel: ENVELOPE_REL, from: "const resolved = resolveAction(registry, down.action);", to: "const resolved = { actionClass: down.actionClass, environment: down.environment };" },
+  // TC-35
+  { name: "p6-reaches-the-port", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (actionClass === 'P6') return { rule: 'P6_PROHIBITED', reasons: [`'${action}' is P6: nobody may authorise it, ever`] };\n", to: "" },
+  { name: "port-asked-before-p6", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (actionClass === 'P6') return { rule: 'P6_PROHIBITED',", to: "  if (actionClass === 'P5' && !granted(grant, envelope)) return { rule: 'P5_NO_GRANT', reasons: [] };\n  if (actionClass === 'P6') return { rule: 'P6_PROHIBITED'," },
+  { name: "unregistered-reaches-the-port", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (!provenance.registered) return { rule: 'UNREGISTERED_ACTION', reasons: [`'${action}' is not in the action registry`] };\n", to: "" },
+  { name: "p4-reaches-the-door", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (actionClass === 'P4') return { rule: 'P4_NO_GRANT', reasons: [`'${action}' is P4, and no P4 grant exists yet (ADR-K1 §4)`] };\n", to: "" },
+  { name: "p5-needs-no-grant", rule: "TC-35", rel: ENVELOPE_REL, from: "if (actionClass === 'P5' && !granted(grant, envelope)) return", to: "if (false) return" },
+  { name: "grant-truthy-accepted", rule: "TC-35", rel: ENVELOPE_REL, from: "return grant(envelope) === true;", to: "return grant(envelope) !== false;" },
+  { name: "grant-throw-reads-as-granted", rule: "TC-35", rel: ENVELOPE_REL, from: "return grant(envelope) === true;\n  } catch {\n    return false;", to: "return grant(envelope) === true;\n  } catch {\n    return true;" },
+  { name: "class-refusal-ignored", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (refusal !== null) return refuse(refusal.rule, refusal.reasons, envelope, provenance);\n", to: "" },
+  { name: "allowed-line-omits-provenance", rule: "TC-35", rel: ENVELOPE_REL, from: "outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })", to: "outcome: 'allowed', rule: null, envelope, registered: null, via: null, reasons: [] })" },
+  { name: "refusal-line-omits-provenance", rule: "TC-35", rel: ENVELOPE_REL, from: "registered: provenance?.registered ?? null, via: provenance?.via ?? null, reasons });", to: "registered: null, via: null, reasons });" },
+  { name: "execution-line-omits-provenance", rule: "TC-35", rel: ENVELOPE_REL, from: "registered: provenance?.registered ?? null, via: provenance?.via ?? null, reasons: [], at: now });", to: "registered: null, via: null, reasons: [], at: now });" },
+  { name: "envelope-gains-a-registered-field", rule: "TC-35", rel: ENVELOPE_REL, from: "  readonly idempotencyKey: string;\n}", to: "  readonly idempotencyKey: string;\n  readonly registered: boolean;\n}" },
+  { name: "envelope-gains-a-via-field", rule: "TC-35", rel: ENVELOPE_REL, from: "  readonly idempotencyKey: string;\n}", to: "  readonly idempotencyKey: string;\n  readonly via: string;\n}" },
+  // TC-36
+  { name: "crossing-may-be-a-child", rule: "TC-36", rel: ENVELOPE_REL, from: "...(isBoundaryAction(down.action) ? [", to: "...(false ? [" },
+  { name: "boundary-test-always-false", rule: "TC-36", rel: ACTION_REL, from: "return BOUNDARY_ACTIONS.includes(action);", to: "return false;" },
+  { name: "run-link-omits-tenant", rule: "TC-36", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'principal'] as const)", to: "...(['domain', 'project', 'principal'] as const)" },
+  { name: "run-link-omits-domain", rule: "TC-36", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'principal'] as const)", to: "...(['tenant', 'project', 'principal'] as const)" },
+  { name: "run-link-omits-project", rule: "TC-36", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'principal'] as const)", to: "...(['tenant', 'domain', 'principal'] as const)" },
+  { name: "run-link-omits-principal", rule: "TC-36", rel: ENVELOPE_REL, from: "...(['tenant', 'domain', 'project', 'principal'] as const)", to: "...(['tenant', 'domain', 'project'] as const)" },
+  { name: "run-link-scope-unchecked", rule: "TC-36", rel: ENVELOPE_REL, from: "...(down.scope.includes(link) ? [] :", to: "...(true ? [] :" },
+  { name: "run-link-accepts-a-child", rule: "TC-36", rel: ENVELOPE_REL, from: "...(down.parentEnvelopeId === null ? [] :", to: "...(true ? [] :" },
+  { name: "run-link-to-anything", rule: "TC-36", rel: ENVELOPE_REL, from: "...(up.action === RUN_ACTION ? [] :", to: "...(true ? [] :" },
+  { name: "run-link-reasons-dropped", rule: "TC-36", rel: ENVELOPE_REL, from: "return reasons.length > 0 ? { ok: false, rule: 'RUN_LINK', reasons } : { ok: true };", to: "return { ok: true };" },
+  { name: "run-link-crossing-not-parsed", rule: "TC-36", rel: ENVELOPE_REL, from: "  if (!parsedCrossing.ok) return { ok: false, rule: 'R1', reasons: parsedCrossing.reasons };\n", to: "" },
+  { name: "run-link-scope-any-text", rule: "TC-36", rel: ENVELOPE_REL, from: "return `run:${runEnvelopeId}`;", to: "return 'run';" },
+  // TC-37
+  { name: "root-admits-any-text", rule: "TC-37", rel: TENANT_REL, from: String.raw`const GOVERNED_ROOT = /^[A-Za-z]:(?:\/[A-Za-z0-9_][A-Za-z0-9._ -]*)+$/;`, to: String.raw`const GOVERNED_ROOT = /^[A-Za-z]:\/[^\\]*$/;` },
+  { name: "root-alias-not-asked", rule: "TC-37", rel: TENANT_REL, from: "return GOVERNED_ROOT.test(value) && !GOVERNED_ROOT_ALIAS.test(value) ? null :", to: "return GOVERNED_ROOT.test(value) ? null :" },
+  { name: "repository-admits-any-segments", rule: "TC-37", rel: TENANT_REL, from: String.raw`const REPOSITORY = /^(?:[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+|127\.0\.0\.1:[0-9]{1,5})\/[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;`, to: String.raw`const REPOSITORY = /^[^\s/]+\/[^\s/]+\/\S+$/;` },
+  { name: "repository-admits-any-port", rule: "TC-37", rel: TENANT_REL, from: String.raw`|127\.0\.0\.1:[0-9]{1,5})`, to: String.raw`|[A-Za-z0-9.-]+:[0-9]{1,5})` },
+  { name: "repository-keeps-git-suffix", rule: "TC-37", rel: TENANT_REL, from: "return REPOSITORY.test(value) && !REPOSITORY_SUFFIX.test(value) ? null :", to: "return REPOSITORY.test(value) ? null :" },
+  { name: "ascii-lower-folds-unicode", rule: "TC-37", rel: TENANT_REL, from: "return text.replace(/[A-Z]/g, (letter) => String.fromCharCode(letter.charCodeAt(0) + 32));", to: "return text.toLowerCase();" },
+  { name: "repository-compare-folds-unicode", rule: "TC-37", rel: TENANT_REL, from: "asciiLower(checkout.repository) !== asciiLower(entry.repository)", to: "checkout.repository.toLowerCase() !== entry.repository.toLowerCase()" },
+  // TC-38
+  { name: "listing-from-anywhere-attaches", rule: "TC-38", rel: TENANT_REL, from: "if (listing === null || rootKey(listing.takenAtRoot) !== rootKey(entry.governedRoot)) return null;", to: "if (listing === null) return null;" },
+  { name: "checkout-under-foreign-root-allowed", rule: "TC-38", rel: TENANT_REL, from: "  if (foreign !== undefined) {\n    return {\n      ok: false,\n      code: 'TENANT_MISMATCH',", to: "  if (false) {\n    return {\n      ok: false,\n      code: 'TENANT_MISMATCH'," },
+  { name: "foreign-check-after-the-route", rule: "TC-38", rel: TENANT_REL, from: "  const foreign = registry.projects.find((other) => other !== entry && isAtOrUnder(rootKey(checkout.root), rootKey(other.governedRoot)));\n", to: "  const via0 = checkoutRoute(entry, checkout);\n  void via0;\n  const via1 = via0;\n  const foreign = via1 === null ? undefined : registry.projects.find((other) => other !== entry && isAtOrUnder(rootKey(checkout.root), rootKey(other.governedRoot)));\n" },
+  { name: "at-or-under-drops-the-slash", rule: "TC-38", rel: TENANT_REL, from: "return path === root || path.startsWith(`${root}/`);", to: "return path.startsWith(root);" },
+  { name: "nested-roots-not-judged", rule: "TC-38", rel: TENANT_REL, from: ".filter((root) => roots.some((other) => other !== root && isAtOrUnder(root, other)))", to: ".filter(() => false)" },
+  { name: "listing-loses-its-root", rule: "TC-38", rel: TENANT_REL, from: "export interface WorktreeListing {\n  readonly takenAtRoot: string;\n", to: "export interface WorktreeListing {\n" },
+  { name: "registry-skips-nested-roots", rule: "TC-15", rel: TENANT_REL, from: "    ...nestedRootProblems(projects ?? []),\n", to: "" },
+  // TC-39
+  { name: "table-broker-call-back-to-local", rule: "TC-39", rel: AREG_REL, from: "\"class\": \"P3\",\n      \"environment\": \"production\",\n      \"note\": \"Stage 2 envelope boundary: a paid provider call", to: "\"class\": \"P3\",\n      \"environment\": \"local\",\n      \"note\": \"Stage 2 envelope boundary: a paid provider call" },
+  { name: "table-push-back-to-local", rule: "TC-39", rel: AREG_REL, from: "\"class\": \"P3\",\n      \"environment\": \"production\",\n      \"note\": \"production because it writes to the shared remote", to: "\"class\": \"P3\",\n      \"environment\": \"local\",\n      \"note\": \"production because it writes to the shared remote" },
+  lowered("table-run-start-raised", "TC-39", "run-start", "null", "null", "P2", "P3"),
+  lowered("table-bridge-read-raised", "TC-39", "bridge-read", "null", "null", "P1", "P2"),
+  { name: "table-gains-an-action", rule: "TC-39", rel: AREG_REL, from: "\"id\": \"bridge-read\",", to: "\"id\": \"bridge-write\"," },
+  // TC-40
+  { name: "boundary-floors-not-applied", rule: "TC-40", rel: ACTION_REL, from: "    ...BOUNDARY_FLOORS.filter(([action]) => spellings.includes(action)).flatMap(([, floor]) => lowered(floor, 'it is a boundary action')),\n", to: "" },
+  { name: "credential-release-floor-lowered-in-code", rule: "TC-40", rel: ACTION_REL, from: "  ['credential-release', 'P5'],\n", to: "  ['credential-release', 'P1'],\n" },
+  { name: "broker-call-floor-lowered-in-code", rule: "TC-40", rel: ACTION_REL, from: "  ['broker-call', 'P3'],\n", to: "  ['broker-call', 'P1'],\n" },
+  { name: "run-start-floor-lowered-in-code", rule: "TC-40", rel: ACTION_REL, from: "  ['run-start', 'P2'],\n", to: "  ['run-start', 'P1'],\n" },
+  // TC-T
+  { name: "a-proof-skipped", rule: "TC-T", rel: "projectos/core/test/task-envelope.test.ts", from: "  it('a complete envelope parses: the positive control', () => {", to: "  it.skip('a complete envelope parses: the positive control', () => {" },
+  { name: "a-proof-isolated", rule: "TC-T", rel: "projectos/core/test/tenant.test.ts", from: "  it('refuses an unlisted project by name, and never defaults to the owner', () => {", to: "  it.only('refuses an unlisted project by name, and never defaults to the owner', () => {" },
+  { name: "a-table-skipped", rule: "TC-T", rel: "projectos/core/test/action-registry.test.ts", from: "  it.each(['cross-tenant-access', 'tenant-registry-change', 'action-registry-change'])('%s is registered as P5', (action) => {", to: "  it.skip.each(['cross-tenant-access', 'tenant-registry-change', 'action-registry-change'])('%s is registered as P5', (action) => {" },
+  { name: "a-suite-skipped", rule: "TC-T", rel: "projectos/core/test/tenant-contract-review.test.ts", from: "describe('HIGH 1: envelope provenance', () => {", to: "describe.skip('HIGH 1: envelope provenance', () => {" },
+  { name: "a-proof-deleted", rule: "TC-T", rel: "projectos/core/test/tenant-contract-review.test.ts", from: "the forged full-shape envelope the reviewer built is refused at the door, and recorded", to: "a nice test" },
 ];
 
 function read(rel) {
@@ -716,7 +1000,7 @@ function check(raw) {
   const errors = [];
   const E = (rule, msg) => errors.push([rule, `${rule}: ${msg}`]);
   const src = {};
-  for (const rel of SOURCES) {
+  for (const rel of ALL_SOURCES) {
     if (raw[rel] === null || raw[rel] === undefined) {
       E("TC-0", `${rel} is missing`);
       return errors;
@@ -779,17 +1063,27 @@ function check(raw) {
       if (!tenantIds.includes(p.tenant)) E("TC-7", `the project '${p.projectId}' names an undeclared tenant`);
       if (!domainList.includes(p.domain)) E("TC-7", `the project '${p.projectId}' names an unknown domain`);
     }
+    const roots = projects.map((p) => rootKey(String(p.governedRoot)));
+    if (roots.some((root) => roots.some((other) => other !== root && root.startsWith(`${other}/`)))) {
+      E("TC-7", "the tenant registry has a governedRoot inside another entry's root");
+    }
 
     // TC-8: the schema describes the registry the code enforces.
     const schema = jsonOf(raw[SCHEMA_REL]);
     const items = schema?.properties?.projects?.items;
     const tenantItems = schema?.properties?.tenants?.items;
-    const tenantPin = (/const TENANT_ID = \/(.+)\/;/.exec(src[TENANT_REL]) || [, null])[1];
+    // The schema's patterns are the code's regexes, so neither can drift away from the other.
+    const literal = (name) => {
+      const found = new RegExp(String.raw`const ${name} = /(.+)/;`).exec(src[TENANT_REL]);
+      return found === null ? null : found[1].replace(/\\\//g, "/");
+    };
+    const tenantPin = literal("TENANT_ID");
     if (schema === null || schema.additionalProperties !== false || items?.additionalProperties !== false || tenantItems?.additionalProperties !== false ||
         JSON.stringify(items?.properties?.domain?.enum) !== JSON.stringify(domainList) ||
         tenantItems?.properties?.tenantId?.pattern !== tenantPin || items?.properties?.tenant?.pattern !== tenantPin ||
-        items?.properties?.projectId?.not?.pattern === undefined ||
-        !/\*\?/.test(String(items?.properties?.governedRoot?.pattern)) || !/\*\?/.test(String(items?.properties?.repository?.pattern)) ||
+        items?.properties?.projectId?.pattern !== literal("PROJECT_ID") || items?.properties?.projectId?.not?.pattern === undefined ||
+        items?.properties?.governedRoot?.pattern !== literal("GOVERNED_ROOT") || items?.properties?.governedRoot?.not?.pattern !== literal("GOVERNED_ROOT_ALIAS") ||
+        items?.properties?.repository?.pattern !== literal("REPOSITORY") || items?.properties?.repository?.not?.pattern !== literal("REPOSITORY_SUFFIX") ||
         !["projectId", "repository", "governedRoot", "tenant", "domain"].every((f) => items?.required?.includes(f))) {
       E("TC-8", "the tenant registry schema no longer agrees with the rules in tenant.ts");
     }
@@ -828,11 +1122,19 @@ function check(raw) {
     const spellings = actions.flatMap((a) => [...new Set([a.id, a.governanceAction, a.ownerOnlyAction].filter((v) => typeof v === "string"))]);
     if (new Set(spellings).size !== spellings.length) E("TC-13", "the action registry gives one spelling more than one entry");
     if (spellings.some((s) => /[*?]/.test(s))) E("TC-13", "the action registry has a wildcard spelling");
+    // TC-39: the full table, both directions, so a new line is as deliberate as a changed one.
+    const table = Object.fromEntries(actions.map((a) => [a.id, `${a.class}/${a.environment}`]));
+    for (const [id, want] of Object.entries(ACTION_TABLE)) {
+      if (table[id] !== want) E("TC-39", `the action '${id}' is ${table[id]}, and the pinned table says ${want}`);
+    }
+    for (const id of Object.keys(table)) {
+      if (!(id in ACTION_TABLE)) E("TC-39", `the action '${id}' is not in the pinned table`);
+    }
   }
 
   // TC-14: the pure modules stay pure.
   for (const [rel, allowed] of Object.entries(PURITY)) {
-    const imports = [...src[rel].matchAll(/^import [\s\S]*?from '([^']+)';/gm)].map((m) => m[1]);
+    const imports = SPECIFIERS.flatMap((pattern) => [...src[rel].matchAll(pattern)].map((m) => m[1]));
     const foreign = imports.filter((name) => !allowed.includes(name));
     if (foreign.length > 0) E("TC-14", `${rel} imports ${foreign.join(", ")}, and is pure`);
     if (IMPURE.test(src[rel])) E("TC-14", `${rel} reaches outside itself: ${IMPURE.exec(src[rel])[0]}`);
@@ -846,10 +1148,20 @@ function check(raw) {
     if (order !== undefined) {
       const at = order.map((pin) => pinText(src, pin).indexOf(pin.pin));
       if (at.some((i) => i < 0) || at.some((i, k) => k > 0 && i < at[k - 1])) E(rule, `${says} (the order changed)`);
-      const first = /return \{ admitted: true/g;
-      if (rule === "TC-27" && (fnSpan(src[ENVELOPE_REL], "admitEnvelope").match(first) || []).length !== 1) E(rule, `${says} (a second way to admit)`);
     }
   }
+  if ((fnSpan(src[ENVELOPE_REL], "admitEnvelope").match(/return \{ admitted: true/g) || []).length !== 1) {
+    E("TC-27", "an operation can proceed without its admission being recorded (R4) (a second way to admit)");
+  }
+  // TC-34 (one way to brand): only `branded` marks an envelope, and parsing never does.
+  if ((src[ENVELOPE_REL].match(/LIVE_ENVELOPES\.set\(/g) || []).length !== 1 || fnSpan(src[ENVELOPE_REL], "parseEnvelope").includes("branded(")) {
+    E("TC-34", "something other than a mint or a re-admission can brand an envelope");
+  }
+  // TC-35 (no new field): `registered` and `via` stay on the record line. ADR-K1 was accepted by the owner.
+  const envelopeType = /export interface TaskEnvelope \{([\s\S]*?)\n\}/.exec(src[ENVELOPE_REL]);
+  if (envelopeType === null || /\b(registered|via)\b/.test(envelopeType[1])) E("TC-35", "the envelope gained a field the owner did not accept");
+  // TC-37 (no Unicode folding): U+212A lowercases to `k`.
+  if (UNICODE_FOLDING.test(src[TENANT_REL])) E("TC-37", "tenant.ts folds case through Unicode, so a non-ASCII spelling can equal a registered one");
   // TC-22 (one way to brand): the module's only `.add` for a binding is inside `resolveTenant`.
   if ((src[TENANT_REL].match(/LIVE_BINDINGS\.add\(/g) || []).length !== 1 || (src[TENANT_REL].match(/LIVE_REGISTRIES\.add\(/g) || []).length !== 1) {
     E("TC-22", "a second place can brand a binding or a registry");
@@ -884,6 +1196,12 @@ function check(raw) {
   if (!src[SCHEMADOC_REL].includes(`| \`${TREG_REL}\` (installation record`) || !src[SCHEMADOC_REL].includes(`| \`${AREG_REL}\` (installation record`)) {
     E("TC-33", "docs/05_Schema.md no longer lists the two installation records");
   }
+
+  // TC-T: every proof exists, and every proof runs.
+  for (const [rel, needles] of Object.entries(TESTS)) {
+    for (const n of needles) if (!raw[rel].includes(n)) E("TC-T", `${rel} no longer proves "${n}"`);
+    if (NOT_RUN.test(src[rel])) E("TC-T", `${rel} skips or isolates a test: ${NOT_RUN.exec(src[rel])[0]}`);
+  }
   return errors;
 }
 
@@ -902,25 +1220,17 @@ function selfTest(raw) {
   const names = MUTATIONS.map((m) => m.name);
   if (new Set(names).size !== names.length) errors.push("TC-M: two mutations share a name");
   const rules = new Set(MUTATIONS.map((m) => m.rule));
-  for (let i = 1; i <= 33; i += 1) {
-    if (!rules.has(`TC-${i}`)) errors.push(`TC-M: rule TC-${i} has no named mutation`);
+  for (const rule of [...Array.from({ length: 40 }, (_, i) => `TC-${i + 1}`), "TC-T"]) {
+    if (!rules.has(rule)) errors.push(`TC-M: rule ${rule} has no named mutation`);
   }
   return errors;
 }
 
 function run() {
   const raw = {};
-  for (const rel of SOURCES) raw[rel] = read(rel);
+  for (const rel of ALL_SOURCES) raw[rel] = read(rel);
   const errors = check(raw).map(([, msg]) => msg);
   if (errors.length === 0) errors.push(...selfTest(raw));
-  for (const [rel, needles] of Object.entries(TESTS)) {
-    const t = read(rel);
-    if (t === null) {
-      errors.push(`TC-T: ${rel} is missing`);
-      continue;
-    }
-    for (const n of needles) if (!t.includes(n)) errors.push(`TC-T: ${rel} no longer proves "${n}"`);
-  }
   return errors;
 }
 

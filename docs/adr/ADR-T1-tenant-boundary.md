@@ -36,6 +36,9 @@ The registry lists only the three projects the Stage 2 exit proof needs. An unli
 refused by name (`TENANT_UNKNOWN`) and never defaults to the owner, so a new project needs a
 `tenant-registry-change`. The Add Project wizard is not changed until Stage 6.
 
+**D2 names tenants only.** The domain on each registry line is the lead's reading of what the project is,
+not an owner decision.
+
 ## 3. The registry and its trust basis
 
 `projectos/security/tenant-registry.json` binds `projectId@repository@governedRoot` to a tenant and a
@@ -43,21 +46,28 @@ domain. The repository is canonicalised by `parseRemoteUrl`, the rule the instal
 
 - **Why the installation and not the project.** A project's `.projectops/` is writable by that
   project's own work, so a tenant recorded there could be moved by the work it governs (F8).
-- **Committed bytes only,** read from the installation's git object store. A working-tree edit has no
-  authority.
+- **For `projectos`, the installation is the project.** One checkout wears both hats, so that rationale
+  does not hold: a ProjectOS phase can hold a write grant on this very file. Only committed bytes and
+  the `tenant-registry-change` limit below stand between its own work and its own tenant.
+- **Committed bytes only,** read from the installation's git object store at `HEAD` of the installation
+  checkout: `git show HEAD:./projectos/security/tenant-registry.json`, after confirming the path is
+  committed and unmodified, the same read the allowlist uses. A working-tree edit has no authority.
 - **Whole file before any match.** A duplicate project id, repository or root, or a wildcard in any
   binding field, refuses the entire registry, including its perfect lines. `parseTenantRegistry` is the
   rule; the schema cannot express uniqueness.
-- **Changing it is P5.** `tenant-registry-change` is in the action registry, and the owner must have
-  made the file's last commit, because the allowlist reader trusts any commit at HEAD and this must not.
-- **That check rests on a git name.** `tamperProof` stays false. Until signed commits exist, anything
-  that can commit as the owner's configured git name passes it. An agent working in the owner's own
-  checkout does exactly that, and this phase's transcription of the registry is such a commit: it
-  carries the owner's git name, and it is not the owner's act. The owner's authority for the content is
-  D2, not the commit.
+- **Changing it is P5.** `tenant-registry-change` is in the action registry, and the intent is that the
+  owner made the file's last commit, because the allowlist reader trusts any commit at HEAD.
+- **That check cannot do what it says.** `tamperProof` stays false. **All commits on this machine carry
+  the name Murad, agent commits included.** So owner-last-commit cannot tell the owner from an agent, and
+  `tenant-registry-change` protects nothing beyond repo write access until an owner-only signature or an
+  owner-gate receipt naming the registry blob sha exists. **PROJECTOS-TENANT-PRINCIPAL1A chooses one of
+  those two.** Re-committing the file changes nothing, whoever does it, and neither does committing under
+  another git name. This phase's transcription of the registry is such a commit: the owner's authority for
+  its content is D2, not the commit.
 
 The action registry, `projectos/security/action-registry.json`, is ADR-K1 §1 made real. It is held on
-the same terms and reads both vocabularies without changing either.
+the same terms: changing it is the P5 action `action-registry-change`, with a floor in code, and the
+limit above applies to it equally. It reads both vocabularies without changing either.
 
 ## 4. Derived, never supplied
 
@@ -65,8 +75,9 @@ the same terms and reads both vocabularies without changing either.
   so a hand-written copy is refused at run time.
 - Worker text, argv, environment variables and route text are ignored (R2): the envelope minting
   code reads a fixed list of request fields, and none of them can say whose the work is.
-- A child envelope must equal its parent's `tenant`, `domain`, `project` and `environment` (R3).
-  Cross-tenant access is never a child. It is the P5 action `cross-tenant-access`, and each use is a new
+- A child envelope must equal its parent's `tenant`, `domain`, `project`, `environment` and
+  `principal` (R3). The principal is added to ADR-K1's list here: a child acting as someone else is a
+  different authority, not a narrower task. Cross-tenant access is never a child. It is the P5 action `cross-tenant-access`, and each use is a new
   root envelope in the data-owning tenant (ADR-K1 §4).
 - **Envelope scope for Stage 2:** minted where a tenant can be crossed: run start, credential release,
   broker call, Control Center project selection and MCP bridge read. Other operations are not yet
@@ -86,13 +97,17 @@ directory borrow another repository's history. Copying that refusal would make e
    record counts for nothing either: its directory is gone, and something new at that path was not
    attached by anyone.
 3. **The origin must still match** the registered repository. A submodule-style `.git` pointer is not in
-   the listing and is refused.
-4. **It grants tenant identity and nothing else.** The installation allowlist keeps refusing a linked
-   worktree for anything that spends a credential, and this ADR does not change that. Spend stays bound
-   to the registered root. The registry is always read from the installation, never from the worktree.
+   the listing and is refused. A listing means nothing apart from the root that gave it, so one taken
+   anywhere else attaches nothing, and a checkout at or under ANOTHER entry's root is refused even when
+   listed. The registry refuses a root inside another for the same reason.
+4. **It grants tenant identity and nothing else.** The installation allowlist guards gatekeeper spend
+   only, not session release, so it does not cover this. **Worktree tenant identity alone must never
+   release a secret.** PROJECTOS-TENANT-CREDENTIALS1A decides what else a release from a worktree needs.
+   The registry is always read from the installation, never from the worktree.
 
 **Limit.** Anything running as the owner's Windows user can run `git worktree add` from the registered
-root. The rule proves the repository attached the directory, not that a person meant it (§10).
+root. The rule proves the repository attached the directory, not that a person meant it. That is the same
+one-user reach as §10's first limit.
 
 ## 6. Credential classes
 
@@ -109,10 +124,16 @@ Each credential declares its **reach**. An account-wide token is never projected
 session (F9). A token's reach is declared per credential rather than assumed, because Supabase token
 scope was not confirmed live.
 
+**OPEN, the owner decides at PROJECTOS-TENANT-CREDENTIALS1A.** `credential-release` is P5, and session
+release has no owner step today, so nothing can yet answer the door's grant port for it. A P5 grant source
+for it must be decided there. This ADR does not invent one.
+
 ## 7. The database, the owner and the service role
 
 - **The database boundary holds for clients.** RLS and table grants stop a signed-in or anonymous
   client. Migrations and proof are PROJECTOS-TENANT-RLS1A.
+- **Postgres is never authority.** `tenant_id` in the cloud tables is a copy of the binding. Where they
+  disagree, the git registry wins, and no kernel decision reads the copy.
 - **The owner sees both tenants.** One owner JWT and one owner desktop see both, by membership. That is
   not a cross-tenant breach. It is also not the platform-owner access ADR-K1 §4 rules out: it holds only
   because the owner is a member of both, and a tenant whose owner is someone else would have no such
@@ -124,12 +145,25 @@ scope was not confirmed live.
 
 ## 8. The envelope as built
 
-`core/src/taskEnvelope.ts` implements R1–R5 as pure rules. Three points the code settles:
+`core/src/taskEnvelope.ts` implements R1–R5 as pure rules. The points the code settles:
 
+- **Provenance is not shape.** The door admits only an envelope `mintEnvelope` or `readmitEnvelope`
+  branded. A persisted envelope comes back through `readmitEnvelope`, which derives `tenant`, `domain`,
+  `project`, `environment` and `actionClass` again and refuses any difference.
+- **The door gates the class.** P6 is refused always. An unregistered action mints at P5 (R5) and is
+  refused by name, and the attempt is recorded. P4 has no grant to give (ADR-K1 §4). P5 is refused unless
+  the grant port confirms a grant. P3 passes: its grants are decided on the paths that own them.
+- **Boundary crossings are roots.** `run-start`, `credential-release`, `broker-call`,
+  `project-selection` and `bridge-read` are root envelopes, never children, and R3 is not loosened for
+  them. `checkRunLink` ties a crossing to its run: same `tenant`, `domain`, `project` and `principal`,
+  and `run:<envelopeId>` in its scope, so a credential release can always be traced to the run that asked.
+  So `environment` can be honest: `broker-call` and `push` are `production`, because each reaches something
+  live outside this machine, and `commit` stays `local`. A push is therefore a root too.
 - **Only v2 exists.** ADR-K1 describes v1 for Stage 1, but no v1 envelope was ever built, so there is no
   default to fall back on.
-- **`action` is added to ADR-K1 §2's table.** §2 hashes it into `idempotencyKey` without listing it, and
-  a record naming a class but not the action is not an audit.
+- **`action` is added to ADR-K1 §2's table, and it is the one addition.** §2 hashes it without listing it,
+  and a record naming a class but not the action is not an audit. `registered` and the binding's `via` go
+  on the record line, never on the envelope, because the owner accepted ADR-K1.
 - **The kernel supplies `principal`, `actor`, `subjectHash`, `scope` and `budget` to pure code.** That
   they are derived rather than relayed from a worker is proved at the call sites, which arrive in
   PROJECTOS-TENANT-PRINCIPAL1A. The pure code proves shape and no widening.
@@ -137,7 +171,9 @@ scope was not confirmed live.
 Until then the records and rules exist and **nothing enforces them at run time.**
 
 The action registry also lists the five Stage 2 boundary actions, because PROJECTOS-TENANT-PRINCIPAL1A
-mints envelopes for them and has no write path to the registry.
+mints envelopes for them and has no write path to the registry. Each has a floor in code. `run-start` is P2
+because what a run spends is enveloped separately: its paid calls are P3 `broker-call` roots, which keeps
+ADR-K1 §3 true.
 
 ## 9. Accepted limits for one owner
 
@@ -156,7 +192,7 @@ mints envelopes for them and has no write path to the registry.
   Manager entries readable by any process of that user, including every tenant's secrets and the
   gatekeeper key. Writes are bound to the plan; reads are not. Stage 2 stops the kernel's routes and the
   database. The real fixes are Host service custody for secrets and Stage 4.3 isolation for files.
-- **The registry's owner check rests on a git name** until signed commits exist (§3).
+- **The registry's owner check rests on a git name,** which cannot tell the owner from an agent (§3).
 - **No product flow uses the tenant tables yet** (F2). The database boundary is proved by the harness.
 - **Eight of the nine connector scenarios** are defined in Stage 2 and first run in Stage 5.
 - **One owner sees both tenants,** by membership (§7).
@@ -181,5 +217,6 @@ isolation for files, plus the owner's own decision, does.
 - **Matching the first registry line.** A contradiction further down the file would never be seen.
 - **Keying tenant on the Supabase identity.** One owner holds both tenants, so the JWT cannot say which
   project the work is for.
-- **Signing authority commits now.** It would stop the transcribed-decision commits that keep owner acts
-  near zero. Revisit before Stage 5.
+- **Signing every authority commit now.** It would stop the transcribed-decision commits that keep owner
+  acts near zero. Revisit before Stage 5. A narrower owner-only signature on the registry stays open to
+  PROJECTOS-TENANT-PRINCIPAL1A (§3).
