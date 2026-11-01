@@ -29,6 +29,10 @@
  *
  * NO WAY TO WRITE WITHOUT THE OWNER. Nothing here runs on a timer or a loop. There is no consolidation
  * and no self-review; a proposal is made by a caller, and decided by the owner.
+ *
+ * THE CALLER'S IDENTITY IS NOT PART OF THE REQUEST. The kernel supplies `MemoryCaller`, and anything in
+ * the request that claims otherwise is overwritten. It stays what the caller asserts until owner proof
+ * exists, so it opens only the decision rule, and no screen depends on it.
  */
 import {
   applyMemoryProposal,
@@ -40,6 +44,7 @@ import {
   readMemoryProposal,
   type MemoryDecisionOutcome,
   type MemoryProposal,
+  type MemoryRefused,
   type MemoryResult,
   type MemoryStoreState,
   type MemoryTarget,
@@ -59,6 +64,8 @@ import {
 } from './memoryFiles.js';
 
 const PROPOSAL_ID = /^mem-[0-9a-f]{24}$/;
+/** What may wait for the owner at once, so a loop cannot bury the queue the owner has to read. */
+const MAX_PENDING_PROPOSALS = 50;
 
 function proposalsDir(root: string): string {
   return join(memoryDir(root), 'proposals');
@@ -71,21 +78,32 @@ function proposalPath(root: string, id: string): string {
 const asFile = (proposal: MemoryProposal): string => `${JSON.stringify(proposal, null, 2)}\n`;
 
 /** Credentials never enter memory, and the agent's own vocabulary is what recognises one. */
-function credentialRefusal(content: string | undefined): MemoryResult<never> | null {
-  if (content === undefined || !containsSecret(content)) return null;
+function credentialRefusal(content: string | null): MemoryRefused | null {
+  if (content === null || !containsSecret(content)) return null;
   return memoryRefused('MEMORY_CREDENTIAL', 'That text holds a credential. Nothing was proposed, and it is not repeated here.');
 }
 
-export type MemoryWriteRequest = Omit<MemoryWriteInput, 'proposedAt'>;
+/** Who is calling, supplied by the kernel. Never read from a request, a proposal or a file. */
+export interface MemoryCaller {
+  readonly author: string;
+  readonly role: Role;
+  readonly session: string;
+}
+
+export type MemoryWriteRequest = Pick<MemoryWriteInput, 'target' | 'op' | 'kind' | 'content' | 'oldText' | 'ledgerRef'>;
 
 /** Record a proposed write for the owner to see. The store is not touched. */
-export function proposeMemoryWrite(sys: System, root: string, request: MemoryWriteRequest): MemoryResult<MemoryProposal> {
-  const credential = credentialRefusal(request.content);
-  if (credential !== null) return credential;
+export function proposeMemoryWrite(sys: System, root: string, caller: MemoryCaller, request: MemoryWriteRequest): MemoryResult<MemoryProposal> {
+  if (listPendingMemoryProposals(sys, root).pending.length >= MAX_PENDING_PROPOSALS) {
+    return memoryRefused('MEMORY_QUEUE_FULL', `${MAX_PENDING_PROPOSALS} proposals are already waiting for the owner. Nothing was proposed.`);
+  }
   const state = readMemoryStore(sys, root, request.target);
   if (!state.ok) return state;
-  const proposal = buildMemoryProposal({ ...request, proposedAt: sys.now() }, state.value);
+  const input = { ...request, author: caller.author, authorRole: caller.role, session: caller.session, proposedAt: sys.now() };
+  const proposal = buildMemoryProposal(input, state.value);
   if (!proposal.ok) return proposal;
+  const credential = credentialRefusal(proposal.value.content);
+  if (credential !== null) return credential;
   // Create-if-absent: a proposal is never written over another. Upstream logs a failed stage and
   // reports success; here the caller is told, because a write it believes is queued would be lost.
   return sys.createExclusive(proposalPath(root, proposal.value.id), asFile(proposal.value))
@@ -98,7 +116,9 @@ export function loadMemoryProposal(sys: System, root: string, id: string): Memor
   const text = sys.readText(proposalPath(root, id));
   if (text === null) return memoryRefused('MEMORY_NOT_FOUND', `There is no proposal ${id}.`);
   try {
-    return readMemoryProposal(JSON.parse(text) as unknown);
+    const proposal = readMemoryProposal(JSON.parse(text) as unknown);
+    if (proposal.ok && proposal.value.id !== id) return memoryRefused('MEMORY_TAMPERED', `The file named ${id} holds another proposal.`);
+    return proposal;
   } catch {
     return memoryRefused('MEMORY_TAMPERED', `Proposal ${id} is not valid JSON.`);
   }
@@ -119,9 +139,9 @@ export function listPendingMemoryProposals(sys: System, root: string): MemoryPro
   const read = ids.map((id) => ({ id, result: loadMemoryProposal(sys, root, id) }));
   return {
     pending: read
-      .flatMap(({ result }) => (result.ok && result.value.state === 'pending' ? [result.value] : []))
+      .flatMap(({ result }) => (result.ok ? [result.value] : []))
       .sort((a, b) => a.provenance.proposedAt.localeCompare(b.provenance.proposedAt)),
-    unreadable: read.flatMap(({ id, result }) => (result.ok ? [] : [id])),
+    unreadable: read.flatMap(({ id, result }) => (result.ok || result.refusal.code === 'MEMORY_ALREADY_DECIDED' ? [] : [id])),
   };
 }
 
@@ -129,13 +149,12 @@ export interface MemoryDecisionRequest {
   readonly id: string;
   /** The hash the decider reviewed. Mandatory: a decision over unread text is not a decision. */
   readonly reviewedHash: string;
-  readonly by: Role;
 }
 
-function decided(sys: System, root: string, request: MemoryDecisionRequest, outcome: MemoryDecisionOutcome): MemoryResult<MemoryProposal> {
+function decided(sys: System, root: string, caller: MemoryCaller, request: MemoryDecisionRequest, outcome: MemoryDecisionOutcome): MemoryResult<MemoryProposal> {
   const proposal = loadMemoryProposal(sys, root, request.id);
   if (!proposal.ok) return proposal;
-  return decideMemoryProposal(proposal.value, outcome, request.by, sys.now(), request.reviewedHash);
+  return decideMemoryProposal(proposal.value, outcome, caller.role, sys.now(), request.reviewedHash);
 }
 
 function land(sys: System, root: string, proposal: MemoryProposal, state: MemoryStoreState): MemoryResult<MemoryProposal> {
@@ -145,31 +164,35 @@ function land(sys: System, root: string, proposal: MemoryProposal, state: Memory
   const target: MemoryTarget = proposal.target;
   const widened = new Map(state.provenance);
   if (record !== null) widened.set(record.entryHash, record);
-  const failed = memoryRefused<MemoryProposal>('MEMORY_WRITE_FAILED', 'The memory store could not be written. The proposal stays pending.');
+  const failed = memoryRefused('MEMORY_WRITE_FAILED', 'The memory store could not be written. The proposal stays pending.');
   if (!writeMemoryProvenance(sys, root, target, widened)) return failed;
   if (!writeMemoryEntries(sys, root, target, entries)) return failed;
+  // THE STORE HAS MOVED. From here the text is in memory, so "failed" and "pending" would both be false.
   const held = new Set(entries.map(memoryEntryHash));
-  if (!writeMemoryProvenance(sys, root, target, new Map([...widened].filter(([hash]) => held.has(hash))))) return failed;
-  return writeFileAtomically(sys, proposalPath(root, proposal.id), asFile(applied.value.proposal)) ? memoryOk(applied.value.proposal) : failed;
+  const pruned = writeMemoryProvenance(sys, root, target, new Map([...widened].filter(([hash]) => held.has(hash))));
+  const marked = writeFileAtomically(sys, proposalPath(root, proposal.id), asFile(applied.value.proposal));
+  return pruned && marked
+    ? memoryOk(applied.value.proposal)
+    : memoryRefused('MEMORY_LANDED_INCOMPLETE', `The entry landed, but the records for ${proposal.id} could not be finished. Do not approve it again; another write will prune them.`);
 }
 
 /** The owner approves one proposal, and it lands, or it does not land at all. */
-export function approveMemoryProposal(sys: System, root: string, request: MemoryDecisionRequest): MemoryResult<MemoryProposal> {
+export function approveMemoryProposal(sys: System, root: string, caller: MemoryCaller, request: MemoryDecisionRequest): MemoryResult<MemoryProposal> {
   return underMemoryLock(sys, root, () => {
-    const approved = decided(sys, root, request, 'approved');
+    const approved = decided(sys, root, caller, request, 'approved');
     if (!approved.ok) return approved;
     const state = readMemoryStore(sys, root, approved.value.target);
     if (!state.ok) return state;
-    const credential = credentialRefusal(approved.value.content ?? undefined);
+    const credential = credentialRefusal(approved.value.content);
     if (credential !== null) return credential;
     return land(sys, root, approved.value, state.value);
   });
 }
 
 /** The owner rejects one proposal. It stays on file, decided, and nothing lands. */
-export function rejectMemoryProposal(sys: System, root: string, request: MemoryDecisionRequest): MemoryResult<MemoryProposal> {
+export function rejectMemoryProposal(sys: System, root: string, caller: MemoryCaller, request: MemoryDecisionRequest): MemoryResult<MemoryProposal> {
   return underMemoryLock(sys, root, () => {
-    const rejected = decided(sys, root, request, 'rejected');
+    const rejected = decided(sys, root, caller, request, 'rejected');
     if (!rejected.ok) return rejected;
     return writeFileAtomically(sys, proposalPath(root, request.id), asFile(rejected.value))
       ? rejected

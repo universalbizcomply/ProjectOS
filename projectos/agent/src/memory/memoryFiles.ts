@@ -26,7 +26,7 @@
  * a lock left by a killed process blocks until an operator removes the file the message names.
  */
 import {
-  MEMORY_ENTRY_KINDS,
+  isMemoryEntryProvenance,
   joinMemoryEntries,
   memoryRefused,
   memoryOk,
@@ -67,15 +67,14 @@ function readEntries(sys: System, path: string): MemoryResult<readonly string[]>
   return memoryOk(parseMemoryEntries(raw));
 }
 
-function isProvenanceRecord(hash: string, value: unknown): value is MemoryEntryProvenance {
-  if (value === null || typeof value !== 'object') return false;
-  const record = value as Record<string, unknown>;
-  return (
-    record['entryHash'] === hash &&
-    MEMORY_ENTRY_KINDS.includes(record['kind'] as MemoryEntryProvenance['kind']) &&
-    typeof record['proposalId'] === 'string' &&
-    record['approvedBy'] === 'owner'
-  );
+const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function parsedJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 function readProvenance(sys: System, path: string): MemoryResult<ReadonlyMap<string, MemoryEntryProvenance>> {
@@ -83,16 +82,18 @@ function readProvenance(sys: System, path: string): MemoryResult<ReadonlyMap<str
   if (raw === null) {
     return sys.exists(path) ? memoryRefused('MEMORY_UNREADABLE', `${path} exists but could not be read.`) : memoryOk(new Map());
   }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    const records = Object.entries((parsed as Record<string, unknown>)['entries'] as Record<string, unknown>);
-    if (!records.every(([hash, record]) => isProvenanceRecord(hash, record))) {
+  const parsed = parsedJson(raw);
+  if (parsed === undefined) return memoryRefused('MEMORY_UNREADABLE', `${path} is not valid JSON, so no entry can be trusted to it.`);
+  const held = isRecord(parsed) ? parsed['entries'] : undefined;
+  if (!isRecord(held)) return memoryRefused('MEMORY_UNREADABLE', `${path} holds no entries, so no entry can be trusted to it.`);
+  const records = new Map<string, MemoryEntryProvenance>();
+  for (const [hash, record] of Object.entries(held)) {
+    if (!isMemoryEntryProvenance(hash, record)) {
       return memoryRefused('MEMORY_UNREADABLE', `${path} holds a record that is not valid, so no entry can be trusted to it.`);
     }
-    return memoryOk(new Map(records as [string, MemoryEntryProvenance][]));
-  } catch {
-    return memoryRefused('MEMORY_UNREADABLE', `${path} is not valid JSON, so no entry can be trusted to it.`);
+    records.set(hash, record);
   }
+  return memoryOk(records);
 }
 
 /** One store as it stands. Refused, never guessed, when either file cannot be read. */
@@ -133,7 +134,12 @@ export function writeMemoryEntries(sys: System, root: string, target: MemoryTarg
   return writeFileAtomically(sys, memoryStorePath(root, target), joinMemoryEntries(entries));
 }
 
-/** Do one read-modify-write with nobody else inside. Read, check and write happen under one hold. */
+/**
+ * Do one read-modify-write with nobody else inside. Read, check and write happen under one hold.
+ *
+ * A LOCK THAT WILL NOT RELEASE DOES NOT CHANGE WHAT HAPPENED. The body's answer is returned as it was,
+ * with a warning beside it, so a write that landed is never reported as a write that did not.
+ */
 export function underMemoryLock<T>(sys: System, root: string, body: () => MemoryResult<T>): MemoryResult<T> {
   const lock = join(memoryDir(root), LOCK_FILENAME);
   if (!sys.createExclusive(lock, `{"heldSince":"${sys.now()}"}\n`)) {
@@ -142,13 +148,11 @@ export function underMemoryLock<T>(sys: System, root: string, body: () => Memory
       : memoryRefused('MEMORY_WRITE_FAILED', `${memoryDir(root)} could not be written, so nothing was changed.`);
   }
   let result: MemoryResult<T> = memoryRefused('MEMORY_WRITE_FAILED', 'The memory write did not run.');
+  let released = false;
   try {
     result = body();
   } finally {
-    if (!sys.removeFile(lock)) {
-      // eslint-disable-next-line no-unsafe-finally
-      return memoryRefused('MEMORY_LOCKED', `The memory lock ${lock} could not be released; later writes will refuse until it is removed.`);
-    }
+    released = sys.removeFile(lock);
   }
-  return result;
+  return released ? result : { ...result, warning: `The memory lock ${lock} could not be released; later writes will refuse until it is removed.` };
 }

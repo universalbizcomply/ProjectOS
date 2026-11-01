@@ -7,6 +7,7 @@ export {
   loadMemoryProposal,
   proposeMemoryWrite,
   rejectMemoryProposal,
+  type MemoryCaller,
   type MemoryDecisionRequest,
   type MemoryProposalListing,
   type MemoryWriteRequest,
