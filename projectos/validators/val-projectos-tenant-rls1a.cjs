@@ -4,7 +4,7 @@
  *
  * Two kinds of rule, because each can only see half of this:
  *
- *   Text rules (TR-1 to TR-41) pin the migration bytes and the files around them. Each has named
+ *   Text rules (TR-1 to TR-44) pin the migration bytes and the files around them. Each has named
  *   mutations, applied in memory, and each counts as killed only when ITS OWN rule fires.
  *
  *   Harness rules (TR-H*, TR-L*, TR-PG, TR-D:*, TR-S:*, TR-P:*, TR-PA:*) run the real harness on a throwaway
@@ -36,6 +36,7 @@ const DEFAULTS_REL = `${CC}/supabase/migrations/0003_default_privileges.sql`;
 const PREFLIGHT3_REL = `${CC}/supabase/test/live-preflight-0003.sql`;
 const GATE_REL = `${CC}/supabase/test/privilege-gate.sql`;
 const ASSERT_REL = `${CC}/supabase/test/assertions.sql`;
+const FIXTURES_REL = `${CC}/supabase/test/fixtures.sql`;
 const SHAPE_REL = `${CC}/supabase/test/supabase-shape.sql`;
 const LIVE_REL = `${CC}/supabase/test/live-shape.sql`;
 const HARNESS_REL = `${CC}/supabase/test/pg-harness.cjs`;
@@ -43,14 +44,19 @@ const SUPA_REL = `${CC}/src/data/supabase.ts`;
 const AUTH_REL = `${CC}/src/data/auth.ts`;
 const BOOT_REL = `${CC}/test/authBootstrap.test.tsx`;
 const DOC_REL = "docs/05_Schema.md";
+const EVIDENCE_REL = "docs/finish/PROJECTOS-TENANT-RLS1A.md";
 const VA_REL = "projectos/validators/validate-all.cjs";
 const CR_REL = "projectos/speed/cached-runner.cjs";
-const SOURCES = [BASE_REL, TB_REL, DEFAULTS_REL, SCHEMA_REL, INTERACTIVE_REL, PREFLIGHT_REL, PREFLIGHT3_REL, POSTAPPLY_REL, MEMBERSHIP_REL, GATE_REL, ASSERT_REL,
+const SOURCES = [BASE_REL, TB_REL, DEFAULTS_REL, SCHEMA_REL, INTERACTIVE_REL, PREFLIGHT_REL, PREFLIGHT3_REL, POSTAPPLY_REL, MEMBERSHIP_REL, GATE_REL, ASSERT_REL, FIXTURES_REL, EVIDENCE_REL,
   SHAPE_REL, LIVE_REL, HARNESS_REL, SUPA_REL, AUTH_REL, BOOT_REL, DOC_REL, VA_REL, CR_REL];
 
 const SELF = "val-projectos-tenant-rls1a";
 const OWNER_ACCOUNT = "cd2e8678-1e00-4264-95bb-7d75738a1f50";
 const MIN_ASSERTIONS = 100;
+const HELPER_BODIES = {
+  my_tenant_ids: "\n  select m.tenant_id from public.tenant_members as m where m.user_id = (select auth.uid());\n",
+  my_owned_tenant_ids: "\n  select m.tenant_id from public.tenant_members as m\n   where m.user_id = (select auth.uid()) and m.role = 'owner';\n",
+};
 const HARNESS_TIMEOUT_MS = 300000;
 
 /** These bytes are applied on the live project. A changed byte means the repository no longer says what ran. */
@@ -107,14 +113,18 @@ const PREFLIGHT_ITEMS = ["postgres owns both tables", "public.tenants is absent"
   "supabase_realtime can be emptied of these tables", "nothing else depends on these tables", "no client can create in schema public"];
 const POSTAPPLY_ITEMS = ["the privilege gate reports nothing", "no public table has an open policy", "row level security is on for every public table",
   "the four tables are out of every publication", "no client can create in schema public",
-  "postgres default ACL in public gives anon and authenticated nothing", "new postgres functions give PUBLIC nothing"];
+  "postgres default ACL in public gives anon and authenticated nothing", "new postgres functions give PUBLIC nothing",
+  "both helper bodies are exact", "auth.uid() is the Supabase form, not security definer", "authenticated can execute auth.uid()"];
 
 /** Assertions the exit proof depends on; deleting one would silently shrink the proof. */
 const REQUIRED_ASSERTIONS = ["A-CTRL-A-projects", "A-XREAD-projects", "A-XREAD-phases", "A-XREAD-tenants", "A-XREAD-tenant_members",
   "A-XWRITE-update-projects", "A-XWRITE-delete-projects", "A-XWRITE-insert-projects", "A-STEAL-projects", "A-XFK-insert",
   "A-MEMBER-UPDATE-projects", "A-BOTH-TENANT-projects", "A-BOTH-XFK", "A-SELFADD-", "A-NONMEMBER-projects", "A-NULLCLAIMS-projects",
   "A-ANON-projects", "A-TRUNCATE-authenticated-projects", "A-ROWS-UNCHANGED", "A-MALFORMED-SUB-projects", "A-BOTH-UPSERT-ID",
-  ...["table", "sequence", "function"].flatMap((k) => ["anon", "authenticated", "service_role"].map((r) => `A-NEWOBJ-${k}-${r}`)), "A-NEWOBJ-function-public"];
+  ...["table", "sequence", "function"].flatMap((k) => ["anon", "authenticated", "service_role"].map((r) => `A-NEWOBJ-${k}-${r}`)), "A-NEWOBJ-function-public",
+  "A-MIXED-reads-B", "A-MIXED-writes-A", "A-MIXED-update-B-projects", "A-MIXED-delete-B-projects", "A-MIXED-insert-B-projects", "A-MIXED-helper-owns-one",
+  "A-STRANGER-insert-projects", "A-STRANGER-update-projects", "A-STRANGER-delete-projects", "A-NULLCLAIMS-insert-projects", "A-NULLCLAIMS-update-projects",
+  "A-NULLCLAIMS-delete-projects", "A-MEMBER-UPSERT-projects", "A-OWNWRITE-upsert-projects", "A-NO-PUBLIC-VIEW"];
 
 // ---- what each database mutation must have tripped -------------------------------------------------
 
@@ -137,10 +147,13 @@ const DB_PROOFS = [
   // The rest of the boundary.
   { name: "write-update-using-true", failed: ["A-MEMBER-UPDATE-projects"] },
   { name: "write-delete-using-true", failed: ["A-MEMBER-DELETE-phases"] },
-  { name: "insert-check-true", failed: ["A-XWRITE-insert-projects", "A-MEMBER-INSERT-projects"] },
-  { name: "xwrite-projects-open", failed: ["A-XWRITE-update-projects", "A-XWRITE-delete-projects"] },
-  { name: "xwrite-phases-open", failed: ["A-XWRITE-update-phases", "A-XWRITE-delete-phases", "A-XWRITE-insert-phases"] },
-  { name: "owner-helper-widened", failed: ["A-MEMBER-INSERT-projects", "A-MEMBER-UPDATE-phases", "A-HELPER-member-owns-none"] },
+  { name: "insert-check-true", failed: ["A-XWRITE-insert-projects", "A-MEMBER-INSERT-projects", "A-STRANGER-insert-projects", "A-NULLCLAIMS-insert-projects"] },
+  { name: "xwrite-projects-open", failed: ["A-XWRITE-update-projects", "A-XWRITE-delete-projects", "A-STRANGER-update-projects", "A-STRANGER-delete-projects", "A-NULLCLAIMS-update-projects", "A-NULLCLAIMS-delete-projects"] },
+  { name: "xwrite-phases-open", failed: ["A-XWRITE-update-phases", "A-XWRITE-delete-phases", "A-XWRITE-insert-phases", "A-STRANGER-update-phases", "A-STRANGER-delete-phases", "A-STRANGER-insert-phases", "A-NULLCLAIMS-update-phases", "A-NULLCLAIMS-delete-phases", "A-NULLCLAIMS-insert-phases"] },
+  { name: "owner-helper-widened", failed: ["A-MEMBER-INSERT-projects", "A-MEMBER-UPDATE-phases", "A-MEMBER-UPSERT-projects", "A-HELPER-member-owns-none"] },
+  { name: "owner-anywhere-owns-all", failed: ["A-MIXED-helper-owns-one", "A-MIXED-update-B-projects", "A-MIXED-delete-B-projects", "A-MIXED-insert-B-projects", "A-MIXED-update-B-phases", "A-MIXED-delete-B-phases", "A-MIXED-insert-B-phases"] },
+  { name: "read-policy-for-all", failed: ["A-MEMBER-INSERT-projects", "A-MEMBER-UPDATE-projects"], gate: gate("nobody", "policy", 'public.projects "projects member read"', "COMMAND_DIFFERS") },
+  { name: "public-view-over-tenant-table", failed: ["A-NO-PUBLIC-VIEW"], gate: gate("authenticated", "table", "public.project_names", "SELECT") },
   { name: "column-grant-tenant-id", failed: ["A-BOTH-TENANT-projects", "A-BOTH-UPSERT-TENANT"], gate: gate("authenticated", "column", "public.projects.tenant_id", "UPDATE") },
   { name: "column-grant-id", failed: ["A-BOTH-ID-projects", "A-BOTH-UPSERT-ID"], gate: gate("authenticated", "column", "public.projects.id", "UPDATE") },
   { name: "malformed-sub-falls-open", failed: ["projects", "phases", "tenants", "tenant_members"].map((t) => `A-MALFORMED-SUB-${t}`) },
@@ -201,6 +214,11 @@ const PREFLIGHT3_PROOFS = {
 };
 
 const POSTAPPLY_PROOFS = {
+  "pa-read-policy-for-all": "no public table has an open policy",
+  "pa-helper-body": "both helper bodies are exact",
+  "pa-auth-uid-definer": "auth.uid() is the Supabase form, not security definer",
+  "pa-auth-uid-hardcoded": "auth.uid() is the Supabase form, not security definer",
+  "pa-auth-uid-no-execute": "authenticated can execute auth.uid()",
   "pa-default-acl-tables": "postgres default ACL in public gives anon and authenticated nothing",
   "pa-default-acl-sequences": "postgres default ACL in public gives anon and authenticated nothing",
   "pa-default-acl-functions": "postgres default ACL in public gives anon and authenticated nothing",
@@ -328,6 +346,8 @@ const MUTATIONS = [
   // TR-25
   M("gate-reads-information-schema", "TR-25", GATE_REL, "from pg_policy p join tables t on t.oid = p.polrelid\n   where pg_get_expr", "from information_schema.tables x, pg_policy p join tables t on t.oid = p.polrelid\n   where pg_get_expr"),
   M("gate-skips-expressions", "TR-25", GATE_REL, "'EXPRESSION_DIFFERS'", "'NOT_COMPARED'"),
+  M("gate-skips-commands", "TR-25", GATE_REL, "   where p.polcmd::text <> a.polcmd\n", "   where false\n"),
+  M("gate-command-table-wrong", "TR-25", GATE_REL, "select t.relname, t.relname || ' member read', 'r', m.expr, null", "select t.relname, t.relname || ' member read', '*', m.expr, null"),
   M("gate-ignores-private", "TR-25", GATE_REL, "where n.nspname in ('public', 'private') and c.relkind", "where n.nspname in ('public') and c.relkind"),
   M("gate-ignores-public-functions", "TR-25", GATE_REL, "   where n.nspname in ('public', 'private')\n),\nallowed_table", "   where n.nspname in ('private')\n),\nallowed_table"),
   M("gate-allows-anon", "TR-25", GATE_REL, "allowed_table(rolname, nspname, relname, priv) as (values\n", "allowed_table(rolname, nspname, relname, priv) as (values\n  ('anon', 'public', 'projects', 'SELECT'),\n"),
@@ -376,6 +396,9 @@ const MUTATIONS = [
   // TR-29
   M("assertions-control-removed", "TR-29", ASSERT_REL, "select rlstest.expect_count('A-CTRL-A-projects', $$select count(*) from public.projects$$, :a_projects);\n", ""),
   M("assertions-steal-dropped", "TR-29", ASSERT_REL, "select rlstest.expect_error('A-BOTH-TENANT-projects',", "select rlstest.expect_error('A-BOTH-NAME-projects',"),
+  M("assertions-no-mixed-user", "TR-29", ASSERT_REL, "select rlstest.expect_rows('A-MIXED-update-B-projects',", "select rlstest.expect_rows('A-MIXED-renamed-projects',"),
+  M("fixture-mixed-user-owns-b", "TR-29", FIXTURES_REL, "('agency-business', 'ffffffff-0000-4000-8000-000000000001', 'member')", "('agency-business', 'ffffffff-0000-4000-8000-000000000001', 'owner')"),
+  M("fixture-mixed-user-missing", "TR-29", FIXTURES_REL, "  ('owner-personal',  'ffffffff-0000-4000-8000-000000000001', 'owner'),\n", ""),
   M("assertions-any-refusal-counts", "TR-29", ASSERT_REL, "  perform rlstest._record(p_id, msg <> 'rlstest_no_error' and msg ilike p_like, msg);", "  perform rlstest._record(p_id, msg <> 'rlstest_no_error', msg);"),
   M("assertions-stop-at-first-failure", "TR-29", ASSERT_REL, "select 'COMPLETE';", "select 'DONE';"),
   // TR-30
@@ -402,9 +425,25 @@ const MUTATIONS = [
   M("postapply-no-nspacl", "TR-35", POSTAPPLY_REL, "select 70, 'public schema', coalesce(nullif(a.grantee, 0)::regrole::text, 'PUBLIC'), null,\n         string_agg(a.privilege_type, ', ' order by a.privilege_type)\n    from pg_namespace n cross join lateral aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) a\n   where n.nspname = 'public'\n   group by a.grantee\n  union all\n", ""),
   M("postapply-no-default-acl-listing", "TR-35", POSTAPPLY_REL, "    from pg_default_acl d left join pg_namespace n on n.oid = d.defaclnamespace\n", "    from (select null::oid as defaclrole, null::\"char\" as defaclobjtype, null::oid as defaclnamespace, null::aclitem[] as defaclacl) d left join pg_namespace n on n.oid = d.defaclnamespace\n"),
   M("postapply-no-open-policy-check", "TR-35", POSTAPPLY_REL, "'no public table has an open policy'", "'policies listed'"),
-  M("postapply-open-policy-names-only", "TR-35", POSTAPPLY_REL, "          or pg_get_expr(p.polqual, p.polrelid) is distinct from a.qual\n          or pg_get_expr(p.polwithcheck, p.polrelid) is distinct from a.with_check\n          or p.polroles", "          or p.polroles"),
+  M("postapply-open-policy-names-only", "TR-35", POSTAPPLY_REL, "          or pg_get_expr(p.polqual, p.polrelid) is distinct from a.qual\n          or pg_get_expr(p.polwithcheck, p.polrelid) is distinct from a.with_check\n          or p.polcmd::text", "          or p.polcmd::text"),
   M("postapply-no-realtime-check", "TR-35", POSTAPPLY_REL, "'the four tables are out of every publication'", "'realtime listed'"),
   // TR-23, added with the public schema row
+  // TR-15, the helper bodies
+  M("helper-body-owner-anywhere", "TR-15", TB_REL, "   where m.user_id = (select auth.uid()) and m.role = 'owner';", "   where m.user_id = (select auth.uid()) and exists (select 1 from public.tenant_members o where o.role = 'owner');"),
+  M("helper-body-any-user", "TR-15", TB_REL, "select m.tenant_id from public.tenant_members as m where m.user_id = (select auth.uid());", "select m.tenant_id from public.tenant_members as m;"),
+  // TR-42
+  M("postapply-helper-body-drifts", "TR-42", POSTAPPLY_REL, "   where m.user_id = (select auth.uid()) and m.role = ''owner'';", "   where m.user_id = (select auth.uid());"),
+  M("postapply-helper-body-unchecked", "TR-42", POSTAPPLY_REL, "join pg_proc p on p.proname = h.proname and p.prosrc = h.body", "join pg_proc p on p.proname = h.proname"),
+  // TR-43
+  M("postapply-uid-allows-definer", "TR-43", POSTAPPLY_REL, "select not prosecdef and provolatile = 's'", "select provolatile = 's'"),
+  M("postapply-uid-allows-hardcoded-id", "TR-43", POSTAPPLY_REL, "                          and src !~ '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}'\n", ""),
+  M("postapply-uid-allows-set-config", "TR-43", POSTAPPLY_REL, "                          and src !~* 'set_config'\n", ""),
+  M("postapply-uid-allows-another-setting", "TR-43", POSTAPPLY_REL, "                          and (length(src) - length(replace(src, 'current_setting(', ''))) / length('current_setting(') = 2\n", ""),
+  M("postapply-uid-execute-unchecked", "TR-43", POSTAPPLY_REL, "         and has_function_privilege('authenticated', to_regprocedure('auth.uid()'), 'EXECUTE'),\n", "         ,\n"),
+  M("postapply-uid-schema-unchecked", "TR-43", POSTAPPLY_REL, "         and has_schema_privilege('authenticated', 'auth', 'USAGE')\n", ""),
+  // TR-44
+  M("evidence-carries-no-f5-bound", "TR-44", EVIDENCE_REL, "**F5, carried.**", "**F5.**"),
+  M("evidence-still-says-open", "TR-44", EVIDENCE_REL, "| Agency `ai-generated-code-security-auditor` | APPROVE WITH CHANGES", "| Agency `ai-generated-code-security-auditor` | **OPEN**"),
   M("preflight-no-nspacl", "TR-23", PREFLIGHT_REL, "   where n.nspname = 'public'\n   group by a.grantee\n", "   where n.nspname = 'none'\n   group by a.grantee\n"),
   // TR-36: bytes already applied live
   M("applied-0001-edited", "TR-36", BASE_REL, "set local lock_timeout = '10s';", "set local lock_timeout = '30s';"),
@@ -440,6 +479,8 @@ const MUTATIONS = [
   M("preflight3-no-global-check", "TR-40", PREFLIGHT3_REL, "'no global function default exists yet'", "'global default listed'"),
   M("preflight3-no-owner-check", "TR-40", PREFLIGHT3_REL, "'the owner account owns both tenants'", "'tenants have members'"),
   M("preflight3-no-absent-check", "TR-40", PREFLIGHT3_REL, "'anon and authenticated still hold the default on '", "'default listed for '"),
+  M("postapply-open-policy-ignores-command", "TR-35", POSTAPPLY_REL, "          or p.polcmd::text <> a.polcmd\n", ""),
+  M("preflight3-open-policy-ignores-command", "TR-40", PREFLIGHT3_REL, "          or p.polcmd::text <> a.polcmd\n", ""),
   // TR-41
   M("postapply-no-known-limit", "TR-41", POSTAPPLY_REL, "'known limit: objects made by supabase_admin in public stay exposed'", "'defaults listed'"),
   M("postapply-default-ignores-global", "TR-41", POSTAPPLY_REL, "     and d.defaclnamespace in (0, (select oid from pg_namespace where nspname = 'public'))\n", "     and d.defaclnamespace = (select oid from pg_namespace where nspname = 'public')\n"),
@@ -530,6 +571,11 @@ function stripJs(text) {
 const SEED_ROW = /^\s*\('([^']+)',\s*'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*(true|false),\s*(\d+)\),?\s*$/gm;
 const seedRows = (text) => [...text.matchAll(SEED_ROW)].map((m) => m.slice(1, 8).join("|"));
 const collapse = (s) => s.replace(/\s+/g, " ").trim();
+/** The dollar-quoted body of each helper in the migration, byte for byte. */
+const helperBodies = (sql) => Object.fromEntries(["my_tenant_ids", "my_owned_tenant_ids"].map((name) => {
+  const m = new RegExp(String.raw`function private\.${name}\(\)[\s\S]*?\$helper\$([\s\S]*?)\$helper\$;`).exec(sql);
+  return [name, m ? m[1] : null];
+}));
 const statements = (sql, re) => (sql.match(re) || []).map((s) => collapse(s.replace(/;$/, "")));
 const sameSet = (a, b) => a.length === b.length && [...a].sort().join("\n") === [...b].sort().join("\n");
 /** Removes string literals and dollar-quoted bodies, so the words inside a message cannot look like a verb. */
@@ -655,6 +701,9 @@ function check(raw) {
     const shape = new RegExp(String.raw`create or replace function private\.${name}\(\)\s+returns setof text\s+language sql\s+stable\s+security invoker\s+set search_path = ''`);
     if (!shape.test(tb)) E("TR-15", `private.${name} must be stable, security invoker, search_path empty, with no argument`);
   }
+  if (helperBodies(tb).my_tenant_ids !== HELPER_BODIES.my_tenant_ids || helperBodies(tb).my_owned_tenant_ids !== HELPER_BODIES.my_owned_tenant_ids) {
+    E("TR-15", "a helper body differs: each must answer for the caller alone, and the owned helper for the role in that tenant");
+  }
 
   // TR-16: private is authenticated's alone.
   const privateGrants = grants.filter((g) => !/\bon table\b/.test(g));
@@ -721,7 +770,7 @@ function check(raw) {
   if (/information_schema/i.test(gateSql) ||
       !["where n.nspname in ('public', 'private') and c.relkind", "where n.nspname in ('public', 'private')\n),\nallowed_table",
         "has_table_privilege(r.rolname, t.oid, p.priv)\n     and not exists", "has_column_privilege(r.rolname, c.oid, c.attnum, p.priv)", "has_function_privilege(r.rolname, f.oid, 'EXECUTE')",
-        "has_schema_privilege(r.rolname, n.oid, p.priv)", "'NOT_TO_AUTHENTICATED'", "'ALWAYS_TRUE'", "'NOT_APPROVED'", "'EXPRESSION_DIFFERS'", "'RLS_DISABLED'", "'PUBLISHED'", "'LOGIN'"].every((p) => gateSql.includes(p)) ||
+        "has_schema_privilege(r.rolname, n.oid, p.priv)", "'NOT_TO_AUTHENTICATED'", "'ALWAYS_TRUE'", "'NOT_APPROVED'", "'EXPRESSION_DIFFERS'", "'COMMAND_DIFFERS'", "   where p.polcmd::text <> a.polcmd\n", "select t.relname, t.relname || ' member read', 'r', m.expr, null", "'RLS_DISABLED'", "'PUBLISHED'", "'LOGIN'"].every((p) => gateSql.includes(p)) ||
       !anonAllowed || /'anon'/.test(anonAllowed[0])) {
     E("TR-25", "the privilege gate no longer judges effective privileges across public and private");
   }
@@ -779,6 +828,11 @@ function check(raw) {
 
   // TR-29: the assertions keep their controls, match real errors, and finish.
   const assertSql = raw[ASSERT_REL];
+  const fixtures = stripSql(raw[FIXTURES_REL]);
+  if (!fixtures.includes("('owner-personal',  'ffffffff-0000-4000-8000-000000000001', 'owner')") ||
+      !fixtures.includes("('agency-business', 'ffffffff-0000-4000-8000-000000000001', 'member')")) {
+    E("TR-29", "the fixtures need a user who owns tenant A and is a plain member of tenant B");
+  }
   const firstRefusal = assertSql.indexOf("'A-XREAD-projects'");
   const firstControl = assertSql.indexOf("'A-CTRL-A-projects'");
   if (!REQUIRED_ASSERTIONS.every((id) => assertSql.includes(`'${id}`)) || firstControl < 0 || firstControl > firstRefusal ||
@@ -824,6 +878,7 @@ function check(raw) {
   if (!POSTAPPLY_ITEMS.every((i) => post.includes(`'${i}'`)) || !post.includes("bool_and(ok) as ok") || !post.includes("'POSTAPPLY'") ||
       !post.includes("from pg_default_acl d left join pg_namespace n on n.oid = d.defaclnamespace") ||
       !/select 70, 'public schema'[\s\S]*?aclexplode\(coalesce\(n\.nspacl, acldefault\('n', n\.nspowner\)\)\)/.test(post) ||
+      !/open_policy as \([\s\S]*?or p\.polcmd::text <> a\.polcmd/.test(post) ||
       !/open_policy as \([\s\S]*?pg_get_expr\(p\.polqual, p\.polrelid\) is distinct from a\.qual[\s\S]*?pg_get_expr\(p\.polwithcheck, p\.polrelid\) is distinct from a\.with_check/.test(post)) {
     E("TR-35", "the post-apply check no longer answers the live questions, or its verdict is not computed");
   }
@@ -862,6 +917,7 @@ function check(raw) {
   if (pre3Bare.split(";").filter((s) => s.trim() !== "").length !== 1 || !/^\s*with\b/i.test(pre3Bare) || /information_schema/i.test(pre3) ||
       /\b(insert|update|delete|truncate|alter|create|drop|grant|revoke|merge|copy|call|do|vacuum|reindex|comment|lock|set)\b/i.test(pre3Bare) ||
       gateBody === null || !pre3.includes(gateBody) || !PREFLIGHT3_ITEMS.every((i) => pre3.includes(`'${i}'`)) ||
+      !/open_policy as \([\s\S]*?or p\.polcmd::text <> a\.polcmd/.test(pre3) ||
       !pre3.includes("'anon and authenticated still hold the default on '") || !pre3.includes("bool_and(ok) as ok") || !pre3.includes("'PREFLIGHT'")) {
     E("TR-40", "the 0003 preflight must be a single read-only SELECT with the real gate, a computed verdict and proof 0003 is absent");
   }
@@ -872,6 +928,28 @@ function check(raw) {
       !post.includes("     and d.defaclobjtype::text in ('r', 'S', 'f')\n") ||
       !/exists \(select 1 from postgres_defaults e where e\.kind = 'f' and e\.defaclnamespace = 0\)\s+and not exists \(select 1 from postgres_defaults e where e\.grantee = 0\)/.test(post)) {
     E("TR-41", "the post-apply check no longer judges postgres's defaults, or no longer names the supabase_admin limit");
+  }
+
+  // TR-42: the post-apply check holds the helper bodies byte for byte as 0002 created them, and compares them.
+  const bodyLiteral = (name, body) => `('${name}', '${body.replace(/'/g, "''")}')`;
+  if (!post.includes(bodyLiteral("my_tenant_ids", HELPER_BODIES.my_tenant_ids)) || !post.includes(bodyLiteral("my_owned_tenant_ids", HELPER_BODIES.my_owned_tenant_ids)) ||
+      !post.includes("join pg_proc p on p.proname = h.proname and p.prosrc = h.body") || !post.includes("join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'private'),")) {
+    E("TR-42", "the post-apply check no longer compares the helper bodies with what 0002 created");
+  }
+
+  // TR-43: auth.uid() is judged by what matters, because Supabase owns its spelling.
+  const uidPins = ["select not prosecdef and provolatile = 's' and lanname = 'sql' and returns = 'uuid'",
+    "and src like '%current_setting(''request.jwt.claim.sub'', true)%'", "and src like '%current_setting(''request.jwt.claims'', true)%'",
+    "and src like '%->> ''sub''%'", "and src like '%::uuid%'", "and src !~ '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}'", "and src !~* 'set_config'",
+    "(length(src) - length(replace(src, 'current_setting(', ''))) / length('current_setting(') = 2",
+    "and has_schema_privilege('authenticated', 'auth', 'USAGE')", "and has_function_privilege('authenticated', to_regprocedure('auth.uid()'), 'EXECUTE')"];
+  if (!uidPins.every((p) => post.includes(p))) E("TR-43", "the post-apply check no longer judges auth.uid() and who can run it");
+
+  // TR-44: the evidence records the Agency verdict, and why F5 stays carried.
+  const evidence = raw[EVIDENCE_REL];
+  if (/\| Agency `ai-generated-code-security-auditor` \| \*\*OPEN\*\*/.test(evidence) || /auditor`: OPEN/.test(evidence) ||
+      !evidence.includes("| Agency `ai-generated-code-security-auditor` | APPROVE WITH CHANGES") || !evidence.includes("**F5, carried.**")) {
+    E("TR-44", "the evidence must give the Agency verdict, not OPEN, and carry F5 with what bounds it");
   }
   return errors;
 }
