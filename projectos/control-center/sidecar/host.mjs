@@ -60,7 +60,7 @@ import {
   GOVERNED_PORTFOLIO_MESSAGE_KIND,
   toProjectSummary,
 } from '../node-build/governed/projectInventory.js';
-import { phase as phaseCommand, approve as approveCommand, report as reportCommand, plan as planCommand, nodeSystem as agentSystem, setGovernanceEngines, controlCenterVerbRefusal } from '@projectos/agent';
+import { phase as phaseCommand, approve as approveCommand, report as reportCommand, plan as planCommand, nodeSystem as agentSystem, setGovernanceEngines, controlCenterVerbRefusal, controlCenterTenantRefusal, projectSelectionRefusal } from '@projectos/agent';
 import { gitBoundSystem } from './gitBoundSystem.mjs';
 import { startOffLoopCommand } from './offLoopCommand.mjs';
 
@@ -569,6 +569,15 @@ function handleGovernedCommand(raw) {
       emitGovernedState({ refresh: false });
       return;
     }
+    // WHOSE PROJECT THIS IS, BEFORE IT BECOMES THE ONE THE OTHER VERBS USE (PROJECTOS-TENANT-PRINCIPAL1A).
+    // Minted and recorded by the agent's one rule. A project with no tenant is not selected, and a
+    // selection that cannot be recorded did not happen. Nothing in the browser's request names a tenant.
+    const selectionRefused = projectSelectionRefusal(tenantContext(resolveProjectRoot(inventory, outcome.projectId)));
+    if (selectionRefused !== null) {
+      emit(2, selectionRefused, check.request.verb);
+      emitGovernedState({ refresh: false });
+      return;
+    }
     selectedProjectId = outcome.projectId;
     const remembered = persistSelection(outcome.projectId);
     emit(
@@ -601,6 +610,15 @@ function handleGovernedCommand(raw) {
   const root = governedRoot();
   if (root === null) {
     emit(2, ['REFUSED (NO_RUNTIME): no governed project root is available.'], check.request.verb);
+    return;
+  }
+
+  // THE TENANT, AGAIN, FOR EVERY VERB THAT CAN ACT. A remembered selection is restored at start with no
+  // `project.select`, so it has not been asked. `refresh` reads and `run.stop` must always work.
+  const tenantRefused = controlCenterTenantRefusal(tenantContext(root), check.request.verb);
+  if (tenantRefused !== null) {
+    emit(2, tenantRefused, check.request.verb);
+    emitGovernedState();
     return;
   }
 
@@ -740,6 +758,16 @@ function persistSelection(projectId) {
   } catch {
     return false;
   }
+}
+
+/**
+ * The context a tenant is derived in. The bound system root is the installation when there is one, so a
+ * packaged daemon reads the registry from that repository; in development the agent package finds its
+ * own. The root is one of this inventory's, never a path from the browser.
+ */
+function tenantContext(root) {
+  const installRoot = systemRoot();
+  return { sys: gitBoundSystem(agentSystem, process.env, root), root, ...(installRoot === null ? {} : { tenantInstallRoot: installRoot }) };
 }
 
 /** The governed project root: the SELECTED project's root, or null when none is selected. */
