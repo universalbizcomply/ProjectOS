@@ -271,6 +271,7 @@ Reviews of revision 1, before any code. Agency corpus `ad9264e3`.
    post-check passed. Sign-up was found still open; on the owner's "Yes, switch it off (Recommended)" it was closed through the same route.
 9. **D9 — New objects (2026-11-01):** "Yes, lock by default (Recommended)". Adds `0003_default_privileges.sql` through plan v1.29.
 10. **D10 — ADR-T1 (2026-11-01):** "Accept it (Recommended)", with projectos and polygo in Develop and seo-agency in Business.
+11. **D11 — Agency client data (2026-11-01):** asked whether SEO agency client data counts as other party's data under D4, the owner answered "No for now". Revisit before Stage 5.
 
 Owner acts still to come: switch sign-up off and check Users; run `/mcp` to sign in to Supabase; `plan decide`
 for v1.28; yes to the live apply; adding the owner's Supabase account to the tenants, because the login email
