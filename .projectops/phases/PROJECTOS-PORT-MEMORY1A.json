@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-PORT-MEMORY1A",
+  "project": "ProjectOS",
+  "objective": "Translate the Hermes curated memory store and threat patterns (C8), about 0.9k lines, MIT, with oh-my-hermes admission rules (MIT). Writes never land directly: each is a proposal pinned to the entry hash, with provenance, for the owner to see. Over-limit writes are refused, and content is scanned before it can reach a prompt. Upstream writes freely by default; that behaviour is replaced.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:15.901Z",
+      "note": "Owner-approved plans v1.30 to v1.32. Implemented by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:16.450Z",
+      "note": "capped memory with hash-pinned proposals and a threat scan"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:17.043Z",
+      "note": "core 1856/1856, agent 3056/3056, control-center 890/890 at cf5a316d with normal package resolution. validate-all 159/161 at cf5a316d, the 2 failures being validate-desktop-e2e (needs a built bundle; the build itself was broken since 2026-09-25 and is repaired in TENANT-CSP1A) and val-cd-b4-sealed-expected-window-facts1a."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:17.605Z",
+      "note": "Evidence: docs/finish/PROJECTOS-PORT-MEMORY1A.md (cf5a316d)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:18.127Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (one HIGH fixed; recheck: all closed, no blocker unwired); ECC CODE review (APPROVE, MEDIUMs fixed)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:18.655Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
