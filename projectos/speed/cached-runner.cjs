@@ -169,7 +169,9 @@ const MODULES = [
   // PROJECTOS-TENANT-RLS1A — the tenant boundary in the database, proved on a throwaway local cluster.
   "val-projectos-tenant-rls1a",
   // PROJECTOS-PORT-FOUNDATION1A — the credit rule: every file in a port directory is original or credited.
-  "val-projectos-port-credit1a"
+  "val-projectos-port-credit1a",
+  // PROJECTOS-PORT-SEARCH1A — cited search: an uncited result is refused, indexed text stays data, no vectors yet.
+  "val-projectos-port-search1a"
 ];
 
 const REGISTERED_MODULE_COUNT = MODULES.length;
