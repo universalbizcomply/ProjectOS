@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PORT-APPROVALS1A",
   "project": "ProjectOS",
   "objective": "Port the Rakazo approval core (Apache-2.0): an approval bound to run, tool and argument hash, with taint tracking once untrusted content enters a run; and oh-my-hermes \"evidence before done\" receipts (MIT). These strengthen the owner gates and are pure rules. Rakazo's name and logo are not used, its notices are carried, and changed files are marked, as the owner approved on 2026-10-29.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-01T23:38:24.626Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-01T23:38:26.377Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PORT-APPROVALS1A:owner-closure:cf5a316d"
     }
   ]
 }
