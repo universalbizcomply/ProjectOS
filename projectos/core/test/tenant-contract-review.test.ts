@@ -617,9 +617,11 @@ describe('final round', () => {
       expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'push', expiry: SOONER }, openRun(), LATER)).toMatchObject({ ok: false, rule: 'RUN_LINK' });
     });
 
-    it('only a run can be crossed from', () => {
-      const notARun = ok(mintEnvelope(context(), { ...RUN, action: 'implement' }));
-      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'push' }, notARun, NOW)).toMatchObject({ ok: false, rule: 'RUN_LINK' });
+    it('only a run can be crossed from: an admitted envelope of another action is refused for that alone', () => {
+      const admission = admitEnvelope(mintEnvelope(context(), { ...RUN, action: 'implement' }), NOW, () => true, no);
+      if (!admission.admitted) throw new Error('control: it must be admitted, or admission would refuse it first');
+      const result = mintCrossing(crossingContext(), { ...CROSSING, action: 'push' }, admission.envelope, NOW);
+      expect(result).toMatchObject({ ok: false, rule: 'RUN_LINK', reasons: ["'implement' is not a run"] });
     });
 
     it('an action that needs no run link cannot take this route', () => {
