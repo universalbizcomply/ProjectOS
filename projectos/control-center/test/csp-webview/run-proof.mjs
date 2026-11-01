@@ -535,13 +535,20 @@ function stopProfileHolders(profile) {
   return result.stdout.split(/\s+/).filter(Boolean);
 }
 
-/** Checked, never assumed. A pass means the last look found nothing. */
+/**
+ * Checked, never assumed. A pass means the last look found nothing.
+ *
+ * THE LIMIT IS MEASURED. Stop-Process succeeds at once, but the process stays listed, with HasExited true and
+ * one terminating thread, while Windows runs down its thousand-odd handles. That took 32 to 90 seconds here.
+ * Limits of 20 and 60 seconds refused two healthy runs. The profile cannot be removed until it finishes, so
+ * the check waits for it rather than ignoring exited processes.
+ */
 async function stopProfile(profile) {
   let held = [];
   const gone = await until(() => {
     held = stopProfileHolders(profile);
     return held.length === 0;
-  }, 60_000, 1000);
+  }, 180_000, 1000);
   if (gone === null) throw new Error(`still holding ${profile}: ${held.join(' ')}`);
 }
 
