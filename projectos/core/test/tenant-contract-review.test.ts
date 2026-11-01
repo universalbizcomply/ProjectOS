@@ -11,6 +11,7 @@ import {
   admitEnvelope,
   checkChildEnvelope,
   ENVELOPE_FIELDS,
+  envelopeExpired,
   mintCrossing,
   mintEnvelope,
   parseEnvelope,
@@ -108,6 +109,13 @@ const run = (): TaskEnvelope => ok(mintEnvelope(context(), RUN));
 function openRun(): TaskEnvelope {
   const admission = admitEnvelope(mintEnvelope(context(), RUN), NOW, () => true, () => false);
   if (!admission.admitted) throw new Error('the run was not admitted');
+  return admission.envelope;
+}
+
+/** Through the door with a grant: only an admitted envelope can be a parent. */
+function opened(result: EnvelopeResult): TaskEnvelope {
+  const admission = admitEnvelope(result, NOW, () => true, () => true);
+  if (!admission.admitted) throw new Error('the parent was not admitted');
   return admission.envelope;
 }
 
@@ -225,8 +233,8 @@ describe('HIGH 1: envelope provenance', () => {
 
   it('a minted child cannot change principal either', () => {
     const request = { ...RUN, action: 'implement', expiry: SOONER };
-    expect(mintEnvelope(context({ envelopeId: CHILD_ID }), request, run())).toMatchObject({ ok: true });
-    expect(mintEnvelope(context({ envelopeId: CHILD_ID, principal: 'owner' }), request, run())).toMatchObject({ ok: false, rule: 'R3' });
+    expect(mintEnvelope(context({ envelopeId: CHILD_ID }), request, openRun())).toMatchObject({ ok: true });
+    expect(mintEnvelope(context({ envelopeId: CHILD_ID, principal: 'owner' }), request, openRun())).toMatchObject({ ok: false, rule: 'R3' });
   });
 
   it('a child cannot be minted from a forged parent: its budget would be a claim', () => {
@@ -343,7 +351,7 @@ describe('HIGH 3: boundary crossings are roots, linked to their run', () => {
   });
 
   it.each(['run-start', 'broker-call', 'credential-release', 'project-selection', 'bridge-read'])('%s cannot be a child', (action) => {
-    const parent = ok(mintEnvelope(context(), { ...RUN, action: 'secrets-handling' }));
+    const parent = opened(mintEnvelope(context(), { ...RUN, action: 'secrets-handling' }));
     const result = mintEnvelope(context({ envelopeId: CHILD_ID }), { ...RUN, action }, parent);
     expect(result).toMatchObject({ ok: false, rule: 'R3' });
     expect((result.ok ? [] : result.reasons).join(' ')).toContain('root');
@@ -361,7 +369,7 @@ describe('HIGH 3: boundary crossings are roots, linked to their run', () => {
   });
 
   it('a push is therefore a root too: R3 stays strict and refuses it as a child of a local run', () => {
-    const parent = ok(mintEnvelope(context(), { ...RUN, action: 'secrets-handling' }));
+    const parent = opened(mintEnvelope(context(), { ...RUN, action: 'secrets-handling' }));
     const result = mintEnvelope(context({ envelopeId: CHILD_ID }), { ...RUN, action: 'push' }, parent);
     expect(result).toMatchObject({ ok: false, rule: 'R3' });
     const push = { subjectHash: 'b'.repeat(40), action: 'push', budget: 100, expiry: SOONER, intentScope: 'RUN-1/1' };
@@ -731,7 +739,7 @@ describe('gstack round', () => {
       const tampered = { ...run(), scope: ['docs/', 'secrets/**'] };
       const parent = readmitEnvelope(tampered, polygo(), actions(), readmitLimits());
       expect(parent.ok).toBe(false);
-      const honest = ok(readmitEnvelope(run(), polygo(), actions(), readmitLimits()));
+      const honest = opened(readmitEnvelope(run(), polygo(), actions(), readmitLimits()));
       const child = mintEnvelope(context({ envelopeId: CHILD_ID }), { ...RUN, action: 'implement', scope: ['secrets/**'] }, honest);
       expect(child).toMatchObject({ ok: false, rule: 'R3' });
     });
@@ -780,6 +788,36 @@ describe('gstack round', () => {
       expect(lines).toHaveLength(1);
     });
 
+    it('an operation admitted in time that finishes late still records its outcome', () => {
+      const { record, lines } = recorder();
+      const open = openRun();
+      expect(envelopeExpired(open, LATER)).toBe(true);
+      expect(recordExecution(open, 'failed', 'TIMED_OUT', LATER, record)).toBe(true);
+      expect(lines[0]).toMatchObject({ stage: 'execution', outcome: 'failed', at: LATER });
+    });
+
+    it('a child of an admitted parent mints: the positive control', () => {
+      expect(mintEnvelope(context({ envelopeId: CHILD_ID }), { ...RUN, action: 'implement' }, openRun())).toMatchObject({ ok: true });
+    });
+
+    it('the reported attack: a child of a run refused under R4 is refused', () => {
+      const refusedRun = mintEnvelope(context(), RUN);
+      expect(admitEnvelope(refusedRun, NOW, () => false, no)).toMatchObject({ admitted: false, rule: 'R4' });
+      expect(mintEnvelope(context({ envelopeId: CHILD_ID }), { ...RUN, action: 'implement' }, ok(refusedRun))).toMatchObject({ ok: false, rule: 'R2' });
+    });
+
+    it('a parent minted but never taken to the door is refused', () => {
+      expect(mintEnvelope(context({ envelopeId: CHILD_ID }), { ...RUN, action: 'implement' }, run())).toMatchObject({ ok: false, rule: 'R2' });
+    });
+
+    it('a readmitted parent must pass the door again', () => {
+      const readmitted = readmitEnvelope(JSON.parse(JSON.stringify(run())), polygo(), actions(), readmitLimits());
+      const request = { ...RUN, action: 'implement' };
+      expect(mintEnvelope(context({ envelopeId: CHILD_ID }), request, ok(readmitted))).toMatchObject({ ok: false, rule: 'R2' });
+      admitEnvelope(readmitted, NOW, () => true, no);
+      expect(mintEnvelope(context({ envelopeId: CHILD_ID }), request, ok(readmitted))).toMatchObject({ ok: true });
+    });
+
     it('execution is not recorded for a forged envelope, and the caller is told to stop', () => {
       const { record, lines } = recorder();
       expect(recordExecution({ ...openRun() }, 'allowed', null, NOW, record)).toBe(false);
@@ -802,11 +840,12 @@ describe('gstack round', () => {
   });
 
   describe('4: the grant port sees how the checkout was bound', () => {
-    const release = (bindingUsed: TenantBinding): EnvelopeResult => {
+    const crossingFrom = (bindingUsed: TenantBinding, action: string): EnvelopeResult => {
       const open = admitEnvelope(mintEnvelope(context({ binding: bindingUsed }), RUN), NOW, () => true, () => false);
       if (!open.admitted) throw new Error('the run was not admitted');
-      return mintCrossing(crossingContext({ binding: bindingUsed }), { ...CROSSING, action: 'credential-release' }, open.envelope, NOW);
+      return mintCrossing(crossingContext({ binding: bindingUsed }), { ...CROSSING, action }, open.envelope, NOW);
     };
+    const release = (bindingUsed: TenantBinding): EnvelopeResult => crossingFrom(bindingUsed, 'credential-release');
     const LINKED = 'C:/dev/Polygo-worktrees/feature';
     const worktree = (): TenantBinding => binding({ ...(FACTS['polygo'] as CheckoutFacts), root: LINKED, worktrees: { takenAtRoot: 'C:/dev/Polygo/polygo', paths: [LINKED] } });
     const refuseWorktrees = (_envelope: TaskEnvelope, provenance: EnvelopeProvenance): boolean => provenance.via !== 'linked-worktree';
@@ -814,6 +853,11 @@ describe('gstack round', () => {
     it('a port can refuse a worktree binding, and the same port grants the registered root', () => {
       expect(admitEnvelope(release(worktree()), NOW, () => true, refuseWorktrees)).toMatchObject({ admitted: false, rule: 'P5_NO_GRANT' });
       expect(admitEnvelope(release(polygo()), NOW, () => true, refuseWorktrees)).toMatchObject({ admitted: true });
+    });
+
+    it('a P3 port sees the same truth: it can refuse a worktree commit and grant the registered root', () => {
+      expect(admitEnvelope(crossingFrom(worktree(), 'commit'), NOW, () => true, refuseWorktrees)).toMatchObject({ admitted: false, rule: 'P3_NO_GRANT' });
+      expect(admitEnvelope(crossingFrom(polygo(), 'commit'), NOW, () => true, refuseWorktrees)).toMatchObject({ admitted: true });
     });
 
     it('the port is handed via, registered and runLinked', () => {

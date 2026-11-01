@@ -190,6 +190,10 @@ const TESTS = {
     "execution is not recorded for an envelope refused as expired",
     "a port can refuse a worktree binding, and the same port grants the registered root",
     "a port cannot change what the door then records",
+    "a P3 port sees the same truth: it can refuse a worktree commit and grant the registered root",
+    "an operation admitted in time that finishes late still records its outcome",
+    "the reported attack: a child of a run refused under R4 is refused",
+    "a readmitted parent must pass the door again",
     "a sparse scope is refused: every() skips holes",
     "a paid action with no budget is refused (ADR-K1 §2); with one it mints",
   ],
@@ -244,6 +248,11 @@ const RULINGS = {
   perCallBudget: "An envelope budget is a per-call ceiling, and the ledger is the cumulative cap.",
   noSecondLedger: "There is deliberately no second ledger: `gatekeeperCostLedger` already refuses a paid call before dispatch, against committed caps.",
   portSeesVia: "The door's grant port is handed `via`, so a port can refuse a worktree binding.",
+  lateOutcome: "An expired one still can, if it was admitted before expiry",
+  ledgerPerRoot: "The ledger is per project root, so it is not an account-wide cap.",
+  callsNotMoney: "The installation record counts calls, not money.",
+  workersOutside: "Workers and `codex exec` do not pass through it.",
+  stage4Cap: "An account-wide cap is carried to Stage 4",
   worktreeProof: "git -C <governedRoot> worktree list --porcelain",
   worktreeLimit: "It grants tenant identity and nothing else.",
   classProject: "Inherits its project's tenant",
@@ -514,7 +523,7 @@ const RULES = [
       E_("limitProblems", "...envelope.scope.filter((item) => !limits.scope.includes(item)).map("),
       E_("limitProblems", "...(['subjectHash', 'idempotencyKey', 'parentEnvelopeId'] as const).flatMap((field) =>\n      envelope[field] === limits[field] ? [] :"),
       E_("admitEnvelope", "const provenance = LIVE_ENVELOPES.get(envelope);\n  if (provenance === undefined) return refuse('R2',"),
-      E_("mintEnvelope", "if (parent !== null && !LIVE_ENVELOPES.has(parent)) {\n    return refused('R2',"),
+      E_("mintEnvelope", "if (parent !== null && !ADMITTED_ENVELOPES.has(parent)) {\n    return refused('R2',"),
       E_("mintEnvelope", "return branded(result, { registered: resolved.registered, via: binding.via, runLinked: false });"),
       E_("readmitEnvelope", "if (!isDerivedBinding(binding)) {\n    return refused('R2',"),
       E_("readmitEnvelope", "const parsed = parseEnvelope(raw);\n  if (!parsed.ok) return parsed;"),
@@ -678,6 +687,11 @@ const MUTATIONS = [
   { name: "adr-drops-minted-not-admitted", rule: "TC-3", rel: ADR_T_REL, from: "- **Minted is not admitted.**", to: "- **Admission.**" },
   { name: "adr-calls-the-budget-cumulative", rule: "TC-3", rel: ADR_T_REL, from: "**An envelope budget is a per-call ceiling, and the ledger is the cumulative cap.**", to: "**An envelope budget is the run's cumulative cap.**" },
   { name: "adr-adds-a-second-ledger", rule: "TC-3", rel: ADR_T_REL, from: "There is\n  deliberately no second ledger:", to: "A second ledger\n  is planned, and" },
+  { name: "adr-says-expired-gets-no-line", rule: "TC-3", rel: ADR_T_REL, from: "An expired one still can, if it was admitted before expiry:", to: "An expired one gets none either:" },
+  { name: "adr-calls-the-ledger-account-wide", rule: "TC-3", rel: ADR_T_REL, from: "so it is not an account-wide cap.", to: "so it is an account-wide cap." },
+  { name: "adr-says-the-record-counts-money", rule: "TC-3", rel: ADR_T_REL, from: "counts calls,\n  not money.", to: "counts money." },
+  { name: "adr-says-workers-pass-through", rule: "TC-3", rel: ADR_T_REL, from: "Workers and `codex exec` do not pass through it.", to: "Workers pass through it." },
+  { name: "adr-drops-the-stage-4-carry", rule: "TC-3", rel: ADR_T_REL, from: "An account-wide cap is carried to Stage 4,", to: "Nothing more is needed,\n" },
   { name: "adr-hides-that-the-port-sees-via", rule: "TC-3", rel: ADR_T_REL, from: "The door's grant port is handed `via`, so a port can refuse a worktree binding.", to: "The door decides." },
   { name: "code-hides-the-per-call-budget", rule: "TC-3", rel: ENVELOPE_REL, from: "THE BUDGET CHECK IS PER CALL.", to: "THE BUDGET IS CHECKED." },
   { name: "code-calls-the-field-a-total", rule: "TC-3", rel: ENVELOPE_REL, from: "not a running total", to: "a running total" },
@@ -929,7 +943,9 @@ const MUTATIONS = [
   { name: "readmit-trusts-its-budget", rule: "TC-34", rel: ENVELOPE_REL, from: "...(Number.isSafeInteger(limits.maxBudget) && envelope.budget <= limits.maxBudget ? [] :", to: "...(true ? [] :" },
   { name: "readmit-trusts-its-expiry", rule: "TC-34", rel: ENVELOPE_REL, from: "...(latest !== null && (instantOf(envelope.expiry) as number) <= latest ? [] :", to: "...(true ? [] :" },
   { name: "readmit-unreadable-limit-passes", rule: "TC-34", rel: ENVELOPE_REL, from: "...(latest !== null && (instantOf(envelope.expiry) as number) <= latest ? [] :", to: "...(latest === null || (instantOf(envelope.expiry) as number) <= latest ? [] :" },
-  { name: "forged-parent-accepted", rule: "TC-34", rel: ENVELOPE_REL, from: "if (parent !== null && !LIVE_ENVELOPES.has(parent)) {", to: "if (false) {" },
+  { name: "forged-parent-accepted", rule: "TC-34", rel: ENVELOPE_REL, from: "if (parent !== null && !ADMITTED_ENVELOPES.has(parent)) {", to: "if (false) {" },
+  { name: "parent-needs-only-a-brand", rule: "TC-34", rel: ENVELOPE_REL, from: "if (parent !== null && !ADMITTED_ENVELOPES.has(parent)) {", to: "if (parent !== null && !LIVE_ENVELOPES.has(parent)) {" },
+  { name: "execution-refuses-a-late-outcome", rule: "TC-34", rel: ENVELOPE_REL, from: "if (provenance === undefined || !ADMITTED_ENVELOPES.has(envelope)) return false;", to: "if (provenance === undefined || !ADMITTED_ENVELOPES.has(envelope) || envelopeExpired(envelope, now)) return false;" },
   { name: "readmit-takes-a-copied-binding", rule: "TC-34", rel: ENVELOPE_REL, from: "export function readmitEnvelope(raw: unknown, binding: TenantBinding, registry: ActionRegistry, limits: ReadmissionLimits): EnvelopeResult {\n  if (!isDerivedBinding(binding)) {", to: "export function readmitEnvelope(raw: unknown, binding: TenantBinding, registry: ActionRegistry, limits: ReadmissionLimits): EnvelopeResult {\n  if (false) {" },
   { name: "readmit-trusts-its-tenant", rule: "TC-34", rel: ENVELOPE_REL, from: "  const derived = {\n    tenant: binding.tenant,\n", to: "  const derived = {\n" },
   { name: "readmit-trusts-its-domain", rule: "TC-34", rel: ENVELOPE_REL, from: "    domain: binding.domain,\n    project: binding.projectId,\n    environment: resolved.environment,\n    actionClass: resolved.actionClass,\n  } as const;", to: "    project: binding.projectId,\n    environment: resolved.environment,\n    actionClass: resolved.actionClass,\n  } as const;" },
@@ -950,6 +966,7 @@ const MUTATIONS = [
   { name: "p5-needs-no-grant", rule: "TC-35", rel: ENVELOPE_REL, from: "if (actionClass === 'P5' && !granted(grant, envelope, provenance)) return", to: "if (false) return" },
   { name: "p3-needs-no-grant", rule: "TC-35", rel: ENVELOPE_REL, from: "if (actionClass === 'P3' && !granted(grant, envelope, provenance)) return", to: "if (false) return" },
   { name: "port-not-told-the-provenance", rule: "TC-35", rel: ENVELOPE_REL, from: "return grant(envelope, provenance) === true;", to: "return (grant as unknown as (e: TaskEnvelope) => boolean)(envelope) === true;" },
+  { name: "port-not-handed-the-provenance-at-p3", rule: "TC-35", rel: ENVELOPE_REL, from: "if (actionClass === 'P3' && !granted(grant, envelope, provenance)) return", to: "if (actionClass === 'P3' && !granted(grant, envelope, { ...provenance, via: 'governed-root' })) return" },
   { name: "port-not-handed-the-provenance-at-p5", rule: "TC-35", rel: ENVELOPE_REL, from: "if (actionClass === 'P5' && !granted(grant, envelope, provenance)) return", to: "if (actionClass === 'P5' && !granted(grant, envelope, { ...provenance, via: 'governed-root' })) return" },
   { name: "run-link-not-asked-at-the-door", rule: "TC-35", rel: ENVELOPE_REL, from: "if (isRunLinkedAction(action) && !provenance.runLinked) return", to: "if (false) return" },
   { name: "run-link-asked-after-the-port", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (isRunLinkedAction(action) && !provenance.runLinked) return { rule: 'RUN_LINK_REQUIRED', reasons: [`'${action}' must be minted by mintCrossing, tied to its run`] };\n  if (actionClass === 'P5' && !granted(grant, envelope, provenance)) return { rule: 'P5_NO_GRANT', reasons: [`'${action}' is P5, and no grant confirms it`] };\n  if (actionClass === 'P3' && !granted(grant, envelope, provenance)) return { rule: 'P3_NO_GRANT', reasons: [`'${action}' is P3, and no grant confirms it`] };\n", to: "  if (actionClass === 'P5' && !granted(grant, envelope, provenance)) return { rule: 'P5_NO_GRANT', reasons: [`'${action}' is P5, and no grant confirms it`] };\n  if (actionClass === 'P3' && !granted(grant, envelope, provenance)) return { rule: 'P3_NO_GRANT', reasons: [`'${action}' is P3, and no grant confirms it`] };\n  if (isRunLinkedAction(action) && !provenance.runLinked) return { rule: 'RUN_LINK_REQUIRED', reasons: [`'${action}' must be minted by mintCrossing, tied to its run`] };\n" },
@@ -1261,6 +1278,8 @@ function check(raw) {
   }
   // TC-34 (one way to be admitted): only the door marks an envelope, and only once its line is written.
   if ((src[ENVELOPE_REL].match(/ADMITTED_ENVELOPES\.add\(/g) || []).length !== 1) E("TC-34", "something other than the door can mark an envelope admitted");
+  // TC-34 (late is not forged): an operation admitted in time must still be able to say how it ended.
+  if (fnSpan(src[ENVELOPE_REL], "recordExecution").includes("envelopeExpired(")) E("TC-34", "an operation admitted in time could not record a late outcome");
   // TC-3 (the code says it too): the budget comment is the reader's only warning at the call site.
   if (!raw[ENVELOPE_REL].includes("not a running total") || !raw[ENVELOPE_REL].includes("THE BUDGET CHECK IS PER CALL.")) E("TC-3", "the code no longer says an envelope budget is a per-call ceiling");
   // TC-36 (no weaker path): the after-the-fact check is gone, so the door's route is the only one.

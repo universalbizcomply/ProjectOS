@@ -75,6 +75,13 @@ const CHILD_ID = `ENV-${'2'.repeat(24)}`;
 const child = (): TaskEnvelope => ({ ...root(), envelopeId: CHILD_ID, parentEnvelopeId: root().envelopeId, action: 'implement' });
 const NO_GRANT = (): boolean => false;
 
+/** Through the door: only an admitted envelope can be a parent. */
+function opened(result: EnvelopeResult): TaskEnvelope {
+  const admission = admitEnvelope(result, NOW, () => true, () => true);
+  if (!admission.admitted) throw new Error('the parent was not admitted');
+  return admission.envelope;
+}
+
 /** The literal field list, so that dropping a field from the code cannot drop it from this proof. */
 const ALL_FIELDS = [
   'envelopeVersion',
@@ -319,31 +326,31 @@ describe('R3: no widening downstream', () => {
   });
 
   it('a minted child inherits the lineage when it has the same tenant', () => {
-    const parent = root();
+    const parent = opened(mintEnvelope(context(), REQUEST));
     const result = mintEnvelope(context({ envelopeId: CHILD_ID }), { ...REQUEST, action: 'implement', budget: 100, expiry: SOONER }, parent);
     expect(result.ok && result.envelope.parentEnvelopeId).toBe(parent.envelopeId);
   });
 
   it('a second project in the SAME tenant is a different project: refused for project alone', () => {
-    const result = mintEnvelope(context({ binding: projectos(), envelopeId: CHILD_ID }), { ...REQUEST, action: 'implement' }, root());
+    const result = mintEnvelope(context({ binding: projectos(), envelopeId: CHILD_ID }), { ...REQUEST, action: 'implement' }, opened(mintEnvelope(context(), REQUEST)));
     expect(result).toMatchObject({ ok: false, rule: 'R3' });
     expect(result.ok ? [] : result.reasons).toEqual(["the child's project 'projectos' is not its parent's 'polygo'"]);
   });
 
   it('a child minted under another tenant binding is refused: cross-tenant work is a new root', () => {
-    const result = mintEnvelope(context({ binding: agency(), envelopeId: CHILD_ID }), { ...REQUEST, action: 'implement' }, root());
+    const result = mintEnvelope(context({ binding: agency(), envelopeId: CHILD_ID }), { ...REQUEST, action: 'implement' }, opened(mintEnvelope(context(), REQUEST)));
     expect(result).toMatchObject({ ok: false, rule: 'R3' });
   });
 
   it('a child action in another environment is refused: a live charge is not a step of a local run', () => {
-    const parent = minted(mintEnvelope(context(), { ...REQUEST, action: 'secrets-handling' }));
+    const parent = opened(mintEnvelope(context(), { ...REQUEST, action: 'secrets-handling' }));
     const result = mintEnvelope(context({ envelopeId: CHILD_ID }), { ...REQUEST, action: 'payment-or-live-charge' }, parent);
     expect(result).toMatchObject({ ok: false, rule: 'R3' });
     expect((result.ok ? [] : result.reasons).join(' ')).toContain("child's environment");
   });
 
   it('a child action of a higher class is refused', () => {
-    const parent = minted(mintEnvelope(context(), { ...REQUEST, action: 'implement' }));
+    const parent = opened(mintEnvelope(context(), { ...REQUEST, action: 'implement' }));
     expect(mintEnvelope(context({ envelopeId: CHILD_ID }), { ...REQUEST, action: 'commit' }, parent)).toMatchObject({ ok: false, rule: 'R3' });
   });
 });

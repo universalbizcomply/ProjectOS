@@ -83,7 +83,8 @@ export interface TaskEnvelope {
   readonly scope: readonly string[];
   /**
    * The most this one envelope may spend, in micro-USD. Zero for an unpaid action. A per-call ceiling,
-   * not a running total: nothing here draws it down. `gatekeeperCostLedger` is the cumulative cap.
+   * not a running total: nothing here draws it down. `gatekeeperCostLedger` is the cumulative cap, per
+   * project root and for paid calls through the broker only (ADR-T1 §8).
    */
   readonly budget: number;
   /** When authority lapses, as `Date.prototype.toISOString` writes it. */
@@ -286,16 +287,17 @@ export function checkChildEnvelope(parent: unknown, child: unknown, registry: Ac
  * R2: the request is read field by field, never spread, and `tenant`, `domain`, `project`,
  * `environment` and `actionClass` have no other source than the binding and the registry. R5 is
  * `resolveAction`'s: an unregistered action mints as P5 rather than refusing, so the attempt is
- * recorded at the class it deserves, and the door then refuses it by name. A parent must itself be
- * branded, because its budget, scope and expiry are the limits the child is held to.
+ * recorded at the class it deserves, and the door then refuses it by name. A parent must have been
+ * admitted, not merely minted: its budget, scope and expiry are the limits the child is held to, and a
+ * run the door refused has no standing to pass them on.
  */
 export function mintEnvelope(context: KernelEnvelopeContext, request: EnvelopeRequest, parent: TaskEnvelope | null = null): EnvelopeResult {
   const { binding, registry, principal, actor, envelopeId } = context;
   if (!isDerivedBinding(binding)) {
     return refused('R2', ['the tenant binding was not produced by resolveTenant, so the tenant is a claim']);
   }
-  if (parent !== null && !LIVE_ENVELOPES.has(parent)) {
-    return refused('R2', ['the parent envelope was not minted or re-admitted here, so its limits are claims']);
+  if (parent !== null && !ADMITTED_ENVELOPES.has(parent)) {
+    return refused('R2', ['the parent envelope was not admitted at the door, so its limits are claims']);
   }
   const { action, subjectHash, scope, budget, expiry, intentScope } = request;
   if (!nonBlank(intentScope)) return refused('R1', ['the request has no intentScope, so no idempotency key can be derived']);
@@ -410,7 +412,8 @@ export type CrossingRequest = Omit<EnvelopeRequest, 'scope'>;
  * THE BUDGET CHECK IS PER CALL. Each crossing is held to the run's ceiling and nothing draws the run
  * down, so several crossings may together pass it. That is deliberate: `gatekeeperCostLedger` already
  * refuses a paid call before dispatch, against committed caps, and a second running total here would be
- * a second answer to what was spent.
+ * a second answer to what was spent. That cap is per project root and does not cover workers or
+ * `codex exec`; an account-wide cap is carried to Stage 4.
  */
 export function mintCrossing(context: KernelEnvelopeContext, request: CrossingRequest, run: TaskEnvelope, now: string): EnvelopeResult {
   if (!ADMITTED_ENVELOPES.has(run)) return refused('RUN_LINK', ['the run was not admitted at the door, so it links nothing']);
@@ -539,6 +542,8 @@ export function admitEnvelope(minted: EnvelopeResult, now: string, recorder: Env
 /**
  * R4, second half: the outcome at execution, naming the rule. `false` means the caller must stop, and
  * that includes an envelope the door never admitted: nothing executed under it, so no line says so.
+ * Expiry is deliberately not asked: an operation admitted in time that finishes late must still say how
+ * it ended.
  */
 export function recordExecution(
   envelope: TaskEnvelope,

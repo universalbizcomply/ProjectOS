@@ -156,12 +156,17 @@ for it must be decided there. This ADR does not invent one.
   `expiry` to limits the caller must supply, holds `scope` inside the allowed scope, and refuses a record
   already expired.
 - **Minted is not admitted.** The brand says the kernel built an envelope; a separate mark, set only after
-  the door has written its line, says it was admitted. `mintCrossing` and `recordExecution` require the mark,
-  so a run refused under R4 links nothing, and a forged or expired envelope gets no execution line.
+  the door has written its line, says it was admitted. `mintCrossing`, `mintEnvelope` for a parent, and
+  `recordExecution` require the mark, so a run refused under R4 links nothing and parents nothing, and a
+  forged envelope gets no execution line. An expired one still can, if it was admitted before expiry: an
+  operation admitted in time that finishes late must record its outcome.
 - **An envelope budget is a per-call ceiling, and the ledger is the cumulative cap.** A crossing is held to
   its run's budget, and nothing draws the run down, so several crossings may together pass it. There is
   deliberately no second ledger: `gatekeeperCostLedger` already refuses a paid call before dispatch, against
-  committed caps.
+  committed caps. **That cap is narrower than its name.**
+  The ledger is per project root, so it is not an account-wide cap. The installation record counts calls,
+  not money. Workers and `codex exec` do not pass through it. An account-wide cap is carried to Stage 4,
+  where per-tenant spend limits already sit.
 - **The door gates the class.** P6 is refused always. An unregistered action mints at P5 (R5) and is
   refused by name, and the attempt is recorded. P4 has no grant to give (ADR-K1 §4). P3 and P5 are refused
   unless the grant port confirms a grant, each by its own named rule, so nothing is admitted silently.
