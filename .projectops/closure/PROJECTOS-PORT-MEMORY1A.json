@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-PORT-MEMORY1A",
+  "evidenceSubjectHead": "cf5a316d7788fb0144282a63d1694f6f9a502c9c",
+  "baselineCommit": "14fa45b844d2ff38b4e7816a6ab776423557cb3a",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-01T23:38:19.160Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-PORT-MEMORY1A, phase 27 of 35 of plan v1.32, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. cf5a316d on 14fa45b8 (plan v1.32 activation): the four port phases stacked with their reviews and fixes.",
+    "validatorsPass: val-projectos-port-memory1a (197 mutations), val-projectos-port-credit1a and validate-no-secrets PASS. validate-all 159/161 at cf5a316d, the 2 failures being validate-desktop-e2e (needs a built bundle; the build itself was broken since 2026-09-25 and is repaired in TENANT-CSP1A) and val-cd-b4-sealed-expected-window-facts1a.",
+    "checksPass: core 1856/1856, agent 3056/3056, control-center 890/890 at cf5a316d with normal package resolution.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review (one HIGH fixed; recheck: all closed, no blocker unwired); ECC CODE review (APPROVE, MEDIUMs fixed).",
+    "unresolved: zero CRITICAL/HIGH. Binding on the phase that wires it: add containsSecret in loadMemoryBlock; ignore or sign .projectops/memory/; check the rendered body against the cap; other hidden-text forms; the owner role stays caller-asserted until an owner proof exists.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
