@@ -37,8 +37,8 @@ The registry lists only the three projects the Stage 2 exit proof needs. An unli
 refused by name (`TENANT_UNKNOWN`) and never defaults to the owner, so a new project needs a
 `tenant-registry-change`. The Add Project wizard is not changed until Stage 6.
 
-**D2 names tenants only.** The domain on each registry line is the lead's reading of what the project is,
-not an owner decision.
+**D2 names tenants only.** The domain on each registry line was the lead's reading of what the project is,
+until the owner confirmed it in D10.
 
 ## 3. The registry and its trust basis
 

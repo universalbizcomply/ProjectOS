@@ -161,11 +161,14 @@ Every mutation below was killed by the rule it names.
 
 - **ECC SECURITY:** two rounds, verdict **APPROVE WITH CHANGES**, no HIGH open. This final round was read by
   the lead and not re-reviewed, because the one-recheck limit was used.
-- **Agency `software-architect`:** the persona read succeeded. The wrapper's handback was blocked by the
-  Agency guard, and the lead took the report text from the wrapper's task output. The guard later refused a
-  direct read of a wrapper transcript as governed. The findings were verified against the code, and ECC
-  independently found F2 and F3 (as H1 and M3). **The owner decides whether this satisfies the plan's
-  required Agency review.**
+- **Agency `software-architect`:** APPROVE WITH CHANGES. The persona read succeeded. On first delivery the
+  wrapper's handback was blocked by the Agency guard, and the lead took the report text from the wrapper's task
+  output; the guard later refused a direct read of a wrapper transcript as governed. After the owner changed the
+  guard, the same reviewer was resumed and delivered the report itself, unchanged, so the review stands on that
+  delivery. Its recheck at `282769a1`: F1-F3 and F5-F11 closed; F4 open, because the grant source for
+  `credential-release` is the owner's decision at CREDENTIALS1A, and until then it fails closed. New: N1, a stale
+  domain line in ADR-T1, fixed. N2, `principal` in R3 goes beyond accepted ADR-K1 by tightening it, shown to the owner.
+  ECC independently found F2 and F3 (as H1 and M3).
 - **gstack review:** an additional review, not a replacement for a plan-required one. Its record says
   `completed: false`, because its Review Army and QA steps were not run. This fix round was read by the
   lead and not re-reviewed.
