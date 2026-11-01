@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-TENANT-RLS1A",
+  "project": "ProjectOS",
+  "objective": "Replace the using(true) policies with tenant-bound access, as forward-only transactional migrations, and prove them on a throwaway local cluster shaped like Supabase. Live facts on 2026-11-01: sign-up was open, and any signed-in account could rewrite every row, so existing rows may be stranger-written. Nothing in the product reads these tables. This phase touches no production system; the live apply is a separate owner act using the exact bytes proved here, after a passed read-only preflight (owner: \"Connect the plugin (Recommended)\").",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-01T20:17:59.350Z",
+      "note": "Owner-approved plan v1.28 and v1.29 (PLANDEC-25f09a6edce2d4833b602095, PLANDEC-f39515528b11588f3afdd66d, activation 89b5f0f4). Implemented by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-01T20:17:59.885Z",
+      "note": "tenant boundary migrations 0001 to 0003 with a harness on real Postgres 17; live applied on the owner's word"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-01T20:18:00.426Z",
+      "note": "core 1186/1186, agent 2921/2921, control-center 890/890 at 7f52f838. validate-all 155/157 at 7f52f838, the 2 known baseline failures: validate-desktop-e2e needs a Control Centre bundle, val-cd-b4-sealed-expected-window-facts1a."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-01T20:18:01.019Z",
+      "note": "Evidence: docs/finish/PROJECTOS-TENANT-RLS1A.md (7f52f838)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-01T20:18:01.617Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC DATABASE review (APPROVE after recheck; APPROVE on 0003); ECC SECURITY review (APPROVE WITH CHANGES, no HIGH); Agency ai-generated-code-security-auditor review (APPROVE WITH CHANGES, no exploitable hole, test gaps closed, delivered after the owner changed the guard); additional gstack-review pass."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-01T20:18:02.159Z",
+      "note": "closure tail only - owner-direct route on the owner's word; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
