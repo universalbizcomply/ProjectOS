@@ -400,6 +400,8 @@ SOFTWARE.
 
 PORTED FILES
 
+Each port phase adds its entries here, in the form above.
+
 ENTRY: projectos/agent/src/memory/memoryFiles.ts
 Source: hermes-agent
 Upstream: https://github.com/NousResearch/hermes-agent
@@ -661,5 +663,3 @@ Licence: MIT
 Copyright: Copyright (c) 2026 OpenClaw Foundation
 Licence-Text: SOURCE openclaw, in this file
 Also-Credits: pi-mono
-Each port phase adds its entries here, in the form above.
-Each port phase adds its entries here, in the form above.
