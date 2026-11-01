@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveBoundGit, type System } from '../../src/system.js';
-import { writeTenantReceipt } from '../../src/installation/tenantRegistry.js';
+import { appendDurableLine, TENANT_CHANGE_RECORDS_FILENAME, writeTenantReceipt } from '../../src/installation/tenantRegistry.js';
 
 const GIT = resolveBoundGit(process.env) as string;
 const REAL_SECURITY = new URL('../../../security/', import.meta.url);
@@ -141,7 +141,7 @@ export interface Installation {
   /** Write the raw bytes and commit them. */
   readonly commitRegistryText: (text: string) => void;
   /** Write the receipt a person would have made for the blob at HEAD. A fixture, for the tests that need one. */
-  readonly confirm: (sys: System) => void;
+  readonly confirm: (sys: System, dir?: string) => void;
 }
 
 export function makeInstallation(made: string[], lines: readonly RegistryLine[]): Installation {
@@ -166,8 +166,11 @@ export function makeInstallation(made: string[], lines: readonly RegistryLine[])
     blob,
     commitLines,
     commitRegistryText,
-    confirm: (sys) => {
-      if (!writeTenantReceipt(sys, stateDir, blob(), FIXTURE_NOW)) throw new Error('the fixture receipt was not written');
+    confirm: (sys, dir = stateDir) => {
+      const envelopeId = `ENV-${blob().slice(0, 24)}`;
+      const envelope = { envelopeId, action: 'tenant-registry-change', subjectHash: blob() };
+      appendDurableLine(sys, join(dir, TENANT_CHANGE_RECORDS_FILENAME), { stage: 'admission', outcome: 'allowed', envelope });
+      if (!writeTenantReceipt(sys, dir, blob(), FIXTURE_NOW, envelopeId)) throw new Error('the fixture receipt was not written');
     },
   };
 }

@@ -37,6 +37,7 @@ import {
   crossTenantRefusal,
   ENVELOPE_RECORDS_FILENAME,
   envelopeRecorder,
+  TENANT_CHANGE_RECORDS_FILENAME,
   NO_GRANT,
   readTenantReceipt,
   readWorktreeListing,
@@ -205,7 +206,7 @@ describe('the owner receipt', () => {
     const w = world(false);
     expect(git(w.installation.root, 'log', '-1', '--format=%an').trim()).toBe('Murad');
     const refused = derive(w, w.alpha.root);
-    expect(refusedCode(refused)).toBe('TENANT_REGISTRY_NO_OWNER_RECEIPT');
+    expect(refusedCode(refused)).toBe('TENANT_REGISTRY_NO_RECEIPT');
     expect(refused.ok ? '' : refused.reasons.join('\n')).toContain(tenantReceiptCommand(w.installation.root, w.installation.blob()));
     // The positive control: the same world, with the receipt.
     w.installation.confirm(sys);
@@ -216,7 +217,7 @@ describe('the owner receipt', () => {
     const w = world();
     expect(derive(w, w.alpha.root).ok).toBe(true);
     w.installation.commitLines([{ projectId: 'alpha', repository: w.alpha.repository, governedRoot: w.alpha.root, tenant: AGENCY_TENANT, domain: 'business' }]);
-    expect(refusedCode(derive(w, w.alpha.root))).toBe('TENANT_REGISTRY_NO_OWNER_RECEIPT');
+    expect(refusedCode(derive(w, w.alpha.root))).toBe('TENANT_REGISTRY_NO_RECEIPT');
     w.installation.confirm(sys);
     expect(bound(derive(w, w.alpha.root)).binding.tenant).toBe(AGENCY_TENANT);
   });
@@ -227,7 +228,7 @@ describe('the owner receipt', () => {
     w.installation.commitLines([]);
     w.installation.confirm(sys);
     w.installation.commitRegistryText(original);
-    expect(refusedCode(derive(w, w.alpha.root))).toBe('TENANT_REGISTRY_NO_OWNER_RECEIPT');
+    expect(refusedCode(derive(w, w.alpha.root))).toBe('TENANT_REGISTRY_NO_RECEIPT');
   });
 
   it('re-committing the same bytes changes nothing: the receipt names the blob, not the commit', () => {
@@ -243,21 +244,21 @@ describe('the owner receipt', () => {
     expect(derive(w, w.alpha.root).ok).toBe(true);
     for (const bytes of ['{ not json', 'null', '[]', JSON.stringify({ ...good, grantedBy: 'owner' }), JSON.stringify({ ...good, kind: 'stop-lift' }), JSON.stringify({ ...good, schemaVersion: '9' }), JSON.stringify({ ...good, confirmation: 'by-flag' })]) {
       writeFileSync(path, bytes);
-      expect(refusedCode(derive(w, w.alpha.root))).toBe('TENANT_REGISTRY_NO_OWNER_RECEIPT');
+      expect(refusedCode(derive(w, w.alpha.root))).toBe('TENANT_REGISTRY_NO_RECEIPT');
     }
   });
 
   it('an environment variable cannot point the receipt somewhere else', () => {
     const w = world();
     const elsewhere = tempDir(made, 'projectos-tenant-elsewhere-');
-    writeTenantReceipt(sys, elsewhere, w.installation.blob(), FIXTURE_NOW);
+    writeTenantReceipt(sys, elsewhere, w.installation.blob(), FIXTURE_NOW, 'ENV-elsewhere');
     const prior = process.env['LOCALAPPDATA'];
     process.env['LOCALAPPDATA'] = elsewhere;
     try {
       // No state directory on the context, so production's own rule answers: the OS must agree.
       expect(tenantSourceOf({ sys, root: w.alpha.root }).stateDir).toBeNull();
       const source = { installRoot: w.installation.root, stateDir: tenantSourceOf({ sys, root: w.alpha.root }).stateDir };
-      expect(refusedCode(deriveProjectTenant(sys, w.alpha.root, source))).toBe('TENANT_REGISTRY_NO_OWNER_RECEIPT');
+      expect(refusedCode(deriveProjectTenant(sys, w.alpha.root, source))).toBe('TENANT_REGISTRY_NO_RECEIPT');
     } finally {
       process.env['LOCALAPPDATA'] = prior;
     }
@@ -288,7 +289,7 @@ describe('`tenant receipt`', () => {
     expect(textOf(r)).toContain('`--as` was given and was ignored');
     expect(textOf(r)).toContain(TENANT_RECEIPT_STATEMENT);
     expect(readTenantReceipt(sys, w.installation.stateDir).kind).toBe('absent');
-    expect(records(w)).toEqual([]);
+    expect(linesOf(w.installation.stateDir, TENANT_CHANGE_RECORDS_FILENAME)).toEqual([]);
   });
 
   it('refuses a WRONG typed confirmation, near misses included', () => {
@@ -309,10 +310,10 @@ describe('`tenant receipt`', () => {
     expect(textOf(r)).toContain(TENANT_RECEIPT_STATEMENT);
     const read = readTenantReceipt(sys, w.installation.stateDir);
     expect(read.kind === 'ok' ? [read.receipt.kind, read.receipt.registryBlob] : []).toEqual([TENANT_RECEIPT_KIND, w.installation.blob()]);
-    const lines = records(w);
+    const lines = linesOf(w.installation.stateDir, TENANT_CHANGE_RECORDS_FILENAME);
     expect(lines.map((line) => [line['stage'], line['outcome']])).toEqual([['admission', 'allowed'], ['execution', 'allowed']]);
     const envelope = lines[0]?.['envelope'] as Record<string, unknown>;
-    expect([envelope['action'], envelope['actionClass'], envelope['principal'], envelope['subjectHash']]).toEqual(['tenant-registry-change', 'P5', 'owner', w.installation.blob()]);
+    expect([envelope['action'], envelope['actionClass'], envelope['subjectHash']]).toEqual(['tenant-registry-change', 'P5', w.installation.blob()]);
     expect(derive(w, w.alpha.root).ok).toBe(true);
   });
 
@@ -340,7 +341,7 @@ describe('`tenant receipt`', () => {
 
   it('an admission that cannot be recorded makes no receipt', () => {
     const w = world(false);
-    holdRecordLock(w.installation.stateDir, ENVELOPE_RECORDS_FILENAME);
+    holdRecordLock(w.installation.stateDir, TENANT_CHANGE_RECORDS_FILENAME);
     const r = receiptAt(w, {}, typed(w));
     expect(r.code).toBe(2);
     expect(textOf(r)).toContain('REFUSED (ENVELOPE_NOT_RECORDED)');
@@ -352,7 +353,7 @@ describe('`tenant receipt`', () => {
     const derived = bound(derive(w, w.alpha.root));
     const blob = w.installation.blob();
     const grant = tenantReceiptGrant(blob);
-    const request = { action: 'tenant-registry-change', principal: 'owner' as const, scope: ['x'], windowMs: 60_000, intentScope: 'owner-receipt' };
+    const request = { action: 'tenant-registry-change', principal: 'implementer' as const, scope: ['x'], windowMs: 60_000, intentScope: 'tenant-receipt' };
     expect(admitBoundary(sys, w.installation.stateDir, derived, { ...request, subjectHash: 'c'.repeat(40) }, grant)).toMatchObject({ admitted: false, rule: 'P5_NO_GRANT' });
     expect(admitBoundary(sys, w.installation.stateDir, derived, { ...request, subjectHash: blob }, grant).admitted).toBe(true);
     expect(admitBoundary(sys, w.installation.stateDir, derived, { ...request, subjectHash: blob })).toMatchObject({ admitted: false, rule: 'P5_NO_GRANT' });
@@ -366,7 +367,7 @@ describe('`tenant receipt`', () => {
       throw new Error('nothing to confirm');
     });
     expect(r.code).toBe(0);
-    expect(textOf(r)).toContain('already confirmed');
+    expect(textOf(r)).toContain('already has a receipt');
     expect(readFileSync(join(w.installation.stateDir, TENANT_RECEIPT_FILENAME), 'utf8')).toBe(before);
   });
 
@@ -436,7 +437,7 @@ describe('deriving, never being told', () => {
   it('`tenant show` refuses by name, and an unknown subcommand is not a show', () => {
     const w = world(false);
     expect(tenant(w.ctxAt(w.alpha.root), {}, ['show']).code).toBe(2);
-    expect(textOf(tenant(w.ctxAt(w.alpha.root), {}, ['show']))).toContain('TENANT_REGISTRY_NO_OWNER_RECEIPT');
+    expect(textOf(tenant(w.ctxAt(w.alpha.root), {}, ['show']))).toContain('TENANT_REGISTRY_NO_RECEIPT');
     expect(tenant(w.ctxAt(w.alpha.root), {}, ['grant']).code).toBe(1);
   });
 });
@@ -611,7 +612,7 @@ describe('`projectos run`', () => {
     const w = world(false);
     const r = runCommand(w.ctxAt(w.alpha.root), { execute: true });
     expect(r.code).toBe(2);
-    expect(textOf(r)).toContain('REFUSED (TENANT_REGISTRY_NO_OWNER_RECEIPT)');
+    expect(textOf(r)).toContain('REFUSED (TENANT_REGISTRY_NO_RECEIPT)');
     expect(textOf(r)).toContain(tenantReceiptCommand(w.installation.root, w.installation.blob()));
     expect(textOf(r)).toContain('Git Bash gives no terminal');
   });
@@ -623,7 +624,7 @@ describe('`projectos run`', () => {
     const r = runCommand(w.ctxAt(w.alpha.root), { execute: true });
     expect(r.code).toBe(2);
     expect(textOf(r)).toContain('REFUSED (ENVELOPE_NOT_RECORDED)');
-    expect(textOf(r)).toContain(`${ENVELOPE_RECORDS_FILENAME}.lock`);
+    expect(textOf(r)).toContain('.jsonl.lock');
   });
 
   it('a refusal that cannot be recorded stops the operation, and says it was not recorded', () => {

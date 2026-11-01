@@ -141,7 +141,7 @@ describe('a read through the bridge', () => {
     const w = world(false);
     const refused = read(w.deps, 'alpha');
     expect(refused.isError).toBe(true);
-    expect(refused.text).toContain('TENANT_REGISTRY_NO_OWNER_RECEIPT');
+    expect(refused.text).toContain('TENANT_REGISTRY_NO_RECEIPT');
     expect(refused.text).not.toContain(w.installation.root);
     expect(refused.text).not.toMatch(/[A-Za-z]:[\\/]/);
     expect(refused.text).not.toContain('tenant receipt --blob');
@@ -194,7 +194,7 @@ describe('a refusal that cannot be recorded stops the operation', () => {
     expect(read(w.deps, 'alpha').text).not.toContain('REFUSAL_NOT_RECORDED');
     holdRecordLock(w.installation.stateDir, ENVELOPE_RECORDS_FILENAME);
     const refused = read(w.deps, 'alpha');
-    expect(refused.text).toContain('TENANT_REGISTRY_NO_OWNER_RECEIPT');
+    expect(refused.text).toContain('TENANT_REGISTRY_NO_RECEIPT');
     expect(refused.text).toContain('REFUSAL_NOT_RECORDED');
   });
 
