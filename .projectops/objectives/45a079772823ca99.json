@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "45a079772823ca99",
+  "objective": "Plan v1.32: PROJECTOS-TENANT-CSP1A may repair the Control Center production build it depends on, which has failed since 2026-09-25; three write paths and one criterion, no other phase changes.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "553295767623297fbfd7ade597e8828618441c84",
+  "submittedAt": "2026-11-01T22:14:59.576Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
