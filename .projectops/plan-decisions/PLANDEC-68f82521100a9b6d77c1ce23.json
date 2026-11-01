@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-68f82521100a9b6d77c1ce23",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "e0ac09ec2ece61683b01e10077cbaf8c4adfb7d3",
+  "draftId": "c6f5faa4cb6f0a77",
+  "planDigest": "sha256:5b7d0329817e01d27c46bf88a02eb579fd11b50dd4f853fdd794424a24f4167e",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-01T20:33:15.780Z",
+  "note": "Owner, 2026-11-01, answering \"Approve the port plan? Then I will turn it into plan phases and start phases 1-6.\": \"Approved\". This draft leaves the 29 existing phases unchanged and appends the six port phases.",
+  "recordedBy": "projectos plan decide"
+}
