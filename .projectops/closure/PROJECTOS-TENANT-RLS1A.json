@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-TENANT-RLS1A",
+  "evidenceSubjectHead": "7f52f8386dbf3f074be85e7fc4d8b53f1f11bb0a",
+  "baselineCommit": "89b5f0f40ee6acf4b2b9a6e9eededbca1acbfa26",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-01T20:18:02.725Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-TENANT-RLS1A, phase 24 of 29 of plan v1.29, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 7f52f838 on 89b5f0f4 (plan v1.29 activation): the two phases stacked with their reviews and fixes.",
+    "validatorsPass: val-projectos-tenant-rls1a on PostgreSQL 17.10 and 18.4 (205 text and 43 database mutations, 159 assertions, both starts), and validate-no-secrets PASS. validate-all 155/157 at 7f52f838, the 2 known baseline failures: validate-desktop-e2e needs a Control Centre bundle, val-cd-b4-sealed-expected-window-facts1a.",
+    "checksPass: core 1186/1186, agent 2921/2921, control-center 890/890 at 7f52f838.",
+    "reviewsComplete: Claude self-review; ECC DATABASE review (APPROVE after recheck; APPROVE on 0003); ECC SECURITY review (APPROVE WITH CHANGES, no HIGH); Agency ai-generated-code-security-auditor review (APPROVE WITH CHANGES, no exploitable hole, test gaps closed, delivered after the owner changed the guard); additional gstack-review pass.",
+    "unresolved: zero CRITICAL/HIGH. Carried: supabase_admin default privileges stay open for objects it creates; src/data/projects.ts orphaned, needs a writePath; TR-21 is a deny-list tripwire; set_config claims bounded because clients have no SQL route; no real sign-in was tried through the Control Center.",
+    "protectedEffects NONE within this phase. Separately and on the owner's explicit words, as the delta provides: sign-up was closed, and 0001, 0002, the owner's membership and 0003 were applied to the live project, recorded in docs/finish/PROJECTOS-TENANT-RLS1A.md. No provider spend, deployment, message, payment, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
