@@ -34,6 +34,7 @@ export * from './technicalContinuation.js';
 export * from './tenant.js';
 export * from './actionRegistry.js';
 export * from './taskEnvelope.js';
+export * from './approvals/index.js';
 export * from './discovery.js';
 export * from './plugins.js';
 export * from './plugin-catalog.js';

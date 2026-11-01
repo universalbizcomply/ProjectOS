@@ -427,6 +427,69 @@ Licence: MIT
 Copyright: Copyright (c) 2025 Nous Research
 Licence-Text: SOURCE hermes-agent, in this file
 
+ENTRY: projectos/core/src/approvals/effectKey.ts
+Source: rakazo
+Upstream: https://github.com/elie222/rakazo
+Source-Path: packages/core/src/approval-effect-key.ts
+Source-Commit: bf78ebd7961a28a8b437c605319c47b59edadc1c
+Licence: Apache-2.0
+Copyright: Copyright 2026 Rakazo contributors
+Licence-Text: SOURCE rakazo, in this file
+
+ENTRY: projectos/core/src/approvals/evidenceReceipt.ts
+Source: oh-my-hermes
+Upstream: https://github.com/rlaope/oh-my-hermes
+Source-Path: benchmarks/cross-harness/live/lib/receipt.py
+Source-Commit: 612a1cd9c44a19ecddcd263865e40e8c3910a514
+Licence: MIT
+Copyright: Copyright (c) 2026 oh-my-hermes contributors
+Licence-Text: SOURCE oh-my-hermes, in this file
+
+ENTRY: projectos/core/src/approvals/evidenceReceipt.ts
+Source: oh-my-hermes
+Upstream: https://github.com/rlaope/oh-my-hermes
+Source-Path: src/evidence/labels.py
+Source-Commit: 612a1cd9c44a19ecddcd263865e40e8c3910a514
+Licence: MIT
+Copyright: Copyright (c) 2026 oh-my-hermes contributors
+Licence-Text: SOURCE oh-my-hermes, in this file
+
+ENTRY: projectos/core/src/approvals/evidenceReceipt.ts
+Source: oh-my-hermes
+Upstream: https://github.com/rlaope/oh-my-hermes
+Source-Path: src/evidence/observed_check_results.py
+Source-Commit: 612a1cd9c44a19ecddcd263865e40e8c3910a514
+Licence: MIT
+Copyright: Copyright (c) 2026 oh-my-hermes contributors
+Licence-Text: SOURCE oh-my-hermes, in this file
+
+ENTRY: projectos/core/src/approvals/evidenceReceipt.ts
+Source: oh-my-hermes
+Upstream: https://github.com/rlaope/oh-my-hermes
+Source-Path: src/workflows/goal_ledger.py
+Source-Commit: 612a1cd9c44a19ecddcd263865e40e8c3910a514
+Licence: MIT
+Copyright: Copyright (c) 2026 oh-my-hermes contributors
+Licence-Text: SOURCE oh-my-hermes, in this file
+
+ENTRY: projectos/core/src/approvals/taint.ts
+Source: rakazo
+Upstream: https://github.com/elie222/rakazo
+Source-Path: packages/adapters/src/run-context.ts
+Source-Commit: bf78ebd7961a28a8b437c605319c47b59edadc1c
+Licence: Apache-2.0
+Copyright: Copyright 2026 Rakazo contributors
+Licence-Text: SOURCE rakazo, in this file
+
+ENTRY: projectos/core/src/approvals/taint.ts
+Source: rakazo
+Upstream: https://github.com/elie222/rakazo
+Source-Path: packages/core/src/action-approval.ts
+Source-Commit: bf78ebd7961a28a8b437c605319c47b59edadc1c
+Licence: Apache-2.0
+Copyright: Copyright 2026 Rakazo contributors
+Licence-Text: SOURCE rakazo, in this file
+
 ENTRY: projectos/core/src/memory/admission.ts
 Source: oh-my-hermes
 Upstream: https://github.com/rlaope/oh-my-hermes
@@ -598,4 +661,5 @@ Licence: MIT
 Copyright: Copyright (c) 2026 OpenClaw Foundation
 Licence-Text: SOURCE openclaw, in this file
 Also-Credits: pi-mono
+Each port phase adds its entries here, in the form above.
 Each port phase adds its entries here, in the form above.
