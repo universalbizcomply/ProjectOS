@@ -41,6 +41,7 @@ export * from './workflow.js';
 export * from './workers.js';
 export * from './orchestration.js';
 export * from './execution/index.js';
+export * from './search/index.js';
 
 /** Engine version — bump on breaking changes to the public API. */
 export const CORE_VERSION = '0.1.0';
