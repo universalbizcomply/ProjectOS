@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-11-01T16:41:04.828Z",
   "note": "Owner, 2026-11-01, answering \"Should I add a small extra migration so new objects start locked?\": \"Yes, lock by default (Recommended)\". Compared with the active plan, this draft differs only by that migration write path and one acceptance criterion on PROJECTOS-TENANT-RLS1A.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-11-01T16:41:07.696Z"
 }
