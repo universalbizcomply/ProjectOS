@@ -160,6 +160,10 @@ const TESTS = {
     "and its taint is counted on the lineage all the same",
     "after a cleared call, the next check refuses until the result is recorded",
     "does not start clean, with the same lineage token or a new one",
+    "a token that was replaced can never come back: A, B, A refuses",
+    "every replaced token is remembered, not only the last: A, B, C, A refuses",
+    "%s on the own-state list still taints: it can leave the machine",
+    "a string is not a list: the name cannot match by substring",
     "%s is P1 local in the registry and can carry content off the machine, so it needs a fresh approval",
     "a local write on the own-state list still taints",
     "a tool result taints by default, and a new tool taints",
@@ -197,6 +201,13 @@ const FINISH_PINS = {
   "the third binding term": "Unmediated CLI workers start tainted, with taint recorded before the model reads, because taint is sound only under complete mediation",
   "the fourth binding term": "The kernel runs receipt checks itself and pins definition hashes",
   "the fifth binding term": "The owner sees canonical bytes and taint sources, never model summaries",
+  "the sixth binding term": "`attempt` and `ownerStarted` must survive a restart, because a fresh process holds no guards and attempt 1 starts clean",
+  "the seventh binding term": "Tokens are never reused",
+  "the eighth binding term": "`implementer` and `observedBy` come from the loop's invocation record, not a claim",
+  "the ninth binding term": "`now` comes from the Host clock",
+  "the tenth binding term": "No eviction is binding",
+  "the eleventh binding term": "`project-selection` stays free only if it never changes the run's bound project",
+  "the recheck": "ECC recheck at `7fada371`",
   "the first review": "ECC SECURITY: APPROVE WITH CHANGES",
   "the second review": "Agency application-security-engineer: APPROVE WITH CHANGES",
   "what the P1 review found": "`bridge-read` answers a conversation on the far side of the tunnel",
@@ -291,12 +302,15 @@ function registryOf(core, registryJson, actions) {
 /** One compiled core, and the moves every scenario is written in. A run's guard lasts as long as the module, so `next` gives each scenario its own. */
 function worldOf(core, registryJson) {
   const registry = registryOf(core, registryJson, [...registryJson.actions, ...EXTRA_ACTIONS]);
-  const raised = registryOf(core, registryJson, registryJson.actions.map((action) => (action.id === CONFINED ? { ...action, environment: "production" } : action)));
+  const moved = (change) => registryOf(core, registryJson, registryJson.actions.map((action) => (action.id === CONFINED ? { ...action, ...change } : action)));
+  const raised = moved({ environment: "production" });
+  const written = moved({ class: "P2" });
   let serial = 0;
   const world = {
     core,
     registry,
     raised,
+    written,
     run: "",
     next() {
       serial += 1;
@@ -449,6 +463,7 @@ const SCENARIOS = [
   S("AP-17", "running-validators-can-be-steered", FRESH, (w) => w.check(w.tainted(), w.call("run_validators"))),
   S("AP-17", "a-confined-read-cannot", null, (w) => w.check(w.tainted(), w.free())),
   S("AP-17", "a-confined-read-the-registry-moves-off-the-machine-can", FRESH, (w) => w.check(w.tainted(), w.free(), null, NOW, w.raised)),
+  S("AP-17", "a-confined-read-the-registry-raises-can", FRESH, (w) => w.check(w.tainted(), w.free(), null, NOW, w.written)),
   S("AP-18", "a-forged-clean-state-is-refused", DEAD, (w) => w.check({ ...w.guard() }, w.free())),
   S("AP-18", "an-approval-cannot-be-issued-on-a-forged-state", DEAD, (w) => w.issue({}, w.call(), { ...w.guard() })),
   S("AP-19", "another-runs-clean-state-is-refused-at-the-check", "RUN_MISMATCH", (w) => w.check(w.guard(`${w.run}x`), w.call())),
@@ -479,6 +494,17 @@ const SCENARIOS = [
     return w.check(second, w.free(), w.approve(second, w.free()));
   }),
   S("AP-36", "a-second-guard-does-not-start-clean", FRESH, (w) => { w.guard(); return w.check(w.guard(w.run, "lineage-2"), w.call()); }),
+  S("AP-36", "a-replaced-token-cannot-return", "LINEAGE_REUSED", (w) => {
+    w.spentOnTaintedRun();
+    w.guard(w.run, "lineage-2");
+    return w.thrown(() => w.guard(w.run, TOKEN));
+  }),
+  S("AP-36", "an-older-replaced-token-cannot-return", "LINEAGE_REUSED", (w) => {
+    w.guard();
+    w.guard(w.run, "lineage-2");
+    w.guard(w.run, "lineage-3");
+    return w.thrown(() => w.guard(w.run, TOKEN));
+  }),
   S("AP-36", "a-run-needs-a-lineage-token", "BAD_RUN_START", (w) => w.thrown(() => w.guard(w.run, " "))),
   S("AP-37", "a-result-on-a-retired-guard-refuses-loudly", "DEAD_GUARD", (w) => {
     const first = w.guard();
@@ -509,6 +535,8 @@ const SCENARIOS = [
   S("AP-41", "a-decision-from-the-future-is-refused", "DECIDED_IN_FUTURE", (w) => w.issue({ decidedAt: LATER }, w.call(), w.guard())),
   S("AP-41", "a-lifetime-past-the-cap-is-refused", "LIFETIME_TOO_LONG", (w) => w.issue({ expiry: TOO_LONG }, w.call(), w.guard())),
   S("AP-42", "a-write-on-the-own-state-list-still-taints", FRESH, (w) => w.check(w.core.recordToolResult(w.guard(), "commit", w.registry, ["commit"]), w.call())),
+  S("AP-42", "a-bridge-read-on-the-own-state-list-still-taints", FRESH, (w) => w.check(w.core.recordToolResult(w.guard(), "bridge-read", w.registry, ["bridge-read"]), w.call())),
+  S("AP-42", "a-string-cannot-match-the-own-state-list", FRESH, (w) => w.check(w.core.recordToolResult(w.guard(), CONFINED, w.registry, `text with ${CONFINED} in it`), w.call())),
   S("AP-42", "an-outbound-read-on-the-own-state-list-still-taints", FRESH, (w) => w.check(w.core.recordToolResult(w.guard(), "connector-read", w.registry, ["connector-read"]), w.call())),
 ];
 
@@ -525,7 +553,8 @@ const FAILED_LINE = "if (inScope.some((receipt) => receipt.confidence === 'faile
 const KEY_ORDER = "const keys = Reflect.ownKeys(value)\n    .map((key) => plainKey(value, key))\n    .sort();";
 const NEEDED = "return isRunTainted(guard) && actionCouldBeSteered(registry, action);";
 const CONFINED_LINE = "return !(CONFINED_READS.includes(action) && isLocalRead(registry, action));";
-const OWN_STATE_LINE = "return !(ownStateTools.includes(toolName) && isLocalRead(registry, toolName));";
+const OWN_STATE_LINE = "return !(Array.isArray(ownStateTools) && ownStateTools.includes(toolName) && !actionCouldBeSteered(registry, toolName));";
+const OWN_STATE_LIST = ["a-write-on-the-own-state-list-still-taints", "a-bridge-read-on-the-own-state-list-still-taints", "an-outbound-read-on-the-own-state-list-still-taints"];
 const LOCAL_READ_LINE = "return actionClass === 'P1' && environment === 'local';";
 
 /** Every scenario that needs an approval to reach its answer, so 'nobody-can-approve' moves all of them. */
@@ -534,7 +563,7 @@ const APPROVE_DEPENDENTS = [
   "run-and-tool-cannot-trade-characters", "the-same-arguments-in-another-order-clear", "a-copy-of-an-approval-is-refused", "an-expired-approval-is-refused",
   "a-second-use-is-refused", "p6-is-refused-with-the-owners-approval", "a-registered-p5-clears-with-the-owners-approval", "a-fresh-approval-clears-a-tainted-run",
   "an-approval-from-before-the-content-is-refused", "a-new-lineage-cannot-replay-an-approval", "the-same-lineage-cannot-replay-an-approval", "a-reissued-id-stays-spent-on-the-lineage",
-  "a-decision-from-the-future-is-refused", "a-lifetime-past-the-cap-is-refused",
+  "a-decision-from-the-future-is-refused", "a-lifetime-past-the-cap-is-refused", "a-replaced-token-cannot-return",
 ];
 
 const BEHAVIOUR_MUTATIONS = [
@@ -564,7 +593,8 @@ const BEHAVIOUR_MUTATIONS = [
   M("taint-gates-nothing", "a-steerable-action-on-a-tainted-run-is-refused", TAINT_REL, NEEDED, "return false;", [
     "a-new-tools-result-taints", "a-run-the-owner-did-not-start-begins-tainted", "a-later-attempt-begins-tainted", "a-read-that-leaves-the-machine-can-be-steered", "a-local-write-can-be-steered",
     "a-bridge-read-can-be-steered", "running-validators-can-be-steered", "a-confined-read-the-registry-moves-off-the-machine-can", "a-second-guard-does-not-start-clean",
-    "a-write-on-the-own-state-list-still-taints", "an-outbound-read-on-the-own-state-list-still-taints",
+    "a-write-on-the-own-state-list-still-taints", "an-outbound-read-on-the-own-state-list-still-taints", "a-confined-read-the-registry-raises-can",
+    "a-bridge-read-on-the-own-state-list-still-taints", "a-string-cannot-match-the-own-state-list",
   ]),
   M("every-run-needs-an-approval", "the-same-action-untainted-clears", TAINT_REL, NEEDED, "return actionCouldBeSteered(registry, action);", ["a-named-own-state-result-does-not"]),
   M("no-approval-clears-a-tainted-run", "a-fresh-approval-clears-a-tainted-run", APPROVAL_REL, "if (approval === null) {\n    return freshApprovalNeeded(guard, registry, toolName)", "if (approval === null || guard.taintGeneration > 0) {\n    return freshApprovalNeeded(guard, registry, toolName)", [
@@ -576,13 +606,13 @@ const BEHAVIOUR_MUTATIONS = [
     "a-retired-state-reads-as-tainted", "a-forged-clean-state-is-refused", "an-approval-cannot-be-issued-on-a-forged-state", "a-result-on-a-retired-guard-refuses-loudly", "a-late-write-still-counts-on-the-lineage",
   ]),
   M("a-retired-guard-reads-as-clean", "a-retired-state-reads-as-tainted", TAINT_REL, "return !isLiveRunGuard(guard) || guard.taintGeneration > 0;", "return guard.taintGeneration > 0;"),
-  M("no-tool-result-taints", "a-new-tools-result-taints", TAINT_REL, OWN_STATE_LINE, "return false;", ["a-write-on-the-own-state-list-still-taints", "an-outbound-read-on-the-own-state-list-still-taints"]),
+  M("no-tool-result-taints", "a-new-tools-result-taints", TAINT_REL, OWN_STATE_LINE, "return false;", [...OWN_STATE_LIST, "a-string-cannot-match-the-own-state-list"]),
   M("every-tool-result-taints", "a-named-own-state-result-does-not", TAINT_REL, OWN_STATE_LINE, "return true;", ["a-second-use-is-refused"]),
   M("a-run-from-anywhere-starts-clean", "a-run-the-owner-did-not-start-begins-tainted", TAINT_REL, "...(ownerStarted === true ? [] : ['a run the owner did not start']),", ""),
   M("a-later-attempt-starts-clean", "a-later-attempt-begins-tainted", TAINT_REL, "...(attempt === 1 ? [] : ['a later attempt, which can restore outside content']),", ""),
-  M("every-local-read-is-free", "a-bridge-read-can-be-steered", TAINT_REL, CONFINED_LINE, "return !isLocalRead(registry, action);", ["running-validators-can-be-steered"]),
-  M("a-confined-name-is-enough", "a-confined-read-the-registry-moves-off-the-machine-can", TAINT_REL, CONFINED_LINE, "return !CONFINED_READS.includes(action);"),
-  M("nothing-is-out-of-reach", "a-confined-read-cannot", TAINT_REL, CONFINED_LINE, "return true;"),
+  M("every-local-read-is-free", "a-bridge-read-can-be-steered", TAINT_REL, CONFINED_LINE, "return !isLocalRead(registry, action);", ["running-validators-can-be-steered", "a-bridge-read-on-the-own-state-list-still-taints"]),
+  M("a-confined-name-is-enough", "a-confined-read-the-registry-moves-off-the-machine-can", TAINT_REL, CONFINED_LINE, "return !CONFINED_READS.includes(action);", ["a-confined-read-the-registry-raises-can"]),
+  M("nothing-is-out-of-reach", "a-confined-read-cannot", TAINT_REL, CONFINED_LINE, "return true;", ["a-second-use-is-refused", "a-named-own-state-result-does-not", "a-recorded-result-lets-the-run-go-on"]),
   M("the-check-reads-a-forged-guard", "a-forged-clean-state-is-refused", APPROVAL_REL, LIVE_LINE, "", ["a-clean-state-kept-from-before-the-content-is-refused"]),
   M("an-approval-reads-a-forged-guard", "an-approval-cannot-be-issued-on-a-forged-state", APPROVAL_REL, ISSUE_LIVE_LINE, ""),
   M("the-check-reads-another-runs-guard", "another-runs-clean-state-is-refused-at-the-check", APPROVAL_REL, "if (guard.runId !== call.runId) return refuse('RUN_MISMATCH', [`this guard is for ${guard.runId}, not ${call.runId}`]);", ""),
@@ -621,9 +651,13 @@ const BEHAVIOUR_MUTATIONS = [
   M("no-byte-budget", "the-byte-budget-refuses-a-huge-string", EFFECT_REL, "if (budget.bytes > MAX_ARGUMENT_BYTES) refuse(`the arguments are over the budget of ${MAX_ARGUMENT_BYTES} bytes`);", ""),
   M("a-decision-can-date-itself-ahead", "a-decision-from-the-future-is-refused", APPROVAL_REL, "if (from > at) return { rule: 'DECIDED_IN_FUTURE', reason: `this decision is dated ${decision.decidedAt}, after ${now}` };", ""),
   M("an-approval-can-last-forever", "a-lifetime-past-the-cap-is-refused", APPROVAL_REL, "if (until - from > MAX_APPROVAL_LIFETIME_MS) return { rule: 'LIFETIME_TOO_LONG', reason: `an approval lasts at most ${MAX_APPROVAL_LIFETIME_MS} ms` };", ""),
-  M("the-own-state-list-is-believed", "a-write-on-the-own-state-list-still-taints", TAINT_REL, OWN_STATE_LINE, "return !ownStateTools.includes(toolName);", ["an-outbound-read-on-the-own-state-list-still-taints"]),
-  M("a-write-counts-as-a-local-read", "a-write-on-the-own-state-list-still-taints", TAINT_REL, LOCAL_READ_LINE, "return environment === 'local';"),
-  M("an-outbound-read-counts-as-local", "an-outbound-read-on-the-own-state-list-still-taints", TAINT_REL, LOCAL_READ_LINE, "return actionClass === 'P1';", ["a-confined-read-the-registry-moves-off-the-machine-can"]),
+  M("the-own-state-list-is-believed", "a-write-on-the-own-state-list-still-taints", TAINT_REL, OWN_STATE_LINE, "return !(Array.isArray(ownStateTools) && ownStateTools.includes(toolName));", ["a-bridge-read-on-the-own-state-list-still-taints", "an-outbound-read-on-the-own-state-list-still-taints"]),
+  M("a-string-can-be-the-list", "a-string-cannot-match-the-own-state-list", TAINT_REL, OWN_STATE_LINE, "return !(ownStateTools.includes(toolName) && !actionCouldBeSteered(registry, toolName));"),
+  M("a-raised-read-still-counts-as-local", "a-confined-read-the-registry-raises-can", TAINT_REL, LOCAL_READ_LINE, "return environment === 'local';"),
+  M("an-outbound-read-counts-as-local", "a-confined-read-the-registry-moves-off-the-machine-can", TAINT_REL, LOCAL_READ_LINE, "return actionClass === 'P1';"),
+  M("a-replaced-token-is-accepted", "a-replaced-token-cannot-return", TAINT_REL, "if (earlier?.retiredLineages.includes(lineageToken) === true) throw new RunGuardRefused('LINEAGE_REUSED', `this run has already replaced the lineage '${lineageToken}'`);", "", ["an-older-replaced-token-cannot-return"]),
+  M("a-replaced-token-is-not-remembered", "a-replaced-token-cannot-return", TAINT_REL, "...(earlier !== undefined && continued === undefined ? [earlier.lineageToken] : [])", "", ["an-older-replaced-token-cannot-return"]),
+  M("only-the-last-token-is-remembered", "an-older-replaced-token-cannot-return", TAINT_REL, "...(earlier?.retiredLineages ?? []), ", ""),
 ];
 
 /** Run every scenario against one compiled core. A scenario that throws has an outcome too: it threw. */
@@ -866,6 +900,13 @@ const TEXT_MUTATIONS = [
   R("the-finish-record-loses-the-mediation-term", "AP-35", FINISH_REL, "Unmediated CLI workers start tainted", "Workers start clean"),
   R("the-finish-record-loses-the-receipt-term", "AP-35", FINISH_REL, "The kernel runs receipt checks itself and pins definition hashes", "Receipts are trusted"),
   R("the-finish-record-loses-the-owner-view-term", "AP-35", FINISH_REL, "The owner sees canonical bytes and taint sources, never model summaries", "The owner sees a summary"),
+  R("the-finish-record-loses-the-restart-term", "AP-35", FINISH_REL, "`attempt` and `ownerStarted` must survive a restart", "`attempt` is reset by a restart"),
+  R("the-finish-record-loses-the-token-term", "AP-35", FINISH_REL, "Tokens are never reused", "Tokens can be reused"),
+  R("the-finish-record-loses-the-actor-term", "AP-35", FINISH_REL, "`implementer` and `observedBy` come from the loop's invocation record, not a claim", "`implementer` comes from the claim"),
+  R("the-finish-record-loses-the-clock-term", "AP-35", FINISH_REL, "`now` comes from the Host clock", "`now` comes from the caller"),
+  R("the-finish-record-loses-the-eviction-term", "AP-35", FINISH_REL, "No eviction is binding", "Eviction is fine"),
+  R("the-finish-record-loses-the-selection-term", "AP-35", FINISH_REL, "`project-selection` stays free only if it never changes the run's bound project", "`project-selection` stays free"),
+  R("the-finish-record-loses-the-recheck", "AP-35", FINISH_REL, "ECC recheck at `7fada371`", "A recheck"),
   R("the-finish-record-loses-the-first-review", "AP-35", FINISH_REL, "ECC SECURITY: APPROVE WITH CHANGES", "ECC: fine"),
   R("the-finish-record-loses-the-second-review", "AP-35", FINISH_REL, "Agency application-security-engineer: APPROVE WITH CHANGES", "Agency: fine"),
   R("the-finish-record-loses-the-p1-finding", "AP-35", FINISH_REL, "`bridge-read` answers a conversation on the far side of the tunnel", "`bridge-read` is local"),

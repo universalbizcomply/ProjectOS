@@ -108,6 +108,16 @@ describe('what taints a run', () => {
     expect(toolResultTaintsRun(OUTBOUND_READ, 'connector-read', ['connector-read'])).toBe(true);
   });
 
+  it.each(['bridge-read', 'run_validators'])('%s on the own-state list still taints: it can leave the machine', (toolName) => {
+    expect(toolResultTaintsRun(REGISTRY, toolName, [toolName])).toBe(true);
+  });
+
+  it('a string is not a list: the name cannot match by substring', () => {
+    const notAList = `some text with ${CONFINED} in it` as unknown as readonly string[];
+    expect(toolResultTaintsRun(REGISTRY, CONFINED, notAList)).toBe(true);
+    expect(toolResultTaintsRun(REGISTRY, CONFINED, [CONFINED])).toBe(false);
+  });
+
   it('a near miss of an own-state tool taints: the match is exact', () => {
     expect(toolResultTaintsRun(REGISTRY, 'Project-Selection', ['project-selection'])).toBe(true);
     expect(toolResultTaintsRun(REGISTRY, 'project-selection ', ['project-selection'])).toBe(true);
@@ -202,6 +212,39 @@ describe('a second guard for one run', () => {
   it('another run is untouched: the control', () => {
     again(clean());
     expect(isRunTainted(clean())).toBe(false);
+  });
+
+  it('a token that was replaced can never come back: A, B, A refuses', () => {
+    const first = clean();
+    again(first, 'lineage-2');
+    expect(ruleOf(() => again(first, TOKEN))).toBe('LINEAGE_REUSED');
+  });
+
+  it('every replaced token is remembered, not only the last: A, B, C, A refuses', () => {
+    const first = clean();
+    again(first, 'lineage-2');
+    again(first, 'lineage-3');
+    expect(ruleOf(() => again(first, TOKEN))).toBe('LINEAGE_REUSED');
+  });
+
+  it('the current token still continues its lineage, and a new one still starts: the controls', () => {
+    const first = clean();
+    again(first, 'lineage-2');
+    expect(ruleOf(() => again(first, 'lineage-2'))).toBe(null);
+    expect(ruleOf(() => again(first, 'lineage-3'))).toBe(null);
+  });
+
+  it('the same token on another run is not a reuse', () => {
+    const first = clean();
+    again(first, 'lineage-2');
+    expect(ruleOf(() => clean())).toBe(null);
+  });
+
+  it('a refused return changes nothing: the current lineage stays live', () => {
+    const first = clean();
+    const current = again(first, 'lineage-2');
+    expect(ruleOf(() => again(first, TOKEN))).toBe('LINEAGE_REUSED');
+    expect(refusedBy(checkToolCall(current, call(current, CONFINED), REGISTRY, null, NOW))).toBe(null);
   });
 });
 

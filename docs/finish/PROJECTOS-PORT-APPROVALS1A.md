@@ -19,6 +19,13 @@ These are conditions of wiring, decided in the review round. Owner proof was del
    complete mediation.
 4. The kernel runs receipt checks itself and pins definition hashes.
 5. The owner sees canonical bytes and taint sources, never model summaries.
+6. `attempt` and `ownerStarted` must survive a restart, because a fresh process holds no guards and attempt 1 starts
+   clean.
+7. Tokens are never reused. The rule in `taint.ts` remembers them only for the life of the process.
+8. `implementer` and `observedBy` come from the loop's invocation record, not a claim.
+9. `now` comes from the Host clock.
+10. No eviction is binding. Dropping a run's entry would let a second guard start clean and a replaced token return.
+11. `project-selection` stays free only if it never changes the run's bound project.
 
 Two more follow from the code. An approval can never answer the envelope grant port: the door decides P3 and P5 on its
 own grants, and `ToolApproval` says so on the type. And the tool must run the `canonicalArguments` a clear result
@@ -28,6 +35,7 @@ returns, not the object it was handed, or the binding says nothing about what ra
 
 - ECC SECURITY: APPROVE WITH CHANGES. It reproduced items 1 to 4 below by probe.
 - Agency application-security-engineer: APPROVE WITH CHANGES.
+- ECC recheck at `7fada371`: two findings and six binding terms, items 7 and 8 below and terms 6 to 11 above.
 
 | # | Finding | Disposition |
 |---|---|---|
@@ -36,8 +44,10 @@ returns, not the object it was handed, or the binding says nothing about what ra
 | 3 | Receipts: the required list came from the claim, and command and scope were not compared | **Fixed.** `declarePlanChecks` issues the requirements, and a claim has no field for them. Command and scope compare exactly. A receipt records `observedBy`, and an observer equal to the implementer is refused. AP-38, AP-39 |
 | 4 | Shared-reference expansion took 18 s at depth 22 | **Fixed.** Node and byte budgets, counted as the walk goes. AP-40. The finish note on blank ids is corrected below |
 | 5 | `passed` read as permission | **Fixed.** Renamed `taintClear`. A test shows a clean P5 cleared here with an approval in hand, and refused by the door. The type comment states the grant-port rule |
-| 6 | Tighten | **Fixed.** A future `decidedAt` is refused, the lifetime is capped at one hour (AP-41), own-state entries must be registered P1 local actions with an exact match (AP-42), and mint functions are off the public barrel (AP-32) |
+| 6 | Tighten | **Fixed.** A future `decidedAt` is refused, the lifetime is capped at one hour (AP-41), own-state entries must be exempt by rule with an exact match (AP-42, narrowed by item 8), and mint functions are off the public barrel (AP-32) |
 | 6 | Review `bridge-read` and `run_validators` | **Found they can carry content off the machine, and they no longer skip approval.** See below |
+| 7 | MEDIUM: tokens A, B, A gave a clean-listed guard, and a spent approval cleared | **Fixed.** Every token a run replaces is remembered, and one that returns throws `LINEAGE_REUSED`, with nothing changed. AP-36 |
+| 8 | LOW: the own-state exemption accepted `bridge-read` and `run_validators` | **Fixed.** An exempt tool must also be a confined read, by the steering rule's own test, and the list must be an array, so a string cannot match by substring. AP-42 |
 
 **What the P1 review found.** `bridge-read` answers a conversation on the far side of the tunnel: `mcp/bridge.ts` says
 its far end is a ChatGPT conversation, so every answer leaves the machine although the registry says `local`.
@@ -74,7 +84,7 @@ table, so its `ACTION_TABLE` moves with it. The taint rule does not depend on it
 | After untrusted content enters a run, an action it could steer is refused without a fresh approval, with an untainted control | `approvals-taint.test.ts`: every action refused once tainted clears on an untainted run. AP-12 and AP-13 |
 | A phase claiming done without its evidence receipt is refused | `approvals-evidence.test.ts`, beside a control that is ready. AP-20 |
 | Every ported file carries its credit header and a `THIRD_PARTY_NOTICES` entry; the credit validator passes | Every header and entry is written. The rules pass on the real tree, and the validator's own self-test fails: see below |
-| Validator pin and named mutations, each killed by its own rule | 134 named mutations: 77 behaviour over 78 scenarios, and 57 text |
+| Validator pin and named mutations, each killed by its own rule | 145 named mutations: 81 behaviour over 83 scenarios, and 64 text |
 
 ## How the proofs work
 
@@ -104,7 +114,7 @@ a kill, AP-1 and AP-2.
 | The upstream key was `run:tool:digest` | A hash over a JSON array | The run `a:b` with the tool `c` shared a key with the run `a` with the tool `b:c` |
 | `JSON.stringify` of `-0`, large integers, `Object.keys` | Each refused | Each collapses two values into one hash, or drops what the hash should cover |
 | Taint is a sticky boolean in mutable run state | A count on a lineage, with one live guard per run | An approval can name the generation it was given at, a kept clean value is dead, and a late write still counts |
-| Memory, history and skill reads never taint | A list passed in by kernel code, of registered local reads only, and empty today | A tainted run could write a note that a later run reads clean |
+| Memory, history and skill reads never taint | A list passed in by kernel code, of confined reads only, and empty today | A tainted run could write a note that a later run reads clean |
 | Reads on a connector already used stay free | Anything but a named confined read needs a fresh approval | The arguments of a read are the leak |
 | An empty required list reads as ready | Refused | A gate an empty list clears proves nothing |
 
@@ -125,13 +135,13 @@ a kill, AP-1 and AP-2.
   there are no call sites yet.
 - **Complete mediation.** The pending state catches a call site that forgets a result. It does not catch a tool that
   never passed `checkToolCall`.
-- **Persistence.** The lineage lives in one process. A guard, an approval and a receipt do not survive a restart. A
-  restart is a later attempt, which begins tainted, so that is safe for taint and approvals. A receipt needs a read-back
-  design from the phase that wires it in.
+- **Persistence.** The lineage lives in one process. A guard, an approval and a receipt do not survive a restart. That
+  is safe for taint only if the kernel reports a later attempt, which is term 6. An approval cannot be replayed after a
+  restart, because it is not a live object there. A receipt needs a read-back design from the phase that wires it in.
 - **One call at a time.** A pending result blocks the next check, so a run's tool calls are serial. A dead-handle write
   stops the run until a new guard is started. Both are deliberate, and parallel tool calls would need a pending set.
-- **Memory.** The module keeps one guard per run for the life of the process, with no eviction: evicting one would let a
-  second guard start clean. A long-lived Host needs a decision on this.
+- **Memory.** The module keeps one guard per run for the life of the process, by term 10. A long-lived Host holds that
+  memory until it restarts.
 - **A number's raw text.** Two decimals that parse to the same double are one value here, as the owner would see them.
 - **An untainted run.** On a clean run `checkToolCall` clears a P3 action with no approval. That is the door's job, and
   `taintClear` is not permission.
@@ -166,12 +176,12 @@ is deliberately independent of the shape PORT-MEMORY1A defines, and the lead can
 ## Proofs
 
 ```text
-val-projectos-port-approvals1a: PASS (78 scenarios; 77 behaviour and 57 text mutations killed)
-core suite: 34 files, 1366 tests passed, 180 of them in approvals-*.test.ts
+val-projectos-port-approvals1a: PASS (83 scenarios; 81 behaviour and 64 text mutations killed)
+core suite: 34 files, 1374 tests passed, 188 of them in approvals-*.test.ts
 tsc --noEmit: clean
 ```
 
-The review-round tests were written first and failed before the fixes: 93 of 180.
+The review-round tests were written first and failed before the fixes: 93 of 180, then 6 of 65 in the recheck round.
 
 Validators reading a touched file, run directly:
 

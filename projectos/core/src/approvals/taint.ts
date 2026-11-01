@@ -6,6 +6,7 @@
 // Port-Strategy: ADAPTED
 // Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: the sticky boolean became a counted generation on a frozen guard that a move retires; the fixed list of own-state tools became a list the kernel passes in, so memory and history do not launder taint; "could be steered" is answered by the action registry instead of tool-name patterns; the carve-out for reads on an already-used connector is removed. The upstream rule engine, auto-review judge and no-approval mode were not ported.
 // Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: taint count and spent approvals moved to a lineage named by a kernel token; a second guard for a run never starts clean; a write on a dead guard refuses loudly and still counts; a cleared call leaves a result pending; only named confined reads escape the steering rule; own-state entries must be registered local reads.
+// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: a lineage token that was replaced can never return; the own-state exemption is limited to confined reads and to a real list.
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * Taint: has outside content entered this run?
@@ -15,10 +16,11 @@
  * and has no model in it: did outside content enter, and could that content steer this action?
  *
  * A TOOL RESULT TAINTS UNLESS THE KERNEL SAYS OTHERWISE. A new tool taints by default. The exemption
- * list is passed in by kernel code, it is an exact match, and an entry counts only if the registry says
- * it is a P1 local action. It is empty until a later phase names a tool. The upstream list exempted
- * saved memory and history, and that is not carried over: a tainted run can write a note, and a later
- * run reading that note would then be clean, so taint would pass straight through the store.
+ * list is passed in by kernel code, it must be a real list with an exact match, and an entry counts only
+ * if it is a confined read, the same test the steering rule uses. It is empty until a later phase names a
+ * tool. The upstream list exempted saved memory and history, and that is not carried over: a tainted run
+ * can write a note, and a later run reading that note would then be clean, so taint would pass straight
+ * through the store.
  *
  * A RUN CAN BEGIN TAINTED. A run the owner did not start, and any attempt after the first, which may
  * restore outside content the first attempt read. So a restart costs an approval and never clears a run.
@@ -29,8 +31,10 @@
  * handle on it. A second guard with the same token continues the lineage: the count and the spent list
  * carry, and starting it counts as taint. A second guard with a new token is a new lineage, with an empty
  * spent list, and it still starts tainted. Approvals carry the token, so none crosses to the new lineage.
- * This is per process, an entry lives as long as the process, and a guard is not persisted: a new process
- * has no approvals to replay, and resuming a run there is a later attempt.
+ * A token that was replaced is remembered and refused for good, because going back to it would bring its
+ * approvals back with an empty spent list. This is per process, an entry lives as long as the process,
+ * and a guard is not persisted: a new process has no approvals to replay, and it holds no guards, so a
+ * run resumed there is tainted only if the kernel says it is a later attempt.
  *
  * TAINT NEVER COMES OFF, AND A WRITE IS NEVER DROPPED. Keeping a clean guard from before the content gets
  * a dead guard, not a clean one. A write on a dead guard throws, because a returned refusal can be
@@ -60,6 +64,8 @@ export interface RunGuard {
   readonly runId: string;
   /** Names the lineage this guard belongs to. Supplied by the kernel, unique to a chain of guards. */
   readonly lineageToken: string;
+  /** Every token this run has replaced. None of them can return. */
+  readonly retiredLineages: readonly string[];
   /** How many times outside content has entered this lineage. Only ever goes up. */
   readonly taintGeneration: number;
   /** Where it came from, in order. A record, not a rule. */
@@ -79,7 +85,7 @@ export interface RunStart {
   readonly attempt: number;
 }
 
-export type RunGuardRule = 'BAD_RUN_START' | 'DEAD_GUARD' | 'WRONG_RESULT';
+export type RunGuardRule = 'BAD_RUN_START' | 'LINEAGE_REUSED' | 'DEAD_GUARD' | 'WRONG_RESULT';
 
 /** Thrown, not returned: a write that went wrong must not be something a caller can ignore. */
 export class RunGuardRefused extends Error {
@@ -104,6 +110,7 @@ const nonBlank = (value: unknown): boolean => typeof value === 'string' && value
 function issued(guard: RunGuard): RunGuard {
   const frozen: RunGuard = Object.freeze({
     ...guard,
+    retiredLineages: Object.freeze([...guard.retiredLineages]),
     taintSources: Object.freeze([...guard.taintSources]),
     spentApprovals: Object.freeze([...guard.spentApprovals]),
   });
@@ -134,6 +141,7 @@ export function startRunGuard(start: RunStart): RunGuard {
   const { runId, lineageToken, ownerStarted, attempt } = start;
   if (!nonBlank(runId) || !nonBlank(lineageToken)) throw new RunGuardRefused('BAD_RUN_START', 'a run needs an id and a lineage token');
   const earlier = CURRENT_GUARDS.get(runId);
+  if (earlier?.retiredLineages.includes(lineageToken) === true) throw new RunGuardRefused('LINEAGE_REUSED', `this run has already replaced the lineage '${lineageToken}'`);
   const continued = earlier?.lineageToken === lineageToken ? earlier : undefined;
   const sources = [
     ...(ownerStarted === true ? [] : ['a run the owner did not start']),
@@ -143,6 +151,7 @@ export function startRunGuard(start: RunStart): RunGuard {
   return issued({
     runId,
     lineageToken,
+    retiredLineages: [...(earlier?.retiredLineages ?? []), ...(earlier !== undefined && continued === undefined ? [earlier.lineageToken] : [])],
     taintGeneration: (continued?.taintGeneration ?? 0) + sources.length,
     taintSources: [...(continued?.taintSources ?? []), ...sources],
     spentApprovals: continued?.spentApprovals ?? [],
@@ -167,9 +176,12 @@ function isLocalRead(registry: ActionRegistry, action: string): boolean {
   return actionClass === 'P1' && environment === 'local';
 }
 
-/** `ownStateTools` comes from kernel code. The match is exact, and only a registered local read counts. */
+/**
+ * `ownStateTools` comes from kernel code. It must be a list, because `includes` on a string would match
+ * any substring. An exempt tool is one the steering rule also calls confined, so the two cannot disagree.
+ */
 export function toolResultTaintsRun(registry: ActionRegistry, toolName: string, ownStateTools: readonly string[]): boolean {
-  return !(ownStateTools.includes(toolName) && isLocalRead(registry, toolName));
+  return !(Array.isArray(ownStateTools) && ownStateTools.includes(toolName) && !actionCouldBeSteered(registry, toolName));
 }
 
 /** The result of the call that cleared, which settles what was pending. Another tool's result refuses. */
