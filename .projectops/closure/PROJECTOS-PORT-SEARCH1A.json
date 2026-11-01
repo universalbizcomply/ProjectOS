@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-PORT-SEARCH1A",
+  "evidenceSubjectHead": "cf5a316d7788fb0144282a63d1694f6f9a502c9c",
+  "baselineCommit": "14fa45b844d2ff38b4e7816a6ab776423557cb3a",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-01T23:38:13.329Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-PORT-SEARCH1A, phase 26 of 35 of plan v1.32, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. cf5a316d on 14fa45b8 (plan v1.32 activation): the four port phases stacked with their reviews and fixes.",
+    "validatorsPass: val-projectos-port-search1a (113 text and 25 behavioural mutations), val-projectos-port-credit1a and validate-no-secrets PASS. validate-all 159/161 at cf5a316d, the 2 failures being validate-desktop-e2e (needs a built bundle; the build itself was broken since 2026-09-25 and is repaired in TENANT-CSP1A) and val-cd-b4-sealed-expected-window-facts1a.",
+    "checksPass: core 1856/1856, agent 3056/3056, control-center 890/890 at cf5a316d with normal package resolution.",
+    "reviewsComplete: Claude self-review; ECC CODE review (BLOCK for the uncommitted file; recheck APPROVE, proved on a clean archive); ECC SECURITY review (CONDITIONAL, all items fixed and confirmed in that recheck).",
+    "unresolved: zero CRITICAL/HIGH. Carried, binding on tenant work: one shared FTS table leaks BM25 statistics between projects, so per-project or per-tenant files come first. documentSources.ts bypasses the System port for lstat. CitedSearchHit is not branded. LOW: invisible characters in file names.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
