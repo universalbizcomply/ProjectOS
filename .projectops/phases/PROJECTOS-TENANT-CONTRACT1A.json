@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-TENANT-CONTRACT1A",
+  "project": "ProjectOS",
+  "objective": "V4 Stage 2, per docs/changes/delta_spec.md revision 2, approved by the owner in Plan Mode on 2026-11-01. No envelope exists in code today, so this phase builds it. ADR-T1 states the principal (the Windows operator plus the project the work is bound to; a Supabase identity carries no kernel authority), tenant versus domain, the registry trust basis, the linked-worktree rule, credential classes, and what Stage 2 does not prove. Owner decisions: \"Accept it (Recommended)\" for ADR-K1; \"Agency apart, rest mine (Recommended)\" for the tenant split, with PolyGo listed as the second owner-personal project and its repository untouched.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-01T20:17:52.498Z",
+      "note": "Owner-approved plan v1.28 and v1.29 (PLANDEC-25f09a6edce2d4833b602095, PLANDEC-f39515528b11588f3afdd66d, activation 89b5f0f4). Implemented by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-01T20:17:53.060Z",
+      "note": "ADR-T1 Accepted; tenant and action registries; pure tenant, envelope and action rules"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-01T20:17:53.862Z",
+      "note": "core 1186/1186, agent 2921/2921, control-center 890/890 at 7f52f838. validate-all 155/157 at 7f52f838, the 2 known baseline failures: validate-desktop-e2e needs a Control Centre bundle, val-cd-b4-sealed-expected-window-facts1a."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-01T20:17:54.436Z",
+      "note": "Evidence: docs/finish/PROJECTOS-TENANT-CONTRACT1A.md (7f52f838)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-01T20:17:55.025Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (two HIGH fixed; recheck: no CRITICAL or HIGH open); Agency software-architect review (APPROVE WITH CHANGES; 10 of 11 closed, F4 open by design: the credential-release grant is the owner's decision at CREDENTIALS1A; first delivery was recovered from task output, then delivered by the reviewer after the owner changed the guard); additional gstack-review pass (9 findings, 2 rated CRITICAL: one fixed, one disposed as a per-call ceiling with the ledger as the cap; its record says incomplete because its specialist and QA steps were not run). The last bounded round was read by the lead and the gstack recheck covered the round before it."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-01T20:17:55.545Z",
+      "note": "closure tail only - owner-direct route on the owner's word; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
