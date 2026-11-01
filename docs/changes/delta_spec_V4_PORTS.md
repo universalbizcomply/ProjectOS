@@ -1,6 +1,6 @@
 # Delta Specification — V4 ports: Hermes, OpenClaw and OpenBot capabilities in ProjectOS
 
-**Status:** APPROVED by the owner, 2026-11-01: "Approved". Phases 1 to 6 are carried by plan v1.30; phases 7 to 12 enter a later plan once
+**Status:** APPROVED by the owner, 2026-11-01: "Approved". Phases 1 to 6 are carried by the active plan, from v1.30; phases 7 to 12 enter a later plan once
 Stage 2 has settled what they build on. It sits beside `docs/changes/delta_spec.md`, which stays the active delta for Stage 2.
 Open owner items: the legal name on original ProjectOS code, and the product name.
 
@@ -23,7 +23,10 @@ optional or removable:
 | Their names and logos | Never used as ProjectOS branding or to imply endorsement |
 | Claims | Say "ProjectOS is my product, and it includes credited open-source components". Do not say the owner wrote the upstream code |
 
-Original ProjectOS code and every change we make are the owner's. A validator enforces all of the above.
+Original ProjectOS code and every change we make are the owner's, subject to naming the legal holder (an open owner
+item). The credit validator enforces the licence, header, notices and denied-source rows. It cannot prove a file marked
+original really is, catch an upstream name inside an identifier, or police what is claimed in public: ADR-P1 §8 lists
+what stays with reviewers and the owner.
 
 ## Sources
 
@@ -148,7 +151,7 @@ everything.
    and the name "ProjectOS" has a US trademark conflict to resolve before sale.
 
 ## Risk
-- **Licences:** enforced by the credit validator. A file with no recorded source cannot land.
+- **Licences:** the credit validator refuses a marked port with no recorded source and any port directory file git ignores. A pasted file marked original is the residual risk; reviewers check it.
 - **Security:** upstream code is untrusted until reviewed; every port replaces its unsafe defaults (`V4_Port_Map.md` §5).
 - **Scope:** twelve phases of real work. Each is a separate commit series and reverts alone.
 - **Disk:** C: has 26 GB free. Vendor folders hold about 2 GB and the older snapshots can go once ports are re-pinned.
