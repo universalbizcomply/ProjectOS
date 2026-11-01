@@ -1,11 +1,12 @@
 # PROJECTOS-TENANT-RLS1A — evidence
 
-**Phase:** PROJECTOS-TENANT-RLS1A, phase 2 of V4 Stage 2, plan v1.28.
+**Phase:** PROJECTOS-TENANT-RLS1A, phase 2 of V4 Stage 2, plan v1.28; `0003` added under plan v1.29.
 **Branch:** `projectos-tenant-rls1a`, from `f2d2ec9`. First build `ed88661`, then one review round on top of it.
+`0003` was built on `projectos-tenant-stack2`, where both Stage 2 phases are stacked.
 **Route:** built by a Claude subagent in its own worktree, under the lead. This document claims no gatekeeper
 ruling and no closure.
-**Boundary:** local only. Nothing connected to the live Supabase project, nothing in production changed, and
-no credential was used. `projectos/watchdog/**` was copied from, not changed.
+**Boundary:** the build was local only. The builder never connected to the live Supabase project, changed nothing in
+production and used no credential. The live apply is the lead's, recorded under "Live apply". `projectos/watchdog/**` was copied from, not changed.
 
 ## Reviews
 
@@ -65,20 +66,61 @@ named mutation killed by its own rule.
 |---|---|
 | `migrations/0001_baseline.sql` | `11fc5de040b5025beef5ce5068871709418604ad10be32d5eb4d8f656f42ef4a` |
 | `migrations/0002_tenant_boundary.sql` | `7d1520b3ee2562be3fede900b83401bfed68141e102bf9bfa6000bdf84e3d4c6` |
+| `migrations/0003_default_privileges.sql` | `094d74db53fff924bc65e2efb02112d7b101821270c438eb29559b6faa1617bf` |
 
-Check these again at the apply. A later fix changes them, and any change means proving them again first.
+`0001`, `0002` and `test/live-owner-membership.sql` are applied live, so rule TR-36 pins their sha256 and any change
+fails the validator. `0003` is not applied yet: check its hash again at the apply.
+
+## 0003: default privileges (owner decision D9, plan v1.29)
+
+**What it does.** `0003_default_privileges.sql` makes a new table, sequence or function created by `postgres` in
+`public` give `anon` and `authenticated` nothing. Same `lock_timeout` and `postgres` guard as `0002`, transactional,
+forward-only and safe to re-run. It ends with a check that reads `pg_default_acl` and raises.
+
+**Why PUBLIC EXECUTE uses the global form.** PUBLIC EXECUTE on a new function comes from the built-in global default,
+and a per-schema entry can only add to a global one. So `0003` runs `alter default privileges for role postgres revoke
+execute on functions from public` with no schema. The source mutation `src3-public-execute-per-schema` shows the
+per-schema form leaves PUBLIC EXECUTE in place and is refused. The cost is that this reaches every schema: outside
+`public`, a new `postgres` function is callable only by its owner until a migration grants it. `0002`'s helpers already
+carry their own grants.
+
+**Proof, from the state live is in, on both starts.** After `0001`, `0002` and the membership step:
+
+| Check | Before `0003` | After, applied twice |
+|---|---|---|
+| New table, sequence, function for `anon`, `authenticated` | access | nothing |
+| New function for PUBLIC | EXECUTE | nothing |
+| New table, sequence, function for `service_role` | access | access |
+| The four tables and everything else that exists | | catalogue byte-equal, grants included |
+| `supabase_admin`'s default entries | | byte-equal |
+| Post-apply check | fails on its two default rows and nothing else | passes |
+| `test/live-preflight-0003.sql` | passes | refuses |
+
+**Refusals.** 7 source mutations of `0003`, each refused by its own check with no default changed. `0003-as-superuser`
+raises `TENANT_BOUNDARY_WRONG_ROLE`. Database mutations `default-acl-tables`, `-sequences`, `-functions`,
+`-public-execute` and `-service-role-lost` each fail the `A-NEWOBJ-*` assertions named for them. The post-apply check
+refuses each drift, and the 0003 preflight refuses 8 deviations.
+
+**Known limit, carried: `supabase_admin`'s defaults.** Live has separate default entries for `supabase_admin` in
+`public`, and `postgres` cannot alter them, so `0003` leaves them. A table made by `supabase_admin` in `public` stays
+exposed; the harness proves this, before and after. The post-apply check lists those entries as a known limit, and if
+such an object exists the gate reports it and the check fails. Migrations must therefore run as `postgres`, which the
+guards enforce. `postgres`'s own entries for schema `storage` also stay as they are, because they are outside the
+approved scope.
+
+## Live apply
+
 
 ## Commands and results
 
 | Command | Result |
 |---|---|
-| `node projectos/validators/val-projectos-tenant-rls1a.cjs` | PASS on **PostgreSQL 17.10**, now the default: 148 text and 35 database mutations killed by their own rules, 15 source scenarios, 12 preflight and 7 post-apply refusals, failed start and killed run cleaned up, 123 assertions on 2 starts |
+| `node projectos/validators/val-projectos-tenant-rls1a.cjs` | PASS on **PostgreSQL 17.10**, the default: 185 text and 40 database mutations killed by their own rules, 23 source scenarios, 12 preflight, 8 0003 preflight and 12 post-apply refusals, failed start and killed run cleaned up, 133 assertions on 2 starts |
 | same, `TENANT_RLS_PG_BIN=<scoop bin>` | PASS on PostgreSQL 18.4, same counts, with the printed `FALLBACK` note |
 | same, `TENANT_RLS_PG_BIN` pointing at nothing | FAIL, `TR-PG: POSTGRES_MISSING`. The harness alone exits 3 |
-| `node projectos/control-center/supabase/test/pg-harness.cjs` | ALL PASS: 130 checks, about a minute |
-| `npm run typecheck` in `projectos/control-center` | clean |
-| `npx vitest run` in `projectos/control-center` | 66 files, 890 tests passed |
-| Every other validator that reads a touched file, 30 including `validate-no-secrets` | 30 PASS |
+| `node projectos/control-center/supabase/test/pg-harness.cjs` | ALL PASS: 188 checks, about a minute |
+| `validate-no-secrets`, `val-projectos-tenant-contract1a`, scratch lifecycle, speed cache: the other validators reading a touched file for `0003` | 4 PASS |
+| `npm run typecheck`, `npx vitest run` in `projectos/control-center` | clean, 890 tests passed, at `ed88661` plus the review round. Not re-run for `0003`, which touches no control-center code |
 
 Full `validate-all` was not run, by instruction: the lead runs it after stacking. One validator run takes about 60 to
 70 s, because it also proves the lifecycle. It is not in `speed/input-map.cjs`, which is outside this phase's
@@ -166,9 +208,7 @@ policy, an anon grant, a new table with no row level security, a table in realti
 
 ## Carried, not done
 
-- **Default privileges for future objects in `public` stay in place.** This is an owner decision and would be a
-  `0003`. It breaks no criterion: the gate and the post-apply check report any such object, and the harness proves that
-  with `public-function-added`. But nothing stops the next migration exposing a new object unless it revokes for itself.
+- **`supabase_admin`'s default privileges in `public` stay in place.** See the known limit under `0003`.
 - **TR-21 is a deny-list tripwire.** It scans for write verbs. It is not a parser, and it cannot prove a SELECT is
   free of effects.
 - **Management API transaction handling is unverified.** The lead sends each migration as its own call. An outer

@@ -13,9 +13,8 @@ The schema is defined by the forward-only migrations `migrations/0001_baseline.s
 `migrations/0002_tenant_boundary.sql`. `schema.sql` and `interactive.sql` are retired, hold no SQL and
 do nothing when run. These tables are not authority, and a Supabase identity carries no kernel authority.
 
-> **Live state:** this section is the migrations. They are proved on a local cluster
-> (`docs/finish/PROJECTOS-TENANT-RLS1A.md`). Until the owner's live apply, the live project still has the
-> old shape: two tables with `using (true)` policies.
+> **Live state:** this section is the migrations. `0001` and `0002` are applied live. `0003` is proved on a local
+> cluster and is not live until the owner's apply (`docs/finish/PROJECTOS-TENANT-RLS1A.md`).
 
 ### `public.tenants`
 
@@ -76,8 +75,13 @@ the helper path.
 | `authenticated` | select | select, insert, delete; update of `name`, `repo`, `install_status`, `production_freeze`, `open_phases` | select, insert, delete; update of `phase_id`, `objective`, `status`, `history`, `advisor_note` |
 
 No client role holds `TRUNCATE`, and no client can update `tenant_id`, `id` or `project_id`.
-`service_role` keeps its Supabase defaults and bypasses RLS (ADR-T1). Supabase's default privileges still
-apply to any future object in `public`, so a new table or function must revoke them itself.
+`service_role` keeps its Supabase defaults and bypasses RLS (ADR-T1).
+
+**Default privileges (`0003_default_privileges.sql`).** A new table, sequence or function made by `postgres` in
+`public` gives `anon` and `authenticated` nothing, so each migration grants what it means to. New functions also
+drop PUBLIC EXECUTE; that needs the global form, so outside `public` a new `postgres` function is the owner's alone
+until granted. `service_role` keeps its defaults, and existing objects are unchanged. **Known limit:** an object
+made by `supabase_admin` in `public` stays exposed, because `postgres` cannot alter that role's defaults.
 
 **Upserts.** A client upsert whose `SET` lists `tenant_id` or `id` fails with `permission denied`, by design:
 Postgres checks the `UPDATE` column grant before it knows whether a conflict will happen. `supabase-js`
@@ -189,7 +193,6 @@ Host IPC (dormant review route)
 Control Center cloud (optional, non-authority)
   Supabase email/password ──▶ JWT (authenticated role, grants no kernel authority)
     ──▶ table grants ──▶ tenant RLS on public.tenants, tenant_members, projects, phases
-        (once the owner has applied the migrations; until then, the old policies)
   tenant membership: public.tenant_members, no client write path
   service_role bypasses RLS and is never used by the Control Center
   watchdog: service_role only, via SECURITY DEFINER functions
