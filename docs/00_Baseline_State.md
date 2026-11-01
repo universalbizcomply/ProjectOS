@@ -2,6 +2,8 @@
 
 Audited 2026-10-28 at commit `2baff14` (branch `projectos-autonomy-bootstrap1a`, equal to `main`).
 This is a map of what exists. It is not a design. Where something does not exist, it says so.
+Facts below were re-checked on 2026-11-01 in PROJECTOS-TENANT-CONTRACT1A wherever that phase names them:
+the engine pins, the validator counts, the risk list and the tenant records.
 
 ProjectOS is a local-first governance runtime for AI-built software. A worker (the Claude Code CLI)
 implements approved plan phases. The ChatGPT gatekeeper reviews each phase. ProjectOS carries every
@@ -13,7 +15,7 @@ Manifest ranges are shown, with lockfile-resolved versions in parentheses where 
 
 | Area | Technology | Version |
 |---|---|---|
-| Runtime | Node.js | 24.x (24.14.1 recorded). There is **no** `engines` field, `.nvmrc` or `.node-version`. |
+| Runtime | Node.js | 24.x (24.14.1 recorded). `engines` pins `>=24.14.1 <25` in the root, `agent` and `core` manifests. There is no `.nvmrc` or `.node-version`. |
 | Language | TypeScript, `strict`, target ES2022, module NodeNext (agent, core, daemon) / ESNext with Bundler resolution (control-center) | ^5.7.2 (5.9.3) |
 | CLI and loop | `@projectos/agent` 0.1.0 (ESM, bin `projectos`) | depends on `@projectos/core` via `file:../core` |
 | Kernel | `@projectos/core` 0.1.0 (pure TypeScript, no I/O) | — |
@@ -23,8 +25,8 @@ Manifest ranges are shown, with lockfile-resolved versions in parentheses where 
 | Desktop shell | Tauri 2: `@tauri-apps/api`, `@tauri-apps/cli`, `plugin-opener`; Rust `tauri` 2 | ^2.1.1 (2.11.1), ^2.1.0 (2.11.4), ^2.2.5 (2.5.4); Rust tauri 2.11.5 |
 | Desktop E2E | WebdriverIO, `@wdio/tauri-service` | ^9.30.1, ^1.3.0 |
 | Cloud data (optional) | `@supabase/supabase-js` | ^2.47.10 (2.110.1) |
-| Host service | Rust, 40 standalone crates under `projectos/host/` (edition 2021, no workspace, no `rust-toolchain`) | rustc 1.96.1 recorded; `windows` 0.61.3, `windows-sys` 0.59, `serde` 1, `sha2` 0.10, `zeroize` 1 |
-| Validators | CommonJS scripts, `projectos/validators/` (154 files) | 147 registered in `validate-all.cjs` |
+| Host service | Rust, 40 standalone crates under `projectos/host/` (edition 2021, no workspace; root `rust-toolchain.toml` pins 1.96.1) | rustc 1.96.1; `windows` 0.61.3, `windows-sys` 0.59, `serde` 1, `sha2` 0.10, `zeroize` 1 |
+| Validators | CommonJS scripts, `projectos/validators/` (161 files, as of PROJECTOS-TENANT-CONTRACT1A) | 156 registered in `validate-all.cjs`, 2 retired with a recorded reason. A file that is neither fails the suite. Later phases add more, so `validate-all.cjs` is the count of record |
 | Watchdog | TypeScript (Deno typecheck, `node --test`), Postgres schema | `@projectos/watchdog-core` 0.1.1 |
 | Other packages | `@projectos/bridge-daemon` 0.1.0, `projectos-vscode` 0.1.0 (VS Code ^1.90.0), `projectos-dashboard-hosting` (Vercel) | — |
 
@@ -130,6 +132,13 @@ The Control Center uses Supabase only if it is configured. Otherwise it falls ba
    only the cloud tables in 2b. It grants nothing in the governed runtime.
 9. **Host IPC.** The pipe is local-only and admits exactly the enrolled owner SID. Facts come from the
    Host, never from the wire.
+10. **Tenant and domain.** See `docs/adr/ADR-T1-tenant-boundary.md`.
+    - Tenant = whose data and authority. Domain = Develop, Business, Personal or Phone. Each project has
+      one of each.
+    - `projectos/security/tenant-registry.json` binds `projectId@repository@governedRoot` to a tenant and
+      a domain. `action-registry.json` gives each action its class and environment.
+    - The pure rules are `core/src/tenant.ts`, `actionRegistry.ts` and `taskEnvelope.ts`. **The kernel does
+      not read these records yet;** that arrives in PROJECTOS-TENANT-PRINCIPAL1A.
 
 ### 3c. File dependency graph (layering)
 
@@ -153,6 +162,7 @@ Broker: brokeredHttpPort.ts ─▶ git show HEAD:projectos/security/gatekeeper-t
 | Closure authority | `projectos/core/src/closureAuthority.ts`, `closureEligibility.ts`, `closureDecision.ts`, `closureTransport.ts`; `projectos/agent/src/closureGate.ts`, `closureWait.ts`, `commands/closure.ts`, `commands/phase.ts` | Who may close a phase, on what evidence, and with which committed decision |
 | Owner floor and permissions | `projectos/core/src/ownerOnlyActions.ts`, `permissions.ts`, `phase.ts`, `ownerGateReceipt.ts`, `technicalContinuation.ts`, `gatekeeperDecision.ts`, `gatekeeperMode.ts`, `gatekeeperTransport.ts` | The actions only the owner may take, and the lifecycle |
 | Gatekeeper composition and spend | `projectos/agent/src/commands/run.ts` (`composeGatekeeper`, `brokerRouteOptedIn`, `trustedBroker`, `dispatchContinueRoute`), `loop/gatekeeperConfig.ts`, `loop/gatekeeperHandoff.ts`, `loop/technicalContinuation.ts` | Route choice, delegation reading, spend admission, ProjectOS's own commits |
+| Tenant boundary | `projectos/security/tenant-registry.json`, `action-registry.json`; `projectos/core/src/tenant.ts`, `actionRegistry.ts`, `taskEnvelope.ts` | Whose data and authority work runs under, and how dangerous an action is. A registry change is the P5 action `tenant-registry-change` |
 | Broker and credentials | `projectos/security/gatekeeper-transport-broker.cjs`, `installation-project-allowlist.json`, `trust-boundary.json`, `broker.cjs`, `operation-broker.cjs`, `redaction.cjs`; `projectos/credentials/*`; `projectos/scripts/projectos-credential-router.cjs`; `agent/src/loop/credentialResolver.ts`, `installation/projectAllowlist.ts`, `installation/brokerAnsweredState.ts`; `control-center/src-tauri/src/set_credential.rs` | The key never reaches the agent; who may spend it |
 | Write grants and judges | `projectos/agent/src/loop/workers.ts`, `pinnedValidators.ts`, `verification.ts`, `correctionBoundary.ts`, `candidateIdentity.ts`, `localCandidateCommit.ts` | What a worker may write; validators judge from the base commit |
 | Governance engines and plans | `projectos/agent/src/governanceEngines.ts`, `nodeGovernanceEngines.ts`, `planApproval.ts`, `planDecision.ts`, `planAuthoringPermission.ts`; `projectos/validators/plan-governance-engine.cjs`, `plan-discovery-engine.cjs`; `projectos/schemas/project-plan.schema.json`, `current-project-state.schema.json` | How plans become authority |
@@ -168,22 +178,20 @@ Broker: brokeredHttpPort.ts ─▶ git show HEAD:projectos/security/gatekeeper-t
 1. **Supabase RLS is effectively open to any authenticated user.** In
    `control-center/supabase/*.sql`, `public.projects` and `public.phases` allow ALL operations with
    `using (true) with check (true)`. If sign-up is open on that Supabase project, any new account can
-   read and rewrite them. Fix: restrict to the owner's `auth.uid()`.
-2. **No engines or toolchain pins.** Node and Rust versions are recorded only in reports. Fix: an
-   `engines` field and a `rust-toolchain.toml`.
-3. **Six validators exist but are not registered** in `validate-all.cjs`:
-   `val-host-state-activation-wiring-10h`, `val-watchdog-conformance`, `validate-claude-worker`,
-   `validate-speed-validation-cache`, `validate-v2-closure-evidence`, `validate-wsl2-provider`.
-4. **The Tauri CSP is `null`** (`tauri.conf.json`).
-5. **CSS drift in the Control Center.**
+   read and rewrite them. Live sign-up was found open on 2026-11-01. The fix is Stage 2
+   (`docs/changes/delta_spec.md`, D1 and PROJECTOS-TENANT-RLS1A).
+2. **The Tauri CSP is `null`** (`tauri.conf.json`). The fix is PROJECTOS-TENANT-CSP1A (D6).
+3. **A worker can reach any tenant's secrets and files** outside the kernel, as the owner's Windows user
+   (ADR-T1 §10). Owner rule D4: no other party's data or credentials on this machine until Stage 4
+   isolation and service-held secrets are done.
+4. **CSS drift in the Control Center.**
    - Variables used but never defined: `--os-accent`, `--os-line`, `--os-ink`, `--os-ink-dim`,
      `--os-inset`, `--os-mono`, `--warn-ink`.
    - Hard-coded dark colours in older screens.
    - A duplicate `.ocp-btn` rule.
    - An unstyled `os-primary` class.
    - A stale README view list.
-6. **Open from the finish plans:**
+5. **Open from the finish plans:**
    - D11: a plan with only worker self-review lets partial work close.
    - The key rotation is due at completion.
-   - The `seo-agency` allowlist entry is temporary.
    - Authority commits are unsigned.

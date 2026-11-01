@@ -1,7 +1,8 @@
 # ADR-K1 — Kernel contract: task envelope, permission classes and grants
 
-**Status:** PROPOSED in phase PROJECTOS-KERNEL-CONTRACT1A (plan v1.17, V4 Stage 1). Revision 3,
-2026-10-29. The independent architecture review (Agency `software-architect`, corpus `ad9264e3`)
+**Status:** ACCEPTED by the owner, 2026-11-01: decision D3, "Accept it (Recommended)", recorded in
+`docs/changes/delta_spec.md`. Proposed in phase PROJECTOS-KERNEL-CONTRACT1A (plan v1.17, V4 Stage 1).
+Revision 3, 2026-10-29. The independent architecture review (Agency `software-architect`, corpus `ad9264e3`)
 ran in two rounds:
 - Round 1: CONCERNS, 5 HIGH / 4 MEDIUM.
 - Round 2: 6 resolved, 3 partial, 3 new issues.

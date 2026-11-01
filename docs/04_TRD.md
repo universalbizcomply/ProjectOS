@@ -7,7 +7,7 @@ phase. Ranges are the manifest values; resolved versions are the lockfile values
 
 | Layer | Package / tool | Manifest | Resolved |
 |---|---|---|---|
-| Runtime | Node.js | (no `engines`) | 24.14.1 (recorded) |
+| Runtime | Node.js | `engines` `>=24.14.1 <25` (root, `agent`, `core`) | 24.14.1 (recorded) |
 | Language | `typescript` | ^5.7.2 | 5.9.3 |
 | Tests | `vitest`, `@vitest/coverage-v8` | ^2.1.8 | 2.1.9 |
 | Node types | `@types/node` | ^22.10.2 | — |
@@ -17,7 +17,7 @@ phase. Ranges are the manifest values; resolved versions are the lockfile values
 | Desktop E2E | `webdriverio`, `@wdio/*`; `@wdio/tauri-service` | ^9.30.1; ^1.3.0 | 9.30.1 |
 | UI tests | `@testing-library/react`, `@testing-library/dom`, `jsdom` | ^16.1.0, ^10.4.0, ^25.0.1 | — |
 | Cloud data | `@supabase/supabase-js` | ^2.47.10 | 2.110.1 |
-| Rust host | rustc; crates `windows` 0.61.3, `windows-sys` 0.59, `serde` 1, `serde_json` 1, `thiserror` 1, `sha2` 0.10, `zeroize` 1 | edition 2021 | rustc 1.96.1 (recorded) |
+| Rust host | rustc; crates `windows` 0.61.3, `windows-sys` 0.59, `serde` 1, `serde_json` 1, `thiserror` 1, `sha2` 0.10, `zeroize` 1 | edition 2021; `rust-toolchain.toml` | rustc 1.96.1 |
 | Watchdog | Deno (typecheck), `node --test` | — | — |
 
 **Approved for later addition (owner, 2026-10-29).** For the Hermes/OpenClaw/OpenBot ports in
@@ -40,12 +40,12 @@ or ESNext with Bundler resolution and `jsx: react-jsx` (control-center).
 ```
 projectos/
   agent/        CLI + autonomous loop (src/cli.ts, src/commands/*, src/loop/*, src/loop/transports/*), tests in test/
-  core/         pure kernel (no I/O): phase, permissions, owner floor, closure authority/eligibility/transport, gatekeeper contracts
+  core/         pure kernel (no I/O): phase, permissions, owner floor, closure authority/eligibility/transport, gatekeeper contracts, tenant, action registry, task envelope
   control-center/ Vite/React renderer (src/), Tauri shell (src-tauri/), Node sidecar (sidecar/), supabase/*.sql, packaging/ (WiX MSI)
   host/         40 Rust crates: ProjectOSHost Windows service, IPC, ACLs, attestation, crypto
-  security/     trusted broker, allowlist, trust boundary, redaction
+  security/     trusted broker, allowlist, tenant and action registries, trust boundary, redaction
   credentials/  vault, Windows Credential Manager adapter (.cjs + .ps1), operation gate
-  validators/   154 validator scripts (+ lib/); validate-all.cjs registers 147
+  validators/   161 validator scripts (+ lib/) as of PROJECTOS-TENANT-CONTRACT1A; validate-all.cjs registers 156 and retires 2, and is the count of record
   schemas/      JSON schemas (plan, current state, project config, bridge, evidence, …)
   watchdog/     core, sentinel, sql/ (Postgres migration + tests)
   templates/, examples/, scripts/, bridge/, worker/, session-router/, speed/, state/, forge/, vscode/, dashboard*/
@@ -103,9 +103,23 @@ knowledge/      reports and the reports index
     external sends, payments, credential disclosure or rotation, service install,
     ACL/registry/ProgramData changes, force push, merge, phase closure (unless delegated), and push or
     commit where reserved.
+11. **The tenant is derived, never supplied.** Tenant and domain come only from
+    `projectos/security/tenant-registry.json`, validated whole, through `resolveTenant`. An unlisted
+    project is refused by name. `cross-tenant-access` and `tenant-registry-change` are P5. The kernel
+    starts reading the registry in PROJECTOS-TENANT-PRINCIPAL1A.
 
 ## 5. Kernel contract (V4)
 
 Every operation carries the task envelope and falls into one of six permission classes defined in
 `docs/adr/ADR-K1-kernel-contract.md`. Unknown actions default to the protected class; no flag,
 setting or model judgement can lower a class.
+
+The pure rules are `core/src/actionRegistry.ts` and `core/src/taskEnvelope.ts` (envelope v2, R1–R5), and
+the registry is `projectos/security/action-registry.json`.
+
+## 6. Tenant boundary (V4 Stage 2)
+
+`docs/adr/ADR-T1-tenant-boundary.md` states the principal, tenant and domain, the registry's trust basis,
+the linked-worktree rule and the credential classes. It also states what Stage 2 does not prove: a worker
+can still reach any tenant's secrets and files outside the kernel. No other party's data or credentials
+go on this machine until Stage 4 isolation and service-held secrets are done.

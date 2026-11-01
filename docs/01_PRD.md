@@ -1,7 +1,7 @@
 # 01 — Product Requirements (ProjectOS)
 
-Status: describes the product as built and accepted through plan v1.15 (`2baff14`). Read with
-`00_Baseline_State.md`.
+Status: describes the product as built and accepted through plan v1.15 (`2baff14`), with the tenant
+vocabulary added in plan v1.28. Read with `00_Baseline_State.md`.
 
 ## Core problem
 
@@ -63,7 +63,9 @@ Secondary persona: **an AI implementer** (Claude Code), which must find unambigu
 - Credential disclosure. The owner rotates credentials after ProjectOS completion.
 - Host-attested unattended review activation (the dormant Host review route), the signed installer,
   Forge (Programme C) and the Control Center redesign. All deferred by the owner on 2026-10-25.
-- Dead Aisle and PolyGo as proof projects (owner decision, 2026-10-25).
+- Dead Aisle and PolyGo as proof projects (owner decision, 2026-10-25). One later exception: PolyGo is
+  listed in the tenant registry as the second `owner-personal` project for the Stage 2 exit proof, and
+  its repository is not touched (D2).
 - A second orchestrator, decision store, work queue or execution engine.
 - Running the vendored agency toolkits, especially `autosocial`.
 - An independent code and security reviewer inside the loop (D11). Recorded; needs an owner scope
@@ -99,3 +101,13 @@ reliability and security by design cut across all of them.
   instructions to the AI.
 - The non-goals above still hold for today's build. `06_Plan.md` says the stage at which each one
   is revisited.
+
+**Tenant vocabulary (plan v1.28; `docs/adr/ADR-T1-tenant-boundary.md`):**
+- **Tenant:** whose data and authority. Today `owner-personal` (ProjectOS, PolyGo and the owner's other
+  projects) and `agency-business` (the SEO agency).
+- **Domain:** which of the four product domains. Each project has one tenant and one domain; a tenant
+  can hold several domains.
+- **The tenant is derived, never stated.** It comes from the committed tenant registry, and an unlisted
+  project is refused by name.
+- **One person, for now.** One owner holds both tenants on one Windows user. No other party's data or
+  credentials go on this machine until Stage 4 isolation and service-held secrets are done (D4).

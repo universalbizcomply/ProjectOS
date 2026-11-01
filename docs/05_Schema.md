@@ -102,6 +102,8 @@ All tables live in schema `watchdog`. Validation helpers (`_is_token`, `_is_scop
 | `authority/plan-genesis.json`, `plan-approval-delegation.json`, `plan-authoring-permission.json`, degraded grants | owner identity and scopes | owner → plan approval, broker |
 | `gates/<PHASE>.<gate>.json` | `gateName`, `ownerChoice (APPROVE\|REFUSE)`, `evidenceSubjectHead`, `consumedAt` | owner → owner-gate receipts, broker |
 | `work.v1.json` | `state`, `gateDecisionId`, `nextCandidateAction` (explicitly not authority) | `workRecord.ts` → UI |
+| `projectos/security/tenant-registry.json` (installation record, not `.projectops/`) | `tenants[{tenantId, name}]`, `projects[{projectId, repository, governedRoot, tenant, domain}]`; schema `tenant-registry.schema.json` | owner (P5 `tenant-registry-change`) → `parseTenantRegistry`, `resolveTenant` |
+| `projectos/security/action-registry.json` (installation record, not `.projectops/`) | `actions[{id, governanceAction, ownerOnlyAction, class, environment}]` | owner → `parseActionRegistry`, `resolveAction` |
 
 **Id formats:** PLANDEC-<24hex>, GKREQ-<24hex>, CLREQ-<24hex>, CLDEC-<same hash>, PAREQ-* (authoring).
 
