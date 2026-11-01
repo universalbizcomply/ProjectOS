@@ -45,17 +45,24 @@ allowed_update(relname, attname) as (values
   ('phases', 'history'), ('phases', 'advisor_note')
 ),
 allowed_helper(proname) as (values ('my_tenant_ids'), ('my_owned_tenant_ids')),
-allowed_policy(relname, polname) as (values
-  ('tenants', 'tenants member read'),
-  ('tenant_members', 'tenant_members self read'),
-  ('projects', 'projects member read'),
-  ('projects', 'projects owner insert'),
-  ('projects', 'projects owner update'),
-  ('projects', 'projects owner delete'),
-  ('phases', 'phases member read'),
-  ('phases', 'phases owner insert'),
-  ('phases', 'phases owner update'),
-  ('phases', 'phases owner delete')
+member_expr(expr) as (values ('(tenant_id IN ( SELECT private.my_tenant_ids() AS my_tenant_ids))')),
+owner_expr(expr) as (values ('(tenant_id IN ( SELECT private.my_owned_tenant_ids() AS my_owned_tenant_ids))')),
+allowed_policy(relname, polname, qual, with_check) as (
+  select 'tenants', 'tenants member read', '(id IN ( SELECT private.my_tenant_ids() AS my_tenant_ids))', null
+  union all
+  select 'tenant_members', 'tenant_members self read', '(user_id = ( SELECT auth.uid() AS uid))', null
+  union all
+  select t.relname, t.relname || ' member read', m.expr, null
+    from (values ('projects'), ('phases')) t(relname) cross join member_expr m
+  union all
+  select t.relname, t.relname || ' owner insert', null, o.expr
+    from (values ('projects'), ('phases')) t(relname) cross join owner_expr o
+  union all
+  select t.relname, t.relname || ' owner update', o.expr, o.expr
+    from (values ('projects'), ('phases')) t(relname) cross join owner_expr o
+  union all
+  select t.relname, t.relname || ' owner delete', o.expr, null
+    from (values ('projects'), ('phases')) t(relname) cross join owner_expr o
 ),
 boundary(relname) as (values ('tenants'), ('tenant_members'), ('projects'), ('phases')),
 findings as (
@@ -120,9 +127,9 @@ findings as (
   union all
   -- Schemas.
   select r.rolname, 'schema', 'private', p.priv
-    from client_roles r cross join unnest(array['USAGE', 'CREATE']) p(priv)
-   where exists (select 1 from pg_namespace where nspname = 'private')
-     and has_schema_privilege(r.rolname, 'private', p.priv)
+    from client_roles r cross join pg_namespace n cross join unnest(array['USAGE', 'CREATE']) p(priv)
+   where n.nspname = 'private'
+     and has_schema_privilege(r.rolname, n.oid, p.priv)
      and not (r.rolname = 'authenticated' and p.priv = 'USAGE')
   union all
   select r.rolname, 'schema', 'public', 'CREATE'
@@ -172,6 +179,12 @@ findings as (
   select 'nobody', 'policy', t.name || ' ' || quote_ident(p.polname), 'ALWAYS_TRUE'
     from pg_policy p join tables t on t.oid = p.polrelid
    where pg_get_expr(p.polqual, p.polrelid) = 'true' or pg_get_expr(p.polwithcheck, p.polrelid) = 'true'
+  union all
+  select 'nobody', 'policy', t.name || ' ' || quote_ident(p.polname), 'EXPRESSION_DIFFERS'
+    from pg_policy p join tables t on t.oid = p.polrelid
+    join allowed_policy a on a.relname = t.relname and a.polname = p.polname
+   where pg_get_expr(p.polqual, p.polrelid) is distinct from a.qual
+      or pg_get_expr(p.polwithcheck, p.polrelid) is distinct from a.with_check
   union all
   -- Realtime delete events are not filtered by row level security.
   select 'supabase_realtime', 'publication', t.schemaname || '.' || t.tablename, 'PUBLISHED'

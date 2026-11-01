@@ -220,6 +220,13 @@ select rlstest.login_claims('{"role":"authenticated"}');
 select rlstest.expect_count('A-NOSUBCLAIM-projects', $$select count(*) from public.projects$$, 0);
 select rlstest.expect_count('A-NOSUBCLAIM-tenant_members', $$select count(*) from public.tenant_members$$, 0);
 
+-- A malformed sub must fail closed: auth.uid() raises, and nothing is read.
+select rlstest.login_claims('{"sub":"not-a-uuid","role":"authenticated"}');
+select rlstest.expect_error('A-MALFORMED-SUB-projects', $$select count(*) from public.projects$$, '%invalid input syntax for type uuid%');
+select rlstest.expect_error('A-MALFORMED-SUB-phases', $$select count(*) from public.phases$$, '%invalid input syntax for type uuid%');
+select rlstest.expect_error('A-MALFORMED-SUB-tenants', $$select count(*) from public.tenants$$, '%invalid input syntax for type uuid%');
+select rlstest.expect_error('A-MALFORMED-SUB-tenant_members', $$select count(*) from public.tenant_members$$, '%invalid input syntax for type uuid%');
+
 select rlstest.login_anon();
 select rlstest.expect_error('A-ANON-projects', $$select count(*) from public.projects$$, '%permission denied%');
 select rlstest.expect_error('A-ANON-phases', $$select count(*) from public.phases$$, '%permission denied%');
@@ -290,6 +297,9 @@ select rlstest.expect_error('A-BOTH-TENANT-phases', $$update public.phases set t
 select rlstest.expect_error('A-BOTH-UPSERT-TENANT',
   $$insert into public.projects (tenant_id, id, name) values ('owner-personal', 'fx-alpha', 'x')
     on conflict (tenant_id, id) do update set tenant_id = 'agency-business'$$, '%permission denied%');
+select rlstest.expect_error('A-BOTH-UPSERT-ID',
+  $$insert into public.projects (tenant_id, id, name) values ('owner-personal', 'fx-alpha', 'x')
+    on conflict (tenant_id, id) do update set id = excluded.id, name = excluded.name$$, '%permission denied%');
 select rlstest.expect_error('A-BOTH-ID-projects', $$update public.projects set id = 'fx-renamed' where id = 'fx-alpha'$$, '%permission denied%');
 select rlstest.expect_error('A-BOTH-ID-phases', $$update public.phases set id = gen_random_uuid() where project_id = 'fx-alpha'$$, '%permission denied%');
 select rlstest.expect_error('A-BOTH-PROJECT-phases', $$update public.phases set project_id = 'fx-beta' where project_id = 'fx-alpha'$$, '%permission denied%');

@@ -150,6 +150,20 @@ rows_out(seq, section, item, ok, detail) as (
          || ' in ' || coalesce(n.nspname, 'every schema'), null, d.defaclacl::text
     from pg_default_acl d left join pg_namespace n on n.oid = d.defaclnamespace
   union all
+  select 73, 'grants', 'public schema: ' || coalesce(nullif(a.grantee, 0)::regrole::text, 'PUBLIC'), null,
+         string_agg(a.privilege_type, ', ' order by a.privilege_type)
+    from pg_namespace n cross join lateral aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) a
+   where n.nspname = 'public'
+   group by a.grantee
+  union all
+  select 74, 'grants', 'no client can create in schema public',
+         not has_schema_privilege('anon', 'public', 'CREATE')
+         and not has_schema_privilege('authenticated', 'public', 'CREATE')
+         and not exists (select 1 from pg_namespace n
+                          cross join lateral aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) a
+                          where n.nspname = 'public' and a.grantee = 0 and a.privilege_type = 'CREATE'),
+         null
+  union all
   -- Publications.
   select 80, 'publication', 'supabase_realtime can be emptied of these tables',
          coalesce((select not p.puballtables from pg_publication p where p.pubname = 'supabase_realtime'), true),
