@@ -45,7 +45,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   linkedWorktreesFromPorcelain,
   parseActionRegistry,
@@ -296,11 +296,10 @@ export type CanonicalCheckout = { readonly ok: true; readonly root: string } | T
  * The checkout's own realpath, or a refusal by name.
  *
  * ONE RULE COVERS EVERY ALIAS. A path that is not its own realpath, separators and ASCII case aside, is
- * a second spelling, and refusing that closes 8.3 names, junctions, symlinks, `\\?\` and UNC forms, a
- * trailing dot and an alternate data stream without a list of them that could be incomplete.
+ * a second spelling, and refusing that closes relative paths, 8.3 names, junctions, symlinks, `\\?\` and
+ * UNC forms, a trailing dot and an alternate data stream without a list that could be incomplete.
  */
 export function canonicalCheckoutRoot(root: string, realpath: (path: string) => string = realpathSync.native): CanonicalCheckout {
-  if (!isAbsolute(root)) return refusal('TENANT_CHECKOUT_ALIAS', [`${root} is not an absolute path, so it is not one place`]);
   let real: string;
   try {
     real = realpath(resolve(root));

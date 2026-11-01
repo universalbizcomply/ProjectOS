@@ -16,7 +16,7 @@ import { admitEnvelope, deriveIdempotencyKey, mintEnvelope, parseActionRegistry 
 import { run as cli, readOnlyUnderPlatformStop } from '../src/cli.js';
 import type { CommandContext, CommandResult } from '../src/context.js';
 import { run as runCommand } from '../src/commands/run.js';
-import { tenant, terminalTenantReceiptConfirm, type TenantReceiptConfirm } from '../src/commands/tenant.js';
+import { tenant, tenantReceiptGrant, terminalTenantReceiptConfirm, type TenantReceiptConfirm } from '../src/commands/tenant.js';
 import {
   admitBoundary,
   CONTROL_CENTER_VERBS_WITHOUT_TENANT,
@@ -140,6 +140,16 @@ describe('the committed registry', () => {
     expect(derive(w, w.alpha.root).ok).toBe(true);
     writeFileSync(join(w.installation.root, 'projectos', 'security', 'tenant-registry.json'), registryText([]));
     expect(refusedCode(derive(w, w.alpha.root))).toBe('TENANT_REGISTRY_UNREADABLE');
+  });
+
+  it('a working-tree edit hidden from `git diff` still has no authority: the bytes judged are the committed ones', () => {
+    const w = world();
+    const rel = 'projectos/security/tenant-registry.json';
+    const flipped = readFileSync(join(w.installation.root, rel), 'utf8').split(OWNER_TENANT).join('PLACEHOLDER').split(AGENCY_TENANT).join(OWNER_TENANT).split('PLACEHOLDER').join(AGENCY_TENANT);
+    git(w.installation.root, 'update-index', '--assume-unchanged', rel);
+    writeFileSync(join(w.installation.root, rel), flipped);
+    expect(git(w.installation.root, 'diff', '--name-only', 'HEAD', '--', rel).trim()).toBe('');
+    expect(bound(derive(w, w.alpha.root)).binding.tenant).toBe(OWNER_TENANT);
   });
 
   it('refuses an installation that commits no registry, by name', () => {
@@ -341,11 +351,12 @@ describe('`tenant receipt`', () => {
     const w = world();
     const derived = bound(derive(w, w.alpha.root));
     const blob = w.installation.blob();
-    const grant = (e: { readonly action: string; readonly subjectHash: string }): boolean => e.action === 'tenant-registry-change' && e.subjectHash === blob;
+    const grant = tenantReceiptGrant(blob);
     const request = { action: 'tenant-registry-change', principal: 'owner' as const, scope: ['x'], windowMs: 60_000, intentScope: 'owner-receipt' };
     expect(admitBoundary(sys, w.installation.stateDir, derived, { ...request, subjectHash: 'c'.repeat(40) }, grant)).toMatchObject({ admitted: false, rule: 'P5_NO_GRANT' });
     expect(admitBoundary(sys, w.installation.stateDir, derived, { ...request, subjectHash: blob }, grant).admitted).toBe(true);
     expect(admitBoundary(sys, w.installation.stateDir, derived, { ...request, subjectHash: blob })).toMatchObject({ admitted: false, rule: 'P5_NO_GRANT' });
+    expect(admitBoundary(sys, w.installation.stateDir, derived, { ...request, action: 'cross-tenant-access', subjectHash: blob }, grant)).toMatchObject({ admitted: false, rule: 'P5_NO_GRANT' });
   });
 
   it('answers a second time without another confirmation, and changes nothing', () => {
@@ -699,6 +710,23 @@ describe('Control Center project selection', () => {
     const w = world();
     holdRecordLock(w.installation.stateDir, ENVELOPE_RECORDS_FILENAME);
     expect(textOf(projectSelectionRefusal(w.ctxAt(w.alpha.root)))).toContain('REFUSED (ENVELOPE_NOT_RECORDED)');
+  });
+
+  it('a selection whose outcome cannot be recorded did not happen either', () => {
+    const w = world();
+    let appends = 0;
+    const failingSecond: System = {
+      ...sys,
+      createExclusive: (path, content) => {
+        if (path.endsWith(`${ENVELOPE_RECORDS_FILENAME}.lock`)) {
+          appends += 1;
+          if (appends === 2) return false;
+        }
+        return sys.createExclusive(path, content);
+      },
+    };
+    const refused = projectSelectionRefusal(Object.assign({ sys: failingSecond, root: w.alpha.root }, w.installation.ctxFields));
+    expect(textOf(refused)).toContain('REFUSED (ENVELOPE_NOT_RECORDED)');
   });
 
   it('other verbs need a tenant too; only refresh, project.select and run.stop do not', () => {

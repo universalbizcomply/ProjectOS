@@ -170,6 +170,11 @@ function show(ctx: CommandContext): CommandResult {
   };
 }
 
+/** The P5 grant: this action, on this blob, and nothing else. Built only after a person has typed. */
+export function tenantReceiptGrant(blob: string): EnvelopeGrantPort {
+  return (envelope) => envelope.action === 'tenant-registry-change' && envelope.subjectHash === blob;
+}
+
 /** EVERY `tenant receipt` ANSWER, refusal or success, goes out through here, and carries the statement. */
 function receiptAnswer(code: number, lines: readonly string[]): CommandResult {
   return { code, lines: [...lines, TENANT_RECEIPT_STATEMENT] };
@@ -228,7 +233,6 @@ function receipt(ctx: CommandContext, flags: Flags, confirm: TenantReceiptConfir
     return receiptAnswer(2, ['REFUSED (TENANT_RECEIPT_CONFIRMATION_MISMATCH): what was typed does not match the blob exactly.', ...asIgnored(flags)]);
   }
   // THE GRANT EXISTS ONLY NOW, ONLY FOR THIS ACTION ON THIS BLOB, and the door has to ask it.
-  const grant: EnvelopeGrantPort = (envelope) => envelope.action === 'tenant-registry-change' && envelope.subjectHash === blob;
   const admission = admitBoundary(
     sys,
     source.stateDir,
@@ -241,7 +245,7 @@ function receipt(ctx: CommandContext, flags: Flags, confirm: TenantReceiptConfir
       windowMs: READ_ENVELOPE_WINDOW_MS,
       intentScope: 'owner-receipt',
     },
-    grant,
+    tenantReceiptGrant(blob),
   );
   if (!admission.admitted) return receiptAnswer(2, admissionRefusalLines(admission));
   const recorder = envelopeRecorder(sys, source.stateDir);

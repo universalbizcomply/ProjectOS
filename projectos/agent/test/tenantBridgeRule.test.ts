@@ -189,6 +189,15 @@ describe('a refusal that cannot be recorded stops the operation', () => {
     expect(refused.text).toContain('REFUSAL_NOT_RECORDED');
   });
 
+  it('a derivation refusal that cannot be written says so, beside one that was', () => {
+    const w = world(false);
+    expect(read(w.deps, 'alpha').text).not.toContain('REFUSAL_NOT_RECORDED');
+    holdRecordLock(w.installation.stateDir, ENVELOPE_RECORDS_FILENAME);
+    const refused = read(w.deps, 'alpha');
+    expect(refused.text).toContain('TENANT_REGISTRY_NO_OWNER_RECEIPT');
+    expect(refused.text).toContain('REFUSAL_NOT_RECORDED');
+  });
+
   it('a read whose admission cannot be written is not answered', () => {
     const w = world();
     expect(read(w.deps, 'alpha').isError).toBe(false);
