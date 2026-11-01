@@ -1,8 +1,9 @@
 # ADR-T1 — Tenant boundary: who the work is for, and what that does not yet stop
 
-**Status:** PROPOSED in phase PROJECTOS-TENANT-CONTRACT1A (plan v1.28, V4 Stage 2), 2026-11-01. The
-design was approved by the owner in `docs/changes/delta_spec.md` revision 2, with decisions D1–D6.
-**Only the owner marks an ADR Accepted.**
+**Status:** ACCEPTED by the owner, 2026-11-01: decision D10, "Accept it (Recommended)", recorded in `docs/changes/delta_spec.md`.
+Written in phase PROJECTOS-TENANT-CONTRACT1A (plan v1.28, V4 Stage 2). The design was approved by the
+owner in the same delta, revision 2, with decisions D1–D6. D10 also confirms the domains: projectos and
+polygo in Develop, seo-agency in Business. **Only the owner marks an ADR Accepted.**
 
 **Context:** ADR-K1 fixes the task envelope and the permission classes. It leaves `tenant` and `domain`
 as "new, derived". This ADR says what they are derived from, what the kernel and the database refuse

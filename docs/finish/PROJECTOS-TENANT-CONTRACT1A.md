@@ -214,7 +214,7 @@ CHANGES.** The lead verified the HIGHs against the code and decided the design c
   is not yet stopped. ADR-K1 §2's "returns the earlier outcome" needs a durable store.
 - **`docs/06_Plan.md` is the lead's:** the phase tick, and plan 0.3, which the delta says should be ticked.
   Its log still says ADR-K1 stays Proposed, which was true when written.
-- **ADR-T1 stays Proposed** until the owner marks it Accepted.
+- **ADR-T1 is Accepted** on the owner's word, D10 in the delta, 2026-11-01; the domains are confirmed by the same word. TC-4 now pins that wording, and the mutation is `adr-t1-acceptance-drops-owner-word`.
 - **Stacking.** `val-projectos-tenant-contract1a` is appended last in both runners, and every parallel phase
   appends there too. The two lists must stay identical (FU-6). The counts in docs 00 and 04 are stated "as
   of this phase", and `validate-all.cjs` is named as the count of record.

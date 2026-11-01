@@ -665,7 +665,7 @@ const MUTATIONS = [
   { name: "adr-drops-stop-work", rule: "TC-3", rel: ADR_T_REL, from: "- **Account-wide `stop-work`.**", to: "- **Stopping.**" },
   { name: "adr-drops-one-user-limit", rule: "TC-3", rel: ADR_T_REL, from: "- **One user.** Everything runs as one Windows user, for one owner, on one machine.", to: "- **Users.** Isolation is complete." },
   // TC-4
-  { name: "adr-t1-accepts-itself", rule: "TC-4", rel: ADR_T_REL, from: "**Status:** PROPOSED in phase PROJECTOS-TENANT-CONTRACT1A", to: "**Status:** ACCEPTED in phase PROJECTOS-TENANT-CONTRACT1A" },
+  { name: "adr-t1-acceptance-drops-owner-word", rule: "TC-4", rel: ADR_T_REL, from: "**Status:** ACCEPTED by the owner, 2026-11-01: decision D10,", to: "**Status:** ACCEPTED in phase PROJECTOS-TENANT-CONTRACT1A," },
   // TC-5
   { name: "adr-k1-still-proposed", rule: "TC-5", rel: ADR_K_REL, from: "**Status:** ACCEPTED by the owner, 2026-11-01:", to: "**Status:** PROPOSED on 2026-11-01:" },
   { name: "adr-k1-names-no-owner-word", rule: "TC-5", rel: ADR_K_REL, from: "decision D3, \"Accept it (Recommended)\",", to: "accepted," },
@@ -1081,9 +1081,9 @@ function check(raw) {
   for (const [key, ruling] of Object.entries(RULINGS)) {
     if (!adrT.includes(ruling)) E("TC-3", `ADR-T1 no longer rules on '${key}'`);
   }
-  // TC-4: only the owner marks an ADR Accepted.
-  if (!adrT.includes("Status: PROPOSED in phase PROJECTOS-TENANT-CONTRACT1A") || !adrT.includes("Only the owner marks an ADR Accepted.")) {
-    E("TC-4", "ADR-T1 no longer stays Proposed until the owner accepts it");
+  // TC-4: only the owner marks an ADR Accepted, and ADR-T1 says whose word did.
+  if (!adrT.includes("Status: ACCEPTED by the owner, 2026-11-01: decision D10, \"Accept it (Recommended)\", recorded in `docs/changes/delta_spec.md`.") || !adrT.includes("Only the owner marks an ADR Accepted.")) {
+    E("TC-4", "ADR-T1 no longer records the owner's acceptance in the owner's words");
   }
   // TC-5: ADR-K1 is Accepted on the owner's word, and says whose word.
   if (!adrK.includes("Status: ACCEPTED by the owner, 2026-11-01: decision D3, \"Accept it (Recommended)\", recorded in `docs/changes/delta_spec.md`.") ||
