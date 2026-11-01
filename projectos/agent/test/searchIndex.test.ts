@@ -10,7 +10,7 @@ import {
   type SearchSourceText,
   type VectorCandidate,
 } from '@projectos/core';
-import { collectDocumentSources, openSearchIndex, type SearchIndex, type SearchOutcome } from '../src/search/index.js';
+import { SEARCH_SCHEMA_VERSION, collectDocumentSources, openSearchIndex, type SearchIndex, type SearchOutcome } from '../src/search/index.js';
 
 const PROJECT = 'alpha-project';
 const OTHER = 'beta-project';
@@ -55,13 +55,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  open.forEach((opened) => {
-    try {
-      opened.close();
-    } catch {
-      // Closed by the test itself, which is the point of that test.
-    }
-  });
+  open.forEach((opened) => opened.close());
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -129,6 +123,46 @@ describe('every hit names its file and line range', () => {
 
     expect(hitsOf(search.search({ project: PROJECT, query: 'cafe\u0301' }))).toHaveLength(1);
     expect(hitsOf(search.search({ project: PROJECT, query: 'CAF\u00c9' }))).toHaveLength(1);
+  });
+
+  it('CRLF text cites the right line', () => {
+    const search = index();
+    search.rebuildProject(PROJECT, [doc(PROJECT, 'a.md', 'one\r\ntwo\r\nthe guava line\r\nfour')], { chunking: { tokens: 1, overlap: 0 } });
+
+    const [found] = hitsOf(search.search({ project: PROJECT, query: 'guava' }));
+
+    expect(found?.citation.startLine).toBeLessThanOrEqual(3);
+    expect(found?.citation.endLine).toBeGreaterThanOrEqual(3);
+    expect(found?.untrustedText).toContain('guava');
+  });
+
+  it('a cut chunk cites only the lines it shows', () => {
+    const lines = Array.from({ length: 44 }, (_, i) => `the fig row ${i + 1} ${'x'.repeat(40)}`);
+    const search = index();
+    search.rebuildProject(PROJECT, [doc(PROJECT, 'a.md', lines.join('\n'))]);
+
+    const [found] = hitsOf(search.search({ project: PROJECT, query: 'fig' }));
+    const { startLine, endLine } = found?.citation ?? { startLine: 0, endLine: 0 };
+
+    expect(startLine).toBe(1);
+    expect(endLine).toBeLessThan(44);
+    expect(found?.untrustedText.split('\n')).toHaveLength(endLine);
+  });
+
+  it.each([-1, 0, 1.5, Number.NaN, Number.POSITIVE_INFINITY])('a result cap of %s is refused, not sent to SQLite', (maxResults) => {
+    const search = index();
+    search.rebuildProject(PROJECT, [doc(PROJECT, 'a.md', 'cherry')]);
+
+    expect(search.search({ project: PROJECT, query: 'cherry', maxResults })).toEqual({ ok: false, reason: 'invalid-max-results' });
+  });
+
+  it('a result cap above fifty is held at fifty, and a valid cap passes: the positive control', () => {
+    const search = index();
+    const sources = Array.from({ length: 60 }, (_, i) => doc(PROJECT, `f${i}.md`, 'cherry'));
+    search.rebuildProject(PROJECT, sources);
+
+    expect(hitsOf(search.search({ project: PROJECT, query: 'cherry', maxResults: 999 }))).toHaveLength(50);
+    expect(hitsOf(search.search({ project: PROJECT, query: 'cherry', maxResults: 3 }))).toHaveLength(3);
   });
 
   it('honours the result cap, and recency when asked for it', () => {
@@ -225,6 +259,120 @@ describe('a result with no source is refused', () => {
     const result = search.rebuildProject(PROJECT, [doc(PROJECT, 'a.md', 'one\ntwo', { lineMap: [5] })]);
 
     expect(result).toEqual({ ok: false, problem: expect.stringContaining('line map') });
+  });
+});
+
+describe('a secret does not reach the index', () => {
+  // Assembled here, so no file in this repository holds one whole.
+  const AWS = ['AKIA', 'IOSFODNN7EXAMPLE'].join('');
+  const PEM = ['-----BEGIN RSA PRIVATE KEY-----', 'MIIB', '-----END RSA PRIVATE KEY-----'].join('\n');
+
+  it('credentials.txt from the walk is skipped by name and its text is not searchable', () => {
+    write('credentials.txt', 'guava login hunter2');
+    write('plain.md', 'guava note');
+    const search = index();
+    const { sources, skipped } = collectDocumentSources({ project: PROJECT, root: join(dir, 'tree') });
+    search.rebuildProject(PROJECT, sources);
+
+    expect(skipped).toEqual([{ path: 'credentials.txt', reason: 'credential-name' }]);
+    expect(hitsOf(search.search({ project: PROJECT, query: 'guava' })).map((h) => h.citation.path)).toEqual(['plain.md']);
+    expect(hitsOf(search.search({ project: PROJECT, query: 'hunter2' }))).toEqual([]);
+  });
+
+  it('secret content from the walk is skipped by name, with none of it in the report', () => {
+    write('notes.md', `guava\n${AWS}`);
+    write('key.txt', PEM);
+
+    const found = collectDocumentSources({ project: PROJECT, root: join(dir, 'tree') });
+
+    expect(found.sources).toEqual([]);
+    expect(found.skipped).toEqual([{ path: 'key.txt', reason: 'secret-content' }, { path: 'notes.md', reason: 'secret-content' }]);
+    expect(JSON.stringify(found)).not.toContain(AWS);
+  });
+
+  it('the index refuses them itself, when a caller hands them in past the walk', () => {
+    const search = index();
+
+    const result = search.rebuildProject(PROJECT, [
+      doc(PROJECT, 'credentials.txt', 'guava login'),
+      doc(PROJECT, 'notes.md', `guava ${AWS}`),
+      doc(PROJECT, '.env.md', 'guava'),
+      doc(PROJECT, 'plain.md', 'guava'),
+    ]);
+
+    expect(result).toEqual({
+      ok: true,
+      project: PROJECT,
+      sources: 1,
+      chunks: 1,
+      skipped: [
+        { path: 'credentials.txt', reason: 'credential-name' },
+        { path: 'notes.md', reason: 'secret-content' },
+        { path: '.env.md', reason: 'dot-segment' },
+      ],
+    });
+    expect(hitsOf(search.search({ project: PROJECT, query: 'guava' })).map((h) => h.citation.path)).toEqual(['plain.md']);
+  });
+});
+
+describe('the handle and the schema', () => {
+  it('a failed open closes its handle, so the file can be removed', () => {
+    const location = join(dir, 'not-a-database.sqlite');
+    writeFileSync(location, 'this is not a database, it is plain text and long enough to be read as a header');
+
+    expect(() => openSearchIndex(location)).toThrow();
+
+    expect(() => rmSync(location)).not.toThrow();
+  });
+
+  it('closing twice is safe', () => {
+    const search = index();
+
+    search.close();
+
+    expect(() => search.close()).not.toThrow();
+  });
+
+  it('records its schema version', () => {
+    const location = join(dir, 'index.sqlite');
+    index(location).close();
+
+    rawly(location, (db) => {
+      expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: SEARCH_SCHEMA_VERSION });
+    });
+  });
+
+  it('reopening at the same version keeps the index: the positive control', () => {
+    const location = join(dir, 'index.sqlite');
+    const first = index(location);
+    first.rebuildProject(PROJECT, [doc(PROJECT, 'a.md', 'guava')]);
+    first.close();
+
+    expect(index(location).statusOf(PROJECT)).toBe('current');
+  });
+
+  it.each([[0], [SEARCH_SCHEMA_VERSION + 1]])('a file at version %s is dropped and recreated, and leaves other tables alone', (version) => {
+    const location = join(dir, 'index.sqlite');
+    const first = index(location);
+    first.rebuildProject(PROJECT, [doc(PROJECT, 'a.md', 'guava')]);
+    first.close();
+    rawly(location, (db) => {
+      db.exec('CREATE TABLE keep_me (x INTEGER); INSERT INTO keep_me VALUES (1);');
+      db.exec('ALTER TABLE search_chunks ADD COLUMN old_column TEXT');
+      db.exec(`PRAGMA user_version = ${version}`);
+    });
+
+    const reopened = index(location);
+
+    expect(reopened.statusOf(PROJECT)).toBe('not-built');
+    expect(reopened.rebuildProject(PROJECT, [doc(PROJECT, 'a.md', 'guava')]).ok).toBe(true);
+    expect(hitsOf(reopened.search({ project: PROJECT, query: 'guava' }))).toHaveLength(1);
+    reopened.close();
+    rawly(location, (db) => {
+      expect(db.prepare('SELECT x FROM keep_me').all()).toHaveLength(1);
+      expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: SEARCH_SCHEMA_VERSION });
+      expect(db.prepare(`SELECT name FROM pragma_table_info('search_chunks') WHERE name = 'old_column'`).all()).toEqual([]);
+    });
   });
 });
 
@@ -336,6 +484,19 @@ describe('the index is rebuildable from source files', () => {
     expect(search.search({ project: PROJECT, query: 'nothing' })).toMatchObject({ ok: true, hits: [] });
   });
 
+  it('a rebuild leaves no row behind, in either table', () => {
+    const location = join(dir, 'index.sqlite');
+    const search = index(location);
+    search.rebuildProject(PROJECT, [doc(PROJECT, 'old.md', 'plum')]);
+    search.rebuildProject(PROJECT, [doc(PROJECT, 'new.md', 'plum')]);
+    search.close();
+
+    rawly(location, (db) => {
+      expect(db.prepare('SELECT count(*) AS n FROM search_chunks').get()).toMatchObject({ n: 1 });
+      expect(db.prepare('SELECT count(*) AS n FROM search_chunks_fts').get()).toMatchObject({ n: 1 });
+    });
+  });
+
   it('a rebuild that fails part way leaves the previous index standing', () => {
     const location = join(dir, 'index.sqlite');
     const first = index(location);
@@ -419,6 +580,39 @@ describe('the walk reads only documents inside the project', () => {
 
     expect(paths(found)).toEqual(['fits.md']);
     expect(found.skipped).toEqual([{ path: 'big.md', reason: 'too-large' }]);
+  });
+
+  it('reports an unreadable file rather than throwing, and keeps the rest', () => {
+    write('bad.md', 'x');
+    write('good.md', 'y');
+    const unreadable = (abs: string): string => {
+      if (abs.endsWith('bad.md')) throw new Error('EPERM');
+      return readFileSync(abs, 'utf8');
+    };
+
+    const found = collectDocumentSources({ project: PROJECT, root: join(dir, 'tree'), readText: unreadable });
+
+    expect(paths(found)).toEqual(['good.md']);
+    expect(found.skipped).toEqual([{ path: 'bad.md', reason: 'unreadable' }]);
+  });
+
+  it('does not enter a dependency tree whatever its case', () => {
+    write('keep.md', 'k');
+    write('Node_Modules/pkg/README.md', 'x');
+    write('DIST/out.md', 'x');
+
+    expect(paths(collect())).toEqual(['keep.md']);
+  });
+
+  it('stops at the total size, and reports what it left out', () => {
+    write('a.md', 'x'.repeat(6));
+    write('b.md', 'x'.repeat(6));
+    write('c.md', 'x'.repeat(2));
+
+    const found = collectDocumentSources({ project: PROJECT, root: join(dir, 'tree'), maxTotalBytes: 10 });
+
+    expect(paths(found)).toEqual(['a.md', 'c.md']);
+    expect(found.skipped).toEqual([{ path: 'b.md', reason: 'total-size' }]);
   });
 
   it('reports a binary file with a document name, and drops a byte order mark', () => {

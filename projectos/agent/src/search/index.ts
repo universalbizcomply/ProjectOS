@@ -5,6 +5,7 @@
  */
 export {
   DEFAULT_MAX_DOCUMENT_BYTES,
+  DEFAULT_MAX_TOTAL_BYTES,
   DOCUMENT_EXTENSIONS,
   collectDocumentSources,
   type CollectedDocuments,
@@ -12,6 +13,8 @@ export {
   type SkippedReason,
 } from './documentSources.js';
 export {
+  MAX_SEARCH_RESULTS,
+  SEARCH_SCHEMA_VERSION,
   openSearchIndex,
   type ProjectIndexStatus,
   type RebuildResult,
