@@ -135,7 +135,9 @@ const MODULES = [
   // PROJECTOS-TENANT-CONTRACT1A — ADR-T1, the tenant and action registries, the pure envelope rules.
   "val-projectos-tenant-contract1a",
   // PROJECTOS-TENANT-RLS1A — the tenant boundary in the database, proved on a throwaway local cluster.
-  "val-projectos-tenant-rls1a"
+  "val-projectos-tenant-rls1a",
+  // PROJECTOS-PORT-FOUNDATION1A — the credit rule: every file in a port directory is original or credited.
+  "val-projectos-port-credit1a"
 ];
 
 // RETIRED: validator files that are deliberately NOT run by this suite, each with its recorded reason.
