@@ -23,6 +23,7 @@ import { reconcile } from './commands/reconcile.js';
 import { mcp } from './commands/mcp.js';
 import { workforce } from './commands/workforce.js';
 import { stop } from './commands/stop.js';
+import { tenant } from './commands/tenant.js';
 import { platformStopDirOf, platformStopRefusal } from './loop/platformStop.js';
 import { CORE_VERSION } from '@projectos/core';
 
@@ -32,6 +33,7 @@ import { CORE_VERSION } from '@projectos/core';
  * re-exports this module, so this is how it reaches the ONE check rather than keeping a copy of it.
  */
 export { controlCenterVerbRefusal, platformStopRefusal, PLATFORM_STOP_STATEMENT } from './loop/platformStop.js';
+export { controlCenterTenantRefusal, projectSelectionRefusal } from './governedContext.js';
 
 export const AGENT_VERSION = '0.1.0';
 
@@ -92,6 +94,7 @@ export const HELP: readonly string[] = [
   '  close --phase <ID>           Refuses — closure is owner-gated',
   '  closure <request|resume|status> --id <ID>  Ask the closure authority, wait for the owner’s commit, resume',
   '  stop [engage|status|lift]    Emergency stop for this Windows account: engage (no authority), status, lift (a person, in a terminal)',
+  '  tenant [show|receipt]        Whose work this is (read-only), and the owner’s confirmation of the tenant registry (a person, in a terminal)',
   '  version                      Print versions',
   '  help                         Show this help',
 ];
@@ -137,6 +140,8 @@ export function readOnlyUnderPlatformStop(command: string, positionals: readonly
       return sub === undefined || sub === 'status';
     case 'report':
       return flags['phase'] === undefined;
+    case 'tenant':
+      return sub === undefined || sub === 'show';
     default:
       return false;
   }
@@ -153,6 +158,8 @@ export function run(ctx: CommandContext, argv: readonly string[]): CommandResult
   switch (command) {
     case 'stop':
       return stop(ctx, flags, positionals);
+    case 'tenant':
+      return tenant(ctx, flags, positionals);
     case 'phase':
       return phase(ctx, flags, positionals);
     case 'approve':

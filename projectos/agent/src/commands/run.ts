@@ -16,7 +16,7 @@ import { type Flags, str, bool } from '../flags.js';
 import { runLoop, type RunResult } from '../loop/runner.js';
 import { continuationLines, continueProgramme, phaseAttemptOf } from '../loop/programmeContinuation.js';
 import { isDegradedOperation, DEGRADED_OPERATIONS } from '../loop/degradedMode.js';
-import { loadGovernedContext, refusalLines, type GovernedContext } from '../governedContext.js';
+import { loadGovernedContext, refusalLines, runStartTenantRefusal, type GovernedContext } from '../governedContext.js';
 import { selectNextPhase, selectionStopLines } from '../loop/selection.js';
 import { readClosureWait } from '../closureWait.js';
 import { changesSince, closureEvidencePath, gitFacts, programmeStateTailPaths, validationRecordPath } from '../closureGate.js';
@@ -381,6 +381,11 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
       'Nothing was prepared and nothing was started.',
     ]);
   }
+
+  // WHOSE WORK THIS IS, BEFORE ANYTHING ABOUT IT IS READ (PROJECTOS-TENANT-PRINCIPAL1A). The one entry
+  // refusal this command carries: an unlisted project, a mismatch or an unconfirmed registry starts nothing.
+  const tenantRefused = runStartTenantRefusal(ctx, execute);
+  if (tenantRefused !== null) return fail(2, [...tenantRefused, '', 'Nothing was prepared and nothing was started.']);
 
   const gateWaitMinutes = gateWaitMinutesFrom(flags);
   if (gateWaitMinutes === null) {

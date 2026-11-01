@@ -16,17 +16,43 @@
  * location, never to the caller's cwd — so the same engines apply when the CLI drives an external
  * project. No JSON parsing, schema logic, readiness logic or identity logic is duplicated here.
  */
+import { randomBytes } from 'node:crypto';
 import { governanceEngines } from './governanceEngines.js';
 import type { System } from './system.js';
-import { join, projectopsDir, configPath } from './context.js';
+import { join, projectopsDir, configPath, type CommandContext } from './context.js';
 import {
+  admitEnvelope,
+  mintEnvelope,
   parseProjectConfig,
   isGenuineClosure,
+  recordExecution,
+  type ActionRegistry,
+  type EnvelopeAdmission,
+  type EnvelopeGrantPort,
   type ProjectConfig,
   type ClosureDecisionRecord,
   type ClosureAuthorityExpectations,
+  type Role,
+  type TenantBinding,
+  type TenantRegistry,
 } from '@projectos/core';
 import { loadPhase, listPhaseIds } from './phaseStore.js';
+import {
+  ENVELOPE_RECORDS_FILENAME,
+  NO_GRANT,
+  claimIdempotencyKey,
+  envelopeRecorder,
+  ownerReceiptRefusal,
+  readCommittedActionRegistry,
+  readCommittedTenantRegistry,
+  resolveCheckout,
+  type TenantRefusal,
+  type TenantSource,
+} from './installation/tenantRegistry.js';
+import { nodeProjectosRuntime } from './nodeRuntimeRoot.js';
+// A CYCLE, AND A SAFE ONE: `platformStop.ts` imports `loadGovernedContext`, and this imports where the
+// stop's verified state directory is. Both are only ever CALLED, never read at load time.
+import { platformStopDirOf } from './loop/platformStop.js';
 
 /** Plan location when the config declares none. Unchanged default — existing installs are untouched. */
 export const DEFAULT_PLAN_RELPATH = '.projectops/plan.json';
@@ -379,4 +405,257 @@ export function authorisationRefusalLines(
 /** Render a refusal for the CLI. Kept here so every command refuses in the same words. */
 export function refusalLines(r: Extract<GovernedContextResult, { ok: false }>): readonly string[] {
   return [`REFUSED (${r.code}): ${r.detail}`];
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * THE TENANT (PROJECTOS-TENANT-PRINCIPAL1A, ADR-T1).
+ *
+ * `loadGovernedContext` proves which project and that its plan is ready. This proves whose work it is,
+ * and it is a separate question: a project with no ready plan still has a tenant, and a project that
+ * is not in the registry may have a perfectly ready plan.
+ *
+ * DERIVED, NEVER SUPPLIED (R2). Everything below reads the committed installation records, the
+ * project's own id, and git. No function here takes a tenant, reads a flag, or reads an environment
+ * variable by name, and a cloud login reaches none of it.
+ *
+ * MINTED WHERE A TENANT CAN BE CROSSED, THROUGH THE CORE'S DOOR. `run-start`, `project-selection` and
+ * `bridge-read` are minted and admitted here with a real recorder. `principal` and `actor` are stated by
+ * this code: a run is the implementer's, a read is the advisor's, and the actor is the kernel itself,
+ * because at a boundary no worker has started. `--as` is never read.
+ *
+ * WHAT THIS STILL DOES NOT DO. `run-start` gets no execution line, because `commands/run.ts` holds one
+ * entry refusal and no more (delta Zone 3). Its budget is zero, so `mintCrossing` would refuse a paid
+ * crossing from it; CREDENTIALS1A gives it one when broker calls are enveloped.
+ * ---------------------------------------------------------------------------------------------- */
+
+/** Stated by the kernel. At a boundary no worker has started, so the kernel is what is acting. */
+const KERNEL_ACTOR = Object.freeze({ agent: 'projectos-kernel', provider: 'projectos', model: 'none' });
+
+/** Every root envelope expires. A long governed run, and the moment around a read. */
+export const RUN_ENVELOPE_WINDOW_MS = 12 * 60 * 60_000;
+export const READ_ENVELOPE_WINDOW_MS = 5 * 60_000;
+
+/**
+ * Which installation answers for this context.
+ *
+ * THE INSTALLATION'S OWN LOCATION, NOT THE PROJECT'S. A governed project cannot choose its tenant
+ * registry, so the root comes from the running code's own module path, and the state directory is the
+ * platform stop's, which the operating system must agree with: one environment variable cannot point
+ * this at a forged receipt. `tenantInstallRoot` follows `platformStopInstallRoot`: reachable only from
+ * inside this process, set by tests and by the packaged sidecar's bound system root.
+ */
+export function tenantSourceOf(ctx: object): TenantSource {
+  const named = (ctx as { readonly tenantInstallRoot?: unknown }).tenantInstallRoot;
+  return {
+    installRoot: typeof named === 'string' && named.trim() !== '' ? named : nodeProjectosRuntime().installRoot,
+    stateDir: platformStopDirOf(ctx),
+  };
+}
+
+export interface InstallationRegistries {
+  readonly ok: true;
+  readonly registry: TenantRegistry;
+  readonly actions: ActionRegistry;
+  readonly blob: string;
+  readonly commit: string;
+}
+
+export interface DerivedTenant extends InstallationRegistries {
+  readonly binding: TenantBinding;
+}
+
+export type TenantDerivation = DerivedTenant | TenantRefusal;
+
+/** Both committed registries, each judged whole, before anything is matched. */
+export function readInstallationRegistries(sys: System, installRoot: string): InstallationRegistries | TenantRefusal {
+  const tenants = readCommittedTenantRegistry(sys, installRoot);
+  if (!tenants.ok) return tenants;
+  const actions = readCommittedActionRegistry(sys, installRoot);
+  if (!actions.ok) return actions;
+  return { ok: true, registry: tenants.registry, actions: actions.actions, blob: tenants.blob, commit: tenants.commit };
+}
+
+/** This checkout, against registries already judged whole. The owner receipt is not asked here. */
+export function bindCheckout(sys: System, root: string, projectId: string, registries: InstallationRegistries): TenantDerivation {
+  const resolved = resolveCheckout(sys, registries.registry, root, projectId);
+  return resolved.ok ? { ...registries, binding: resolved.binding } : { ok: false, code: resolved.code, reasons: resolved.reasons };
+}
+
+/** The whole derivation, in order: the file, then the owner, then the match. */
+export function deriveTenant(sys: System, root: string, projectId: string, source: TenantSource): TenantDerivation {
+  const registries = readInstallationRegistries(sys, source.installRoot);
+  if (!registries.ok) return registries;
+  const unconfirmed = ownerReceiptRefusal(sys, source, registries.blob);
+  if (unconfirmed !== null) return unconfirmed;
+  return bindCheckout(sys, root, projectId, registries);
+}
+
+/** The project's own id, from its own file: a claim until `deriveTenant` agrees. `null` when there is none. */
+export function declaredProjectId(sys: System, root: string): string | null {
+  const parsed = readJson(sys, configPath(root));
+  if (!parsed.ok) return null;
+  const config = parseProjectConfig(parsed.value);
+  return config.ok ? config.value.projectId : null;
+}
+
+/** `deriveTenant` for the project standing at `root`. No plan is needed: a tenant is not a readiness. */
+export function deriveProjectTenant(sys: System, root: string, source: TenantSource): TenantDerivation {
+  const projectId = declaredProjectId(sys, root);
+  if (projectId === null) {
+    return { ok: false, code: 'TENANT_UNKNOWN', reasons: [`${root} has no readable project configuration, so it names no project`] };
+  }
+  return deriveTenant(sys, root, projectId, source);
+}
+
+/** Render a tenant refusal. Every command refuses in the same words. */
+export function tenantRefusalLines(r: TenantRefusal): readonly string[] {
+  const [first, ...rest] = r.reasons;
+  return [`REFUSED (${r.code}): ${first ?? 'no tenant can be derived'}`, ...rest.map((reason) => `  ${reason}`)];
+}
+
+/** R4 for a refusal with no envelope: the door writes the line. `false` means it was not written. */
+export function recordTenantRefusal(sys: System, stateDir: string | null, r: TenantRefusal): boolean {
+  const reasons = r.reasons.map((reason) => `${r.code}: ${reason}`);
+  const door = admitEnvelope({ ok: false, rule: 'R2', reasons }, sys.now(), envelopeRecorder(sys, stateDir), NO_GRANT);
+  return !door.admitted && door.recorded;
+}
+
+/** What is shown when a refusal could not be written down. The operation is stopped either way. */
+export const REFUSAL_NOT_RECORDED_LINE = '  REFUSAL_NOT_RECORDED: no line in the installation state says this happened; the operation is stopped';
+
+/** A record's lock left by a process that died holds every later line, and only a person may clear it. */
+const RECORD_LOCK_HINT = `  if no other ProjectOS process is running, ${ENVELOPE_RECORDS_FILENAME}.lock in the installation state was left by one that died and must be removed`;
+
+function recordedRefusalLines(sys: System, source: TenantSource, r: TenantRefusal): readonly string[] {
+  const recorded = recordTenantRefusal(sys, source.stateDir, r);
+  return recorded ? tenantRefusalLines(r) : [...tenantRefusalLines(r), REFUSAL_NOT_RECORDED_LINE];
+}
+
+/** What the door refused, in the CLI's words. An admission that could not be written has its own name. */
+export function admissionRefusalLines(admission: Extract<EnvelopeAdmission, { admitted: false }>): readonly string[] {
+  const code = admission.rule === 'R4' ? 'ENVELOPE_NOT_RECORDED' : `ENVELOPE_${admission.rule}`;
+  const [first, ...rest] = admission.reasons;
+  return [
+    `REFUSED (${code}): ${first ?? 'the door refused this'}`,
+    ...rest.map((reason) => `  ${reason}`),
+    ...(admission.recorded ? [] : [REFUSAL_NOT_RECORDED_LINE, RECORD_LOCK_HINT]),
+  ];
+}
+
+function newEnvelopeId(): string {
+  return `ENV-${randomBytes(12).toString('hex')}`;
+}
+
+/** `''` for a clock that cannot be read, which the envelope then refuses under R1. */
+function instantAfter(now: string, windowMs: number): string {
+  const at = Date.parse(now);
+  return Number.isNaN(at) ? '' : new Date(at + windowMs).toISOString();
+}
+
+/** The commit this checkout stands on: what a boundary acts on. `''` refuses under R1. */
+export function checkoutSubject(sys: System, root: string): string {
+  const head = sys.exec('git', ['-C', root, 'rev-parse', '--verify', 'HEAD']);
+  return head.code === 0 ? head.stdout.trim() : '';
+}
+
+export interface BoundaryRequest {
+  readonly action: string;
+  readonly principal: Role;
+  readonly subjectHash: string;
+  readonly scope: readonly string[];
+  readonly windowMs: number;
+  readonly intentScope: string;
+}
+
+/** Mint through the core and pass the door, with the durable recorder. Nothing else admits a crossing. */
+export function admitBoundary(
+  sys: System,
+  stateDir: string | null,
+  derived: DerivedTenant,
+  request: BoundaryRequest,
+  grant: EnvelopeGrantPort = NO_GRANT,
+): EnvelopeAdmission {
+  const now = sys.now();
+  const minted = mintEnvelope(
+    { binding: derived.binding, registry: derived.actions, principal: request.principal, actor: KERNEL_ACTOR, envelopeId: newEnvelopeId() },
+    {
+      action: request.action,
+      subjectHash: request.subjectHash,
+      scope: request.scope,
+      budget: 0,
+      expiry: instantAfter(now, request.windowMs),
+      intentScope: request.intentScope,
+    },
+  );
+  return admitEnvelope(minted, now, envelopeRecorder(sys, stateDir), grant);
+}
+
+/**
+ * The one refusal at the top of `projectos run`, or `null`.
+ *
+ * A DRY RUN WRITES NOTHING, so it derives and refuses and mints nothing: it is not a run starting.
+ * `--execute` is. Its envelope is recorded at admission, and the idempotency key counts the attempt.
+ * The same key means the same HEAD, and a run that did its work moved HEAD, so a repeat here is a retry.
+ */
+export function runStartTenantRefusal(ctx: CommandContext, execute: boolean): readonly string[] | null {
+  const { sys, root } = ctx;
+  const source = tenantSourceOf(ctx);
+  const derived = deriveProjectTenant(sys, root, source);
+  if (!derived.ok) return execute ? recordedRefusalLines(sys, source, derived) : tenantRefusalLines(derived);
+  if (!execute) return null;
+  const admission = admitBoundary(sys, source.stateDir, derived, {
+    action: 'run-start',
+    principal: 'implementer',
+    subjectHash: checkoutSubject(sys, root),
+    scope: [`project:${derived.binding.projectId}`],
+    windowMs: RUN_ENVELOPE_WINDOW_MS,
+    intentScope: 'governed-run',
+  });
+  if (!admission.admitted) return admissionRefusalLines(admission);
+  const claim = claimIdempotencyKey(sys, source.stateDir, admission.envelope, sys.now(), { retryUnsettled: true });
+  if (claim.kind !== 'first' && claim.kind !== 'retry') {
+    const rule = claim.kind === 'duplicate' ? 'ENVELOPE_DUPLICATE' : 'IDEMPOTENCY_UNAVAILABLE';
+    const why = claim.kind === 'duplicate' ? `this run already ended as '${claim.earlier.outcome}' at this commit` : claim.why;
+    const stopped = recordExecution(admission.envelope, 'refused', rule, sys.now(), envelopeRecorder(sys, source.stateDir));
+    return [`REFUSED (${rule}): ${why}`, ...(stopped ? [] : [REFUSAL_NOT_RECORDED_LINE])];
+  }
+  return null;
+}
+
+/**
+ * Selecting a project in the Control Center: a P1 crossing, recorded both ways. Selecting is the owner's
+ * surface, but the kernel cannot show the owner is at it, so the principal is the advisor, which is what
+ * a read needs. Owner and agent get the same answer.
+ */
+export function projectSelectionRefusal(ctx: CommandContext): readonly string[] | null {
+  const { sys, root } = ctx;
+  const source = tenantSourceOf(ctx);
+  const derived = deriveProjectTenant(sys, root, source);
+  if (!derived.ok) return recordedRefusalLines(sys, source, derived);
+  const admission = admitBoundary(sys, source.stateDir, derived, {
+    action: 'project-selection',
+    principal: 'advisor',
+    subjectHash: checkoutSubject(sys, root),
+    scope: [`project:${derived.binding.projectId}`],
+    windowMs: READ_ENVELOPE_WINDOW_MS,
+    intentScope: 'control-center-selection',
+  });
+  if (!admission.admitted) return admissionRefusalLines(admission);
+  const recorded = recordExecution(admission.envelope, 'allowed', null, sys.now(), envelopeRecorder(sys, source.stateDir));
+  return recorded ? null : ['REFUSED (ENVELOPE_NOT_RECORDED): the selection could not be recorded, so it did not happen.'];
+}
+
+/** Verbs that cannot act on a project, or must always work. Everything else needs a tenant. */
+export const CONTROL_CENTER_VERBS_WITHOUT_TENANT: readonly string[] = ['refresh', 'project.select', 'run.stop'];
+
+/**
+ * The Control Center's other verbs, on the project already selected. A remembered selection is restored
+ * at start with no `project.select`, so the tenant is asked again here. These verbs are not enveloped
+ * yet (ADR-T1 §4); this only refuses a project with no tenant.
+ */
+export function controlCenterTenantRefusal(ctx: CommandContext, verb: string): readonly string[] | null {
+  if (CONTROL_CENTER_VERBS_WITHOUT_TENANT.includes(verb)) return null;
+  const source = tenantSourceOf(ctx);
+  const derived = deriveProjectTenant(ctx.sys, ctx.root, source);
+  return derived.ok ? null : recordedRefusalLines(ctx.sys, source, derived);
 }

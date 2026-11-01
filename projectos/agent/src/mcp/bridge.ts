@@ -25,7 +25,15 @@
  * A REFUSAL IS A RECORD, NOT A DROP. The plan requires it, because a silently dropped request is
  * indistinguishable from one that was never made: a probing conversation learns nothing from it and
  * neither does an auditor. Refusals are appended to the INSTALLATION's own state, outside every
- * repository, so a governed project cannot erase the evidence that it was probed.
+ * repository, so a governed project cannot erase the evidence that it was probed. A refusal that cannot
+ * be written is not dropped: the far end is told, and nothing runs (PROJECTOS-TENANT-PRINCIPAL1A).
+ *
+ * THE TENANT RULE IS ITS OWN RULE. `checkBridgeRequest` asks whether the bridge is bound to the project
+ * named. Every read then derives the bound project's tenant from the committed registry and refuses a
+ * named project outside it, so a read across tenants stops here even if the project check is gone. A
+ * read is admitted through the core's door and recorded before anything is read, and a line that cannot
+ * be written stops it. `stop-work` is none of this: stopping needs no tenant (ADR-T1 §9). The far end
+ * gets the refusal's name and no path, because a tenant refusal's reasons name directories.
  *
  * Written for PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A, criterion 15.
  */
@@ -38,7 +46,9 @@ import {
   checkBridgeRequest,
   parseProjectConfig,
   parseRemoteUrl,
+  recordExecution,
   type BridgeOperation,
+  type TaskEnvelope,
 } from '@projectos/core';
 import { listPhaseIds, loadPhase } from '../phaseStore.js';
 import { listApprovalIds, loadApproval } from '../approvalStore.js';
@@ -46,6 +56,15 @@ import { readLedger } from '../loop/gatekeeperConfig.js';
 import { reconciliationDebtBlock } from '../loop/degradedMode.js';
 import type { DurableBinding } from '../loop/degradedMode.js';
 import { engagePlatformStop, platformStopInstallRootOf, stopBindingFor } from '../loop/platformStop.js';
+import {
+  READ_ENVELOPE_WINDOW_MS,
+  admitBoundary,
+  checkoutSubject,
+  deriveTenant,
+  recordTenantRefusal,
+  tenantSourceOf,
+} from '../governedContext.js';
+import { appendDurableLine, crossTenantRefusal, envelopeRecorder, type TenantSource } from '../installation/tenantRegistry.js';
 
 /** The protocol revision this bridge speaks. Fixed: a bridge that negotiates is a bridge that guesses. */
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
@@ -124,22 +143,19 @@ function toolResult(lines: readonly string[], isError: boolean): unknown {
 }
 
 /**
- * Append one line to a JSONL file, with nobody else inside.
+ * Append one refusal to the JSONL file, with nobody else inside, or answer `false`.
  *
- * The same create-if-absent lock the installation ledger uses, for the same reason: this is a
- * read-modify-write over a single file, and a refusal that is lost to an interleaving is a refusal
- * that never happened as far as any later reader can tell.
+ * It used to return when the lock was held, and a write failure went unanswered, so a refusal could
+ * vanish while nothing said so. `appendDurableLine` never drops one and calls that a success.
  */
-function appendRefusal(sys: System, stateDir: string, entry: Record<string, unknown>): void {
-  const path = join(stateDir, 'bridge-refusals.jsonl');
-  const lock = `${path}.lock`;
-  if (!sys.createExclusive(lock, '{}\n')) return;
-  try {
-    const existing = sys.readText(path) ?? '';
-    sys.writeText(path, `${existing}${JSON.stringify(entry)}\n`);
-  } finally {
-    sys.removeFile(lock);
-  }
+function appendRefusal(sys: System, stateDir: string, entry: Record<string, unknown>): boolean {
+  return appendDurableLine(sys, join(stateDir, 'bridge-refusals.jsonl'), entry);
+}
+
+/** The far end's answer to a refusal. If it could not be written down, it says that as well. */
+function refusalResult(lines: readonly string[], recorded: boolean): unknown {
+  const unrecorded = 'REFUSAL_NOT_RECORDED: this refusal could not be written down, and nothing ran';
+  return toolResult(recorded ? lines : [...lines, `- ${unrecorded}`], true);
 }
 
 /**
@@ -251,6 +267,39 @@ function stopWork(deps: BridgeDeps): ReturnType<typeof engagePlatformStop> {
   });
 }
 
+type AdmittedRead =
+  | { readonly admitted: true; readonly envelope: TaskEnvelope; readonly source: TenantSource }
+  | { readonly admitted: false; readonly lines: readonly string[]; readonly recorded: boolean };
+
+/**
+ * The tenant rule and the door, for one read. `requested` is the project the far end named.
+ *
+ * NO PATH TRAVELS BACK. The derivation's reasons are recorded in the installation state; the far end
+ * gets the code alone.
+ */
+function admitBridgeRead(deps: BridgeDeps, operation: BridgeOperation, requested: string): AdmittedRead {
+  const { sys, root } = deps.ctx;
+  const source = tenantSourceOf(deps.ctx);
+  const refused = (code: string, recorded: boolean): AdmittedRead => ({
+    admitted: false,
+    lines: ['REFUSED', `- ${code}: this bridge may not answer this read; the reason is in the installation's own record`],
+    recorded,
+  });
+  const derived = deriveTenant(sys, root, deps.projectId, source);
+  if (!derived.ok) return refused(derived.code, recordTenantRefusal(sys, source.stateDir, derived));
+  const crossing = crossTenantRefusal(derived.registry, derived.binding.tenant, requested);
+  if (crossing !== null) return refused(crossing.code, recordTenantRefusal(sys, source.stateDir, crossing));
+  const admission = admitBoundary(sys, source.stateDir, derived, {
+    action: 'bridge-read',
+    principal: 'advisor',
+    subjectHash: checkoutSubject(sys, root),
+    scope: [`bridge:${operation}`],
+    windowMs: READ_ENVELOPE_WINDOW_MS,
+    intentScope: `bridge:${operation}`,
+  });
+  return admission.admitted ? { admitted: true, envelope: admission.envelope, source } : refused(`ENVELOPE_${admission.rule}`, admission.recorded);
+}
+
 /** Run one allowed READ operation. `stop-work` is answered by `stopWork` before this is reached. */
 function perform(operation: BridgeOperation, deps: BridgeDeps): readonly string[] {
   switch (operation) {
@@ -339,17 +388,17 @@ export function handleBridgeRpc(request: JsonRpcRequest, deps: BridgeDeps): Json
   );
 
   if (!verdict.allowed) {
-    appendRefusal(deps.ctx.sys, deps.stateDir, {
+    const recorded = appendRefusal(deps.ctx.sys, deps.stateDir, {
       at: deps.ctx.sys.now(),
       projectId: deps.projectId,
       operation: verdict.operation,
       reasons: verdict.reasons,
     });
-    return ok(request, toolResult(['REFUSED', ...verdict.reasons.map((r) => `- ${r}`)], true));
+    return ok(request, refusalResult(['REFUSED', ...verdict.reasons.map((r) => `- ${r}`)], recorded));
   }
 
   if (!IMPLEMENTED_OPERATIONS.includes(verdict.operation)) {
-    appendRefusal(deps.ctx.sys, deps.stateDir, {
+    const recorded = appendRefusal(deps.ctx.sys, deps.stateDir, {
       at: deps.ctx.sys.now(),
       projectId: deps.projectId,
       operation: verdict.operation,
@@ -357,12 +406,12 @@ export function handleBridgeRpc(request: JsonRpcRequest, deps: BridgeDeps): Json
     });
     return ok(
       request,
-      toolResult(
+      refusalResult(
         [
           'REFUSED',
           `- '${verdict.operation}' is part of the bridge contract but this revision does not implement it`,
         ],
-        true,
+        recorded,
       ),
     );
   }
@@ -373,5 +422,21 @@ export function handleBridgeRpc(request: JsonRpcRequest, deps: BridgeDeps): Json
     const engaged = stopWork(deps);
     return ok(request, toolResult(engaged.lines, engaged.kind === 'FAILED'));
   }
-  return ok(request, toolResult(perform(verdict.operation, deps), false));
+  // A READ IS A CROSSING: the tenant rule and the door first, and nothing is read until its line is written.
+  const requested = typeof args['projectId'] === 'string' ? args['projectId'].trim() : '';
+  const read = admitBridgeRead(deps, verdict.operation, requested);
+  if (!read.admitted) return ok(request, refusalResult(read.lines, read.recorded));
+  const recorder = envelopeRecorder(deps.ctx.sys, read.source.stateDir);
+  let lines: readonly string[];
+  try {
+    lines = perform(verdict.operation, deps);
+  } catch (error: unknown) {
+    recordExecution(read.envelope, 'failed', 'BRIDGE_READ_FAILED', deps.ctx.sys.now(), recorder);
+    throw error;
+  }
+  // R4, SECOND HALF: `false` means stop, so an answer whose outcome was not recorded is not sent.
+  if (!recordExecution(read.envelope, 'allowed', null, deps.ctx.sys.now(), recorder)) {
+    return ok(request, refusalResult(['REFUSED', '- ENVELOPE_NOT_RECORDED: the outcome of this read could not be recorded'], false));
+  }
+  return ok(request, toolResult(lines, false));
 }
