@@ -174,6 +174,10 @@ did not say which review raised each, so they are listed together. Neither revie
 - **`CitedSearchHit` is a convention, not branded.** `renderUntrustedExcerpt` re-checks a citation for this reason, and
   that check covers citations only: it says nothing about a hit's score or text.
 
+## Carried LOW
+
+- **`CITABLE_SEGMENT` lets invisible characters through,** so two filenames can look alike in a citation.
+
 ## Limits
 
 - **A citation is as fresh as the last rebuild.** Nothing checks a file against its index at search time. Plan 3.3

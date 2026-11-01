@@ -126,6 +126,18 @@ phase's write paths, and this branch rebases onto the fix.
   whole self-test: replace `noticesText + FIXTURE_ENTRIES` with
   `` `${noticesText.split("\nENTRY: ")[0]}\n` + FIXTURE_ENTRIES ``.
 
+## Binding on the phase that wires memory in
+
+From the ECC recheck. Nothing calls this code yet, so none of these is live. The phase that wires memory in does all four
+before a prompt reads the store.
+
+- **Add `containsSecret` in `loadMemoryBlock`.** The prompt does not run it today, so a file written around the queue is
+  checked only by the threat scan.
+- **Ignore or sign `.projectops/memory/`.** Until then, treat a clone-borne store as untrusted.
+- **Check the rendered body against the cap.** 300 one-character decisions with long references rendered 84,603
+  characters against a cap of 2,200.
+- **Close the other hidden-text forms, which are still admitted:** `[x]: <>`, `[x]: # '…'`, `[ // ]: #` and U+2800.
+
 ## Limits
 
 - **Nothing calls this yet.** No CLI command and no run-loop wiring are in this phase's write paths, and
