@@ -75,7 +75,10 @@ export function variants() {
   const strict = committedPolicy();
   return {
     'strict-shell': { profile: 'shell', csp: strict, expect: 'pass' },
+    // The live sign-in needs --live-sign-in and a decision: the phase was allowed one request, and used it.
     'strict-login': { profile: 'login', csp: strict, expect: 'pass', signIn: true },
+    // The same build with nothing submitted: the sign-in screen under the policy, and proof nothing left.
+    'strict-login-no-request': { profile: 'login', csp: strict, expect: 'pass', noRequest: true },
     'dev-policy-shell': {
       profile: 'shell',
       csp: committedDevPolicy(),

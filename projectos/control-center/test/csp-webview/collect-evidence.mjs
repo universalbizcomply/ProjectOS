@@ -9,7 +9,7 @@
  * val-projectos-tenant-csp1a calls the evidence stale.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { CONTROL_CENTER, committedDevPolicy, committedPolicy, variants } from './variants.mjs';
 import { outcome } from './verdict.mjs';
@@ -78,7 +78,11 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]).endsWith('collect-
     process.exit(2);
   }
   const capability = readFileSync(join(CONTROL_CENTER, 'src-tauri', 'capabilities', 'default.json'), 'utf8');
-  const runs = Object.keys(variants()).map((name) => summarise(JSON.parse(readFileSync(join(dir, `${name}.json`), 'utf8'))));
+  // A run that was not made is left out, and the validator says which ones it needs. Only the live sign-in
+  // can be absent: it needs a decision of its own.
+  const names = Object.keys(variants()).filter((name) => existsSync(join(dir, `${name}.json`)));
+  const runs = names.map((name) => summarise(JSON.parse(readFileSync(join(dir, `${name}.json`), 'utf8'))));
+  const earlier = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : {};
   const source = (rel) => sha256(readFileSync(join(CONTROL_CENTER, '..', '..', rel), 'utf8').replace(/\r\n/g, '\n'));
   writeFileSync(out, `${JSON.stringify({
     phase: 'PROJECTOS-TENANT-CSP1A',
@@ -87,6 +91,7 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]).endsWith('collect-
     capabilityPermissionsSha256: sha256(JSON.stringify(JSON.parse(capability).permissions)),
     buildSources: Object.fromEntries(BUILD_SOURCES.map((rel) => [rel, source(rel)])),
     build: JSON.parse(readFileSync(join(dir, 'build.json'), 'utf8')),
+    earlierLiveSignIn: earlier.earlierLiveSignIn ?? null,
     runs,
   }, null, 2)}\n`);
   console.log(`[csp-proof] ${runs.length} runs, ${runs.filter((run) => run.proved).length} proved`);

@@ -195,6 +195,15 @@ describe('the judge never passes silence', () => {
     expect(failing(judge({ ...obs, signIn: { ...obs.signIn, requests: 2 } }, LOGIN))).toEqual(['exactly-one-request']);
   });
 
+  it('a no-request run fails if anything reached the host', () => {
+    const quiet = { ...LOGIN, noRequest: true };
+    const signIn = { attempted: false, requests: 0, preflights: 0, otherOnHost: 0 };
+    expect(judge({ ...passingLogin(), signIn }, quiet)).toMatchObject({ pass: true });
+    expect(failing(judge({ ...passingLogin(), signIn: { ...signIn, preflights: 1 } }, quiet))).toEqual(['nothing-sent']);
+    expect(failing(judge({ ...passingLogin(), signIn: { ...signIn, attempted: true } }, quiet))).toEqual(['nothing-sent']);
+    expect(failing(judge({ ...passingLogin(), signIn: undefined }, quiet))).toEqual(['nothing-sent']);
+  });
+
   it('the preflight is not a second sign-in', () => {
     const obs = passingLogin();
     expect(failing(judge({ ...obs, signIn: { ...obs.signIn, preflights: 1 } }, LOGIN))).toEqual([]);

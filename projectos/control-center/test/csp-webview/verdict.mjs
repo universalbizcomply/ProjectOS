@@ -90,6 +90,14 @@ const SHELL = (obs, variant) => {
   ];
 };
 
+const LOGIN_NO_REQUEST = (obs) => [
+  [
+    'nothing-sent',
+    obs.signIn?.attempted === false && obs.signIn?.requests === 0 && obs.signIn?.preflights === 0 && obs.signIn?.otherOnHost === 0,
+    `${obs.signIn?.requests ?? 'unknown'} sign-in, ${obs.signIn?.preflights ?? 'unknown'} preflight`,
+  ],
+];
+
 const LOGIN = (obs) => [
   [
     'supabase-reached',
@@ -102,7 +110,8 @@ const LOGIN = (obs) => [
 
 /** @returns {{ pass: boolean, checks: { id: string, ok: boolean, detail: string }[] }} */
 export function judge(obs, variant) {
-  const rows = [...COMMON(obs, variant), ...(variant.profile === 'login' ? LOGIN(obs) : SHELL(obs, variant))];
+  const profile = variant.noRequest === true ? LOGIN_NO_REQUEST(obs) : variant.profile === 'login' ? LOGIN(obs) : SHELL(obs, variant);
+  const rows = [...COMMON(obs, variant), ...profile];
   const checks = rows.map(([id, ok, detail]) => ({ id, ok: ok === true, detail }));
   return { pass: checks.every((check) => check.ok), checks };
 }
