@@ -5,6 +5,7 @@
 // Source-Copyright: Copyright 2026 Rakazo contributors
 // Port-Strategy: ADAPTED
 // Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: the colon-joined key replaced by a hash over a JSON array, so fields cannot trade characters; the serializer now refuses negative zero, integers past the safe range, accessors, symbol keys, non-enumerable properties, labelled arrays and depth over a limit, and answers with a result instead of throwing; occurrence and legacy keys removed, because an approval is spent by id in taint.ts.
+// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: node and byte budgets added to the serializer, because a shared reference expands far past its own size.
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * The effect an approval is bound to: one run, one tool, one exact set of arguments.
@@ -29,6 +30,10 @@
  * value here, and the owner sees that one value. Only integers past the safe range are refused, because
  * those are the ones a reader takes for an exact identifier.
  *
+ * THE BUDGETS ARE ON WHAT WOULD BE EMITTED, NOT WHAT IS HELD. An object that holds the one below it twice,
+ * 22 levels deep, is small in memory and took 18 seconds to serialize. A depth limit does not see that,
+ * so the walk counts nodes and UTF-8 bytes as it goes and stops at the first one over.
+ *
  * No I/O. Nothing here decides anything: it says what an approval would be for.
  */
 import { createHash } from 'node:crypto';
@@ -38,12 +43,30 @@ const EFFECT_KEY_DOMAIN = 'projectos-tool-effect-v1:';
 /** Well past any real tool call, and short of the stack. A cycle stops here too. */
 const MAX_ARGUMENT_DEPTH = 64;
 
+/** Bounds the walk. Each shared reference counts every time it is reached, as it would be emitted. */
+const MAX_ARGUMENT_NODES = 100_000;
+
+/** Bounds the bytes hashed and carried to the tool. Strings and keys, as UTF-8. */
+const MAX_ARGUMENT_BYTES = 4 * 1024 * 1024;
+
+/** What one walk has used so far. Local to `canonicalArguments`. */
+interface WalkBudget {
+  nodes: number;
+  bytes: number;
+}
+
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
 
 const nonBlank = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
 
 function refuse(reason: string): never {
   throw new TypeError(reason);
+}
+
+function spendBytes(text: string, budget: WalkBudget): string {
+  budget.bytes += Buffer.byteLength(text, 'utf8');
+  if (budget.bytes > MAX_ARGUMENT_BYTES) refuse(`the arguments are over the budget of ${MAX_ARGUMENT_BYTES} bytes`);
+  return text;
 }
 
 /** Read a property without running anything: a getter is refused, never called. */
@@ -60,9 +83,9 @@ function serializeNumber(value: number): string {
   return JSON.stringify(value);
 }
 
-function serializeArray(items: readonly unknown[], depth: number): string {
+function serializeArray(items: readonly unknown[], depth: number, budget: WalkBudget): string {
   if (Reflect.ownKeys(items).length !== items.length + 1) refuse('an array with holes or labels has no one reading as JSON');
-  const parts = Array.from({ length: items.length }, (_, index) => serialize(dataValue(items, String(index)), depth + 1));
+  const parts = Array.from({ length: items.length }, (_, index) => serialize(dataValue(items, String(index)), depth + 1, budget));
   return `[${parts.join(',')}]`;
 }
 
@@ -72,23 +95,25 @@ function plainKey(holder: object, key: string | symbol): string {
   return key;
 }
 
-function serializeObject(value: object, depth: number): string {
+function serializeObject(value: object, depth: number, budget: WalkBudget): string {
   const prototype: unknown = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) refuse('only plain objects are JSON values');
   const keys = Reflect.ownKeys(value)
     .map((key) => plainKey(value, key))
     .sort();
-  const entries = keys.map((key) => `${JSON.stringify(key)}:${serialize(dataValue(value, key), depth + 1)}`);
+  const entries = keys.map((key) => `${spendBytes(JSON.stringify(key), budget)}:${serialize(dataValue(value, key), depth + 1, budget)}`);
   return `{${entries.join(',')}}`;
 }
 
-function serialize(current: unknown, depth: number): string {
+function serialize(current: unknown, depth: number, budget: WalkBudget): string {
+  budget.nodes += 1;
+  if (budget.nodes > MAX_ARGUMENT_NODES) refuse(`the arguments are over the budget of ${MAX_ARGUMENT_NODES} values`);
   if (depth > MAX_ARGUMENT_DEPTH) refuse('the arguments are nested too deeply, or they contain a cycle');
   if (current === null) return 'null';
-  if (typeof current === 'string' || typeof current === 'boolean') return JSON.stringify(current);
+  if (typeof current === 'string' || typeof current === 'boolean') return spendBytes(JSON.stringify(current), budget);
   if (typeof current === 'number') return serializeNumber(current);
   if (typeof current !== 'object') return refuse(`a ${typeof current} is not a JSON value`);
-  return Array.isArray(current) ? serializeArray(current as readonly unknown[], depth) : serializeObject(current, depth);
+  return Array.isArray(current) ? serializeArray(current as readonly unknown[], depth, budget) : serializeObject(current, depth, budget);
 }
 
 export type CanonicalArguments = { readonly ok: true; readonly canonical: string } | { readonly ok: false; readonly reason: string };
@@ -96,7 +121,7 @@ export type CanonicalArguments = { readonly ok: true; readonly canonical: string
 /** The one reading of these arguments, keys sorted, or why there is none. */
 export function canonicalArguments(args: unknown): CanonicalArguments {
   try {
-    return { ok: true, canonical: serialize(args, 0) };
+    return { ok: true, canonical: serialize(args, 0, { nodes: 0, bytes: 0 }) };
   } catch (error) {
     return { ok: false, reason: error instanceof TypeError ? error.message : 'the arguments could not be read' };
   }
