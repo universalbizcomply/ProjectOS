@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "4de16599e4604e47",
+  "objective": "V4 Stage 2: the database and the kernel's own routes each refuse a cross-tenant read, with per-tenant credentials, a strict Control Center CSP and the connector contract, per docs/changes/delta_spec.md revision 2.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "b3b9f697659cc6326fc7809e8210d7269e964a55",
+  "submittedAt": "2026-11-01T14:01:29.649Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
