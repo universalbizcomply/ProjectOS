@@ -314,3 +314,10 @@ Forge, the signed installer, and the Host unattended-review route.
   migrations and the owner's membership applied; preflight and post-check passed; ECC DATABASE APPROVE on 0003. The personal
   access token was pasted in chat and reaches the whole account. Owner decision, 2026-11-01: it stays until the project is
   completed, then the owner revokes it. It is not stored in the repo or in memory.
+- 2026-11-01: PROJECTOS-TENANT-CONTRACT1A and PROJECTOS-TENANT-RLS1A **CLOSED** owner-direct on "Close and push", evidence subject
+  `7f52f838`, `c0bfa875`, plan v1.29 24/29. The Agency reviews arrived after the owner changed the guard. An added `gstack-review` pass
+  found two defects other reviewers missed, one fixed and one disposed with reasons. core 1186, agent 2921, control-center 890,
+  validate-all 155/157 (the 2 known baseline failures). Next on the plan: PRINCIPAL1A, then CREDENTIALS1A; CSP1A can run in parallel.
+- 2026-11-01: `docs/changes/delta_spec_V4_PORTS.md` written, PROPOSED, for the owner's approval (owner: "Yes, write the port plan"
+  and "i want to claim it's mine with giving credits to the due"). The owner's fresh downloads are pinned there. nightly-labs/openbot is
+  PolyForm Noncommercial, so it is never a code source; its features are built from MIT sources and our own code.
