@@ -1,32 +1,4 @@
--- Interactive Control Center: phases table + write access for signed-in owner.
--- Run in Supabase SQL editor or via the Management API. Authenticated = the owner.
-
-create table if not exists public.phases (
-  id          uuid primary key default gen_random_uuid(),
-  project_id  text not null references public.projects(id) on delete cascade,
-  phase_id    text not null,
-  objective   text not null default '',
-  status      text not null default 'draft',
-  history     jsonb not null default '[]'::jsonb,
-  advisor_note text not null default '',
-  created_at  timestamptz not null default now(),
-  unique (project_id, phase_id)
-);
-
--- (existing databases) add the advisor note column if the table predates it:
-alter table public.phases add column if not exists advisor_note text not null default '';
-
-alter table public.phases enable row level security;
-
-drop policy if exists "phases authenticated all" on public.phases;
-create policy "phases authenticated all"
-  on public.phases for all
-  to authenticated
-  using (true) with check (true);
-
--- Let the signed-in owner create/update projects from the UI (read stays authenticated too).
-drop policy if exists "projects authenticated write" on public.projects;
-create policy "projects authenticated write"
-  on public.projects for all
-  to authenticated
-  using (true) with check (true);
+-- RETIRED by PROJECTOS-TENANT-RLS1A, 2026-11-01. This file holds no SQL, on purpose.
+-- It used to create public.phases and re-create the permissive write policies, and re-running that
+-- undid the tenant boundary, so its contents are gone and running it now does nothing.
+-- The schema lives in migrations/: 0001_baseline.sql, then 0002_tenant_boundary.sql.

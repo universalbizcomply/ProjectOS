@@ -1,7 +1,8 @@
 /**
  * Auth helpers over Supabase Auth (email + password). The dashboard is gated: without a
- * session the app shows the login screen; the `projects` table is readable only by
- * authenticated users (see supabase/schema.sql RLS). Uses the public anon key only.
+ * session the app shows the login screen. A session reaches the cloud tables only, and only the
+ * rows of tenants the user belongs to (see supabase/migrations/0002_tenant_boundary.sql). It
+ * carries no kernel authority. Uses the public anon key only.
  */
 import type { Session } from '@supabase/supabase-js';
 import { getClient } from './supabase';

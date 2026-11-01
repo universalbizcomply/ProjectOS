@@ -22,7 +22,6 @@ const probe = vi.hoisted(() => ({
 vi.mock('../src/data/supabase', () => ({
   isSupabaseConfigured: true,
   getClient: () => null,
-  fetchProjects: async () => ({ rows: [], source: 'seed' as const }),
 }));
 
 vi.mock('../src/data/auth', () => ({
