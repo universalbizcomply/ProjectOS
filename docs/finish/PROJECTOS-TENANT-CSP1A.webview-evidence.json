@@ -1,0 +1,674 @@
+{
+  "phase": "PROJECTOS-TENANT-CSP1A",
+  "policySha256": "1a5a2358cf6ff7b22c6342db0e43ebb2096e43165853a82118b37cc2ed73cbf6",
+  "devPolicySha256": "1cf6d6b88a8c9c32dc66f9dea87f97aa1743f1d7dbdc221ff8f2350bd56f29d1",
+  "capabilityPermissionsSha256": "293f9341aff78321a985e2339dfd05d1fa9d22485be41a40a9e803d87c1d7892",
+  "runs": [
+    {
+      "variant": "strict-shell",
+      "expect": "pass",
+      "mustFailAt": null,
+      "proved": true,
+      "browser": "Edg/156.0.4314.58",
+      "passed": [
+        "served-policy",
+        "app-loaded",
+        "bundled-fonts",
+        "no-violation",
+        "sidecar-reached",
+        "ipc-native",
+        "screens-walked",
+        "capability-narrow",
+        "inline-script-blocked",
+        "eval-blocked",
+        "foreign-fetch-blocked",
+        "sibling-project-blocked",
+        "foreign-image-blocked",
+        "inline-style-blocked",
+        "style-attribute-blocked",
+        "cssom-style-works",
+        "base-uri-blocked",
+        "object-blocked",
+        "form-action-blocked"
+      ],
+      "failed": [],
+      "scriptHashesServed": 3,
+      "elements": 74,
+      "sidecar": {
+        "state": "RUNNING_READ_ONLY",
+        "messages": 4,
+        "kinds": {
+          "untyped": 4
+        }
+      },
+      "walked": [
+        "Projects",
+        "Execution",
+        "Control Center",
+        "Health",
+        "Settings"
+      ],
+      "fonts": {
+        "bundledLoaded": true,
+        "widthDiffers": true,
+        "fetched": [
+          "/fonts/Barlow-700.woff2",
+          "/fonts/Barlow-500.woff2",
+          "/fonts/Barlow-400.woff2",
+          "/fonts/BarlowCondensed-600.woff2"
+        ]
+      },
+      "ipcNative": 23,
+      "abortedByReload": 0,
+      "violationsInUse": 0,
+      "consoleRefusalsInUse": 0,
+      "blockedDirectives": [
+        "base-uri",
+        "connect-src",
+        "form-action",
+        "img-src",
+        "object-src",
+        "script-src",
+        "script-src-elem",
+        "style-src-attr",
+        "style-src-elem"
+      ],
+      "arrivedAtListener": {},
+      "capability": {
+        "windowDenied": true,
+        "openerDenied": true
+      },
+      "signIn": null
+    },
+    {
+      "variant": "strict-login",
+      "expect": "pass",
+      "mustFailAt": null,
+      "proved": true,
+      "browser": "Edg/156.0.4314.58",
+      "passed": [
+        "served-policy",
+        "app-loaded",
+        "bundled-fonts",
+        "no-violation",
+        "supabase-reached",
+        "exactly-one-request"
+      ],
+      "failed": [],
+      "scriptHashesServed": 3,
+      "elements": 13,
+      "sidecar": null,
+      "walked": null,
+      "fonts": {
+        "bundledLoaded": true,
+        "widthDiffers": true,
+        "fetched": [
+          "/fonts/Barlow-400.woff2",
+          "/fonts/Barlow-700.woff2",
+          "/fonts/BarlowCondensed-600.woff2"
+        ]
+      },
+      "ipcNative": 0,
+      "abortedByReload": 0,
+      "violationsInUse": 0,
+      "consoleRefusalsInUse": 0,
+      "blockedDirectives": [],
+      "arrivedAtListener": {},
+      "capability": null,
+      "signIn": {
+        "attempted": true,
+        "method": "POST",
+        "host": "vzbzkziksxvyfqrdrwqx.supabase.co",
+        "path": "/auth/v1/token",
+        "query": "?grant_type=password",
+        "status": 400,
+        "shownError": "Invalid login credentials",
+        "requests": 1,
+        "preflights": 1,
+        "blockedByPolicy": 0,
+        "otherOnHost": 0
+      }
+    },
+    {
+      "variant": "dev-policy-shell",
+      "expect": "pass",
+      "mustFailAt": null,
+      "proved": true,
+      "browser": "Edg/156.0.4314.58",
+      "passed": [
+        "served-policy",
+        "app-loaded",
+        "bundled-fonts",
+        "no-violation",
+        "sidecar-reached",
+        "ipc-native",
+        "screens-walked",
+        "capability-narrow",
+        "inline-script-blocked",
+        "eval-blocked",
+        "foreign-fetch-blocked",
+        "sibling-project-blocked",
+        "foreign-image-blocked",
+        "inline-style-blocked",
+        "style-attribute-blocked",
+        "cssom-style-works",
+        "base-uri-blocked",
+        "object-blocked",
+        "form-action-blocked"
+      ],
+      "failed": [],
+      "scriptHashesServed": 3,
+      "elements": 74,
+      "sidecar": {
+        "state": "RUNNING_READ_ONLY",
+        "messages": 8,
+        "kinds": {
+          "untyped": 8
+        }
+      },
+      "walked": [
+        "Projects",
+        "Execution",
+        "Control Center",
+        "Health",
+        "Settings"
+      ],
+      "fonts": {
+        "bundledLoaded": true,
+        "widthDiffers": true,
+        "fetched": [
+          "/fonts/Barlow-700.woff2",
+          "/fonts/Barlow-500.woff2",
+          "/fonts/Barlow-400.woff2",
+          "/fonts/BarlowCondensed-600.woff2"
+        ]
+      },
+      "ipcNative": 22,
+      "abortedByReload": 0,
+      "violationsInUse": 0,
+      "consoleRefusalsInUse": 0,
+      "blockedDirectives": [
+        "base-uri",
+        "connect-src",
+        "form-action",
+        "img-src",
+        "object-src",
+        "script-src",
+        "script-src-elem"
+      ],
+      "arrivedAtListener": {},
+      "capability": {
+        "windowDenied": true,
+        "openerDenied": true
+      },
+      "signIn": null
+    },
+    {
+      "variant": "control-no-policy",
+      "expect": "fail",
+      "mustFailAt": "served-policy",
+      "proved": true,
+      "browser": "Edg/156.0.4314.58",
+      "passed": [
+        "app-loaded",
+        "bundled-fonts",
+        "no-violation",
+        "sidecar-reached",
+        "ipc-native",
+        "screens-walked",
+        "capability-narrow",
+        "cssom-style-works"
+      ],
+      "failed": [
+        "served-policy",
+        "inline-script-blocked",
+        "eval-blocked",
+        "foreign-fetch-blocked",
+        "sibling-project-blocked",
+        "foreign-image-blocked",
+        "inline-style-blocked",
+        "style-attribute-blocked",
+        "base-uri-blocked",
+        "object-blocked",
+        "form-action-blocked"
+      ],
+      "scriptHashesServed": 0,
+      "elements": 74,
+      "sidecar": {
+        "state": "RUNNING_READ_ONLY",
+        "messages": 8,
+        "kinds": {
+          "untyped": 8
+        }
+      },
+      "walked": [
+        "Projects",
+        "Execution",
+        "Control Center",
+        "Health",
+        "Settings"
+      ],
+      "fonts": {
+        "bundledLoaded": true,
+        "widthDiffers": true,
+        "fetched": [
+          "/fonts/Barlow-700.woff2",
+          "/fonts/Barlow-500.woff2",
+          "/fonts/Barlow-400.woff2",
+          "/fonts/BarlowCondensed-600.woff2"
+        ]
+      },
+      "ipcNative": 23,
+      "abortedByReload": 0,
+      "violationsInUse": 0,
+      "consoleRefusalsInUse": 0,
+      "blockedDirectives": [],
+      "arrivedAtListener": {
+        "/fetch": 1,
+        "/image": 1,
+        "/object": 1,
+        "/form": 1,
+        "/favicon.ico": 1
+      },
+      "capability": {
+        "windowDenied": true,
+        "openerDenied": true
+      },
+      "signIn": null
+    },
+    {
+      "variant": "control-loose-script-style",
+      "expect": "fail",
+      "mustFailAt": "eval-blocked",
+      "proved": true,
+      "browser": "Edg/156.0.4314.58",
+      "passed": [
+        "served-policy",
+        "app-loaded",
+        "bundled-fonts",
+        "no-violation",
+        "sidecar-reached",
+        "ipc-native",
+        "screens-walked",
+        "capability-narrow",
+        "inline-script-blocked",
+        "foreign-fetch-blocked",
+        "sibling-project-blocked",
+        "foreign-image-blocked",
+        "cssom-style-works",
+        "base-uri-blocked",
+        "object-blocked",
+        "form-action-blocked"
+      ],
+      "failed": [
+        "eval-blocked",
+        "inline-style-blocked",
+        "style-attribute-blocked"
+      ],
+      "scriptHashesServed": 3,
+      "elements": 74,
+      "sidecar": {
+        "state": "RUNNING_READ_ONLY",
+        "messages": 4,
+        "kinds": {
+          "untyped": 4
+        }
+      },
+      "walked": [
+        "Projects",
+        "Execution",
+        "Control Center",
+        "Health",
+        "Settings"
+      ],
+      "fonts": {
+        "bundledLoaded": true,
+        "widthDiffers": true,
+        "fetched": [
+          "/fonts/Barlow-700.woff2",
+          "/fonts/Barlow-500.woff2",
+          "/fonts/Barlow-400.woff2",
+          "/fonts/BarlowCondensed-600.woff2"
+        ]
+      },
+      "ipcNative": 21,
+      "abortedByReload": 0,
+      "violationsInUse": 0,
+      "consoleRefusalsInUse": 0,
+      "blockedDirectives": [
+        "base-uri",
+        "connect-src",
+        "form-action",
+        "img-src",
+        "object-src",
+        "script-src-elem"
+      ],
+      "arrivedAtListener": {},
+      "capability": {
+        "windowDenied": true,
+        "openerDenied": true
+      },
+      "signIn": null
+    },
+    {
+      "variant": "control-no-ipc",
+      "expect": "fail",
+      "mustFailAt": "no-violation",
+      "proved": true,
+      "browser": "Edg/156.0.4314.58",
+      "passed": [
+        "served-policy",
+        "app-loaded",
+        "bundled-fonts",
+        "sidecar-reached",
+        "screens-walked",
+        "capability-narrow",
+        "inline-script-blocked",
+        "eval-blocked",
+        "foreign-fetch-blocked",
+        "sibling-project-blocked",
+        "foreign-image-blocked",
+        "inline-style-blocked",
+        "style-attribute-blocked",
+        "cssom-style-works",
+        "base-uri-blocked",
+        "object-blocked",
+        "form-action-blocked"
+      ],
+      "failed": [
+        "no-violation",
+        "ipc-native"
+      ],
+      "scriptHashesServed": 3,
+      "elements": 74,
+      "sidecar": {
+        "state": "RUNNING_READ_ONLY",
+        "messages": 8,
+        "kinds": {
+          "untyped": 8
+        }
+      },
+      "walked": [
+        "Projects",
+        "Execution",
+        "Control Center",
+        "Health",
+        "Settings"
+      ],
+      "fonts": {
+        "bundledLoaded": true,
+        "widthDiffers": true,
+        "fetched": [
+          "/fonts/Barlow-700.woff2",
+          "/fonts/Barlow-500.woff2",
+          "/fonts/Barlow-400.woff2",
+          "/fonts/BarlowCondensed-600.woff2"
+        ]
+      },
+      "ipcNative": 0,
+      "abortedByReload": 1,
+      "violationsInUse": 1,
+      "consoleRefusalsInUse": 5,
+      "blockedDirectives": [
+        "base-uri",
+        "connect-src",
+        "form-action",
+        "img-src",
+        "object-src",
+        "script-src",
+        "script-src-elem",
+        "style-src-attr",
+        "style-src-elem"
+      ],
+      "arrivedAtListener": {},
+      "capability": {
+        "windowDenied": true,
+        "openerDenied": true
+      },
+      "signIn": null
+    },
+    {
+      "variant": "control-no-fonts",
+      "expect": "fail",
+      "mustFailAt": "bundled-fonts",
+      "proved": true,
+      "browser": "Edg/156.0.4314.58",
+      "passed": [
+        "served-policy",
+        "app-loaded",
+        "sidecar-reached",
+        "ipc-native",
+        "screens-walked",
+        "capability-narrow",
+        "inline-script-blocked",
+        "eval-blocked",
+        "foreign-fetch-blocked",
+        "sibling-project-blocked",
+        "foreign-image-blocked",
+        "inline-style-blocked",
+        "style-attribute-blocked",
+        "cssom-style-works",
+        "base-uri-blocked",
+        "object-blocked",
+        "form-action-blocked"
+      ],
+      "failed": [
+        "bundled-fonts",
+        "no-violation"
+      ],
+      "scriptHashesServed": 3,
+      "elements": 74,
+      "sidecar": {
+        "state": "RUNNING_READ_ONLY",
+        "messages": 4,
+        "kinds": {
+          "untyped": 4
+        }
+      },
+      "walked": [
+        "Projects",
+        "Execution",
+        "Control Center",
+        "Health",
+        "Settings"
+      ],
+      "fonts": {
+        "bundledLoaded": false,
+        "widthDiffers": true,
+        "fetched": []
+      },
+      "ipcNative": 21,
+      "abortedByReload": 0,
+      "violationsInUse": 5,
+      "consoleRefusalsInUse": 10,
+      "blockedDirectives": [
+        "base-uri",
+        "connect-src",
+        "font-src",
+        "form-action",
+        "img-src",
+        "object-src",
+        "script-src",
+        "script-src-elem",
+        "style-src-attr",
+        "style-src-elem"
+      ],
+      "arrivedAtListener": {},
+      "capability": {
+        "windowDenied": true,
+        "openerDenied": true
+      },
+      "signIn": null
+    },
+    {
+      "variant": "control-no-script",
+      "expect": "fail",
+      "mustFailAt": "app-loaded",
+      "proved": true,
+      "browser": "Edg/156.0.4314.58",
+      "passed": [
+        "served-policy"
+      ],
+      "failed": [
+        "app-loaded",
+        "bundled-fonts",
+        "no-violation",
+        "sidecar-reached",
+        "ipc-native",
+        "screens-walked",
+        "capability-narrow",
+        "inline-script-blocked",
+        "eval-blocked",
+        "foreign-fetch-blocked",
+        "sibling-project-blocked",
+        "foreign-image-blocked",
+        "inline-style-blocked",
+        "style-attribute-blocked",
+        "cssom-style-works",
+        "base-uri-blocked",
+        "object-blocked",
+        "form-action-blocked"
+      ],
+      "scriptHashesServed": 0,
+      "elements": 0,
+      "sidecar": null,
+      "walked": null,
+      "fonts": null,
+      "ipcNative": 0,
+      "abortedByReload": 0,
+      "violationsInUse": 0,
+      "consoleRefusalsInUse": 2,
+      "blockedDirectives": [],
+      "arrivedAtListener": {},
+      "capability": null,
+      "signIn": null
+    },
+    {
+      "variant": "control-no-supabase",
+      "expect": "fail",
+      "mustFailAt": "supabase-reached",
+      "proved": true,
+      "browser": "Edg/156.0.4314.58",
+      "passed": [
+        "served-policy",
+        "app-loaded",
+        "bundled-fonts"
+      ],
+      "failed": [
+        "no-violation",
+        "supabase-reached",
+        "exactly-one-request"
+      ],
+      "scriptHashesServed": 3,
+      "elements": 13,
+      "sidecar": null,
+      "walked": null,
+      "fonts": {
+        "bundledLoaded": true,
+        "widthDiffers": true,
+        "fetched": [
+          "/fonts/Barlow-400.woff2",
+          "/fonts/Barlow-700.woff2",
+          "/fonts/BarlowCondensed-600.woff2"
+        ]
+      },
+      "ipcNative": 0,
+      "abortedByReload": 0,
+      "violationsInUse": 1,
+      "consoleRefusalsInUse": 2,
+      "blockedDirectives": [],
+      "arrivedAtListener": {},
+      "capability": null,
+      "signIn": {
+        "attempted": true,
+        "method": null,
+        "host": null,
+        "path": null,
+        "query": null,
+        "status": null,
+        "shownError": "Failed to fetch",
+        "requests": 0,
+        "preflights": 0,
+        "blockedByPolicy": 0,
+        "otherOnHost": 0
+      }
+    },
+    {
+      "variant": "control-wide-capability",
+      "expect": "fail",
+      "mustFailAt": "capability-narrow",
+      "proved": true,
+      "browser": "Edg/156.0.4314.58",
+      "passed": [
+        "served-policy",
+        "app-loaded",
+        "bundled-fonts",
+        "no-violation",
+        "sidecar-reached",
+        "ipc-native",
+        "screens-walked",
+        "inline-script-blocked",
+        "eval-blocked",
+        "foreign-fetch-blocked",
+        "sibling-project-blocked",
+        "foreign-image-blocked",
+        "inline-style-blocked",
+        "style-attribute-blocked",
+        "cssom-style-works",
+        "base-uri-blocked",
+        "object-blocked",
+        "form-action-blocked"
+      ],
+      "failed": [
+        "capability-narrow"
+      ],
+      "scriptHashesServed": 3,
+      "elements": 74,
+      "sidecar": {
+        "state": "RUNNING_READ_ONLY",
+        "messages": 4,
+        "kinds": {
+          "untyped": 4
+        }
+      },
+      "walked": [
+        "Projects",
+        "Execution",
+        "Control Center",
+        "Health",
+        "Settings"
+      ],
+      "fonts": {
+        "bundledLoaded": true,
+        "widthDiffers": true,
+        "fetched": [
+          "/fonts/Barlow-700.woff2",
+          "/fonts/Barlow-500.woff2",
+          "/fonts/Barlow-400.woff2",
+          "/fonts/BarlowCondensed-600.woff2"
+        ]
+      },
+      "ipcNative": 19,
+      "abortedByReload": 0,
+      "violationsInUse": 0,
+      "consoleRefusalsInUse": 0,
+      "blockedDirectives": [
+        "base-uri",
+        "connect-src",
+        "form-action",
+        "img-src",
+        "object-src",
+        "script-src",
+        "script-src-elem",
+        "style-src-attr",
+        "style-src-elem"
+      ],
+      "arrivedAtListener": {},
+      "capability": {
+        "windowDenied": false,
+        "openerDenied": false
+      },
+      "signIn": null
+    }
+  ]
+}
