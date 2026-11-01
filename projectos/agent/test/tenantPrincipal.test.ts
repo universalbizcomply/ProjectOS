@@ -197,7 +197,11 @@ describe('the committed registry', () => {
     const registries = readInstallationRegistries(nodeSystem, tenantSourceOf({}).installRoot);
     if (!registries.ok) throw new Error(registries.reasons.join('; '));
     const tenants = Object.fromEntries(registries.registry.projects.map((p) => [p.projectId, p.tenant]));
-    expect(tenants).toEqual({ projectos: OWNER_TENANT, polygo: OWNER_TENANT, 'seo-agency': AGENCY_TENANT });
+    expect(tenants['projectos']).toBe(OWNER_TENANT);
+    expect(tenants['polygo']).toBe(OWNER_TENANT);
+    expect(tenants['seo-agency']).toBe(AGENCY_TENANT);
+    expect(tenants['dead-aisle']).toBe(OWNER_TENANT);
+    expect(Object.values(tenants).filter((tenant) => tenant === AGENCY_TENANT)).toEqual([AGENCY_TENANT]);
   });
 });
 

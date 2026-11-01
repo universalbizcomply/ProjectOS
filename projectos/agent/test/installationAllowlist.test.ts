@@ -114,6 +114,59 @@ const runtimeAt = (installRoot: string) => ({
   adapterRelPath: 'projectos/credentials/windows-credential-store.ps1',
 });
 
+describe('a git replace ref does not change what the allowlist says', () => {
+  /** Put an allowlist naming `impostor` under the committed blob's name: no commit, no diff. */
+  function plantReplacement(install: string): void {
+    const git = (...args: string[]) => execFileSync('git', ['-C', install, ...args], { encoding: 'utf8' }).trim();
+    const committed = git('rev-parse', `HEAD:./${INSTALLATION_ALLOWLIST_REL}`);
+    const planted = join(tmpdir(), `projectos-alw-planted-${process.pid}.json`);
+    roots.push(planted);
+    writeFileSync(planted, git('show', `HEAD:./${INSTALLATION_ALLOWLIST_REL}`).split(PROJECT).join('impostor'));
+    git('replace', committed, git('hash-object', '-w', planted));
+  }
+
+  it('reads the committed bytes under a replace ref: what it planted is not what is read', () => {
+    const install = installation([{ projectId: PROJECT, repository: REPO }]);
+    expect(installationAllowsProject(nodeLikeSystem(), runtimeAt(install), install, PROJECT).allowed).toBe(true);
+    plantReplacement(install);
+    const shown = execFileSync('git', ['-C', install, 'show', `HEAD:./${INSTALLATION_ALLOWLIST_REL}`], { encoding: 'utf8' });
+    expect(shown).toContain('impostor');
+    expect(installationAllowsProject(nodeLikeSystem(), runtimeAt(install), install, 'impostor').allowed).toBe(false);
+    expect(installationAllowsProject(nodeLikeSystem(), runtimeAt(install), install, PROJECT).allowed).toBe(true);
+  });
+
+  it('refuses bytes that do not hash to the committed blob, whatever produced them', () => {
+    const install = installation([{ projectId: PROJECT, repository: REPO }]);
+    const honest = nodeLikeSystem();
+    const lying = {
+      ...honest,
+      exec: (command: string, args: readonly string[]) => {
+        const real = honest.exec(command, args);
+        return args.includes('show') ? { ...real, stdout: real.stdout.replace(PROJECT, 'impostor') } : real;
+      },
+    } as System;
+    const d = installationAllowsProject(lying, runtimeAt(install), install, 'impostor');
+    expect(d.allowed).toBe(false);
+    expect(d.reasons.join(' ')).toContain('does not hash to');
+  });
+
+  it('every git call on the policy refuses replacement objects', () => {
+    const install = installation([{ projectId: PROJECT, repository: REPO }]);
+    const honest = nodeLikeSystem();
+    const calls: (readonly string[])[] = [];
+    const spying = {
+      ...honest,
+      exec: (command: string, args: readonly string[]) => {
+        if (args.some((arg) => String(arg).includes(INSTALLATION_ALLOWLIST_REL))) calls.push(args);
+        return honest.exec(command, args);
+      },
+    } as System;
+    expect(installationAllowsProject(spying, runtimeAt(install), install, PROJECT).allowed).toBe(true);
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+    for (const args of calls) expect(args[0]).toBe('--no-replace-objects');
+  });
+});
+
 describe('the canonical identity of a checkout', () => {
   it('is host/owner/name from origin, by the rule the rest of the system uses', () => {
     const sys = nodeLikeSystem();

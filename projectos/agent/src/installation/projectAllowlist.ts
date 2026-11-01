@@ -32,15 +32,26 @@
  * allowlist has no authority, which is what stops a process that can write the tree from adding
  * itself. Absent, unreadable, dirty or unparseable all refuse.
  *
+ * THE BYTES ARE THE BLOB'S BYTES. A `git replace` ref changes what a blob name yields, with no commit
+ * and no diff, and it is shared across linked worktrees. So every git call on the policy passes
+ * `--no-replace-objects`, and the bytes read must hash to the blob they came from.
+ *
  * Created in PROJECTOS-AUTONOMOUS-GATEKEEPER-LOOP1A under the gatekeeper ruling of 2026-08-20
  * (HIGH-1, credential scope).
  */
+import { createHash } from 'node:crypto';
 import { parseRemoteUrl } from '@projectos/core';
 import type { System } from '../system.js';
 import type { ProjectosRuntime } from '../nodeRuntimeRoot.js';
 
 /** Where the policy lives, relative to the installation root. */
 export const INSTALLATION_ALLOWLIST_REL = 'projectos/security/installation-project-allowlist.json';
+
+/** The object name of these bytes as a blob: what git itself computes, so a lie between us shows. */
+export function blobNameOf(text: string, blob: string): string {
+  const bytes = Buffer.from(text, 'utf8');
+  return createHash(blob.length === 64 ? 'sha256' : 'sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+}
 
 export interface AllowlistDecision {
   readonly allowed: boolean;
@@ -131,14 +142,15 @@ export function installationAllowsProject(
   const rel = INSTALLATION_ALLOWLIST_REL;
   const install = runtime.installRoot;
 
-  const logged = sys.exec('git', ['-C', install, 'log', '-1', '--format=%H', '--', rel]);
+  const git = (...args: readonly string[]) => sys.exec('git', ['--no-replace-objects', '-C', install, ...args]);
+  const logged = git('log', '-1', '--format=%H', '--', rel);
   if (logged.code !== 0 || logged.stdout.trim().length === 0) {
     return refuse([
       `this ProjectOS installation commits no credential allowlist (${rel}), so it authorises no ` +
         'project to spend its credential',
     ]);
   }
-  const dirty = sys.exec('git', ['-C', install, 'diff', '--name-only', 'HEAD', '--', rel]);
+  const dirty = git('diff', '--name-only', 'HEAD', '--', rel);
   if (dirty.code !== 0 || dirty.stdout.trim().length > 0) {
     return refuse([
       'the installation credential allowlist has been changed in the working tree; only the committed ' +
@@ -147,9 +159,14 @@ export function installationAllowsProject(
   }
   // `HEAD:./<rel>` — the pathspec above resolves against `-C install`, and `<rev>:<path>` would
   // otherwise resolve against the top of the working tree.
-  const shown = sys.exec('git', ['-C', install, 'show', `HEAD:./${rel}`]);
+  const shown = git('show', `HEAD:./${rel}`);
   if (shown.code !== 0 || shown.stdout.trim().length === 0) {
     return refuse(['the committed installation credential allowlist could not be read']);
+  }
+  const named = git('rev-parse', `HEAD:./${rel}`);
+  const blob = named.stdout.trim();
+  if (named.code !== 0 || blobNameOf(shown.stdout, blob) !== blob) {
+    return refuse(['what git showed for the committed installation credential allowlist does not hash to its blob, so it is not those bytes']);
   }
 
   let entries: readonly Entry[];

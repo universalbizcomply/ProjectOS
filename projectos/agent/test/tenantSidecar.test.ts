@@ -169,6 +169,7 @@ describe('the real sidecar, over its real channel', () => {
     const refused = await sidecar.send('project.select', { projectId: 'stray' });
     expect(refused.code).toBe(2);
     expect(refused.lines.join('\n')).toContain('REFUSED (TENANT_UNKNOWN)');
+    await sidecar.settled();
     expect(selected(sidecar)).not.toBe('stray');
     const accepted = await sidecar.send('project.select', { projectId: 'alpha' });
     expect(accepted.code).toBe(0);

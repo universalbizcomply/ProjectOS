@@ -51,7 +51,7 @@
  *
  * Created in PROJECTOS-TENANT-PRINCIPAL1A.
  */
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
@@ -71,7 +71,7 @@ import {
   type WorktreeListing,
 } from '@projectos/core';
 import type { System } from '../system.js';
-import { canonicalRepositoryIdentity } from './projectAllowlist.js';
+import { blobNameOf, canonicalRepositoryIdentity } from './projectAllowlist.js';
 
 /** Where the records live, relative to the installation root. */
 export const TENANT_REGISTRY_REL = 'projectos/security/tenant-registry.json';
@@ -136,12 +136,6 @@ type CommittedBytes = { readonly ok: true; readonly text: string; readonly blob:
 /** Git, with replacement objects off: a `git replace` ref must not change what a name yields. */
 function gitAt(sys: System, install: string, ...args: readonly string[]) {
   return sys.exec('git', ['--no-replace-objects', '-C', install, ...args]);
-}
-
-/** The object name of these bytes as a blob: what git itself computes, so a lie between us shows. */
-function blobNameOf(text: string, blob: string): string {
-  const bytes = Buffer.from(text, 'utf8');
-  return createHash(blob.length === 64 ? 'sha256' : 'sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
 }
 
 /** One record's committed bytes at the installation's HEAD. Absent, unreadable or dirty all refuse. */

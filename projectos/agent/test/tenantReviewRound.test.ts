@@ -144,7 +144,7 @@ describe('HIGH 1: git replace refs', () => {
     const spying: System = {
       ...sys,
       exec: (cmd, args, options) => {
-        if (args.some((arg) => String(arg).includes('security/'))) calls.push(args);
+        if (args.includes(w.installation.root)) calls.push(args);
         return sys.exec(cmd, args, options);
       },
     };
@@ -339,10 +339,11 @@ describe('MEDIUM 6: a busy record does not fail a run', () => {
     const old = `${JSON.stringify({ filler: 'y'.repeat(DURABLE_LINE_ROTATE_BYTES) })}\n`;
     writeFileSync(path, old);
     expect(appendDurableLine(sys, path, { n: 1 })).toBe(true);
-    expect(linesOf(dir, 'x.jsonl')).toEqual([{ n: 1 }]);
+    // Compared as booleans: a failure must not ask the reporter to print a megabyte.
+    expect(readFileSync(path, 'utf8') === '{"n":1}\n').toBe(true);
     const rotated = readdirSync(dir).filter((name) => name !== 'x.jsonl');
     expect(rotated).toHaveLength(1);
-    expect(readFileSync(join(dir, rotated[0] as string), 'utf8')).toBe(old);
+    expect(readFileSync(join(dir, rotated[0] as string), 'utf8') === old).toBe(true);
   });
 
   it('a failed rotation records nothing and destroys nothing', () => {
@@ -350,8 +351,9 @@ describe('MEDIUM 6: a busy record does not fail a run', () => {
     const path = join(dir, 'x.jsonl');
     const old = `${'z'.repeat(DURABLE_LINE_ROTATE_BYTES)}\n`;
     writeFileSync(path, old);
-    expect(appendDurableLine({ ...sys, renameFile: () => false }, path, { n: 1 })).toBe(false);
-    expect(readFileSync(path, 'utf8')).toBe(old);
+    const stuck: System = { ...sys, renameFile: (from, to) => (from === path ? false : sys.renameFile(from, to)) };
+    expect(appendDurableLine(stuck, path, { n: 1 })).toBe(false);
+    expect(readFileSync(path, 'utf8') === old).toBe(true);
   });
 });
 
