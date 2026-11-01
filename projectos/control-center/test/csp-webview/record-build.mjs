@@ -34,19 +34,33 @@ function npmBuild() {
   return { status: result.status, output: `${result.stdout}\n${result.stderr}` };
 }
 
-const NODE_GLOBAL_CALL = /\b(?:Buffer\.(?:from|alloc|concat|compare)|process\.(?:env|platform|argv|cwd)|setImmediate)\b/g;
+const NODE_GLOBAL_USE = /\b(?:Buffer|process|setImmediate)\b(?:\.(?:from|alloc|concat|compare|env|platform|argv|cwd))?(?![\w$])/g;
+const GUARD_REACH = 70;
 
-/** Every Node-global reference left in the bundle, by name. `typeof` guards are allowed; bare use is listed. */
+/**
+ * Every Node-global reference left in the bundle, split into guarded and bare. A guarded one sits just after a
+ * `typeof` of the same name: React's scheduler choosing a timer, or supabase-js choosing an encoder. A bare
+ * one is what blanked the app.
+ */
 function scanBundle() {
   const assets = join(CONTROL_CENTER, 'dist', 'assets');
   const chunks = readdirSync(assets).filter((name) => name.endsWith('.js'));
   const text = chunks.map((name) => readFileSync(join(assets, name), 'utf8')).join('\n');
-  const hits = {};
-  for (const match of text.matchAll(NODE_GLOBAL_CALL)) hits[match[0]] = (hits[match[0]] ?? 0) + 1;
+  const guarded = {};
+  const bare = {};
+  for (const match of text.matchAll(NODE_GLOBAL_USE)) {
+    const name = match[0].split('.')[0];
+    if (text.slice(match.index - 7, match.index) === 'typeof ') continue;
+    if (text[match.index - 1] === '.' || text[match.index - 1] === '"' || text[match.index - 1] === "'") continue;
+    const isGuarded = text.slice(Math.max(0, match.index - GUARD_REACH), match.index).includes(`typeof ${name}`);
+    const tally = isGuarded ? guarded : bare;
+    tally[match[0]] = (tally[match[0]] ?? 0) + 1;
+  }
   return {
     chunks: chunks.length,
     bytes: text.length,
-    nodeGlobalUses: hits,
+    guardedNodeGlobalUses: guarded,
+    bareNodeGlobalUses: bare,
     runIdInBundle: text.includes('0x50, 0x4f, 0x53, 0x48') || /80,\s*79,\s*83,\s*72,\s*83,\s*84,\s*65,\s*84/.test(text),
     wireMagicInBundle: text.includes('"POS1"') || text.includes("'POS1'"),
   };
