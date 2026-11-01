@@ -164,7 +164,6 @@ const MODULES = [
   // PROJECTOS-KERNEL-FOLLOWUP1A — the registry pin and Codex reviewer rules; the cache validator once cached-runner was resynced.
   "val-projectos-kernel-followup1a",
   "validate-speed-validation-cache",
-  "validate-speed-validation-cache",
   // PROJECTOS-TENANT-CONTRACT1A — ADR-T1, the tenant and action registries, the pure envelope rules.
   "val-projectos-tenant-contract1a",
   // PROJECTOS-TENANT-RLS1A — the tenant boundary in the database, proved on a throwaway local cluster.
