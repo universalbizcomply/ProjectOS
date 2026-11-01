@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-9139a1d359dcb2631eecac23",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "3e5faaeb28f00370d0e58db1ef76882981d99582",
+  "draftId": "45a079772823ca99",
+  "planDigest": "sha256:ca714d7a0c0dc929516f37ae56219228fd2937379ae3749fd50ddde43c87d9ec",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-01T22:15:08.739Z",
+  "note": "Owner, 2026-11-01: \"You have full authority\", for \"Now use as many as agents possible to complete this project\". This amendment gives PROJECTOS-TENANT-CSP1A three write paths and one criterion so it can repair the production build its proof depends on. No other phase changes.",
+  "recordedBy": "projectos plan decide"
+}
