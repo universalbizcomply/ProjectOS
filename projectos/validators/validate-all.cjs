@@ -141,7 +141,9 @@ const MODULES = [
   // PROJECTOS-PORT-SEARCH1A — cited search: an uncited result is refused, indexed text stays data, no vectors yet.
   "val-projectos-port-search1a",
   // PROJECTOS-PORT-MEMORY1A — capped memory: every write a proposal the owner decides, scanned before a prompt.
-  "val-projectos-port-memory1a"
+  "val-projectos-port-memory1a",
+  // PROJECTOS-PORT-APPROVALS1A — an approval bound to run, tool and arguments; taint; evidence receipts.
+  "val-projectos-port-approvals1a"
 ];
 
 // RETIRED: validator files that are deliberately NOT run by this suite, each with its recorded reason.
