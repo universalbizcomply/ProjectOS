@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "c6f5faa4cb6f0a77",
+  "objective": "Plan v1.30: add six port phases from docs/changes/delta_spec_V4_PORTS.md, which the owner approved: credit foundation, cited search, memory, skills, context and approvals; the Stage 2 phases are unchanged.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "6b360be67b220b8643162d791a3c19999739f2de",
+  "submittedAt": "2026-11-01T20:32:47.754Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
