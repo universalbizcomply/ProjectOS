@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PORT-MEMORY1A",
   "project": "ProjectOS",
   "objective": "Translate the Hermes curated memory store and threat patterns (C8), about 0.9k lines, MIT, with oh-my-hermes admission rules (MIT). Writes never land directly: each is a proposal pinned to the entry hash, with provenance, for the owner to see. Over-limit writes are refused, and content is scanned before it can reach a prompt. Upstream writes freely by default; that behaviour is replaced.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-01T23:38:18.655Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-01T23:38:20.270Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PORT-MEMORY1A:owner-closure:cf5a316d"
     }
   ]
 }
