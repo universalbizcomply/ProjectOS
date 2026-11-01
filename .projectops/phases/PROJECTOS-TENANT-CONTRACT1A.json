@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-TENANT-CONTRACT1A",
   "project": "ProjectOS",
   "objective": "V4 Stage 2, per docs/changes/delta_spec.md revision 2, approved by the owner in Plan Mode on 2026-11-01. No envelope exists in code today, so this phase builds it. ADR-T1 states the principal (the Windows operator plus the project the work is bound to; a Supabase identity carries no kernel authority), tenant versus domain, the registry trust basis, the linked-worktree rule, credential classes, and what Stage 2 does not prove. Owner decisions: \"Accept it (Recommended)\" for ADR-K1; \"Agency apart, rest mine (Recommended)\" for the tenant split, with PolyGo listed as the second owner-personal project and its repository untouched.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-01T20:17:55.545Z",
       "note": "closure tail only - owner-direct route on the owner's word; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-01T20:17:57.607Z",
+      "note": "Owner-direct closure on the owner's word. — closed by owner Murad, decision projectos:PROJECTOS-TENANT-CONTRACT1A:owner-closure:7f52f838"
     }
   ]
 }
