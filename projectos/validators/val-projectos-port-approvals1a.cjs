@@ -782,7 +782,7 @@ function textProblems(raw, wired) {
   if (errors.some(([rule, message]) => rule === "AP-31" && message.endsWith("is missing"))) return errors;
   const records = credit.parseNotices(raw[NOTICES_REL]);
   for (const rel of ALL_FILES) {
-    for (const refusal of credit.judgeFile(rel, raw[rel], records)) E("AP-31", refusal.message);
+    for (const refusal of credit.judgeFile(rel, raw[rel], records, { sources: credit.SOURCES })) E("AP-31", refusal.message);
   }
   for (const rel of ORIGINAL) {
     if (!raw[rel].startsWith("// Origin: original ProjectOS code\n")) E("AP-31", `${rel} is not marked original`);

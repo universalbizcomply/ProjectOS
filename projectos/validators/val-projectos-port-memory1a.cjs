@@ -823,7 +823,7 @@ function textProblems(raw) {
   // PM-18: the credit, judged by the credit rule itself, and by what this phase knows it translated.
   const records = credit.parseNotices(raw[NOTICES]);
   for (const rel of MEMORY_SOURCES) {
-    credit.judgeFile(rel, raw[rel], records).forEach((refusal) => E("PM-18", refusal.message));
+    credit.judgeFile(rel, raw[rel], records, { sources: credit.SOURCES }).forEach((refusal) => E("PM-18", refusal.message));
     const claimed = [...raw[rel].matchAll(/^\/\/ Ported-From: (\S+)[^\n]*\n\/\/ Source-Path: ([^\n]+)$/gm)]
       .flatMap(([, id, paths]) => paths.split(";").map((one) => `${id} ${one.trim()}`))
       .sort();
