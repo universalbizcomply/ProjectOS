@@ -3,45 +3,99 @@
 ProjectOS has **three data layers**. Only the first is authority.
 
 1. **Governed JSON records** in git (`.projectops/`): the system of record for governance.
-2. **Control Center cloud tables** (Supabase Postgres, optional): `public.projects`, `public.phases`.
+2. **Control Center cloud tables** (Supabase Postgres, optional): `public.tenants`, `public.tenant_members`,
+   `public.projects`, `public.phases`.
 3. **Watchdog** (Postgres, optional): schema `watchdog`.
 
 ## 1. Relational: Control Center cloud (`projectos/control-center/supabase/`)
 
-### `public.projects` (`schema.sql`)
+The schema is defined by the forward-only migrations `migrations/0001_baseline.sql` and
+`migrations/0002_tenant_boundary.sql`. `schema.sql` and `interactive.sql` are retired, hold no SQL and
+do nothing when run. These tables are not authority, and a Supabase identity carries no kernel authority.
+
+> **Live state:** this section is the migrations. They are proved on a local cluster
+> (`docs/finish/PROJECTOS-TENANT-RLS1A.md`). Until the owner's live apply, the live project still has the
+> old shape: two tables with `using (true)` policies.
+
+### `public.tenants`
 
 | Column | Type | Constraints |
 |---|---|---|
-| `id` | text | **PK** |
+| `id` | text | **PK**; the tenant slug the registry uses: `owner-personal`, `agency-business` |
+| `name` | text | not null |
+| `created_at` | timestamptz | not null, default `now()` |
+
+### `public.tenant_members`
+
+| Column | Type | Constraints |
+|---|---|---|
+| `tenant_id` | text | not null, **FK → `public.tenants(id)`** |
+| `user_id` | uuid | not null, **FK → `auth.users(id)` on delete cascade** |
+| `role` | text | not null, check `owner` or `member` |
+| `created_at` | timestamptz | not null, default `now()` |
+| — | — | **PK `(tenant_id, user_id)`** |
+
+### `public.projects`
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | text | not null |
 | `name` | text | not null |
 | `repo` | text | not null, default `'none'` |
 | `install_status` | text | not null, default `'installed'` |
 | `production_freeze` | boolean | not null, default `true` |
 | `open_phases` | integer | not null, default `0` |
+| `tenant_id` | text | not null, **no default**, **FK → `public.tenants(id)`** |
+| — | — | **PK `(tenant_id, id)`**, so an id cannot reveal another tenant's row |
 
-### `public.phases` (`interactive.sql`)
+### `public.phases`
 
 | Column | Type | Constraints |
 |---|---|---|
-| `id` | uuid | **PK**, default `gen_random_uuid()` |
-| `project_id` | text | not null, **FK → `public.projects(id)` on delete cascade** |
+| `id` | uuid | not null, default `gen_random_uuid()` |
+| `project_id` | text | not null |
 | `phase_id` | text | not null |
 | `objective` | text | not null, default `''` |
 | `status` | text | not null, default `'draft'` |
 | `history` | jsonb | not null, default `'[]'` |
-| `advisor_note` | text | not null, default `''` |
 | `created_at` | timestamptz | not null, default `now()` |
-| — | — | **unique `(project_id, phase_id)`** |
+| `advisor_note` | text | not null, default `''` |
+| `tenant_id` | text | not null, **no default** |
+| — | — | **PK `(tenant_id, id)`** |
+| — | — | **FK `(tenant_id, project_id)` → `public.projects(tenant_id, id)` on delete cascade**, so a phase cannot point at another tenant's project |
+| — | — | **unique `(tenant_id, project_id, phase_id)`** |
 
-**Indexes:** the primary keys and the unique constraint only.
+**Indexes:** the keys above, which lead with `tenant_id`, plus `tenant_members_user_id_idx (user_id)` for
+the helper path.
 
-**RLS:** enabled on both tables. The policies:
-- `"projects authenticated read"`: select, `to authenticated`, `using (true)`;
-- `"projects authenticated write"`: all, `to authenticated`, `using (true) with check (true)`;
-- `"phases authenticated all"`: all, `to authenticated`, `using (true) with check (true)`.
+**Grants (the first wall).** All privileges are revoked from `public`, `anon` and `authenticated`.
 
-> **Risk (baseline §5.1):** any authenticated account can read and write every row. The policies
-> should bind to the owner's `auth.uid()`. Owner decision needed. `PROTECTED` until then.
+| Role | `tenants`, `tenant_members` | `projects` | `phases` |
+|---|---|---|---|
+| `anon` | nothing | nothing | nothing |
+| `authenticated` | select | select, insert, delete; update of `name`, `repo`, `install_status`, `production_freeze`, `open_phases` | select, insert, delete; update of `phase_id`, `objective`, `status`, `history`, `advisor_note` |
+
+No client role holds `TRUNCATE`, and no client can update `tenant_id`, `id` or `project_id`.
+`service_role` keeps its Supabase defaults and bypasses RLS (ADR-T1). Supabase's default privileges still
+apply to any future object in `public`, so a new table or function must revoke them itself.
+
+**RLS:** enabled on all four, not forced. Every policy is `to authenticated`.
+
+| Table | Read | Write |
+|---|---|---|
+| `tenants` | `id in (select private.my_tenant_ids())` | none |
+| `tenant_members` | `user_id = (select auth.uid())`: a user sees only their own rows | none, so nobody can add themselves |
+| `projects`, `phases` | `tenant_id in (select private.my_tenant_ids())` | insert, update and delete: `tenant_id in (select private.my_owned_tenant_ids())` |
+
+**Helpers:** schema `private`, `private.my_tenant_ids()` and `private.my_owned_tenant_ids()`: stable,
+security invoker, `search_path ''`, no argument. Usage of `private` and execute are granted to
+`authenticated` only. There is no RLS recursion because the `tenant_members` policy does not call them.
+
+**Realtime:** all four tables are out of `supabase_realtime`, because delete events are not RLS-filtered.
+
+**Backfill:** `0002` maps the 12 existing projects to `owner-personal` by an explicit list and raises on any
+row the list does not name. Owner membership is a separate step, `test/live-owner-membership.sql`, so the
+migrations hold no personal identifier.
 
 ## 2. Relational: Watchdog (`projectos/watchdog/sql/migrations/0001_watchdog_schema_v1.sql`)
 
@@ -121,6 +175,9 @@ Host IPC (dormant review route)
   local named pipe, PIPE_REJECT_REMOTE_CLIENTS ──▶ client token SID must equal the enrolled owner SID
 
 Control Center cloud (optional, non-authority)
-  Supabase email/password ──▶ JWT (authenticated role) ──▶ RLS policies on public.projects/phases
+  Supabase email/password ──▶ JWT (authenticated role, grants no kernel authority)
+    ──▶ table grants ──▶ tenant RLS on public.tenants, tenant_members, projects, phases
+  tenant membership: public.tenant_members, no client write path
+  service_role bypasses RLS and is never used by the Control Center
   watchdog: service_role only, via SECURITY DEFINER functions
 ```
