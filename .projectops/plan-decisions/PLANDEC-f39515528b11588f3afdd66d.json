@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-f39515528b11588f3afdd66d",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "e501f2b9f745748b90b4252bbcb49aa2f6026bce",
+  "draftId": "948f7fda338464cc",
+  "planDigest": "sha256:05b96543d29b4d7ebdb0f6f61a944618af884036d8fcc86a88d1067cc00e9aa6",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-01T16:41:04.828Z",
+  "note": "Owner, 2026-11-01, answering \"Should I add a small extra migration so new objects start locked?\": \"Yes, lock by default (Recommended)\". Compared with the active plan, this draft differs only by that migration write path and one acceptance criterion on PROJECTOS-TENANT-RLS1A.",
+  "recordedBy": "projectos plan decide"
+}
