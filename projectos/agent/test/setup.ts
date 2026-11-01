@@ -7,14 +7,15 @@
  * before any test file runs.
  *
  * This uses the SAME development composition the CLI uses, so the tests exercise the real engines
- * from `projectos/validators/` rather than a stand-in. Nothing about governance behaviour is mocked
- * by this file — only the wiring that an entrypoint would otherwise have done.
+ * from `projectos/validators/` rather than a stand-in. One governance function is replaced, and only
+ * this one: see `runStartTenantRefusal` below. Everything else here is wiring an entrypoint would do.
  *
  * Created in PROJECTOS-RECOVERY-INSTALLED-APP1A (packaged daemon dependency closure).
  */
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, join } from 'node:path';
+import { vi } from 'vitest';
 import { installNodeGovernanceEngines } from '../src/nodeGovernanceEngines.js';
 import { setProcessRoot } from '../src/system.js';
 
@@ -72,6 +73,22 @@ const realUserInfo = os.userInfo.bind(os);
   ...realUserInfo(options),
   homedir: simulatedHome(),
 })) as typeof os.userInfo;
+
+/*
+ * THE ONE GOVERNANCE FUNCTION REPLACED FOR THE SUITE (PROJECTOS-TENANT-PRINCIPAL1A).
+ *
+ * `projectos run` now asks the committed tenant registry first, and the fixture projects in the suite are
+ * in no registry, so without this every test that drives `run` would stop at TENANT_UNKNOWN and prove
+ * nothing about what it was written for. Production code has no switch for this on purpose: nothing in
+ * `src/` can turn the rule off, and this file is the only place that does, for the tests' own fixtures.
+ *
+ * THE RULE ITSELF IS PROVED UNMOCKED. `tenantPrincipal.test.ts` calls `vi.unmock` on this module and runs
+ * the real refusal against real git; the validator pins both that and the narrowness of this mock.
+ */
+vi.mock('../src/governedContext.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/governedContext.js')>()),
+  runStartTenantRefusal: () => null,
+}));
 
 installNodeGovernanceEngines();
 setProcessRoot(process.cwd());

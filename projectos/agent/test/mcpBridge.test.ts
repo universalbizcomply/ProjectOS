@@ -12,11 +12,13 @@
  * real server is started on loopback, real requests are made against it, and it is closed again.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, renameSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, realpathSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { System } from '../src/system.js';
+import { makeInstallation } from './support/tenantWorld.js';
+import type { CommandContext } from '../src/context.js';
 import { PLATFORM_STOP_STATEMENT, platformStopRefusal } from '../src/loop/platformStop.js';
 import {
   handleBridgeRpc,
@@ -128,12 +130,19 @@ function world(): { deps: BridgeDeps; root: string; stateDir: string; sys: Syste
   git('commit', '-q', '-m', 'fixture');
 
   const sys = nodeLikeSystem();
+  // A REAL INSTALLATION LISTS THIS PROJECT, CONFIRMED. A read is a tenant crossing now, so the fixture has
+  // a tenant the same way a real project does: `tenantPrincipal.test.ts` is what proves the rule.
+  const installation = makeInstallation(dirs, [
+    { projectId: PROJECT, repository: 'github.com/local/fixture', governedRoot: realpathSync.native(root).split(String.fromCharCode(92)).join('/'), tenant: 'owner-personal', domain: 'develop' },
+  ]);
+  installation.confirm(sys);
+  const ctx: CommandContext = Object.assign({ sys, root }, installation.ctxFields);
   return {
     root,
     stateDir,
     sys,
     deps: {
-      ctx: { sys, root },
+      ctx,
       projectId: PROJECT,
       recordedAuthorityIds: [],
       stateDir,
@@ -266,7 +275,7 @@ describe('what it answers, and what it never says', () => {
       exec: (cmd: string, args: readonly string[]) =>
         cmd === 'git' ? w.sys.exec(cmd, args) : { code: 1, stdout: '', stderr: 'network unavailable' },
     };
-    const deps: BridgeDeps = { ...w.deps, ctx: { sys: offline, root: w.root } };
+    const deps: BridgeDeps = { ...w.deps, ctx: { ...w.deps.ctx, sys: offline } };
 
     expect(textOf(handleBridgeRpc(call('worker-status'), deps))).toContain('no degraded-mode debt');
     expect(textOf(handleBridgeRpc(call('project-state'), deps))).toContain(PROJECT);

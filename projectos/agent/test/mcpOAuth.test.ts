@@ -16,13 +16,15 @@
  * tunnel. No local test can answer that; it is the one live question left for the owner.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, renameSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, realpathSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { request as httpRequest, createServer, type Server } from 'node:http';
 import { execFileSync } from 'node:child_process';
+import type { CommandContext } from '../src/context.js';
 import type { System } from '../src/system.js';
+import { makeInstallation } from './support/tenantWorld.js';
 import { handleBridgeRpc, type BridgeDeps } from '../src/mcp/bridge.js';
 import { bridgeListenerConfig, serveBridge, BRIDGE_BIND_HOST, BRIDGE_PATH, type BridgeServer } from '../src/mcp/listener.js';
 import {
@@ -133,12 +135,18 @@ function governedProject(): { root: string; stateDir: string; sys: System; deps:
   git('add', '-A');
   git('commit', '-q', '-m', 'fixture');
   const sys = nodeLikeSystem();
+  // A REAL INSTALLATION LISTS THIS PROJECT, CONFIRMED, as in `mcpBridge.test.ts`.
+  const installation = makeInstallation(dirs, [
+    { projectId: PROJECT, repository: 'github.com/local/fixture', governedRoot: realpathSync.native(root).split(String.fromCharCode(92)).join('/'), tenant: 'owner-personal', domain: 'develop' },
+  ]);
+  installation.confirm(sys);
+  const ctx: CommandContext = Object.assign({ sys, root }, installation.ctxFields);
   return {
     root,
     stateDir,
     sys,
     deps: {
-      ctx: { sys, root },
+      ctx,
       projectId: PROJECT,
       recordedAuthorityIds: [],
       stateDir,

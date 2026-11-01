@@ -279,6 +279,7 @@ const REFUSED_UNDER_STOP: readonly (readonly string[])[] = [
   ['workforce', 'evaluate'],
   ['workforce'],
   ['mcp', 'token', '--create'],
+  ['tenant', 'receipt', '--blob', 'a'],
   ['an-unknown-command'],
 ];
 
@@ -295,6 +296,8 @@ const READ_ONLY_UNDER_STOP: readonly (readonly string[])[] = [
   ['plugins'],
   ['validate'],
   ['prompt', '--phase', 'P'],
+  ['tenant'],
+  ['tenant', 'show'],
   ['closure'],
   ['closure', 'status', '--id', 'P'],
   ['phase'],
