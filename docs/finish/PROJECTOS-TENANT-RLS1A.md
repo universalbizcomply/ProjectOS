@@ -1,26 +1,60 @@
 # PROJECTOS-TENANT-RLS1A — evidence
 
 **Phase:** PROJECTOS-TENANT-RLS1A, phase 2 of V4 Stage 2, plan v1.28.
-**Branch:** `projectos-tenant-rls1a`, from `f2d2ec9`.
+**Branch:** `projectos-tenant-rls1a`, from `f2d2ec9`. First build `ed88661`, then one review round on top of it.
 **Route:** built by a Claude subagent in its own worktree, under the lead. This document claims no gatekeeper
-ruling, no review and no closure. The reviews the plan requires (ECC DATABASE, ECC SECURITY, Agency
-`ai-generated-code-security-auditor`) have not happened yet.
+ruling and no closure.
 **Boundary:** local only. Nothing connected to the live Supabase project, nothing in production changed, and
 no credential was used. `projectos/watchdog/**` was copied from, not changed.
+
+## Reviews
+
+The lead ran the reviews and sent one consolidated list of 13 fixes. This document does not record which review
+raised which item, because the builder did not receive the two reports separately.
+
+| Review | Result | Disposition |
+|---|---|---|
+| ECC DATABASE | APPROVE WITH CHANGES, no CRITICAL or HIGH | All fixed, see the table below |
+| ECC SECURITY | APPROVE WITH CHANGES, no CRITICAL or HIGH | All fixed, see the table below |
+| Agency `ai-generated-code-security-auditor` | **OPEN** | It ran, but its report could not be delivered, because the guard blocks the wrapper's handback tool. **It does NOT count as completed and stays open.** |
+
+The two ECC reviews reviewed `ed88661`. The fixes below have not themselves been reviewed.
+
+| # | Fix | Proof it failed before and passes now |
+|---|---|---|
+| 1 | `0002` raises unless `current_user = 'postgres'`; the final check judges table, schema and helper ownership | `apply-as-superuser`, `src-no-role-guard`, TR-32, TR-4 |
+| 2 | The backfill compares content as well as id | `rewritten-row`, TR-5 |
+| 3 | Keys are left alone when they already match | `rerun-with-dependent-key`, "the second apply did not re-create a single key", TR-8 |
+| 4 | `0001` has the same `lock_timeout` as `0002` | TR-2, `baseline-no-lock-timeout` |
+| 5 | Policy expressions are compared exactly | `src-true-or-helper`, DB `true-or-helper`, TR-4 |
+| 6 | scram-sha-256, random password via `--pwfile` and `PGPASSWORD`, minimal environment | TR-H5: every `pg_hba` rule is scram, a passwordless login is refused, and the server's real environment (read with `copy from program`) holds no canary and no token name |
+| 7 | `stopServer` defined before the start, always `pg_ctl stop -m immediate`, stale directories swept | TR-L1 and TR-L2, below |
+| 8 | PostgreSQL 17 preferred, version printed, absolute paths only, fallback stated | TR-H4, `pgChoiceProblems`, TR-28 |
+| 9 | `test/live-postapply.sql` | TR-33 to TR-35, TR-PA rules, below |
+| 10 | `live-preflight.sql` lists the `public` schema ACL and checks no client can create there | `pf-client-can-create`, TR-23 |
+| 11 | A malformed `sub` fails closed on all four tables | `A-MALFORMED-SUB-*`, DB `malformed-sub-falls-open` |
+| 12 | `05_Schema.md` explains why upserts of `tenant_id` or `id` are refused, and what to do instead | TR-31, `A-BOTH-UPSERT-ID`, DB `column-grant-id` |
+| 13 | `auth.ts` comment is true before and after the apply. `supabase.ts` had the same defect, so it was fixed too | TR-27 |
+
+**Before and after.** The new harness was run against the `ed88661` migrations, and 7 checks failed: the two
+key re-creation checks, `src-true-or-helper`, `src-no-role-guard`, the rewritten row, the superuser apply and the
+dependent key. With the environment inherited, the server-environment check failed. On the current bytes all pass.
+The files were restored byte-equal afterwards. Items 4, 8, 10, 12 and 13 are text or tooling, so their proof is the
+named mutation killed by its own rule.
 
 ## What changed
 
 - **Migrations.** `0001_baseline.sql` records the live shape, with no policy and no seed. `0002_tenant_boundary.sql`
-  adds `tenants` and `tenant_members`, then `tenant_id` from an explicit map, per-tenant keys, a composite
-  foreign key, narrow grants, tenant policies and the `private` helpers. It takes all four tables out of realtime
-  and ends with an in-transaction check.
-- **Live tools, not run.** `test/live-preflight.sql` is one read-only SELECT. `test/live-owner-membership.sql` adds
-  the owner as owner of both tenants, as a separate step after `0002`.
-- **Harness.** `test/pg-harness.cjs` with a Supabase-shaped cluster, an `auth` stub, a non-superuser
-  `postgres`, the ported privilege gate, 118 assertions and named mutations.
+  refuses any role but `postgres`, then adds `tenants` and `tenant_members`, `tenant_id` from an explicit map of id
+  and content, per-tenant keys, a composite foreign key, narrow grants, tenant policies and the `private` helpers.
+  It takes all four tables out of realtime and ends with an in-transaction check.
+- **Live tools, not run.** `test/live-preflight.sql` and `test/live-postapply.sql` are each one read-only SELECT.
+  `test/live-owner-membership.sql` adds the owner as owner of both tenants, as a separate step after `0002`.
+- **Harness.** `test/pg-harness.cjs` with a Supabase-shaped cluster, an `auth` stub, a non-superuser role really
+  named `postgres`, the ported privilege gate, 123 assertions and named mutations.
 - **Retired.** `schema.sql` and `interactive.sql` are a comment header and no SQL.
-- **Control Center.** The dead `fetchProjects` and its silent seed fallback are gone. The false "public read-only"
-  comments are corrected in `src/data/supabase.ts` and `src/data/auth.ts`.
+- **Control Center.** The dead `fetchProjects` and its silent seed fallback are gone, and the false comments in
+  `src/data/supabase.ts` and `src/data/auth.ts` are corrected.
 - **Validator.** `val-projectos-tenant-rls1a`, registered in `validate-all` and `cached-runner`.
 - **Docs.** `docs/05_Schema.md`: section 1, the Control Center cloud lines of section 4, and the one line in the
   introduction that listed two tables. Section 3 is untouched.
@@ -29,44 +63,46 @@ no credential was used. `projectos/watchdog/**` was copied from, not changed.
 
 | File | sha256 |
 |---|---|
-| `migrations/0001_baseline.sql` | `764782a3fdc55a310a1a420793782cc15839989f26c2609d5ee985fdf3f60b94` |
-| `migrations/0002_tenant_boundary.sql` | `cd055eb3f1c6b9e2e0b9f03855c41b60e7cad21643af0de4c7c49b75b80dc3db` |
+| `migrations/0001_baseline.sql` | `11fc5de040b5025beef5ce5068871709418604ad10be32d5eb4d8f656f42ef4a` |
+| `migrations/0002_tenant_boundary.sql` | `7d1520b3ee2562be3fede900b83401bfed68141e102bf9bfa6000bdf84e3d4c6` |
 
-Check these again at the apply. A review fix changes them, and any change means proving them again first.
+Check these again at the apply. A later fix changes them, and any change means proving them again first.
 
 ## Commands and results
 
 | Command | Result |
 |---|---|
-| `node projectos/validators/val-projectos-tenant-rls1a.cjs` | PASS: 105 text mutations and 32 database mutations killed by their own rules, 9 source scenarios, 11 preflight refusals, 118 assertions on 2 starts, PostgreSQL 18.4 |
-| same, `TENANT_RLS_PG_BIN="C:/Program Files/PostgreSQL/17/bin"` | PASS, same counts, **PostgreSQL 17.10** |
-| same, `TENANT_RLS_PG_BIN` pointing at nothing | FAIL, exit 1, `TR-PG: POSTGRES_MISSING`. The harness alone exits 3 |
-| `node projectos/control-center/supabase/test/pg-harness.cjs` | ALL PASS: 106 checks, 30 to 60 s |
+| `node projectos/validators/val-projectos-tenant-rls1a.cjs` | PASS on **PostgreSQL 17.10**, now the default: 148 text and 35 database mutations killed by their own rules, 15 source scenarios, 12 preflight and 7 post-apply refusals, failed start and killed run cleaned up, 123 assertions on 2 starts |
+| same, `TENANT_RLS_PG_BIN=<scoop bin>` | PASS on PostgreSQL 18.4, same counts, with the printed `FALLBACK` note |
+| same, `TENANT_RLS_PG_BIN` pointing at nothing | FAIL, `TR-PG: POSTGRES_MISSING`. The harness alone exits 3 |
+| `node projectos/control-center/supabase/test/pg-harness.cjs` | ALL PASS: 130 checks, about a minute |
 | `npm run typecheck` in `projectos/control-center` | clean |
 | `npx vitest run` in `projectos/control-center` | 66 files, 890 tests passed |
-| Every validator that reads a touched file, 31 including this one and `validate-no-secrets` | 31 PASS |
+| Every other validator that reads a touched file, 30 including `validate-no-secrets` | 30 PASS |
 
-Full `validate-all` was not run, by instruction: the lead runs it after stacking. Harness run time is 30 to 60 s,
-and the validator adds under a second. It is not in `speed/input-map.cjs`, which is outside this phase's writePaths,
-so the cache always runs it. That is the safe direction, but it costs that time on every sweep.
+Full `validate-all` was not run, by instruction: the lead runs it after stacking. One validator run takes about 60 to
+70 s, because it also proves the lifecycle. It is not in `speed/input-map.cjs`, which is outside this phase's
+writePaths, so the cache always runs it. That is the safe direction, but it costs that time on every sweep.
 
 ## PostgreSQL version gap
 
-Live is **17.6**. The default local binary is scoop **18.4**. The machine also has PostgreSQL **17.10** installed
-as a service, so its binaries were used to start a separate throwaway cluster. The service itself was not touched.
-The proof passes on both 18.4 and 17.10. The remaining gap is 17.10 against 17.6, a minor-version difference. No
-18-only feature is used. `has_table_privilege(..., 'MAINTAIN')` needs 17 or later, which live has.
+Live is **17.6**. The proof passes on **17.10**, the harness's default, and on **18.4**. The remaining gap is 17.10
+against 17.6, a minor-version difference. The 17 binaries belong to the PostgreSQL service installed on this
+machine. Only the binaries were used, for a separate throwaway cluster. The service itself was not touched.
+
+Exact policy comparison depends on how Postgres prints an expression. The text matches on both 17.10 and 18.4. If 17.6
+printed it differently, the apply would raise and roll back, which is safe but would block it.
 
 ## Exit proof, database list
 
 Applied by a non-superuser `postgres` (`rolsuper=false`, `rolcreaterole=true`, `rolbypassrls=true`, as live), with
-the superuser being `supabase_admin`, as on Supabase. Both starts apply twice, and a catalogue fingerprint shows
-the second apply changed nothing. The live-shaped start really holds the hazard: the harness checks that anon holds
-`TRUNCATE`, that there are 12 rows and that the 3 permissive policies exist.
+the superuser being `supabase_admin`, as on Supabase. Both starts apply twice. A catalogue fingerprint shows the second
+apply changed nothing, and constraint oids show it re-created no key. The live-shaped start really holds the hazard:
+the harness checks that anon holds `TRUNCATE`, that there are 12 rows and that the 3 permissive policies exist.
 
 | Claim | Assertions (controls first) | Mutation that fails it |
 |---|---|---|
-| A member sees their rows, none of B's, all four tables | `A-CTRL-*`, `A-XREAD-*` | `using-true-projects`, `-phases`, `-tenants`, `-tenant-members` |
+| A member sees their rows, none of B's, all four tables | `A-CTRL-*`, `A-XREAD-*` | `using-true-projects`, `-phases`, `-tenants`, `-tenant-members`, `true-or-helper` |
 | Update and delete of B's rows change nothing | `A-XWRITE-update-*`, `A-XWRITE-delete-*`, each paired with `A-XWRITE-CTRL-*`: B's owner, same statement, 1 row | `xwrite-projects-open`, `xwrite-phases-open` |
 | Insert with B's `tenant_id` is refused | `A-XWRITE-insert-*`, real RLS error | `insert-check-true`, `xwrite-phases-open` |
 | Stealing a B row is refused | `A-STEAL-*`, real permission error | `column-grant-tenant-id`, `table-update-grant` |
@@ -74,14 +110,34 @@ the second apply changed nothing. The live-shaped start really holds the hazard:
 | A non-owner member cannot write | `A-MEMBER-*`, with `A-OWNWRITE-*` and `A-MEMBER-SEES-THE-ROW` as controls | `write-update-using-true`, `write-delete-using-true`, `owner-helper-widened` |
 | Clients cannot write `tenants` or `tenant_members`; nobody adds themselves | `A-NOWRITE-*`, `A-SELFADD-*`, `A-SELFPROMOTE` | `tenants-client-write`, `members-self-add`, `members-self-promote` |
 | `TRUNCATE` is refused | `A-TRUNCATE-*`, 8 assertions | `truncate-granted` |
-| A user who owns both tenants cannot change `tenant_id` | `A-BOTH-TENANT-*`, `A-BOTH-UPSERT-TENANT`, control `A-BOTH-WRITES-BOTH` | `column-grant-tenant-id`, `table-update-grant` |
-| `anon`, a non-member and null claims read nothing | `A-ANON-*`, `A-NONMEMBER-*`, `A-NULLCLAIMS-*`, `A-NOSUBCLAIM-*` | `anon-select-grant`, `uid-not-null-*`, `using-true-*` |
+| A user who owns both tenants cannot change `tenant_id` or `id` | `A-BOTH-TENANT-*`, `A-BOTH-UPSERT-TENANT`, `A-BOTH-UPSERT-ID`, control `A-BOTH-WRITES-BOTH` | `column-grant-tenant-id`, `column-grant-id`, `table-update-grant` |
+| `anon`, a non-member, null claims and a malformed `sub` read nothing | `A-ANON-*`, `A-NONMEMBER-*`, `A-NULLCLAIMS-*`, `A-NOSUBCLAIM-*`, `A-MALFORMED-SUB-*` | `anon-select-grant`, `uid-not-null-*`, `using-true-*`, `malformed-sub-falls-open` |
 | The privilege gate reports nothing, on effective privileges | gate, zero rows, before and after the assertions | `to-public-policy`, `private-usage-anon`, `public-function-added`, and others |
-| `0002` refuses a bad apply and rolls back | 8 source mutations and the unmapped row: the named reason raised, and no tenants table, no `private`, the 3 old policies, the rows as they were | `src-*`, `unmapped-row` |
+| `0002` refuses a bad apply and rolls back | 10 source mutations, an unmapped row, a rewritten row and a superuser apply: the named reason raised, and no tenants table, no `private`, the 3 old policies, the rows as they were | `src-*`, `unmapped-row`, `rewritten-row`, `apply-as-superuser` |
 | The retired SQL cannot recreate a permissive policy | both files re-run on both starts: catalogue byte-equal; validator: no SQL after stripping comments | `retired-policy-recreated`, text mutation `retired-policy-restored` |
 
 **Through `authenticator` too.** The assertions switch role from a superuser session. Two extra checks log in as
 `authenticator`, the way PostgREST connects, and show the same outcome.
+
+### Harness lifecycle
+
+Both are real runs, driven by the validator through a test seam.
+
+- **Failed start (TR-L1).** A setting the server refuses makes `pg_ctl start` fail. The harness must exit 1 naming
+  that failure, with its directory gone and no server left.
+- **Killed run (TR-L2).** The harness starts a server and then kills itself with `SIGKILL`, which is
+  TerminateProcess: no handler runs, as with a validator timeout. The validator confirms a live server and a
+  directory were left. The next real run must stop that server and remove the directory.
+- **The sweep is narrow.** It takes only names matching `projectos-tenant-rls-pg-` plus six characters, directly
+  under TEMP. Each must hold this harness's owner marker, or a cluster older than an hour. A directory whose recorded
+  owner is alive and younger than an hour is left alone, so a parallel run is safe.
+
+### Post-apply check
+
+`test/live-postapply.sql` is one SELECT, and the gate's body is byte-equal to `privilege-gate.sql` (TR-34). It passes on
+both starts as `supabase_read_only_user` in a read-only session. It refuses a `true or <helper>` policy, a `to public`
+policy, an anon grant, a new table with no row level security, a table in realtime, a client able to create in
+`public`, and a database that was never migrated. It lists `pg_default_acl` and the `public` schema ACL.
 
 ### Findings the harness changed
 
@@ -102,30 +158,31 @@ the second apply changed nothing. The live-shaped start really holds the hazard:
 2. **`service_role` keeps its Supabase defaults on all four tables, `TRUNCATE` included.** The delta revokes from
    `public`, `anon` and `authenticated` only, and ADR-T1 records the service-role bypass. It is treated as a server
    secret, not a client role. Nothing in the Control Center uses it.
-3. **The preflight is stricter than the delta in two ways.** Every row must be byte-equal to the seed, because sign-up
-   was open and the delta's own review called out stranger-written rows. And `phases` must still be empty, as audited.
-   A legitimate change to either stops the apply until it is looked at.
-4. **`0002` re-creates its keys on every run** rather than branching. That is fewer paths, and fine at this table size.
-5. **`created_at` on `phases` has no client update grant,** which is narrower than the delta requires.
+3. **The preflight is stricter than the delta.** `phases` must still be empty, as audited, and no client may be able
+   to create in `public`. A legitimate change to either stops the apply until it is looked at.
+4. **`created_at` on `phases` has no client update grant,** which is narrower than the delta requires.
+5. **The role guard names `postgres` alone.** If the live tool connects as any other role, the apply raises and
+   rolls back. The lead's route must therefore run as `postgres`.
 
 ## Carried, not done
 
-- **Default privileges stay in place for future objects in `public`.** Changing them is out of the approved design,
-  and it breaks no criterion: the gate reports any such object, and the harness proves that with `public-function-added`.
-  But nothing stops the next migration exposing a new table or function unless it revokes for itself, and the gate
-  runs in the harness, not on live.
-- **`src/data/projects.ts` is now orphaned.** Its only importer was `fetchProjects`. Deleting it needs a writePath this
-  phase does not have. The fix is one line in a later phase's writePaths, or the lead's stacking commit.
-- **`docs/00_Baseline_State.md` §5.1 still describes the old risk.** It is outside writePaths, and stays true until
-  the live apply.
-- **Input map.** Add this validator to `speed/input-map.cjs` if that time becomes a problem.
+- **Default privileges for future objects in `public` stay in place.** This is an owner decision and would be a
+  `0003`. It breaks no criterion: the gate and the post-apply check report any such object, and the harness proves that
+  with `public-function-added`. But nothing stops the next migration exposing a new object unless it revokes for itself.
+- **TR-21 is a deny-list tripwire.** It scans for write verbs. It is not a parser, and it cannot prove a SELECT is
+  free of effects.
+- **Management API transaction handling is unverified.** The lead sends each migration as its own call. An outer
+  transaction would turn the inner `begin` into a warning, and the check would still run before the commit.
+- **`MAINTAIN` needs PostgreSQL 17 or later.** Live has that.
+- **Event triggers are not modelled.** `pgrst_ddl_watch` and its neighbours exist only on Supabase and run during the
+  apply. The preflight lists them. If one fails, the transaction rolls back and nothing changes.
+- **`src/data/projects.ts` is orphaned.** Its only importer was `fetchProjects`. Deleting it needs a writePath this
+  phase does not have.
+- **`docs/00_Baseline_State.md` §5.1 is stale until the live apply.** It stays true until then, and is outside
+  writePaths.
 
 ## Not modelled, and what the owner's apply should expect
 
-- **Supabase's event triggers** do not exist on the local cluster. `pgrst_ddl_watch` and its neighbours run during the
-  apply. The preflight lists them. If one fails, the transaction rolls back and nothing changes.
-- **A tool that wraps the script in its own transaction** turns the inner `begin` into a warning. The check still runs
-  before the commit.
 - **`supabase_read_only_user` is assumed able to read `auth.users`.** If it cannot, the preflight errors rather than
   passes.
 - **Publication ownership.** On live no table is in `supabase_realtime`, so `0002` issues no `alter publication`. The
@@ -135,5 +192,5 @@ the second apply changed nothing. The live-shaped start really holds the hazard:
 
 Stated in the delta, and true here: **no product flow uses these tables yet**, so the boundary is exercised by the
 harness alone. The live claims (sign-up disabled, no permissive policy, tables out of realtime, anon reads nothing) are
-an owner step after the apply. **Workers can still reach any tenant's secrets and files** outside the kernel, as the
-owner's Windows user, and nothing here changes that.
+an owner step after the apply; `test/live-postapply.sql` covers all but sign-up. **Workers can still reach any tenant's
+secrets and files** outside the kernel, as the owner's Windows user, and nothing here changes that.

@@ -79,6 +79,14 @@ No client role holds `TRUNCATE`, and no client can update `tenant_id`, `id` or `
 `service_role` keeps its Supabase defaults and bypasses RLS (ADR-T1). Supabase's default privileges still
 apply to any future object in `public`, so a new table or function must revoke them itself.
 
+**Upserts.** A client upsert whose `SET` lists `tenant_id` or `id` fails with `permission denied`, by design:
+Postgres checks the `UPDATE` column grant before it knows whether a conflict will happen. `supabase-js`
+`.upsert()` builds that `SET` from every column in the payload, so it hits this with a normal row. Do not fix
+that by granting `tenant_id`: that grant is the wall that stops a user who owns both tenants moving a row
+between them. When Stage 5/6 first writes these tables, it should use a plain insert for new rows and an update
+that names only the granted columns and filters on `tenant_id` and `id`. If a flow really needs one atomic
+upsert, make it a reviewed server-side function in a new migration whose `SET` omits `tenant_id` and `id`.
+
 **RLS:** enabled on all four, not forced. Every policy is `to authenticated`.
 
 | Table | Read | Write |
@@ -93,9 +101,13 @@ security invoker, `search_path ''`, no argument. Usage of `private` and execute 
 
 **Realtime:** all four tables are out of `supabase_realtime`, because delete events are not RLS-filtered.
 
-**Backfill:** `0002` maps the 12 existing projects to `owner-personal` by an explicit list and raises on any
-row the list does not name. Owner membership is a separate step, `test/live-owner-membership.sql`, so the
-migrations hold no personal identifier.
+**Backfill:** `0002` maps the 12 existing projects to `owner-personal` by an explicit list of their seed values
+and raises on any row the list does not name or whose content differs. It refuses to run as anyone but
+`postgres`. Owner membership is a separate step, `test/live-owner-membership.sql`, so the migrations hold no
+personal identifier.
+
+**Live checks:** `test/live-preflight.sql` before the apply and `test/live-postapply.sql` after it. Both are one
+read-only SELECT.
 
 ## 2. Relational: Watchdog (`projectos/watchdog/sql/migrations/0001_watchdog_schema_v1.sql`)
 
@@ -177,6 +189,7 @@ Host IPC (dormant review route)
 Control Center cloud (optional, non-authority)
   Supabase email/password ──▶ JWT (authenticated role, grants no kernel authority)
     ──▶ table grants ──▶ tenant RLS on public.tenants, tenant_members, projects, phases
+        (once the owner has applied the migrations; until then, the old policies)
   tenant membership: public.tenant_members, no client write path
   service_role bypasses RLS and is never used by the Control Center
   watchdog: service_role only, via SECURITY DEFINER functions
