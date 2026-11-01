@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-TENANT-RLS1A",
   "project": "ProjectOS",
   "objective": "Replace the using(true) policies with tenant-bound access, as forward-only transactional migrations, and prove them on a throwaway local cluster shaped like Supabase. Live facts on 2026-11-01: sign-up was open, and any signed-in account could rewrite every row, so existing rows may be stranger-written. Nothing in the product reads these tables. This phase touches no production system; the live apply is a separate owner act using the exact bytes proved here, after a passed read-only preflight (owner: \"Connect the plugin (Recommended)\").",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-01T20:18:02.159Z",
       "note": "closure tail only - owner-direct route on the owner's word; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-01T20:18:04.052Z",
+      "note": "Owner-direct closure on the owner's word. — closed by owner Murad, decision projectos:PROJECTOS-TENANT-RLS1A:owner-closure:7f52f838"
     }
   ]
 }
