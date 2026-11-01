@@ -383,25 +383,38 @@ async function drive(cdp, variant, listener, live) {
   const network = { requests: [] };
   const byId = new Map();
   let reloaded = false;
+  const contexts = new Map();
+  const fallbacks = [];
 
-  const keepConsole = (text) => {
+  const keepConsole = (text, contextId) => {
     const line = String(text).slice(0, TEXT_LIMIT);
     obs.console.push(line);
-    // This run's own reload aborts whatever IPC call was in flight on the old document, and Tauri reports
-    // that with this line. Only a line from before the new document commits is excused, and it stays on the
-    // record. 'ipc-native' is the positive check that the new document's IPC really used the custom protocol.
-    if (!reloaded && /IPC custom protocol failed/.test(line)) {
-      obs.abortedByReload += 1;
-      return;
-    }
-    if (/Content Security Policy|Refused to|IPC custom protocol failed/i.test(line)) obs.consoleViolations.push(line);
+    if (/IPC custom protocol failed/.test(line)) fallbacks.push({ line, contextId });
+    else if (/Content Security Policy|Refused to/i.test(line)) obs.consoleViolations.push(line);
+  };
+
+  /**
+   * This run's own reload aborts whatever IPC call was in flight on the old document, and Tauri reports that
+   * with its fallback line, which can arrive after the navigation event. So timing cannot judge it. The
+   * execution context can: a fallback line counts unless it came from a context other than the document
+   * under test. It stays on the record, and 'ipc-native' is the positive check on the new document.
+   */
+  const judgeFallbacks = async () => {
+    const top = (await cdp.send('Page.getFrameTree')).frameTree.frame.id;
+    const current = [...contexts].filter(([, context]) => context.frameId === top && context.isDefault).map(([id]) => id).pop();
+    const stale = fallbacks.filter((entry) => entry.contextId !== undefined && current !== undefined && entry.contextId !== current);
+    obs.abortedByReload = stale.length;
+    obs.consoleViolations.push(...fallbacks.filter((entry) => !stale.includes(entry)).map((entry) => entry.line));
   };
   cdp.on((method, params) => {
     if (method === 'Page.frameNavigated' && params.frame.parentId === undefined) reloaded = true;
+    if (method === 'Runtime.executionContextCreated') {
+      contexts.set(params.context.id, { frameId: params.context.auxData?.frameId, isDefault: params.context.auxData?.isDefault === true });
+    }
     if (method === 'Log.entryAdded') keepConsole(params.entry.text);
     if (method === 'Runtime.exceptionThrown') keepConsole(params.exceptionDetails.exception?.description ?? params.exceptionDetails.text);
     if (method === 'Runtime.consoleAPICalled' && (params.type === 'error' || params.type === 'warning')) {
-      keepConsole(params.args.map((arg) => arg.value ?? arg.description ?? '').join(' '));
+      keepConsole(params.args.map((arg) => arg.value ?? arg.description ?? '').join(' '), params.executionContextId);
     }
     if (method === 'Network.requestWillBeSent') {
       const url = new URL(params.request.url);
@@ -464,6 +477,7 @@ async function drive(cdp, variant, listener, live) {
     obs.violations = await readViolations(cdp);
     obs.normalUseRan = true;
   }
+  await judgeFallbacks();
   const consoleBeforeProbes = obs.consoleViolations.length;
 
   if (obs.loaded.rendered && variant.profile === 'shell') {

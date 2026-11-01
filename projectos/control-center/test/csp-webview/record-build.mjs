@@ -21,7 +21,7 @@ import { CONTROL_CENTER } from './variants.mjs';
 
 const REPO_ROOT = resolve(CONTROL_CENTER, '..', '..');
 const VITE_CONFIG = join(CONTROL_CENTER, 'vite.config.ts');
-const ALIAS_LINE = /^\s*'node:buffer':.*\n/m;
+const ALIAS_LINE = /^\s*'node:buffer':.*\r?\n/m;
 const require = createRequire(import.meta.url);
 
 function desktopE2e() {
