@@ -34,7 +34,8 @@ function npmBuild() {
   return { status: result.status, output: `${result.stdout}\n${result.stderr}` };
 }
 
-const NODE_GLOBAL_USE = /\b(?:Buffer|process|setImmediate)\b(?:\.(?:from|alloc|concat|compare|env|platform|argv|cwd))?(?![\w$])/g;
+/** Member access or a call. The bare word also appears in error text, and text is not a use. */
+const NODE_GLOBAL_USE = /\b(?:Buffer|process)\.\w+|\bsetImmediate\b(?=\s*[(:])/g;
 const GUARD_REACH = 70;
 
 /**
