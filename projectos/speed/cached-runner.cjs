@@ -175,7 +175,9 @@ const MODULES = [
   // PROJECTOS-PORT-MEMORY1A — capped memory: every write a proposal the owner decides, scanned before a prompt.
   "val-projectos-port-memory1a",
   // PROJECTOS-PORT-APPROVALS1A — an approval bound to run, tool and arguments; taint; evidence receipts.
-  "val-projectos-port-approvals1a"
+  "val-projectos-port-approvals1a",
+  // PROJECTOS-TENANT-CSP1A — the strict Control Center CSP and narrowed window capability, proved in a real webview.
+  "val-projectos-tenant-csp1a"
 ];
 
 const REGISTERED_MODULE_COUNT = MODULES.length;
