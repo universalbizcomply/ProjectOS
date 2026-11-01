@@ -47,21 +47,21 @@ allowed_update(relname, attname) as (values
 allowed_helper(proname) as (values ('my_tenant_ids'), ('my_owned_tenant_ids')),
 member_expr(expr) as (values ('(tenant_id IN ( SELECT private.my_tenant_ids() AS my_tenant_ids))')),
 owner_expr(expr) as (values ('(tenant_id IN ( SELECT private.my_owned_tenant_ids() AS my_owned_tenant_ids))')),
-allowed_policy(relname, polname, qual, with_check) as (
-  select 'tenants', 'tenants member read', '(id IN ( SELECT private.my_tenant_ids() AS my_tenant_ids))', null
+allowed_policy(relname, polname, polcmd, qual, with_check) as (
+  select 'tenants', 'tenants member read', 'r', '(id IN ( SELECT private.my_tenant_ids() AS my_tenant_ids))', null
   union all
-  select 'tenant_members', 'tenant_members self read', '(user_id = ( SELECT auth.uid() AS uid))', null
+  select 'tenant_members', 'tenant_members self read', 'r', '(user_id = ( SELECT auth.uid() AS uid))', null
   union all
-  select t.relname, t.relname || ' member read', m.expr, null
+  select t.relname, t.relname || ' member read', 'r', m.expr, null
     from (values ('projects'), ('phases')) t(relname) cross join member_expr m
   union all
-  select t.relname, t.relname || ' owner insert', null, o.expr
+  select t.relname, t.relname || ' owner insert', 'a', null, o.expr
     from (values ('projects'), ('phases')) t(relname) cross join owner_expr o
   union all
-  select t.relname, t.relname || ' owner update', o.expr, o.expr
+  select t.relname, t.relname || ' owner update', 'w', o.expr, o.expr
     from (values ('projects'), ('phases')) t(relname) cross join owner_expr o
   union all
-  select t.relname, t.relname || ' owner delete', o.expr, null
+  select t.relname, t.relname || ' owner delete', 'd', o.expr, null
     from (values ('projects'), ('phases')) t(relname) cross join owner_expr o
 ),
 boundary(relname) as (values ('tenants'), ('tenant_members'), ('projects'), ('phases')),
@@ -185,6 +185,11 @@ findings as (
     join allowed_policy a on a.relname = t.relname and a.polname = p.polname
    where pg_get_expr(p.polqual, p.polrelid) is distinct from a.qual
       or pg_get_expr(p.polwithcheck, p.polrelid) is distinct from a.with_check
+  union all
+  select 'nobody', 'policy', t.name || ' ' || quote_ident(p.polname), 'COMMAND_DIFFERS'
+    from pg_policy p join tables t on t.oid = p.polrelid
+    join allowed_policy a on a.relname = t.relname and a.polname = p.polname
+   where p.polcmd::text <> a.polcmd
   union all
   -- Realtime delete events are not filtered by row level security.
   select 'supabase_realtime', 'publication', t.schemaname || '.' || t.tablename, 'PUBLISHED'

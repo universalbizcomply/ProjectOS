@@ -50,21 +50,21 @@ allowed_update(relname, attname) as (values
 allowed_helper(proname) as (values ('my_tenant_ids'), ('my_owned_tenant_ids')),
 member_expr(expr) as (values ('(tenant_id IN ( SELECT private.my_tenant_ids() AS my_tenant_ids))')),
 owner_expr(expr) as (values ('(tenant_id IN ( SELECT private.my_owned_tenant_ids() AS my_owned_tenant_ids))')),
-allowed_policy(relname, polname, qual, with_check) as (
-  select 'tenants', 'tenants member read', '(id IN ( SELECT private.my_tenant_ids() AS my_tenant_ids))', null
+allowed_policy(relname, polname, polcmd, qual, with_check) as (
+  select 'tenants', 'tenants member read', 'r', '(id IN ( SELECT private.my_tenant_ids() AS my_tenant_ids))', null
   union all
-  select 'tenant_members', 'tenant_members self read', '(user_id = ( SELECT auth.uid() AS uid))', null
+  select 'tenant_members', 'tenant_members self read', 'r', '(user_id = ( SELECT auth.uid() AS uid))', null
   union all
-  select t.relname, t.relname || ' member read', m.expr, null
+  select t.relname, t.relname || ' member read', 'r', m.expr, null
     from (values ('projects'), ('phases')) t(relname) cross join member_expr m
   union all
-  select t.relname, t.relname || ' owner insert', null, o.expr
+  select t.relname, t.relname || ' owner insert', 'a', null, o.expr
     from (values ('projects'), ('phases')) t(relname) cross join owner_expr o
   union all
-  select t.relname, t.relname || ' owner update', o.expr, o.expr
+  select t.relname, t.relname || ' owner update', 'w', o.expr, o.expr
     from (values ('projects'), ('phases')) t(relname) cross join owner_expr o
   union all
-  select t.relname, t.relname || ' owner delete', o.expr, null
+  select t.relname, t.relname || ' owner delete', 'd', o.expr, null
     from (values ('projects'), ('phases')) t(relname) cross join owner_expr o
 ),
 boundary(relname) as (values ('tenants'), ('tenant_members'), ('projects'), ('phases')),
@@ -189,6 +189,11 @@ findings as (
    where pg_get_expr(p.polqual, p.polrelid) is distinct from a.qual
       or pg_get_expr(p.polwithcheck, p.polrelid) is distinct from a.with_check
   union all
+  select 'nobody', 'policy', t.name || ' ' || quote_ident(p.polname), 'COMMAND_DIFFERS'
+    from pg_policy p join tables t on t.oid = p.polrelid
+    join allowed_policy a on a.relname = t.relname and a.polname = p.polname
+   where p.polcmd::text <> a.polcmd
+  union all
   -- Realtime delete events are not filtered by row level security.
   select 'supabase_realtime', 'publication', t.schemaname || '.' || t.tablename, 'PUBLISHED'
     from pg_publication_tables t join boundary b on b.relname = t.tablename
@@ -202,7 +207,29 @@ open_policy as (
      and (a.polname is null
           or pg_get_expr(p.polqual, p.polrelid) is distinct from a.qual
           or pg_get_expr(p.polwithcheck, p.polrelid) is distinct from a.with_check
+          or p.polcmd::text <> a.polcmd
           or p.polroles <> array[(select oid from pg_roles where rolname = 'authenticated')])
+),
+-- Exact bytes, as 0002 created them. The validator holds these equal to the migration.
+helper_body(proname, body) as (values
+  ('my_tenant_ids', '
+  select m.tenant_id from public.tenant_members as m where m.user_id = (select auth.uid());
+'),
+  ('my_owned_tenant_ids', '
+  select m.tenant_id from public.tenant_members as m
+   where m.user_id = (select auth.uid()) and m.role = ''owner'';
+')
+),
+-- auth.uid() belongs to Supabase, whose exact text can change between versions, so this judges what
+-- matters rather than its spelling: language, volatility, definer rights, where the id comes from, and
+-- that nothing else can supply one. Whitespace is collapsed first.
+auth_uid as (
+  select p.prosecdef, p.provolatile, l.lanname, p.prorettype::regtype::text as returns,
+         regexp_replace(p.prosrc, '\s+', ' ', 'g') as src
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    join pg_language l on l.oid = p.prolang
+   where n.nspname = 'auth' and p.proname = 'uid' and p.pronargs = 0
 ),
 postgres_defaults as (
   select d.defaclobjtype::text as kind, d.defaclnamespace, a.grantee, a.privilege_type
@@ -270,6 +297,31 @@ rows_out(seq, section, item, ok, detail) as (
             from pg_default_acl d
            where pg_get_userbyid(d.defaclrole) = 'supabase_admin'
              and d.defaclnamespace = (select oid from pg_namespace where nspname = 'public'))
+  union all
+  -- The helpers every policy rests on, and the function they rest on.
+  select 64, 'helpers', 'both helper bodies are exact',
+         (select count(*) = 2 from helper_body h
+            join pg_proc p on p.proname = h.proname and p.prosrc = h.body
+            join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'private'),
+         null
+  union all
+  select 65, 'auth.uid', 'auth.uid() is the Supabase form, not security definer',
+         coalesce((select not prosecdef and provolatile = 's' and lanname = 'sql' and returns = 'uuid'
+                          and src like '%current_setting(''request.jwt.claim.sub'', true)%'
+                          and src like '%current_setting(''request.jwt.claims'', true)%'
+                          and src like '%->> ''sub''%'
+                          and src like '%::uuid%'
+                          and src !~ '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}'
+                          and src !~* 'set_config'
+                          and (length(src) - length(replace(src, 'current_setting(', ''))) / length('current_setting(') = 2
+                     from auth_uid), false),
+         (select src from auth_uid)
+  union all
+  select 66, 'auth.uid', 'authenticated can execute auth.uid()',
+         to_regprocedure('auth.uid()') is not null
+         and has_schema_privilege('authenticated', 'auth', 'USAGE')
+         and has_function_privilege('authenticated', to_regprocedure('auth.uid()'), 'EXECUTE'),
+         null
   union all
   -- The public schema's own ACL.
   select 70, 'public schema', coalesce(nullif(a.grantee, 0)::regrole::text, 'PUBLIC'), null,

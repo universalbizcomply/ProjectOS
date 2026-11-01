@@ -93,6 +93,12 @@ const MUTATIONS = [
   { name: "xwrite-projects-open", sql: `${replaceReadPolicy("projects", "true")}\nalter policy "projects owner update" on public.projects using (true) with check (true);\nalter policy "projects owner delete" on public.projects using (true);` },
   { name: "xwrite-phases-open", sql: `${replaceReadPolicy("phases", "true")}\nalter policy "phases owner update" on public.phases using (true) with check (true);\nalter policy "phases owner delete" on public.phases using (true);\nalter policy "phases owner insert" on public.phases with check (true);` },
   { name: "owner-helper-widened", sql: `create or replace function private.my_owned_tenant_ids() returns setof text language sql stable set search_path = '' as $f$ select m.tenant_id from public.tenant_members m where m.user_id = (select auth.uid()) $f$;` },
+  // Owning one tenant must not make a user an owner of every tenant they belong to.
+  { name: "owner-anywhere-owns-all", sql: `create or replace function private.my_owned_tenant_ids() returns setof text language sql stable set search_path = '' as $f$ select m.tenant_id from public.tenant_members m where m.user_id = (select auth.uid()) and exists (select 1 from public.tenant_members o where o.user_id = (select auth.uid()) and o.role = 'owner') $f$;` },
+  // Same name, same expression, wider command: members could write through a "read" policy.
+  { name: "read-policy-for-all", sql: `drop policy "projects member read" on public.projects;\ncreate policy "projects member read" on public.projects for all to authenticated using (tenant_id in (select private.my_tenant_ids()));` },
+  // A view runs as its owner, so one over a tenant table walks past row level security.
+  { name: "public-view-over-tenant-table", sql: "create view public.project_names as select tenant_id, id, name from public.projects;\ngrant select on public.project_names to authenticated;" },
   { name: "column-grant-tenant-id", sql: "grant update (tenant_id) on public.projects to authenticated;" },
   { name: "column-grant-id", sql: "grant update (id) on public.projects to authenticated;" },
   { name: "malformed-sub-falls-open", sql: `create or replace function auth.uid() returns uuid language plpgsql stable as $f$ begin return (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')::uuid; exception when others then return 'aaaaaaaa-0000-4000-8000-000000000001'; end $f$;` },
@@ -174,6 +180,11 @@ const PREFLIGHT_0003_SCENARIOS = [
 
 /** Deviations the read-only post-apply check must refuse, on the migrated live-shaped start. */
 const POSTAPPLY_SCENARIOS = [
+  { name: "pa-read-policy-for-all", sql: `drop policy "projects member read" on public.projects;\ncreate policy "projects member read" on public.projects for all to authenticated using (tenant_id in (select private.my_tenant_ids()));`, item: "no public table has an open policy" },
+  { name: "pa-helper-body", sql: `create or replace function private.my_owned_tenant_ids() returns setof text language sql stable set search_path = '' as $f$ select m.tenant_id from public.tenant_members m where m.user_id = (select auth.uid()) and exists (select 1 from public.tenant_members o where o.user_id = (select auth.uid()) and o.role = 'owner') $f$;`, item: "both helper bodies are exact" },
+  { name: "pa-auth-uid-definer", sql: "alter function auth.uid() security definer;", item: "auth.uid() is the Supabase form, not security definer" },
+  { name: "pa-auth-uid-hardcoded", sql: `create or replace function auth.uid() returns uuid language sql stable as $f$ select coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'), 'aaaaaaaa-0000-4000-8000-000000000001')::uuid $f$;`, item: "auth.uid() is the Supabase form, not security definer" },
+  { name: "pa-auth-uid-no-execute", sql: "revoke execute on function auth.uid() from public, authenticated;", item: "authenticated can execute auth.uid()" },
   { name: "pa-default-acl-tables", sql: "alter default privileges for role postgres in schema public grant select on tables to anon;", item: DEFAULTS_ITEMS[0] },
   { name: "pa-default-acl-sequences", sql: "alter default privileges for role postgres in schema public grant usage on sequences to authenticated;", item: DEFAULTS_ITEMS[0] },
   { name: "pa-default-acl-functions", sql: "alter default privileges for role postgres in schema public grant execute on functions to anon;", item: DEFAULTS_ITEMS[0] },

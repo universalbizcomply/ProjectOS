@@ -15,6 +15,7 @@
 \set b_member 'bbbbbbbb-0000-4000-8000-000000000002'
 \set stranger 'cccccccc-0000-4000-8000-000000000001'
 \set both     'cd2e8678-1e00-4264-95bb-7d75738a1f50'
+\set mixed    'ffffffff-0000-4000-8000-000000000001'
 
 -- ---- helpers (test-only, gone with the rollback) --------------------------------------------------
 
@@ -158,6 +159,9 @@ select rlstest.ok('A-PK-phases',
 select rlstest.ok('A-UNIQUE-phases',
   exists (select 1 from pg_constraint where conrelid = 'public.phases'::regclass and contype = 'u'
            and pg_get_constraintdef(oid) = 'UNIQUE (tenant_id, project_id, phase_id)'), 'phase ids are unique per tenant');
+select rlstest.ok('A-NO-PUBLIC-VIEW',
+  not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+               where n.nspname = 'public' and c.relkind in ('v', 'm')), 'a view runs as its owner, past row level security');
 select rlstest.ok('A-REALTIME-OUT',
   not exists (select 1 from pg_publication_tables where schemaname = 'public'
                and tablename in ('projects', 'phases', 'tenants', 'tenant_members')), 'all four out of every publication');
@@ -275,6 +279,9 @@ select rlstest.expect_rows('A-OWNWRITE-delete-projects', $$delete from public.pr
 select rlstest.expect_rows('A-OWNWRITE-insert-phases', $$insert into public.phases (tenant_id, project_id, phase_id) values ('owner-personal', 'fx-alpha', 'P9')$$, 1);
 select rlstest.expect_rows('A-OWNWRITE-update-phases', $$update public.phases set objective = 'x' where project_id = 'fx-alpha'$$, 1);
 select rlstest.expect_rows('A-OWNWRITE-delete-phases', $$delete from public.phases where project_id = 'fx-alpha'$$, 1);
+select rlstest.expect_rows('A-OWNWRITE-upsert-projects',
+  $$insert into public.projects (tenant_id, id, name) values ('owner-personal', 'fx-alpha', 'x')
+    on conflict (tenant_id, id) do update set name = excluded.name$$, 1);
 
 -- ---- a non-owner member cannot write --------------------------------------------------------------
 
@@ -286,6 +293,43 @@ select rlstest.expect_rows('A-MEMBER-DELETE-projects', $$delete from public.proj
 select rlstest.expect_error('A-MEMBER-INSERT-phases', $$insert into public.phases (tenant_id, project_id, phase_id) values ('owner-personal', 'fx-alpha', 'P9')$$, '%row-level security%');
 select rlstest.expect_rows('A-MEMBER-UPDATE-phases', $$update public.phases set objective = 'x' where project_id = 'fx-alpha'$$, 0);
 select rlstest.expect_rows('A-MEMBER-DELETE-phases', $$delete from public.phases where project_id = 'fx-alpha'$$, 0);
+-- The same upsert A-OWNWRITE-upsert-projects makes.
+select rlstest.expect_error('A-MEMBER-UPSERT-projects',
+  $$insert into public.projects (tenant_id, id, name) values ('owner-personal', 'fx-alpha', 'x')
+    on conflict (tenant_id, id) do update set name = excluded.name$$, '%row-level security%');
+
+-- ---- a stranger and null claims cannot write. The A-OWNWRITE statements above are the control ---------
+
+select rlstest.login(:'stranger');
+select rlstest.expect_error('A-STRANGER-insert-projects', $$insert into public.projects (tenant_id, id, name) values ('owner-personal', 'fx-new', 'x')$$, '%row-level security%');
+select rlstest.expect_rows('A-STRANGER-update-projects', $$update public.projects set name = 'x' where id = 'fx-alpha'$$, 0);
+select rlstest.expect_rows('A-STRANGER-delete-projects', $$delete from public.projects where id = 'fx-alpha'$$, 0);
+select rlstest.expect_error('A-STRANGER-insert-phases', $$insert into public.phases (tenant_id, project_id, phase_id) values ('owner-personal', 'fx-alpha', 'P9')$$, '%row-level security%');
+select rlstest.expect_rows('A-STRANGER-update-phases', $$update public.phases set objective = 'x' where project_id = 'fx-alpha'$$, 0);
+select rlstest.expect_rows('A-STRANGER-delete-phases', $$delete from public.phases where project_id = 'fx-alpha'$$, 0);
+
+select rlstest.login_claims('');
+select rlstest.expect_error('A-NULLCLAIMS-insert-projects', $$insert into public.projects (tenant_id, id, name) values ('owner-personal', 'fx-new', 'x')$$, '%row-level security%');
+select rlstest.expect_rows('A-NULLCLAIMS-update-projects', $$update public.projects set name = 'x' where id = 'fx-alpha'$$, 0);
+select rlstest.expect_rows('A-NULLCLAIMS-delete-projects', $$delete from public.projects where id = 'fx-alpha'$$, 0);
+select rlstest.expect_error('A-NULLCLAIMS-insert-phases', $$insert into public.phases (tenant_id, project_id, phase_id) values ('owner-personal', 'fx-alpha', 'P9')$$, '%row-level security%');
+select rlstest.expect_rows('A-NULLCLAIMS-update-phases', $$update public.phases set objective = 'x' where project_id = 'fx-alpha'$$, 0);
+select rlstest.expect_rows('A-NULLCLAIMS-delete-phases', $$delete from public.phases where project_id = 'fx-alpha'$$, 0);
+
+-- ---- owner of A, plain member of B. Owning one tenant says nothing about the other --------------------
+
+select rlstest.login(:'mixed');
+select rlstest.expect_count('A-MIXED-helper-member-of-both', $$select count(*) from private.my_tenant_ids()$$, 2);
+select rlstest.expect_count('A-MIXED-helper-owns-one', $$select count(*) from private.my_owned_tenant_ids()$$, 1);
+select rlstest.expect_count('A-MIXED-reads-A', $$select count(*) from public.projects where tenant_id = 'owner-personal'$$, :a_projects);
+select rlstest.expect_count('A-MIXED-reads-B', $$select count(*) from public.projects where tenant_id = 'agency-business'$$, :b_projects);
+select rlstest.expect_rows('A-MIXED-writes-A', $$update public.projects set name = 'x' where id = 'fx-alpha'$$, 1);
+select rlstest.expect_rows('A-MIXED-update-B-projects', $$update public.projects set name = 'x' where id = 'fx-beta'$$, 0);
+select rlstest.expect_rows('A-MIXED-delete-B-projects', $$delete from public.projects where id = 'fx-beta'$$, 0);
+select rlstest.expect_rows('A-MIXED-update-B-phases', $$update public.phases set objective = 'x' where project_id = 'fx-beta'$$, 0);
+select rlstest.expect_rows('A-MIXED-delete-B-phases', $$delete from public.phases where project_id = 'fx-beta'$$, 0);
+select rlstest.expect_error('A-MIXED-insert-B-projects', $$insert into public.projects (tenant_id, id, name) values ('agency-business', 'fx-new', 'x')$$, '%row-level security%');
+select rlstest.expect_error('A-MIXED-insert-B-phases', $$insert into public.phases (tenant_id, project_id, phase_id) values ('agency-business', 'fx-beta', 'P9')$$, '%row-level security%');
 
 -- ---- a user who owns BOTH tenants. Row level security would allow all of this, so only the column
 -- ---- grant and the composite foreign key can refuse it. -------------------------------------------
