@@ -43,5 +43,10 @@ facts(line) as (
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
    where n.nspname = 'private'
+  union all
+  select 'default-acl ' || pg_get_userbyid(d.defaclrole) || ' ' || d.defaclobjtype::text || ' ' || coalesce(n.nspname, '*') || ' '
+         || coalesce(nullif(a.grantee, 0)::regrole::text, 'PUBLIC') || ' ' || a.privilege_type
+    from pg_default_acl d left join pg_namespace n on n.oid = d.defaclnamespace
+    cross join lateral aclexplode(d.defaclacl) a
 )
 select line from facts order by line;

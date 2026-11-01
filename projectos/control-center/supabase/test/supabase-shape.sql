@@ -17,11 +17,19 @@ alter schema public owner to postgres;
 grant usage on schema public to anon, authenticated, service_role;
 
 alter default privileges for role postgres in schema public
-  grant all on tables to anon, authenticated, service_role;
+  grant all on tables to postgres, anon, authenticated, service_role;
 alter default privileges for role postgres in schema public
-  grant all on sequences to anon, authenticated, service_role;
+  grant all on sequences to postgres, anon, authenticated, service_role;
 alter default privileges for role postgres in schema public
-  grant all on functions to anon, authenticated, service_role;
+  grant all on functions to postgres, anon, authenticated, service_role;
+
+-- supabase_admin has its own entries, which postgres cannot alter.
+alter default privileges for role supabase_admin in schema public
+  grant all on tables to postgres, anon, authenticated, service_role;
+alter default privileges for role supabase_admin in schema public
+  grant all on sequences to postgres, anon, authenticated, service_role;
+alter default privileges for role supabase_admin in schema public
+  grant all on functions to postgres, anon, authenticated, service_role;
 
 -- The auth stub. auth.uid() reads the claims the way Supabase's does.
 create schema auth;

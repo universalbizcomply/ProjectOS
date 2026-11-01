@@ -33,6 +33,24 @@ const scratch = require("../../../validators/lib/scratch.cjs");
 const HERE = __dirname;
 const MIGRATIONS_DIR = path.resolve(HERE, "..", "migrations");
 const MIGRATIONS = ["0001_baseline.sql", "0002_tenant_boundary.sql"];
+/** Applied apart from the two above, because live reached 0002 first and the proof must start from there. */
+const DEFAULTS_MIGRATION = "0003_default_privileges.sql";
+/** What a new table, sequence and function made by postgres give each role; rolled back. */
+const NEW_OBJECT_PROBE = `begin;
+create table public.acl_probe (id int);
+create sequence public.acl_probe_seq;
+create function public.acl_probe_fn() returns int language sql as 'select 1';
+select r, has_table_privilege(r::name, 'public.acl_probe', 'SELECT'), has_sequence_privilege(r::name, 'public.acl_probe_seq', 'USAGE'),
+       has_function_privilege(r::name, 'public.acl_probe_fn()', 'EXECUTE')
+  from unnest(array['anon', 'authenticated', 'service_role']) r order by r;
+select 'PUBLIC', exists (select 1 from pg_proc p cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                          where p.oid = 'public.acl_probe_fn()'::regprocedure and a.grantee = 0);
+rollback;`;
+const OPEN_TO_CLIENTS = "anon|t|t|t\nauthenticated|t|t|t\nservice_role|t|t|t\nPUBLIC|t";
+const CLOSED_TO_CLIENTS = "anon|f|f|f\nauthenticated|f|f|f\nservice_role|t|t|t\nPUBLIC|f";
+/** The limit 0003 cannot lift: supabase_admin's own defaults. */
+const ADMIN_TABLE_PROBE = "begin;\ncreate table public.admin_probe (id int);\nselect has_table_privilege('anon', 'public.admin_probe', 'SELECT');\nrollback;";
+const DEFAULTS_ITEMS = ["postgres default ACL in public gives anon and authenticated nothing", "new postgres functions give PUBLIC nothing"];
 const RETIRED = [path.resolve(HERE, "..", "schema.sql"), path.resolve(HERE, "..", "interactive.sql")];
 const SEED_ROWS = 12;
 const QUIET = "-c client_min_messages=warning";
@@ -87,6 +105,12 @@ const MUTATIONS = [
   { name: "anon-select-grant", sql: "grant select on public.projects to anon;" },
   { name: "rls-disabled", sql: "alter table public.projects disable row level security;" },
   { name: "realtime-added", sql: "alter publication supabase_realtime add table public.tenant_members;" },
+  // 0003, drifted back. A default ACL exposes only objects made later, so the assertions make one of each.
+  { name: "default-acl-tables", sql: "alter default privileges for role postgres in schema public grant select on tables to anon, authenticated;" },
+  { name: "default-acl-sequences", sql: "alter default privileges for role postgres in schema public grant usage on sequences to anon, authenticated;" },
+  { name: "default-acl-functions", sql: "alter default privileges for role postgres in schema public grant execute on functions to anon, authenticated;" },
+  { name: "default-acl-public-execute", sql: "alter default privileges for role postgres grant execute on functions to public;" },
+  { name: "default-acl-service-role-lost", sql: "alter default privileges for role postgres in schema public revoke all on tables from service_role;\nalter default privileges for role postgres in schema public revoke all on sequences from service_role;\nalter default privileges for role postgres in schema public revoke all on functions from service_role;" },
   { name: "helper-execute-public", sql: "grant execute on function private.my_tenant_ids() to public;" },
   { name: "helper-search-path-dropped", sql: "alter function private.my_tenant_ids() reset search_path;" },
   { name: "tenant-default-added", sql: "alter table public.projects alter column tenant_id set default 'owner-personal';" },
@@ -111,6 +135,17 @@ const SOURCE_MUTATIONS = [
   { name: "src-column-default", from: "alter table public.projects\n  alter column tenant_id drop default,\n  alter column tenant_id set not null;", to: "alter table public.projects\n  alter column tenant_id set default 'owner-personal',\n  alter column tenant_id set not null;", expect: "tenant_id is nullable, missing or has a default on projects" },
 ];
 
+/** Mutations of 0003's text, applied from the state after 0002. The apply must fail on `expect` and change no default. */
+const DEFAULTS_SOURCE_MUTATIONS = [
+  { name: "src3-tables-kept", from: "alter default privileges for role postgres in schema public\n  revoke all on tables from anon, authenticated;\n", to: "", expect: "a client keeps a default: anon SELECT on tables" },
+  { name: "src3-sequences-kept", from: "alter default privileges for role postgres in schema public\n  revoke all on sequences from anon, authenticated;\n", to: "", expect: "a client keeps a default: anon USAGE on sequences" },
+  { name: "src3-functions-kept", from: "alter default privileges for role postgres in schema public\n  revoke all on functions from anon, authenticated;\n", to: "", expect: "a client keeps a default: anon EXECUTE on functions" },
+  { name: "src3-authenticated-kept", from: "revoke all on tables from anon, authenticated;", to: "revoke all on tables from anon;", expect: "a client keeps a default: authenticated SELECT on tables" },
+  { name: "src3-public-execute-kept", from: "alter default privileges for role postgres\n  revoke execute on functions from public;\n", to: "", expect: "new functions still default to PUBLIC EXECUTE" },
+  { name: "src3-public-execute-per-schema", from: "alter default privileges for role postgres\n  revoke execute on functions from public;\n", to: "alter default privileges for role postgres in schema public\n  revoke execute on functions from public;\n", expect: "new functions still default to PUBLIC EXECUTE" },
+  { name: "src3-service-role-revoked", from: "revoke all on tables from anon, authenticated;", to: "revoke all on tables from anon, authenticated, service_role;", expect: "service_role lost a default on tables" },
+];
+
 /** Deviations the read-only preflight must refuse. Each runs in a transaction that is rolled back. */
 const PREFLIGHT_SCENARIOS = [
   { name: "pf-stranger-row", sql: "insert into public.projects (id, name) values ('stranger-project', 'Stranger');", item: "every row is in the map" },
@@ -127,8 +162,23 @@ const PREFLIGHT_SCENARIOS = [
   { name: "pf-client-can-create", sql: "grant create on schema public to anon;", item: "no client can create in schema public" },
 ];
 
+/** Deviations the read-only 0003 preflight must refuse, from the state after 0002. Each is rolled back. */
+const PREFLIGHT_0003_SCENARIOS = [
+  { name: "pf3-anon-grant", sql: "grant select on public.tenants to anon;", item: "the privilege gate reports nothing" },
+  { name: "pf3-open-policy", sql: `alter policy "projects member read" on public.projects using (true or tenant_id in (select private.my_tenant_ids()));`, item: "no public table has an open policy" },
+  { name: "pf3-helper-gone", sql: "alter function private.my_owned_tenant_ids() rename to moved;", item: "both helpers exist" },
+  { name: "pf3-owner-not-member", sql: "delete from public.tenant_members where user_id = 'cd2e8678-1e00-4264-95bb-7d75738a1f50' and tenant_id = 'agency-business';", item: "the owner account owns both tenants" },
+  { name: "pf3-tables-already-locked", sql: "alter default privileges for role postgres in schema public revoke all on tables from anon, authenticated;", item: "anon and authenticated still hold the default on tables" },
+  { name: "pf3-global-default-set", sql: "alter default privileges for role postgres revoke execute on functions from public;", item: "no global function default exists yet" },
+];
+
 /** Deviations the read-only post-apply check must refuse, on the migrated live-shaped start. */
 const POSTAPPLY_SCENARIOS = [
+  { name: "pa-default-acl-tables", sql: "alter default privileges for role postgres in schema public grant select on tables to anon;", item: DEFAULTS_ITEMS[0] },
+  { name: "pa-default-acl-sequences", sql: "alter default privileges for role postgres in schema public grant usage on sequences to authenticated;", item: DEFAULTS_ITEMS[0] },
+  { name: "pa-default-acl-functions", sql: "alter default privileges for role postgres in schema public grant execute on functions to anon;", item: DEFAULTS_ITEMS[0] },
+  { name: "pa-public-execute", sql: "alter default privileges for role postgres grant execute on functions to public;", item: DEFAULTS_ITEMS[1] },
+  { name: "pa-supabase-admin-table", sql: "create table public.admin_table (id int);", item: "the privilege gate reports nothing" },
   { name: "pa-true-or-helper", sql: `alter policy "projects member read" on public.projects using (true or tenant_id in (select private.my_tenant_ids()));`, item: "no public table has an open policy" },
   { name: "pa-to-public", sql: `drop policy "phases member read" on public.phases;\ncreate policy "phases member read" on public.phases for select to public using (tenant_id in (select private.my_tenant_ids()));`, item: "no public table has an open policy" },
   { name: "pa-anon-select", sql: "grant select on public.tenants to anon;", item: "the privilege gate reports nothing" },
@@ -252,7 +302,7 @@ function sweepStale(pgctl, env) {
 
 function main() {
   const startedAt = Date.now();
-  const result = { ok: false, pgVersion: null, pgMajor: null, pgBinDir: null, pgNote: null, swept: [], starts: [], mutations: [], sourceMutations: [], preflight: [], postapply: [], checks: [], ms: 0 };
+  const result = { ok: false, pgVersion: null, pgMajor: null, pgBinDir: null, pgNote: null, swept: [], starts: [], mutations: [], sourceMutations: [], preflight: [], preflight0003: [], postapply: [], defaultAcl: [], checks: [], ms: 0 };
   const pg = resolvePg();
   if (!pg) {
     console.error("pg-harness: POSTGRES_MISSING: initdb, pg_ctl or psql not found; install PostgreSQL or set TENANT_RLS_PG_BIN");
@@ -334,6 +384,9 @@ function main() {
     const PREFLIGHT = read("live-preflight.sql");
     const POSTAPPLY_FILE = path.join(HERE, "live-postapply.sql");
     const POSTAPPLY = read("live-postapply.sql");
+    const PREFLIGHT_0003_FILE = path.join(HERE, "live-preflight-0003.sql");
+    const PREFLIGHT_0003 = read("live-preflight-0003.sql");
+    const DEFAULTS_FILE = path.join(MIGRATIONS_DIR, DEFAULTS_MIGRATION);
     const FINGERPRINT_FILE = path.join(HERE, "catalog-fingerprint.sql");
     const MEMBERSHIP_FILE = path.join(HERE, "live-owner-membership.sql");
 
@@ -493,6 +546,61 @@ function main() {
       r = admin(st.db, "select count(*) from public.tenant_members where user_id = 'cd2e8678-1e00-4264-95bb-7d75738a1f50' and role = 'owner';");
       check(`${st.label}: the owner account owns both tenants`, r.out.trim() === "2", r.all);
 
+      // ---- 0003, from the state live is in: 0001, 0002 and the membership step already applied --------
+      const verdictOf = (text) => parsePreflight(text).find((x) => x.section === "PREFLIGHT");
+      const lines = (text) => text.trim().split(/\r?\n/).join("\n");
+      const existingOnly = (text) => text.split(/\r?\n/).filter((l) => !l.startsWith("default-acl ")).join("\n");
+      const defaultsMatching = (text, needle) => text.split(/\r?\n/).filter((l) => l.startsWith("default-acl ") && l.includes(needle)).join("\n");
+      const newObjects = () => lines(sql(st.db, "postgres", NEW_OBJECT_PROBE).out);
+      const adminTable = () => admin(st.db, ADMIN_TABLE_PROBE).out.trim();
+      const applyDefaults = (pass) => {
+        const a = sqlFile(st.db, "postgres", DEFAULTS_FILE);
+        check(`${st.label}, ${pass}: apply ${DEFAULTS_MIGRATION} as non-superuser postgres`, a.code === 0, a.all);
+      };
+
+      r = sqlFile(st.db, "supabase_read_only_user", PREFLIGHT_0003_FILE, preflightEnv);
+      const ready = verdictOf(r.out);
+      result.preflight0003.push({ name: `pf3-clean-${st.db}`, ran: r.code === 0 && ready !== undefined, passed: ready !== undefined && ready.ok === "t", failed: parsePreflight(r.out).filter((x) => x.ok === "f").map((x) => x.item) });
+      check(`${st.label}: the read-only 0003 preflight passes before the apply`, r.code === 0 && ready !== undefined && ready.ok === "t", r.all);
+
+      r = sqlFile(st.db, "supabase_read_only_user", POSTAPPLY_FILE, preflightEnv);
+      const pending = postapplyVerdict(r.out, r.code);
+      const pendingItems = pending.failed.filter((i) => i !== "all").sort().join("|");
+      check(`${st.label}: before 0003 the post-apply check fails on its two default rows and nothing else`,
+        pending.ran && !pending.passed && pendingItems === [...DEFAULTS_ITEMS].sort().join("|"), r.all);
+
+      const objectsBefore = newObjects();
+      check(`${st.label}: before 0003 a new table, sequence and function give anon and authenticated access`, objectsBefore === OPEN_TO_CLIENTS, objectsBefore);
+      const adminBefore = adminTable();
+      const catalogueBefore = fingerprint(st.db);
+      if (st.db === "start_live") cloneDb("at_0002", "start_live");
+
+      applyDefaults("pass 1");
+      const catalogueAfter = fingerprint(st.db);
+      applyDefaults("pass 2");
+      check(`${st.label}: the second apply of 0003 changed nothing in the catalogue`, fingerprint(st.db) === catalogueAfter, "fingerprints differ");
+
+      const objectsAfter = newObjects();
+      check(`${st.label}: after 0003 they give anon and authenticated nothing, and service_role keeps access`, objectsAfter === CLOSED_TO_CLIENTS, objectsAfter);
+      check(`${st.label}: 0003 changed nothing that already existed`, catalogueBefore !== catalogueAfter && existingOnly(catalogueBefore) === existingOnly(catalogueAfter), "existing objects moved");
+      const serviceDefaults = defaultsMatching(catalogueBefore, "postgres r public service_role") + defaultsMatching(catalogueBefore, "postgres S public service_role") + defaultsMatching(catalogueBefore, "postgres f public service_role");
+      const serviceDefaultsAfter = defaultsMatching(catalogueAfter, "postgres r public service_role") + defaultsMatching(catalogueAfter, "postgres S public service_role") + defaultsMatching(catalogueAfter, "postgres f public service_role");
+      check(`${st.label}: service_role's defaults are unchanged`, serviceDefaults !== "" && serviceDefaults === serviceDefaultsAfter, serviceDefaultsAfter);
+      const adminDefaults = defaultsMatching(catalogueBefore, "default-acl supabase_admin ");
+      check(`${st.label}: supabase_admin's defaults are unchanged`, adminDefaults !== "" && adminDefaults === defaultsMatching(catalogueAfter, "default-acl supabase_admin "), "supabase_admin's defaults moved");
+      const adminAfter = adminTable();
+      check(`${st.label}: known limit: a table made by supabase_admin stays exposed after 0003`, adminBefore === "t" && adminAfter === "t", adminAfter);
+
+      applyMigrations(st.db, st.label + ", after 0003");
+      applyDefaults("re-run");
+      check(`${st.label}: re-running all three migrations after 0003 changed nothing`, fingerprint(st.db) === catalogueAfter, "fingerprints differ");
+
+      r = sqlFile(st.db, "supabase_read_only_user", PREFLIGHT_0003_FILE, preflightEnv);
+      const applied0003 = verdictOf(r.out);
+      result.preflight0003.push({ name: `pf3-after-0003-${st.db}`, ran: r.code === 0 && applied0003 !== undefined, passed: applied0003 !== undefined && applied0003.ok === "t", failed: parsePreflight(r.out).filter((x) => x.ok === "f").map((x) => x.item) });
+      check(`${st.label}: the 0003 preflight refuses a database that already has 0003`, r.code === 0 && applied0003 !== undefined && applied0003.ok === "f", r.all);
+      result.defaultAcl.push({ label: st.label, objectsBefore, objectsAfter, adminBefore, adminAfter });
+
       const clean = evaluate(st.db, "", st.expectedSeed);
       check(`${st.label}: behavioural assertions (${clean.total})`,
         clean.complete && clean.failed.length === 0 && clean.gate.length === 0 && clean.total >= MINIMUM_ASSERTIONS,
@@ -518,6 +626,7 @@ function main() {
       const applied = postapplyVerdict(r.out, r.code);
       result.postapply.push({ name: `pa-clean-${st.db}`, ...applied });
       check(`${st.label}: the read-only post-apply check passes`, applied.ran && applied.passed && applied.failed.length === 0, r.all);
+      check(`${st.label}: the post-apply check lists supabase_admin's defaults as a known limit`, /\|known limit: [^|]*\|\|\S/.test(r.out), r.all);
 
       g = gateRows(st.db);
       check(`${st.label}: privilege gate still reports nothing after the assertions`, g.code === 0 && g.rows.length === 0, g.all);
@@ -561,9 +670,9 @@ function main() {
       (select count(*) from pg_policy), (select count(*) from public.projects),
       not exists (select 1 from pg_attribute where attrelid = 'public.projects'::regclass and attname = 'tenant_id');`).out.trim();
     const untouched = `t|t|3|${SEED_ROWS}|t`;
-    const scenario = (name, prepare, text, user = "postgres") => {
+    const scenario = (name, prepare, text, user = "postgres", template = "live_pristine") => {
       const db = "m_" + name.replace(/[^a-z0-9]/g, "_");
-      cloneDb(db, "live_pristine");
+      cloneDb(db, template);
       if (prepare) {
         const p = admin(db, prepare);
         if (p.code !== 0) throw new Error(`could not prepare ${name}: ${p.all}`);
@@ -621,6 +730,38 @@ function main() {
     check("a re-run succeeds and keeps its keys after a later object depends on one", reapplied.code === 0 && keysKept, reapplied.all);
     dropDb("m_dependent_key");
 
+    // ---- 0003: from the state after 0002, its own check refuses a bad apply and changes no default -------
+    const defaultsText = fs.readFileSync(DEFAULTS_FILE, "utf8").replace(/\r\n/g, "\n");
+    const defaultsState = (db) => fingerprint(db).split(/\r?\n/).filter((l) => l.startsWith("default-acl ")).join("\n");
+    const atStart = defaultsState("at_0002");
+    for (const m of DEFAULTS_SOURCE_MUTATIONS) {
+      if (!defaultsText.includes(m.from)) {
+        check(`source mutation ${m.name} still applies to the migration text`, false, "update the mutation with the migration");
+        continue;
+      }
+      const s3 = scenario(m.name, null, defaultsText.replace(m.from, m.to), "postgres", "at_0002");
+      const kept = defaultsState(s3.db) === atStart;
+      const refused = s3.err.includes("TENANT_DEFAULT_PRIVILEGES_CHECK_FAILED") && s3.err.includes(m.expect);
+      result.sourceMutations.push({ name: m.name, refused: s3.code !== 0, raised: refused, rolledBack: kept });
+      check(`source mutation ${m.name} is refused by 0003's own check and rolled back`, s3.code !== 0 && refused && kept, s3.err);
+      dropDb(s3.db);
+    }
+    sc = scenario("0003-as-superuser", null, defaultsText, "supabase_admin", "at_0002");
+    const superuserKept = defaultsState(sc.db) === atStart;
+    const superuserRefused = sc.code !== 0 && sc.err.includes("TENANT_BOUNDARY_WRONG_ROLE") && sc.err.includes("supabase_admin");
+    result.sourceMutations.push({ name: "0003-as-superuser", refused: sc.code !== 0, raised: superuserRefused, rolledBack: superuserKept });
+    check("applying 0003 as supabase_admin raises and changes no default", superuserRefused && superuserKept, sc.err);
+    dropDb(sc.db);
+
+    for (const pf of PREFLIGHT_0003_SCENARIOS) {
+      r = admin("at_0002", `begin;\n${pf.sql}\nset local role supabase_read_only_user;\n${PREFLIGHT_0003}\nrollback;`);
+      const rows = parsePreflight(r.out);
+      const top = rows.find((x) => x.section === "PREFLIGHT");
+      const failed = rows.filter((x) => x.ok === "f").map((x) => x.item);
+      result.preflight0003.push({ name: pf.name, ran: r.code === 0 && top !== undefined, passed: top !== undefined && top.ok === "t", failed });
+      check(`0003 preflight refuses ${pf.name}`, r.code === 0 && top !== undefined && top.ok === "f" && failed.includes(pf.item), r.all);
+    }
+
     sc = scenario("realtime-member", "alter publication supabase_realtime add table public.phases, public.projects;", boundaryText);
     r = admin(sc.db, "select count(*) from pg_publication_tables where schemaname = 'public';");
     check("a table already in supabase_realtime is taken out", sc.code === 0 && r.out.trim() === "0", sc.err + r.all);
@@ -658,4 +799,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { MUTATIONS, SOURCE_MUTATIONS, PREFLIGHT_SCENARIOS, POSTAPPLY_SCENARIOS, choosePg, LIVE_MAJOR };
+module.exports = { MUTATIONS, SOURCE_MUTATIONS, DEFAULTS_SOURCE_MUTATIONS, PREFLIGHT_SCENARIOS, PREFLIGHT_0003_SCENARIOS, POSTAPPLY_SCENARIOS, choosePg, LIVE_MAJOR };

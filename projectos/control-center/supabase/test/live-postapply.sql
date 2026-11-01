@@ -1,8 +1,8 @@
--- ProjectOS Control Center: read-only post-apply check for 0002_tenant_boundary.sql.
+-- ProjectOS Control Center: read-only post-apply check for the migrations through 0003_default_privileges.sql.
 --
 -- ONE SELECT statement, nothing else. Run it as supabase_read_only_user after the owner's live apply and
 -- the membership step. Each row is (section, item, ok, detail); ok is null for a plain listing. The apply
--- stands only if the final row reads POSTAPPLY, all, true.
+-- stands only if the final row reads POSTAPPLY, all, true. Before 0003 it fails on its two default rows.
 --
 -- The CTEs from client_roles to findings are privilege-gate.sql, byte for byte, and the validator holds
 -- them equal. has_*_privilege answers for any role, so this needs no writes and no role change.
@@ -204,6 +204,13 @@ open_policy as (
           or pg_get_expr(p.polwithcheck, p.polrelid) is distinct from a.with_check
           or p.polroles <> array[(select oid from pg_roles where rolname = 'authenticated')])
 ),
+postgres_defaults as (
+  select d.defaclobjtype::text as kind, d.defaclnamespace, a.grantee, a.privilege_type
+    from pg_default_acl d cross join lateral aclexplode(d.defaclacl) a
+   where pg_get_userbyid(d.defaclrole) = 'postgres'
+     and d.defaclobjtype::text in ('r', 'S', 'f')
+     and d.defaclnamespace in (0, (select oid from pg_namespace where nspname = 'public'))
+),
 rows_out(seq, section, item, ok, detail) as (
   select 10, 'identity', 'server', null::boolean, version()
   union all
@@ -240,10 +247,29 @@ rows_out(seq, section, item, ok, detail) as (
     from pg_publication_tables t
    where t.schemaname = 'public'
   union all
-  -- Default privileges for future objects stay in place, by owner decision. Listed so the state is seen.
+  -- Default privileges for future objects. Every row is listed so the whole state is seen.
   select 60, 'default acl', 'for ' || pg_get_userbyid(d.defaclrole) || ' on ' || d.defaclobjtype::text
          || ' in ' || coalesce(n.nspname, 'every schema'), null, d.defaclacl::text
     from pg_default_acl d left join pg_namespace n on n.oid = d.defaclnamespace
+  union all
+  select 61, 'default acl', 'postgres default ACL in public gives anon and authenticated nothing',
+         not exists (select 1 from postgres_defaults e join pg_roles r on r.oid = e.grantee
+                      where r.rolname in ('anon', 'authenticated')),
+         (select string_agg(r.rolname || ' ' || e.kind || ' ' || e.privilege_type, ', ' order by r.rolname, e.kind, e.privilege_type)
+            from postgres_defaults e join pg_roles r on r.oid = e.grantee where r.rolname in ('anon', 'authenticated'))
+  union all
+  select 62, 'default acl', 'new postgres functions give PUBLIC nothing',
+         exists (select 1 from postgres_defaults e where e.kind = 'f' and e.defaclnamespace = 0)
+         and not exists (select 1 from postgres_defaults e where e.grantee = 0),
+         null
+  union all
+  -- A known limit, not a pass: postgres cannot alter these, so an object supabase_admin makes in public
+  -- stays exposed. If one exists, the gate above reports it and this check fails.
+  select 63, 'default acl', 'known limit: objects made by supabase_admin in public stay exposed', null,
+         (select string_agg(d.defaclobjtype::text || ' ' || d.defaclacl::text, '; ' order by d.defaclobjtype::text)
+            from pg_default_acl d
+           where pg_get_userbyid(d.defaclrole) = 'supabase_admin'
+             and d.defaclnamespace = (select oid from pg_namespace where nspname = 'public'))
   union all
   -- The public schema's own ACL.
   select 70, 'public schema', coalesce(nullif(a.grantee, 0)::regrole::text, 'PUBLIC'), null,

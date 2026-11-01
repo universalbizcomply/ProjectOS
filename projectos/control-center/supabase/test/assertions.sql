@@ -356,6 +356,34 @@ select rlstest.login(:'both');
 select rlstest.expect_count('A-HELPER-both-tenants', $$select count(*) from private.my_tenant_ids()$$, 2);
 select rlstest.expect_count('A-HELPER-both-owned', $$select count(*) from private.my_owned_tenant_ids()$$, 2);
 
+-- ---- a new object from postgres starts closed (0003). service_role is the control ---------------------
+
+select rlstest.logout();
+set role postgres;
+create table public.rlstest_probe (id int);
+create sequence public.rlstest_probe_seq;
+create function public.rlstest_probe_fn() returns int language sql as 'select 1';
+reset role;
+
+select rlstest.ok('A-NEWOBJ-table-anon', not has_table_privilege('anon', 'public.rlstest_probe', 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN'), 'a new table gives anon nothing');
+select rlstest.ok('A-NEWOBJ-table-authenticated', not has_table_privilege('authenticated', 'public.rlstest_probe', 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN'), 'a new table gives authenticated nothing');
+select rlstest.ok('A-NEWOBJ-table-service_role', has_table_privilege('service_role', 'public.rlstest_probe', 'SELECT'), 'service_role keeps its default');
+select rlstest.ok('A-NEWOBJ-sequence-anon', not has_sequence_privilege('anon', 'public.rlstest_probe_seq', 'USAGE, SELECT, UPDATE'), 'a new sequence gives anon nothing');
+select rlstest.ok('A-NEWOBJ-sequence-authenticated', not has_sequence_privilege('authenticated', 'public.rlstest_probe_seq', 'USAGE, SELECT, UPDATE'), 'a new sequence gives authenticated nothing');
+select rlstest.ok('A-NEWOBJ-sequence-service_role', has_sequence_privilege('service_role', 'public.rlstest_probe_seq', 'USAGE'), 'service_role keeps its default');
+select rlstest.ok('A-NEWOBJ-function-anon', not has_function_privilege('anon', 'public.rlstest_probe_fn()', 'EXECUTE'), 'a new function gives anon nothing');
+select rlstest.ok('A-NEWOBJ-function-authenticated', not has_function_privilege('authenticated', 'public.rlstest_probe_fn()', 'EXECUTE'), 'a new function gives authenticated nothing');
+select rlstest.ok('A-NEWOBJ-function-service_role', has_function_privilege('service_role', 'public.rlstest_probe_fn()', 'EXECUTE'), 'service_role keeps its default');
+select rlstest.ok('A-NEWOBJ-function-public',
+  not exists (select 1 from pg_proc p cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+               where p.oid = 'public.rlstest_probe_fn()'::regprocedure and a.grantee = 0), 'a new function gives PUBLIC nothing');
+
+set role postgres;
+drop function public.rlstest_probe_fn();
+drop sequence public.rlstest_probe_seq;
+drop table public.rlstest_probe;
+reset role;
+
 -- ---- nothing above left a mark -----------------------------------------------------------------------
 
 select rlstest.logout();
