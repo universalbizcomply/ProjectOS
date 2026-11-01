@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-397c46c375b323c39cc7b897",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "3942bd2f2eb6595d0dcb36a951e02d8e645fdd1d",
+  "draftId": "dc0a65958d787289",
+  "planDigest": "sha256:29c15c93a8aab21eba31aafb201ea0ee7251eb993a25b52aa0c2f1ee85d17925",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-01T20:35:34.291Z",
+  "note": "Write-path repair of the plan the owner approved with \"Approved\" on 2026-11-01: the notices path gains its leading ./ in six phases, as the grant rule requires. No phase, criterion, review or scope changes.",
+  "recordedBy": "projectos plan decide"
+}
