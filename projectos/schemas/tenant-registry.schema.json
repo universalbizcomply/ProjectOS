@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/tenant-registry.schema.json",
+  "title": "ProjectOS Tenant Registry",
+  "description": "projectos/security/tenant-registry.json. Binds projectId, repository and governedRoot to one tenant and one domain. Installation record, read from committed bytes. Uniqueness across entries cannot be stated in JSON Schema; parseTenantRegistry in projectos/core/src/tenant.ts enforces it and validates the whole file before any match.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "policy",
+    "note",
+    "authority",
+    "authorisedBy",
+    "provenance",
+    "trustBasis",
+    "tenants",
+    "projects"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "policy": {
+      "const": "tenant-registry"
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1
+    },
+    "authority": {
+      "type": "string",
+      "minLength": 1
+    },
+    "authorisedBy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provenance": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trustBasis": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenantId",
+          "name"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,56}$",
+            "description": "At most 57 characters, so tenant.<tenantId> fits a 64-character credential reference segment."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "projects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId",
+          "repository",
+          "governedRoot",
+          "tenant",
+          "domain"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+            "not": {
+              "pattern": "^[Tt][Ee][Nn][Aa][Nn][Tt]\\."
+            },
+            "description": "A credential reference segment. 'tenant.' is reserved, case-insensitively, for tenant-class credentials."
+          },
+          "repository": {
+            "type": "string",
+            "pattern": "^[^\\s/*?]+/[^\\s/*?]+/[^\\s*?]+$",
+            "description": "host/owner/name, as parseRemoteUrl canonicalises it. No wildcards."
+          },
+          "governedRoot": {
+            "type": "string",
+            "pattern": "^[A-Za-z]:/[^\\\\*?]*$",
+            "description": "Absolute, forward slashes, no wildcards."
+          },
+          "tenant": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,56}$",
+            "description": "A tenantId declared in tenants."
+          },
+          "domain": {
+            "enum": [
+              "develop",
+              "business",
+              "personal",
+              "phone"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

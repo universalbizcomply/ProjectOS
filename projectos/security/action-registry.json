@@ -1,0 +1,208 @@
+{
+  "schemaVersion": "1.0.0",
+  "policy": "action-registry",
+  "note": "The one canonical action registry of ADR-K1 section 1: each action's class and target environment. Callers name an action and read these back; a caller's own label is ignored. An action not listed here is P5 (R5). Each entry names both existing vocabularies: governanceAction from core/src/permissions.ts and ownerOnlyAction from core/src/ownerOnlyActions.ts, null where that vocabulary has no spelling. Neither vocabulary is changed by this file. environment is where the executing capability acts; an action with no capability yet is production, the strictest.",
+  "authority": "owner",
+  "authorisedBy": "Murad",
+  "provenance": "Transcribed by the implementer (Claude) from ADR-K1 sections 3 and 4, accepted by the owner on 2026-11-01 (D3 'Accept it (Recommended)'), and from the Stage 2 delta the owner approved the same day.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. Read from committed bytes only and validated whole: a duplicate, a wildcard, a missing spelling or a class below its floor refuses the entire file. The floors are in core/src/actionRegistry.ts, so no edit here can lower an owner-only action (R6).",
+  "actions": [
+    {
+      "id": "create_phase",
+      "governanceAction": "create_phase",
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local"
+    },
+    {
+      "id": "prompt_phase",
+      "governanceAction": "prompt_phase",
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local"
+    },
+    {
+      "id": "implement",
+      "governanceAction": "implement",
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local"
+    },
+    {
+      "id": "run_validators",
+      "governanceAction": "run_validators",
+      "ownerOnlyAction": null,
+      "class": "P1",
+      "environment": "local"
+    },
+    {
+      "id": "generate_evidence",
+      "governanceAction": "generate_evidence",
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local"
+    },
+    {
+      "id": "generate_report",
+      "governanceAction": "generate_report",
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local"
+    },
+    {
+      "id": "request_approval",
+      "governanceAction": "request_approval",
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local"
+    },
+    {
+      "id": "request_review",
+      "governanceAction": "request_review",
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local"
+    },
+    {
+      "id": "perform_review",
+      "governanceAction": "perform_review",
+      "ownerOnlyAction": null,
+      "class": "P1",
+      "environment": "local"
+    },
+    {
+      "id": "architect_phase",
+      "governanceAction": "architect_phase",
+      "ownerOnlyAction": null,
+      "class": "P1",
+      "environment": "local"
+    },
+    {
+      "id": "recommend_closure",
+      "governanceAction": "recommend_closure",
+      "ownerOnlyAction": null,
+      "class": "P1",
+      "environment": "local"
+    },
+    {
+      "id": "approve",
+      "governanceAction": "approve",
+      "ownerOnlyAction": null,
+      "class": "P5",
+      "environment": "local"
+    },
+    {
+      "id": "reject",
+      "governanceAction": "reject",
+      "ownerOnlyAction": null,
+      "class": "P5",
+      "environment": "local"
+    },
+    {
+      "id": "override_gate",
+      "governanceAction": "override_gate",
+      "ownerOnlyAction": null,
+      "class": "P5",
+      "environment": "local"
+    },
+    {
+      "id": "rollback",
+      "governanceAction": "rollback",
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local",
+      "note": "ADR-K1 section 3: declared but has no execution path today. It needs one before it is usable."
+    },
+    {
+      "id": "phase-closure",
+      "governanceAction": "close_phase",
+      "ownerOnlyAction": "phase-closure",
+      "class": "P5",
+      "environment": "local"
+    },
+    {
+      "id": "commit",
+      "governanceAction": null,
+      "ownerOnlyAction": "commit",
+      "class": "P3",
+      "environment": "local"
+    },
+    {
+      "id": "push",
+      "governanceAction": null,
+      "ownerOnlyAction": "push",
+      "class": "P3",
+      "environment": "local"
+    },
+    {
+      "id": "secrets-handling",
+      "governanceAction": null,
+      "ownerOnlyAction": "secrets-handling",
+      "class": "P5",
+      "environment": "local"
+    },
+    {
+      "id": "payment-or-live-charge",
+      "governanceAction": null,
+      "ownerOnlyAction": "payment-or-live-charge",
+      "class": "P5",
+      "environment": "production"
+    },
+    {
+      "id": "cross-tenant-access",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P5",
+      "environment": "production",
+      "note": "ADR-K1 section 4: the only grant is an explicit, scoped, expiring record by the owner of the data-owning tenant. Each use is a new root envelope in that tenant. No capability exists."
+    },
+    {
+      "id": "tenant-registry-change",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P5",
+      "environment": "local",
+      "note": "ADR-T1: the owner must have made the last commit to projectos/security/tenant-registry.json."
+    },
+    {
+      "id": "run-start",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local",
+      "note": "Stage 2 envelope boundary: a governed run starting. What the run then commits or spends is enveloped under its own action."
+    },
+    {
+      "id": "credential-release",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P5",
+      "environment": "local",
+      "note": "Stage 2 envelope boundary: the vault releasing a secret for one operation."
+    },
+    {
+      "id": "broker-call",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P3",
+      "environment": "local",
+      "note": "Stage 2 envelope boundary: a paid provider call through the trusted broker. ADR-K1 section 3 puts paid provider calls at P3."
+    },
+    {
+      "id": "project-selection",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P1",
+      "environment": "local",
+      "note": "Stage 2 envelope boundary: the Control Center selecting a project."
+    },
+    {
+      "id": "bridge-read",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P1",
+      "environment": "local",
+      "note": "Stage 2 envelope boundary: a read through the MCP bridge."
+    }
+  ]
+}

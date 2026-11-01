@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "1.0.0",
+  "policy": "tenant-registry",
+  "note": "Which tenant and domain each governed project belongs to. Tenant = whose data and authority. Domain = Develop, Business, Personal or Phone. Each project has exactly one of each; a tenant can hold several domains. It lives in the installation rather than in a project, because a project's .projectops/ is writable by that project's own work. See docs/adr/ADR-T1-tenant-boundary.md.",
+  "authority": "owner",
+  "authorisedBy": "Murad",
+  "provenance": "Transcribed by the implementer (Claude) from the owner's Plan Mode decision of 2026-11-01, D2 'Agency apart, rest mine (Recommended)', recorded in docs/changes/delta_spec.md: agency-business holds the SEO agency and owner-personal holds ProjectOS, PolyGo and the others. PolyGo is listed as the second owner-personal project and its repository is not touched. Only the projects the Stage 2 exit proof needs are listed. An unlisted project is refused by name, and adding one is the action below.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. Read from committed bytes only and validated whole before any match: a duplicate or wildcard refuses the entire file. Changing it is the P5 action tenant-registry-change, and the owner must have made its last commit; that check rests on a git name until signed commits exist. A transcription commit by the implementer is not the owner's commit, whatever name git records.",
+  "tenants": [
+    {
+      "tenantId": "owner-personal",
+      "name": "The owner's own projects",
+      "note": "ProjectOS, PolyGo and the owner's other projects."
+    },
+    {
+      "tenantId": "agency-business",
+      "name": "The SEO agency",
+      "note": "Business data and authority, kept apart from the owner's own."
+    }
+  ],
+  "projects": [
+    {
+      "projectId": "projectos",
+      "repository": "github.com/universalbizcomply/ProjectOS",
+      "governedRoot": "C:/dev/ProjectOS",
+      "tenant": "owner-personal",
+      "domain": "develop",
+      "note": "Same identity as the installation allowlist entry."
+    },
+    {
+      "projectId": "polygo",
+      "repository": "github.com/polygonia-apres/polygo",
+      "governedRoot": "C:/dev/Polygo/polygo",
+      "tenant": "owner-personal",
+      "domain": "develop",
+      "note": "Origin https://github.com/polygonia-apres/polygo.git, canonicalised by parseRemoteUrl. The second same-tenant project is what lets the exit proof fail."
+    },
+    {
+      "projectId": "seo-agency",
+      "repository": "127.0.0.1:47900/SEOAgency-remote/seo-agency",
+      "governedRoot": "C:/dev/SEOAgency",
+      "tenant": "agency-business",
+      "domain": "business",
+      "note": "Origin http://127.0.0.1:47900/SEOAgency-remote/seo-agency.git, a loopback remote, canonicalised by parseRemoteUrl; project-config repo value SEOAgency-remote/seo-agency. Moving the origin changes this identity, so it is a tenant-registry-change."
+    }
+  ]
+}

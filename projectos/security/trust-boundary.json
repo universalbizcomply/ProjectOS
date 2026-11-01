@@ -74,6 +74,12 @@
     "note": "Any other governed project. Credential release requires BOTH an entry in the installation's committed allowlist AND that project's own committed secrets-handling receipt; neither alone suffices, and no external project may add itself to the allowlist because the reader takes the allowlist from the installation's committed tree.",
     "allowlist": "projectos/security/installation-project-allowlist.json"
   },
+  "installationRecords": {
+    "note": "Two installation records added by PROJECTOS-TENANT-CONTRACT1A. Both are authority read from committed bytes, on the same terms as the allowlist: they live in the installation because a project's own .projectops/ is writable by that project's work, and no governed project can write them. Each is validated whole, so a duplicate or wildcard refuses the entire file. HONEST STATE: the rules are pure core code today. The kernel starts reading these records in PROJECTOS-TENANT-PRINCIPAL1A, so until then they declare the boundary and enforce nothing at run time. They add no gate and widen no authority; the rest of this record is unchanged.",
+    "tenantRegistry": "projectos/security/tenant-registry.json",
+    "actionRegistry": "projectos/security/action-registry.json",
+    "decision": "docs/adr/ADR-T1-tenant-boundary.md"
+  },
   "outOfScope": [
     {
       "id": "owner-protected-actions",
