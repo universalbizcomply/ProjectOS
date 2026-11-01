@@ -1,5 +1,5 @@
 /**
- * `projectos tenant` — WHOSE WORK THIS IS, AND THE OWNER'S CONFIRMATION OF THE REGISTRY THAT SAYS SO
+ * `projectos tenant` — WHOSE WORK THIS IS, AND THE CONSOLE CONFIRMATION OF THE REGISTRY THAT SAYS SO
  * (PROJECTOS-TENANT-PRINCIPAL1A, ADR-T1 §3).
  *
  *   projectos tenant [show]                 read-only: the tenant, domain and registry for this checkout
@@ -11,18 +11,20 @@
  * `tenant receipt` IS THE P5 ACTION `tenant-registry-change`, THE SAME SHAPE AS `stop lift`. A person
  * retypes the start of the registry blob in an interactive terminal: standard input and output must both
  * be a TTY, and agents run without one. The grant port the door asks is built only after that, for that
- * one blob. Without a terminal there is no receipt, and `--as owner` changes nothing.
+ * one blob. Without a terminal there is no receipt, and `--as owner` changes nothing. What moved since the
+ * last receipt is on the screen when it asks, so a moved tenant cannot be confirmed unseen.
  *
- * THERE IS NO COMMIT HERE, BECAUSE A COMMIT CANNOT TELL THE OWNER FROM AN AGENT. Every commit on this
- * machine is named Murad (ADR-T1 §3). So the receipt lives in the installation state, outside every
- * repository, and one command is the whole owner act. `TENANT_RECEIPT_STATEMENT` says what that does and
- * does not prove, on every answer.
+ * IT SHOWS A CONSOLE, NOT THE OWNER. A person or a process typed at a terminal, and that is all it records:
+ * the method `typed-terminal`, with `implementer` as the envelope's principal, because `owner` is exactly
+ * what cannot be shown. Nor is a commit any better: every commit on this machine is named Murad (ADR-T1
+ * §3). So the receipt lives in the installation state, outside every repository, and one command is the
+ * whole act. `TENANT_RECEIPT_STATEMENT` says what that does and does not prove, on every answer.
  *
- * WHAT IT WRITES: one line of the envelope record and the one receipt file, in the installation state.
- * Nothing inside any repository.
+ * WHAT IT WRITES: two lines of `tenant-registry-changes.jsonl` and the one receipt file, in the
+ * installation state. Nothing inside any repository.
  */
 import { readSync, writeSync } from 'node:fs';
-import type { EnvelopeGrantPort } from '@projectos/core';
+import type { EnvelopeGrantPort, TenantProjectEntry, TenantRegistry } from '@projectos/core';
 import { recordExecution } from '@projectos/core';
 import type { CommandContext, CommandResult } from '../context.js';
 import { type Flags, str } from '../flags.js';
@@ -41,9 +43,14 @@ import {
 import {
   envelopeRecorder,
   readTenantReceipt,
+  receiptRefusal,
+  registryAtBlob,
+  TENANT_CHANGE_RECORDS_FILENAME,
+  TENANT_RECEIPT_CONFIRMATION,
   TENANT_RECEIPT_STATEMENT,
   TENANT_REGISTRY_REL,
   writeTenantReceipt,
+  type TenantReceiptRead,
 } from '../installation/tenantRegistry.js';
 
 const USAGE: readonly string[] = [
@@ -164,7 +171,7 @@ function show(ctx: CommandContext): CommandResult {
       `governed root: ${binding.governedRoot}`,
       `bound by: ${binding.via}`,
       `registry: ${TENANT_REGISTRY_REL}, blob ${blob}, committed bytes at ${commit}`,
-      `owner receipt: ${confirmedAt?.kind === 'ok' ? `confirmed ${confirmedAt.receipt.confirmedAt}` : 'none'}`,
+      `receipt: ${confirmedAt?.kind === 'ok' ? `${confirmedAt.receipt.confirmation}, ${confirmedAt.receipt.confirmedAt}` : 'none'}`,
       TENANT_RECEIPT_STATEMENT,
     ],
   };
@@ -188,6 +195,33 @@ function registrySummary(derived: DerivedTenant): readonly string[] {
   return derived.registry.projects.map((entry) => `  ${entry.projectId}: tenant ${entry.tenant}, domain ${entry.domain}, ${entry.repository}, ${entry.governedRoot}`);
 }
 
+/** What one project's binding did between two registries, or nothing. */
+function changeOf(before: TenantProjectEntry, after: TenantProjectEntry): string | null {
+  const moved = (['tenant', 'domain', 'repository', 'governedRoot'] as const)
+    .filter((field) => before[field] !== after[field])
+    .map((field) => `${field === 'governedRoot' ? 'root' : field} ${before[field]} to ${after[field]}`);
+  return moved.length === 0 ? null : `  CHANGED ${after.projectId}: ${moved.join(', ')}`;
+}
+
+/** What moved since the last receipt. Put first, so a moved tenant is the first thing read. */
+function changesSinceLastReceipt(ctx: CommandContext, installRoot: string, before: TenantReceiptRead, next: TenantRegistry): readonly string[] {
+  if (before.kind !== 'ok') return ['  no earlier receipt to compare with, so read every line below as new'];
+  const last = before.receipt.registryBlob;
+  const previous = registryAtBlob(ctx.sys, installRoot, last);
+  if (previous === null) return [`  the last receipted blob ${last} cannot be read, so read every line below as new`];
+  const lines = [
+    ...next.projects.flatMap((entry) => {
+      const old = previous.projects.find((candidate) => candidate.projectId === entry.projectId);
+      if (old === undefined) return [`  ADDED ${entry.projectId}: tenant ${entry.tenant}, domain ${entry.domain}`];
+      return [changeOf(old, entry)].filter((line): line is string => line !== null);
+    }),
+    ...previous.projects
+      .filter((old) => !next.projects.some((entry) => entry.projectId === old.projectId))
+      .map((old) => `  REMOVED ${old.projectId}: tenant ${old.tenant}, domain ${old.domain}`),
+  ];
+  return lines.length === 0 ? ['  no binding changed since the last receipt'] : lines;
+}
+
 function receipt(ctx: CommandContext, flags: Flags, confirm: TenantReceiptConfirm): CommandResult {
   const { sys } = ctx;
   const source = tenantSourceOf(ctx);
@@ -203,13 +237,13 @@ function receipt(ctx: CommandContext, flags: Flags, confirm: TenantReceiptConfir
   if (blob !== registries.blob) {
     return receiptAnswer(2, [
       `REFUSED (TENANT_RECEIPT_BLOB_MISMATCH): the committed tenant registry is blob ${registries.blob}, not ${blob}.`,
-      '  a receipt names exactly the bytes the owner confirmed',
+      '  a receipt names exactly the bytes that were confirmed',
       ...asIgnored(flags),
     ]);
   }
   const before = readTenantReceipt(sys, source.stateDir);
-  if (before.kind === 'ok' && before.receipt.registryBlob === blob) {
-    return receiptAnswer(0, [`The owner already confirmed this registry, blob ${blob}, at ${before.receipt.confirmedAt}.`]);
+  if (before.kind === 'ok' && before.receipt.registryBlob === blob && receiptRefusal(sys, source, blob) === null) {
+    return receiptAnswer(0, [`This registry, blob ${blob}, already has a receipt: ${before.receipt.confirmation}, at ${before.receipt.confirmedAt}.`]);
   }
   // THE INSTALLATION'S OWN PROJECT IS WHAT THIS ACTION BELONGS TO, wherever it is typed from. The receipt
   // is not asked here: this is the step that makes one.
@@ -221,10 +255,10 @@ function receipt(ctx: CommandContext, flags: Flags, confirm: TenantReceiptConfir
   if (!derived.ok) return receiptAnswer(2, [...tenantRefusalLines(derived), ...asIgnored(flags)]);
 
   // THE IN-PERSON HALF. No terminal, no receipt.
-  const confirmation = confirm(blob, registrySummary(derived));
+  const confirmation = confirm(blob, [...changesSinceLastReceipt(ctx, source.installRoot, before, derived.registry), ...registrySummary(derived)]);
   if (confirmation.kind !== 'typed') {
     return receiptAnswer(2, [
-      'REFUSED (TENANT_RECEIPT_NEEDS_A_TERMINAL): a person must confirm the registry in an interactive terminal; this process has no terminal.',
+      'REFUSED (TENANT_RECEIPT_NEEDS_A_TERMINAL): the registry is confirmed in an interactive terminal; this process has no terminal.',
       '  - use PowerShell or Windows Terminal (Git Bash/mintty gives no terminal)',
       ...asIgnored(flags),
     ]);
@@ -232,30 +266,32 @@ function receipt(ctx: CommandContext, flags: Flags, confirm: TenantReceiptConfir
   if (confirmation.text !== blob.slice(0, CONFIRMATION_LENGTH)) {
     return receiptAnswer(2, ['REFUSED (TENANT_RECEIPT_CONFIRMATION_MISMATCH): what was typed does not match the blob exactly.', ...asIgnored(flags)]);
   }
-  // THE GRANT EXISTS ONLY NOW, ONLY FOR THIS ACTION ON THIS BLOB, and the door has to ask it.
+  // THE GRANT EXISTS ONLY NOW, ONLY FOR THIS ACTION ON THIS BLOB, and the door has to ask it. The lines go
+  // to their own file, which is never rotated, so a later read can reconcile this receipt with its admission.
+  const recorder = envelopeRecorder(sys, source.stateDir, TENANT_CHANGE_RECORDS_FILENAME);
   const admission = admitBoundary(
     sys,
     source.stateDir,
     derived,
     {
       action: 'tenant-registry-change',
-      principal: 'owner',
+      principal: 'implementer',
       subjectHash: blob,
-      scope: [TENANT_REGISTRY_REL],
+      scope: [TENANT_REGISTRY_REL, `confirmation:${TENANT_RECEIPT_CONFIRMATION}`],
       windowMs: READ_ENVELOPE_WINDOW_MS,
-      intentScope: 'owner-receipt',
+      intentScope: 'tenant-receipt',
     },
     tenantReceiptGrant(blob),
+    recorder,
   );
   if (!admission.admitted) return receiptAnswer(2, admissionRefusalLines(admission));
-  const recorder = envelopeRecorder(sys, source.stateDir);
-  if (!writeTenantReceipt(sys, source.stateDir, blob, sys.now())) {
+  if (!writeTenantReceipt(sys, source.stateDir, blob, sys.now(), admission.envelope.envelopeId)) {
     recordExecution(admission.envelope, 'failed', 'TENANT_RECEIPT_NOT_WRITTEN', sys.now(), recorder);
     return receiptAnswer(2, [`REFUSED (TENANT_RECEIPT_NOT_WRITTEN): the receipt could not be written and read back in ${source.stateDir}.`]);
   }
   const recorded = recordExecution(admission.envelope, 'allowed', null, sys.now(), recorder);
   return receiptAnswer(recorded ? 0 : 2, [
-    `TENANT REGISTRY CONFIRMED: blob ${blob}, after a typed confirmation in a terminal.`,
+    `TENANT REGISTRY CONFIRMED: blob ${blob}, by ${TENANT_RECEIPT_CONFIRMATION}.`,
     ...(recorded ? [] : ['  - the receipt was written, but its outcome line was not; the admission line stands']),
   ]);
 }

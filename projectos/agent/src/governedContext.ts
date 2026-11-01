@@ -22,29 +22,33 @@ import type { System } from './system.js';
 import { join, projectopsDir, configPath, type CommandContext } from './context.js';
 import {
   admitEnvelope,
+  mintCrossing,
   mintEnvelope,
   parseProjectConfig,
   isGenuineClosure,
   recordExecution,
   type ActionRegistry,
+  type CrossingRequest,
   type EnvelopeAdmission,
   type EnvelopeGrantPort,
+  type EnvelopeRecorder,
+  type EnvelopeResult,
   type ProjectConfig,
   type ClosureDecisionRecord,
   type ClosureAuthorityExpectations,
   type Role,
+  type TaskEnvelope,
   type TenantBinding,
   type TenantRegistry,
 } from '@projectos/core';
 import { loadPhase, listPhaseIds } from './phaseStore.js';
 import {
-  ENVELOPE_RECORDS_FILENAME,
   NO_GRANT,
   claimIdempotencyKey,
   envelopeRecorder,
-  ownerReceiptRefusal,
   readCommittedActionRegistry,
   readCommittedTenantRegistry,
+  receiptRefusal,
   resolveCheckout,
   type TenantRefusal,
   type TenantSource,
@@ -423,9 +427,15 @@ export function refusalLines(r: Extract<GovernedContextResult, { ok: false }>): 
  * this code: a run is the implementer's, a read is the advisor's, and the actor is the kernel itself,
  * because at a boundary no worker has started. `--as` is never read.
  *
+ * THE ADMITTED RUN STAYS, FOR THIS PROCESS. `mintCrossing` needs a live admitted envelope, and the door's
+ * mark lives in memory, so the entry refusal keeps what it admitted against the context it was given.
+ * `admittedRunEnvelopeOf` reads it and `mintRunCrossing` is the one route from it to a crossing.
+ *
  * WHAT THIS STILL DOES NOT DO. `run-start` gets no execution line, because `commands/run.ts` holds one
  * entry refusal and no more (delta Zone 3). Its budget is zero, so `mintCrossing` would refuse a paid
- * crossing from it; CREDENTIALS1A gives it one when broker calls are enveloped.
+ * crossing from it. The checkout is whichever one the process stands in: the tenant is derived, but which
+ * work is bound is decided by where the process started. And the admitted run does not survive the
+ * process. All three are binding on CREDENTIALS1A, in this phase's evidence.
  * ---------------------------------------------------------------------------------------------- */
 
 /** Stated by the kernel. At a boundary no worker has started, so the kernel is what is acting. */
@@ -485,7 +495,7 @@ export function bindCheckout(sys: System, root: string, projectId: string, regis
 export function deriveTenant(sys: System, root: string, projectId: string, source: TenantSource): TenantDerivation {
   const registries = readInstallationRegistries(sys, source.installRoot);
   if (!registries.ok) return registries;
-  const unconfirmed = ownerReceiptRefusal(sys, source, registries.blob);
+  const unconfirmed = receiptRefusal(sys, source, registries.blob);
   if (unconfirmed !== null) return unconfirmed;
   return bindCheckout(sys, root, projectId, registries);
 }
@@ -524,7 +534,7 @@ export function recordTenantRefusal(sys: System, stateDir: string | null, r: Ten
 export const REFUSAL_NOT_RECORDED_LINE = '  REFUSAL_NOT_RECORDED: no line in the installation state says this happened; the operation is stopped';
 
 /** A record's lock left by a process that died holds every later line, and only a person may clear it. */
-const RECORD_LOCK_HINT = `  if no other ProjectOS process is running, ${ENVELOPE_RECORDS_FILENAME}.lock in the installation state was left by one that died and must be removed`;
+const RECORD_LOCK_HINT = '  if no other ProjectOS process is running, a .jsonl.lock file in the installation state was left by one that died and must be removed';
 
 function recordedRefusalLines(sys: System, source: TenantSource, r: TenantRefusal): readonly string[] {
   const recorded = recordTenantRefusal(sys, source.stateDir, r);
@@ -574,6 +584,7 @@ export function admitBoundary(
   derived: DerivedTenant,
   request: BoundaryRequest,
   grant: EnvelopeGrantPort = NO_GRANT,
+  recorder: EnvelopeRecorder = envelopeRecorder(sys, stateDir),
 ): EnvelopeAdmission {
   const now = sys.now();
   const minted = mintEnvelope(
@@ -587,7 +598,28 @@ export function admitBoundary(
       intentScope: request.intentScope,
     },
   );
-  return admitEnvelope(minted, now, envelopeRecorder(sys, stateDir), grant);
+  return admitEnvelope(minted, now, recorder, grant);
+}
+
+/** What each context's entry refusal admitted. The door's mark is in memory, so this is too. */
+const ADMITTED_RUNS = new WeakMap<object, { readonly envelope: TaskEnvelope; readonly derived: DerivedTenant }>();
+
+/** The run this context admitted, or `null`. A dry run, a refused run and another context hold none. */
+export function admittedRunEnvelopeOf(ctx: CommandContext): TaskEnvelope | null {
+  return ADMITTED_RUNS.get(ctx)?.envelope ?? null;
+}
+
+/** A boundary crossing tied to this context's admitted run. It still has to pass the door. */
+export function mintRunCrossing(ctx: CommandContext, request: CrossingRequest): EnvelopeResult {
+  const admitted = ADMITTED_RUNS.get(ctx);
+  if (admitted === undefined) return { ok: false, rule: 'RUN_LINK', reasons: ['this context admitted no run, so it can link nothing'] };
+  const { envelope, derived } = admitted;
+  return mintCrossing(
+    { binding: derived.binding, registry: derived.actions, principal: envelope.principal, actor: KERNEL_ACTOR, envelopeId: newEnvelopeId() },
+    request,
+    envelope,
+    ctx.sys.now(),
+  );
 }
 
 /**
@@ -599,6 +631,7 @@ export function admitBoundary(
  */
 export function runStartTenantRefusal(ctx: CommandContext, execute: boolean): readonly string[] | null {
   const { sys, root } = ctx;
+  ADMITTED_RUNS.delete(ctx);
   const source = tenantSourceOf(ctx);
   const derived = deriveProjectTenant(sys, root, source);
   if (!derived.ok) return execute ? recordedRefusalLines(sys, source, derived) : tenantRefusalLines(derived);
@@ -619,13 +652,14 @@ export function runStartTenantRefusal(ctx: CommandContext, execute: boolean): re
     const stopped = recordExecution(admission.envelope, 'refused', rule, sys.now(), envelopeRecorder(sys, source.stateDir));
     return [`REFUSED (${rule}): ${why}`, ...(stopped ? [] : [REFUSAL_NOT_RECORDED_LINE])];
   }
+  ADMITTED_RUNS.set(ctx, { envelope: admission.envelope, derived });
   return null;
 }
 
 /**
- * Selecting a project in the Control Center: a P1 crossing, recorded both ways. Selecting is the owner's
- * surface, but the kernel cannot show the owner is at it, so the principal is the advisor, which is what
- * a read needs. Owner and agent get the same answer.
+ * Selecting a project in the Control Center: a P1 crossing, recorded both ways. The kernel cannot show who
+ * is at the surface, so the principal is the advisor, which is what a read needs, and everyone gets the
+ * same answer.
  */
 export function projectSelectionRefusal(ctx: CommandContext): readonly string[] | null {
   const { sys, root } = ctx;

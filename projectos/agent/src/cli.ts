@@ -94,7 +94,7 @@ export const HELP: readonly string[] = [
   '  close --phase <ID>           Refuses — closure is owner-gated',
   '  closure <request|resume|status> --id <ID>  Ask the closure authority, wait for the owner’s commit, resume',
   '  stop [engage|status|lift]    Emergency stop for this Windows account: engage (no authority), status, lift (a person, in a terminal)',
-  '  tenant [show|receipt]        Whose work this is (read-only), and the owner’s confirmation of the tenant registry (a person, in a terminal)',
+  '  tenant [show|receipt]        Whose work this is (read-only), and the console confirmation of the tenant registry (needs a terminal)',
   '  version                      Print versions',
   '  help                         Show this help',
 ];

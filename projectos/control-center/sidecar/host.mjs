@@ -746,7 +746,21 @@ function initialSelection() {
   return restoreSelection(text, inventory) ?? defaultSelection(inventory);
 }
 
-let selectedProjectId = initialSelection();
+/**
+ * A selection nobody asked for this run still crosses a tenant. A remembered or default selection goes
+ * through the same rule as `project.select`, and one the rule refuses is no selection: the surface then
+ * asks, and the refusal reaches the owner when they choose a project.
+ */
+function admittedSelection(projectId) {
+  if (projectId === null) return null;
+  const root = resolveProjectRoot(inventory, projectId);
+  const refused = root === null ? ['no root'] : projectSelectionRefusal(tenantContext(root));
+  if (refused === null) return projectId;
+  process.stderr.write('projectos sidecar: a remembered or default selection was refused and is not in force\n');
+  return null;
+}
+
+let selectedProjectId = admittedSelection(initialSelection());
 
 /** Remember the selection. A failure to persist is reported by the next restart, never swallowed
  *  into a false claim that it was saved — the caller's success does not depend on it. */
@@ -847,7 +861,7 @@ function refreshInventory() {
     projectArgs.registryStatus,
   );
   if (selectedProjectId !== null && resolveProjectRoot(inventory, selectedProjectId) === null) {
-    selectedProjectId = defaultSelection(inventory);
+    selectedProjectId = admittedSelection(defaultSelection(inventory));
   }
 }
 

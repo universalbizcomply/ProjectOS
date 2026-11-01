@@ -11,18 +11,25 @@
  * returns can be resolved against. A contradiction anywhere refuses every project, and the refusal is
  * named after the first problem, so a duplicate reads `TENANT_REGISTRY_DUPLICATE` and not "unknown".
  *
- * THE OWNER RECEIPT (ADR-T1 §3, chosen here). Every commit on this machine is named Murad, agent commits
+ * THE BYTES ARE THE BLOB'S BYTES. A receipt names a blob, so nothing may change what that name yields. A
+ * `git replace` ref does exactly that, with no commit and no diff, and `refs/replace` is shared across
+ * linked worktrees. So every git call here passes `--no-replace-objects`, and the bytes judged must also
+ * hash to the blob they came from, which holds whatever else stands between git and this code.
+ *
+ * THE RECEIPT (ADR-T1 §3, chosen here). Every commit on this machine is named Murad, agent commits
  * included, so a last-commit check cannot tell the owner from an agent. Instead the registry's blob sha
  * must match `tenant-registry-receipt.json` in the installation state directory, written only by
- * `projectos tenant receipt` after a person retypes the sha in an interactive terminal. A changed
- * registry is a new blob, so it carries no authority until the owner confirms it. There is one receipt,
- * not one per blob, so going back to an older registry needs a new confirmation too.
+ * `projectos tenant receipt` after the sha is retyped in an interactive terminal, and that receipt must
+ * have its admission line. A changed registry is a new blob, so it carries no authority until it is
+ * confirmed. There is one receipt, not one per blob, so going back to an older registry needs a new one.
  *
- * WHAT THE RECEIPT DOES NOT DO, said plainly. It is a file, and everything here runs as one Windows user.
- * `tenant receipt` refuses with no terminal, so an agent following the kernel's route cannot make one,
- * and a registry commit alone can no longer move a tenant. But a process can drive a console, and a
- * process can write the file directly, exactly as it can rewrite the emergency stop record. Neither is
- * stopped. `TENANT_RECEIPT_STATEMENT` says so wherever a receipt is shown.
+ * WHAT THE RECEIPT SHOWS, said plainly. A person or a process confirmed this blob at a console, nothing
+ * more. It is not the owner's signature. It records `typed-terminal`, and an envelope does not claim the
+ * owner for it. It is two files, and everything here runs as one Windows user: `tenant receipt` refuses
+ * with no terminal, so an agent following the kernel's route cannot make one, and a registry commit alone
+ * can no longer move a tenant. But a process can drive a console, and a process can write both files,
+ * exactly as it can rewrite the emergency stop record. Neither is stopped.
+ * `TENANT_RECEIPT_STATEMENT` says so wherever a receipt is shown.
  *
  * A LINKED WORKTREE HAS NO IDENTITY OF ITS OWN (ADR-T1 §5). The listing is taken here and nowhere else,
  * at the root the registry names, so no caller can hand in a `WorktreeListing` it built by hand.
@@ -37,13 +44,14 @@
  * A LOGIN CARRIES NOTHING HERE. Nothing in this file reads an identity from a cloud session.
  *
  * R4 HOLDS ON THE DISK. `appendDurableLine` writes under an exclusive lock, through a temporary file and
- * a rename, and reads the line back before believing it. It answers `false` rather than dropping
- * anything, and a file it cannot read is never overwritten. The idempotency store keeps one file per key
- * in the same state directory, outside every repository.
+ * a rename, and reads the line back before believing it. It waits a bounded time for a busy lock, rotates
+ * past a size, and answers `false` rather than dropping anything; a file it cannot read is never
+ * overwritten. The idempotency store keeps one file per key in the same state directory, outside every
+ * repository.
  *
  * Created in PROJECTOS-TENANT-PRINCIPAL1A.
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
@@ -72,18 +80,27 @@ export const ACTION_REGISTRY_REL = 'projectos/security/action-registry.json';
 /** Beside the stop record and the ledgers, outside every repository. */
 export const TENANT_RECEIPT_FILENAME = 'tenant-registry-receipt.json';
 export const ENVELOPE_RECORDS_FILENAME = 'envelope-records.jsonl';
+/** A receipt's own lines: few, never rotated, so a later read can always find a receipt's admission. */
+export const TENANT_CHANGE_RECORDS_FILENAME = 'tenant-registry-changes.jsonl';
 export const ENVELOPE_IDEMPOTENCY_DIRNAME = 'envelope-idempotency';
 
+/** Past this, a record moves aside. Every line rewrites the file, so its size is what keeps that cheap. */
+export const DURABLE_LINE_ROTATE_BYTES = 1_048_576;
+/** How long a line waits for a busy record: long enough for any writer, and then a refusal. */
+const LOCK_WAIT_STEP_MS = 50;
+const LOCK_WAIT_STEPS = 40;
+
 export const TENANT_RECEIPT_SCHEMA_VERSION = '1.0.0';
-export const TENANT_RECEIPT_KIND = 'tenant-registry-owner-receipt';
-const TENANT_RECEIPT_CONFIRMATION = 'typed-in-an-interactive-terminal';
-const TENANT_RECEIPT_FIELDS = ['schemaVersion', 'kind', 'registryBlob', 'confirmedAt', 'confirmation', 'statement'];
+export const TENANT_RECEIPT_KIND = 'tenant-registry-receipt';
+/** How it was confirmed. A method, not a person. */
+export const TENANT_RECEIPT_CONFIRMATION = 'typed-terminal';
+const TENANT_RECEIPT_FIELDS = ['schemaVersion', 'kind', 'registryBlob', 'confirmedAt', 'confirmation', 'envelopeId', 'statement'];
 
 /** Printed with every receipt answer, and written into the receipt. */
 export const TENANT_RECEIPT_STATEMENT =
-  'An owner receipt is an owner-intent check at this Windows account: a person retyped the registry blob in an interactive terminal. ' +
+  'A tenant receipt shows that a person or a process confirmed this registry blob at a console, nothing more. ' +
   'It stops an agent with no terminal from using this command, and it stops a registry commit alone from moving a tenant. ' +
-  'It does not stop a process that drives a console or writes the receipt file directly, because everything here runs as one Windows user (ADR-T1 section 10).';
+  'It does not stop a process that drives a console or writes the receipt and its line directly, because everything here runs as one Windows user (ADR-T1 section 10).';
 
 /** A git object name. */
 const GIT_OBJECT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -93,7 +110,7 @@ export type TenantRefusalCode =
   | 'TENANT_MISMATCH'
   | 'TENANT_CHECKOUT_ALIAS'
   | 'TENANT_REGISTRY_UNREADABLE'
-  | 'TENANT_REGISTRY_NO_OWNER_RECEIPT'
+  | 'TENANT_REGISTRY_NO_RECEIPT'
   | 'ACTION_REGISTRY_UNREADABLE'
   | TenantRegistryCode;
 
@@ -116,26 +133,38 @@ function refusal(code: TenantRefusalCode, reasons: readonly string[]): TenantRef
 
 type CommittedBytes = { readonly ok: true; readonly text: string; readonly blob: string; readonly commit: string } | TenantRefusal;
 
+/** Git, with replacement objects off: a `git replace` ref must not change what a name yields. */
+function gitAt(sys: System, install: string, ...args: readonly string[]) {
+  return sys.exec('git', ['--no-replace-objects', '-C', install, ...args]);
+}
+
+/** The object name of these bytes as a blob: what git itself computes, so a lie between us shows. */
+function blobNameOf(text: string, blob: string): string {
+  const bytes = Buffer.from(text, 'utf8');
+  return createHash(blob.length === 64 ? 'sha256' : 'sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+}
+
 /** One record's committed bytes at the installation's HEAD. Absent, unreadable or dirty all refuse. */
 function committedBytes(sys: System, install: string, rel: string, code: 'TENANT_REGISTRY_UNREADABLE' | 'ACTION_REGISTRY_UNREADABLE'): CommittedBytes {
-  const logged = sys.exec('git', ['-C', install, 'log', '-1', '--format=%H', '--', rel]);
+  const logged = gitAt(sys, install, 'log', '-1', '--format=%H', '--', rel);
   if (logged.code !== 0 || logged.stdout.trim().length === 0) {
     return refusal(code, [`this ProjectOS installation commits no ${rel}, so it records no such authority`]);
   }
-  const dirty = sys.exec('git', ['-C', install, 'diff', '--name-only', 'HEAD', '--', rel]);
+  const dirty = gitAt(sys, install, 'diff', '--name-only', 'HEAD', '--', rel);
   if (dirty.code !== 0 || dirty.stdout.trim().length > 0) {
     return refusal(code, [`${rel} has been changed in the working tree; only the committed bytes carry authority, and an edited file carries none`]);
   }
-  const head = sys.exec('git', ['-C', install, 'rev-parse', '--verify', 'HEAD']);
+  const head = gitAt(sys, install, 'rev-parse', '--verify', 'HEAD');
   const commit = head.stdout.trim();
   if (head.code !== 0 || !GIT_OBJECT.test(commit)) return refusal(code, [`the installation's HEAD could not be read, so ${rel} cannot be`]);
   // PINNED TO ONE COMMIT, so the blob named and the bytes judged cannot come from two different HEADs.
-  const named = sys.exec('git', ['-C', install, 'rev-parse', `${commit}:./${rel}`]);
+  const named = gitAt(sys, install, 'rev-parse', `${commit}:./${rel}`);
   const blob = named.stdout.trim();
-  const shown = sys.exec('git', ['-C', install, 'show', `${commit}:./${rel}`]);
+  const shown = gitAt(sys, install, 'show', `${commit}:./${rel}`);
   if (named.code !== 0 || !GIT_OBJECT.test(blob) || shown.code !== 0 || shown.stdout.trim().length === 0) {
     return refusal(code, [`the committed ${rel} could not be read`]);
   }
+  if (blobNameOf(shown.stdout, blob) !== blob) return refusal(code, [`what git showed for ${rel} does not hash to blob ${blob}, so it is not those bytes`]);
   return { ok: true, text: shown.stdout, blob, commit };
 }
 
@@ -163,6 +192,21 @@ export function readCommittedTenantRegistry(sys: System, installRoot: string): C
 
 export type CommittedActionRegistry = { readonly ok: true; readonly actions: ActionRegistry } | TenantRefusal;
 
+/**
+ * The registry an older blob holds, judged whole, for comparing at the prompt. `null` when that blob is
+ * gone or does not hold one. It decides nothing: it only shows a person what moved.
+ */
+export function registryAtBlob(sys: System, installRoot: string, blob: string): TenantRegistry | null {
+  const shown = gitAt(sys, installRoot, 'show', blob);
+  if (shown.code !== 0 || blobNameOf(shown.stdout, blob) !== blob) return null;
+  try {
+    const parsed = parseTenantRegistry(JSON.parse(shown.stdout) as unknown);
+    return parsed.ok ? parsed.registry : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The committed action registry, judged whole. */
 export function readCommittedActionRegistry(sys: System, installRoot: string): CommittedActionRegistry {
   const bytes = committedBytes(sys, installRoot, ACTION_REGISTRY_REL, 'ACTION_REGISTRY_UNREADABLE');
@@ -179,7 +223,7 @@ export function readCommittedActionRegistry(sys: System, installRoot: string): C
 }
 
 /* ----------------------------------------------------------------------------------------------
- * THE OWNER RECEIPT.
+ * THE RECEIPT.
  * ------------------------------------------------------------------------------------------- */
 
 export interface TenantRegistryReceipt {
@@ -188,6 +232,8 @@ export interface TenantRegistryReceipt {
   readonly registryBlob: string;
   readonly confirmedAt: string;
   readonly confirmation: string;
+  /** The admission the door recorded for this receipt. */
+  readonly envelopeId: string;
   readonly statement: string;
 }
 
@@ -230,36 +276,59 @@ export function readTenantReceipt(sys: System, stateDir: string): TenantReceiptR
   return receipt === null ? { kind: 'unreadable', why: 'it is not a valid owner receipt' } : { kind: 'ok', receipt };
 }
 
-/** The one line the owner runs. Absolute, so it works from any directory. */
+/** The one line a person runs. Absolute and quoted, so it works from any directory and with spaces. */
 export function tenantReceiptCommand(installRoot: string, blob: string): string {
-  return `node ${installRoot.split(String.fromCharCode(92)).join('/').replace(/\/+$/, '')}/projectos/agent/bin/projectos.js tenant receipt --blob ${blob}`;
+  return `node "${installRoot.split(String.fromCharCode(92)).join('/').replace(/\/+$/, '')}/projectos/agent/bin/projectos.js" tenant receipt --blob ${blob}`;
 }
 
-/** `null` when the owner confirmed exactly this blob; otherwise the refusal, carrying the fix. */
-export function ownerReceiptRefusal(sys: System, source: TenantSource, blob: string): TenantRefusal | null {
+/** Did the door record this receipt? A receipt with no admission line is a copied file. */
+function hasAdmissionLine(sys: System, stateDir: string, receipt: TenantRegistryReceipt): boolean {
+  const lines = sys.readText(join(stateDir, TENANT_CHANGE_RECORDS_FILENAME));
+  return (lines ?? '').split('\n').some((line) => {
+    try {
+      const record = JSON.parse(line) as Partial<EnvelopeRecord> | null;
+      const envelope = record?.envelope;
+      return (
+        record?.stage === 'admission' &&
+        record.outcome === 'allowed' &&
+        envelope?.action === 'tenant-registry-change' &&
+        envelope.envelopeId === receipt.envelopeId &&
+        envelope.subjectHash === receipt.registryBlob
+      );
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** `null` when exactly this blob has a receipt and that receipt its line; otherwise the refusal, with the fix. */
+export function receiptRefusal(sys: System, source: TenantSource, blob: string): TenantRefusal | null {
   if (source.stateDir === null) {
-    return refusal('TENANT_REGISTRY_NO_OWNER_RECEIPT', ['no installation state directory can be established, so no owner receipt can be read']);
+    return refusal('TENANT_REGISTRY_NO_RECEIPT', ['no installation state directory can be established, so no receipt can be read']);
   }
   const read = readTenantReceipt(sys, source.stateDir);
-  if (read.kind === 'ok' && read.receipt.registryBlob === blob) return null;
+  const matches = read.kind === 'ok' && read.receipt.registryBlob === blob;
+  if (matches && hasAdmissionLine(sys, source.stateDir, read.receipt)) return null;
   const finding =
     read.kind === 'absent'
-      ? `the committed tenant registry (blob ${blob}) has no owner receipt`
+      ? `the committed tenant registry (blob ${blob}) has no receipt`
       : read.kind === 'unreadable'
-        ? `the owner receipt at ${tenantReceiptPath(source.stateDir)} cannot be trusted (${read.why})`
-        : `the committed tenant registry is blob ${blob}, and the owner receipt names ${read.receipt.registryBlob}`;
-  return refusal('TENANT_REGISTRY_NO_OWNER_RECEIPT', [
+        ? `the receipt at ${tenantReceiptPath(source.stateDir)} cannot be trusted (${read.why})`
+        : matches
+          ? `the receipt for blob ${blob} has no admission line in ${TENANT_CHANGE_RECORDS_FILENAME}`
+          : `the committed tenant registry is blob ${blob}, and the receipt names ${read.receipt.registryBlob}`;
+  return refusal('TENANT_REGISTRY_NO_RECEIPT', [
     `${finding}, so it carries no authority and no tenant can be derived`,
-    'the owner confirms it once, in PowerShell or Windows Terminal (Git Bash gives no terminal), with this one line:',
+    'a person confirms it once, in PowerShell or Windows Terminal (Git Bash gives no terminal), with this one line:',
     `  ${tenantReceiptCommand(source.installRoot, blob)}`,
   ]);
 }
 
 /**
  * Write the receipt. Only `commands/tenant.ts` calls this, after the typed confirmation, and only after
- * the door has recorded the P5 admission. `true` means the bytes were read back.
+ * the door has recorded the P5 admission, whose id it carries. `true` means the bytes were read back.
  */
-export function writeTenantReceipt(sys: System, stateDir: string, blob: string, at: string): boolean {
+export function writeTenantReceipt(sys: System, stateDir: string, blob: string, at: string, envelopeId: string): boolean {
   const path = tenantReceiptPath(stateDir);
   const temporary = `${path}.${randomBytes(4).toString('hex')}.tmp`;
   const receipt: TenantRegistryReceipt = {
@@ -268,6 +337,7 @@ export function writeTenantReceipt(sys: System, stateDir: string, blob: string, 
     registryBlob: blob,
     confirmedAt: at,
     confirmation: TENANT_RECEIPT_CONFIRMATION,
+    envelopeId,
     statement: TENANT_RECEIPT_STATEMENT,
   };
   try {
@@ -372,18 +442,41 @@ export function crossTenantRefusal(registry: TenantRegistry, boundTenant: string
  * ------------------------------------------------------------------------------------------- */
 
 /**
+ * Take a record's lock, waiting a bounded time while another process holds it.
+ *
+ * A lock that is not there after a failed create was not held: either its holder just let go, which one
+ * more try answers, or this directory cannot be written, and waiting would not help.
+ */
+function takeRecordLock(sys: System, lock: string): boolean {
+  const content = `{"heldSince":"${sys.now()}"}\n`;
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (let step = 0; step < LOCK_WAIT_STEPS; step += 1) {
+    if (sys.createExclusive(lock, content)) return true;
+    if (!sys.exists(lock)) return sys.createExclusive(lock, content);
+    Atomics.wait(pause, 0, 0, LOCK_WAIT_STEP_MS);
+  }
+  return false;
+}
+
+/**
  * Append one JSON line, or answer `false`. It never drops a line and calls that a success.
  *
- * A LOCK THAT IS HELD IS A FAILURE TO RECORD, and the caller stops. It does not wait, as `underLedgerLock`
- * does not. A file that exists and cannot be read is never replaced, because replacing it would erase
- * what it holds.
+ * A LOCK HELD PAST THE BOUND IS A FAILURE TO RECORD, and the caller stops, so a busy bridge delays a run
+ * and a dead process's lock refuses by name. A file that exists and cannot be read is never replaced,
+ * because replacing it would erase what it holds. Past its size the record moves aside, kept, under the
+ * same lock; if it cannot move, nothing is written.
  */
 export function appendDurableLine(sys: System, path: string, entry: unknown): boolean {
   const lock = `${path}.lock`;
-  if (!sys.createExclusive(lock, `{"heldSince":"${sys.now()}"}\n`)) return false;
+  if (!takeRecordLock(sys, lock)) return false;
   try {
-    const existing = sys.readText(path);
-    if (existing === null && sys.exists(path)) return false;
+    const held = sys.readText(path);
+    if (held === null && sys.exists(path)) return false;
+    let existing = held;
+    if (held !== null && Buffer.byteLength(held, 'utf8') >= DURABLE_LINE_ROTATE_BYTES) {
+      if (!sys.renameFile(path, `${path}.${sys.now().replace(/[^0-9TZ]/g, '')}-${randomBytes(4).toString('hex')}`)) return false;
+      existing = null;
+    }
     const line = `${JSON.stringify(entry)}\n`;
     const temporary = `${path}.${randomBytes(4).toString('hex')}.tmp`;
     sys.writeText(temporary, `${existing ?? ''}${line}`);
@@ -400,8 +493,8 @@ export function appendDurableLine(sys: System, path: string, entry: unknown): bo
 }
 
 /** R4's port: one line per decision, in the installation state. With no state directory, nothing records. */
-export function envelopeRecorder(sys: System, stateDir: string | null): EnvelopeRecorder {
-  return (record: EnvelopeRecord) => stateDir !== null && appendDurableLine(sys, join(stateDir, ENVELOPE_RECORDS_FILENAME), record);
+export function envelopeRecorder(sys: System, stateDir: string | null, filename: string = ENVELOPE_RECORDS_FILENAME): EnvelopeRecorder {
+  return (record: EnvelopeRecord) => stateDir !== null && appendDurableLine(sys, join(stateDir, filename), record);
 }
 
 /**
@@ -490,7 +583,7 @@ export function claimIdempotencyKey(
   });
   if (sys.createExclusive(path, `${JSON.stringify(entry(1))}\n`)) return { kind: 'first', attempt: 1 };
   const earlier = readIdempotencyEntry(sys, path);
-  if (earlier === null) return { kind: 'unavailable', why: `the idempotency record ${path} cannot be read or written` };
+  if (earlier === null) return { kind: 'unavailable', why: `the idempotency record ${path} cannot be read or written; if no run is in progress at this commit, a person may remove that file` };
   if (earlier.outcome === 'completed' || (earlier.outcome === 'admitted' && options.retryUnsettled !== true)) return { kind: 'duplicate', earlier };
   const attempt = earlier.attempts + 1;
   return replaceIdempotencyEntry(sys, path, entry(attempt)) ? { kind: 'retry', attempt } : { kind: 'unavailable', why: `the idempotency record ${path} could not be updated` };
