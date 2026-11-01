@@ -77,8 +77,8 @@ limit above applies to it equally. It reads both vocabularies without changing e
   code reads a fixed list of request fields, and none of them can say whose the work is.
 - A child envelope must equal its parent's `tenant`, `domain`, `project`, `environment` and
   `principal` (R3). The principal is added to ADR-K1's list here: a child acting as someone else is a
-  different authority, not a narrower task. Cross-tenant access is never a child. It is the P5 action `cross-tenant-access`, and each use is a new
-  root envelope in the data-owning tenant (ADR-K1 §4).
+  different authority, not a narrower task. Cross-tenant access is never a child. It is the P5 action
+  `cross-tenant-access`, and each use is a new root envelope in the data-owning tenant (ADR-K1 §4).
 - **Envelope scope for Stage 2:** minted where a tenant can be crossed: run start, credential release,
   broker call, Control Center project selection and MCP bridge read. Other operations are not yet
   enveloped; that is Stage 4.

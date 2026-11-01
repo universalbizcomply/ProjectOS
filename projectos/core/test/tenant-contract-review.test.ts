@@ -14,6 +14,7 @@ import {
   mintEnvelope,
   parseEnvelope,
   readmitEnvelope,
+  recordExecution,
   type EnvelopeRecord,
   type EnvelopeRequest,
   type EnvelopeResult,
@@ -293,6 +294,14 @@ describe('HIGH 2: admission gates the class', () => {
     const second = recorder();
     admitEnvelope(readmitEnvelope(ok(envelope), worktree, actions()), NOW, second.record, no);
     expect(second.lines[0]).toMatchObject({ via: 'linked-worktree' });
+  });
+
+  it('the execution line carries them too, and an envelope nobody branded carries neither', () => {
+    const { record, lines } = recorder();
+    recordExecution(run(), 'allowed', null, NOW, record);
+    expect(lines[0]).toMatchObject({ stage: 'execution', registered: true, via: 'governed-root' });
+    recordExecution({ ...run() }, 'failed', 'R7', NOW, record);
+    expect(lines[1]).toMatchObject({ stage: 'execution', registered: null, via: null });
   });
 
   it('neither fact became an envelope field: ADR-K1 is accepted, and action is the one addition', () => {

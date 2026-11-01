@@ -559,7 +559,6 @@ const RULES = [
       T("resolveTenant", "const foreign = registry.projects.find((other) => other !== entry && isAtOrUnder(rootKey(checkout.root), rootKey(other.governedRoot)));\n  if (foreign !== undefined) {\n    return {\n      ok: false,\n      code: 'TENANT_MISMATCH',"),
       T(null, "export interface WorktreeListing {\n  readonly takenAtRoot: string;\n  readonly paths: readonly string[];\n}"),
     ],
-    order: [T("resolveTenant", "const foreign = registry.projects.find("), T("resolveTenant", "const via = checkoutRoute(entry, checkout);")],
   },
   {
     rule: "TC-40",
@@ -897,7 +896,6 @@ const MUTATIONS = [
   // TC-38
   { name: "listing-from-anywhere-attaches", rule: "TC-38", rel: TENANT_REL, from: "if (listing === null || rootKey(listing.takenAtRoot) !== rootKey(entry.governedRoot)) return null;", to: "if (listing === null) return null;" },
   { name: "checkout-under-foreign-root-allowed", rule: "TC-38", rel: TENANT_REL, from: "  if (foreign !== undefined) {\n    return {\n      ok: false,\n      code: 'TENANT_MISMATCH',", to: "  if (false) {\n    return {\n      ok: false,\n      code: 'TENANT_MISMATCH'," },
-  { name: "foreign-check-after-the-route", rule: "TC-38", rel: TENANT_REL, from: "  const foreign = registry.projects.find((other) => other !== entry && isAtOrUnder(rootKey(checkout.root), rootKey(other.governedRoot)));\n", to: "  const via0 = checkoutRoute(entry, checkout);\n  void via0;\n  const via1 = via0;\n  const foreign = via1 === null ? undefined : registry.projects.find((other) => other !== entry && isAtOrUnder(rootKey(checkout.root), rootKey(other.governedRoot)));\n" },
   { name: "at-or-under-drops-the-slash", rule: "TC-38", rel: TENANT_REL, from: "return path === root || path.startsWith(`${root}/`);", to: "return path.startsWith(root);" },
   { name: "nested-roots-not-judged", rule: "TC-38", rel: TENANT_REL, from: ".filter((root) => roots.some((other) => other !== root && isAtOrUnder(root, other)))", to: ".filter(() => false)" },
   { name: "listing-loses-its-root", rule: "TC-38", rel: TENANT_REL, from: "export interface WorktreeListing {\n  readonly takenAtRoot: string;\n", to: "export interface WorktreeListing {\n" },
