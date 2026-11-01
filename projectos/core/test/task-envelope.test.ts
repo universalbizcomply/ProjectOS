@@ -204,7 +204,7 @@ describe('R2: the kernel derives, and the caller cannot say', () => {
   });
 
   it('labels on the context change nothing either', () => {
-    const smuggled = { ...context(), tenant: 'agency-business', actionClass: 'P1' };
+    const smuggled = { ...context(), tenant: 'agency-business', domain: 'business', project: 'seo-agency', environment: 'production', actionClass: 'P1' };
     expect(minted(mintEnvelope(smuggled, REQUEST))).toEqual(root());
   });
 
@@ -225,6 +225,17 @@ describe('R2: the kernel derives, and the caller cannot say', () => {
     expect(first.idempotencyKey).toBe(
       deriveIdempotencyKey({ tenant: 'owner-personal', project: 'polygo', action: 'run-start', subjectHash: SUBJECT, intentScope: 'RUN-1' }),
     );
+  });
+
+  it.each([
+    ['tenant', { tenant: 'agency-business' }],
+    ['project', { project: 'other' }],
+    ['action', { action: 'commit' }],
+    ['subjectHash', { subjectHash: 'b'.repeat(40) }],
+    ['intentScope', { intentScope: 'RUN-2' }],
+  ])('the key changes when %s alone changes', (_part, change) => {
+    const intent = { tenant: 'owner-personal', project: 'polygo', action: 'run-start', subjectHash: SUBJECT, intentScope: 'RUN-1' };
+    expect(deriveIdempotencyKey({ ...intent, ...change })).not.toBe(deriveIdempotencyKey(intent));
   });
 
   it('the key cannot be collided by moving text between its parts', () => {

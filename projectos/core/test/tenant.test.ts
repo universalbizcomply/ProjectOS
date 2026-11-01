@@ -141,6 +141,23 @@ describe('whole-file validation', () => {
     expect(codes(parseTenantRegistry({ ...raw, tenants }))).toEqual(['TENANT_REGISTRY_DUPLICATE']);
   });
 
+  it.each([
+    ['a tenant id of the wrong shape', { tenantId: 'Owner Personal', name: 'Someone' }],
+    ['a tenant with no id', { name: 'Someone' }],
+    ['a tenant with no name', { tenantId: 'third-party' }],
+    ['a tenant with a blank name', { tenantId: 'third-party', name: ' ' }],
+    ['a tenant with an unknown field', { tenantId: 'third-party', name: 'Someone', sharesWith: ['owner-personal'] }],
+    ['a tenant line that is not an object', 'third-party'],
+  ])('refuses %s', (_name, entry) => {
+    const raw = committed();
+    const tenants = [...(raw['tenants'] as unknown[]), entry];
+    expect(codes(parseTenantRegistry({ ...raw, tenants }))).toEqual(['TENANT_REGISTRY_INVALID']);
+  });
+
+  it('a project line that is not an object refuses the whole file', () => {
+    expect(codes(parseTenantRegistry(withExtraProject('polygo' as unknown as Project)))).toEqual(['TENANT_REGISTRY_INVALID']);
+  });
+
   it('one bad line refuses the good lines too: nothing in the file can be resolved', () => {
     const result = parseTenantRegistry(withExtraProject({ ...NEW_PROJECT, repository: '*' }));
     expect(result.ok).toBe(false);
