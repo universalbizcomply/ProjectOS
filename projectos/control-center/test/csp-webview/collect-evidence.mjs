@@ -16,6 +16,14 @@ import { outcome } from './verdict.mjs';
 
 export const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 
+/** What the production build is made of. Change one and the build evidence is stale. */
+export const BUILD_SOURCES = [
+  'projectos/control-center/vite.config.ts',
+  'projectos/control-center/src/shims/nodeCryptoStub.ts',
+  'projectos/control-center/src/shims/nodeBufferStub.ts',
+  'projectos/core/src/hostReviewWire.ts',
+];
+
 function summarise(run) {
   const { obs, verdict } = run;
   const variant = variants()[run.variant];
@@ -38,6 +46,8 @@ function summarise(run) {
       widthDiffers: obs.fonts.widthDiffers === true,
       fetched: (obs.fonts.requested ?? []).map((font) => font.name),
     },
+    nodeGlobals: obs.nodeGlobals ?? null,
+    loadError: (obs.console ?? []).find((line) => /is not defined/.test(line))?.split('\n')[0] ?? null,
     ipcNative: obs.ipcNative ?? 0,
     abortedByReload: obs.abortedByReload ?? 0,
     violationsInUse: (obs.violations ?? []).length,
@@ -69,11 +79,14 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]).endsWith('collect-
   }
   const capability = readFileSync(join(CONTROL_CENTER, 'src-tauri', 'capabilities', 'default.json'), 'utf8');
   const runs = Object.keys(variants()).map((name) => summarise(JSON.parse(readFileSync(join(dir, `${name}.json`), 'utf8'))));
+  const source = (rel) => sha256(readFileSync(join(CONTROL_CENTER, '..', '..', rel), 'utf8').replace(/\r\n/g, '\n'));
   writeFileSync(out, `${JSON.stringify({
     phase: 'PROJECTOS-TENANT-CSP1A',
     policySha256: sha256(committedPolicy()),
     devPolicySha256: sha256(committedDevPolicy()),
     capabilityPermissionsSha256: sha256(JSON.stringify(JSON.parse(capability).permissions)),
+    buildSources: Object.fromEntries(BUILD_SOURCES.map((rel) => [rel, source(rel)])),
+    build: JSON.parse(readFileSync(join(dir, 'build.json'), 'utf8')),
     runs,
   }, null, 2)}\n`);
   console.log(`[csp-proof] ${runs.length} runs, ${runs.filter((run) => run.proved).length} proved`);

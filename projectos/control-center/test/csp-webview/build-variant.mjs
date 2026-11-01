@@ -8,9 +8,13 @@
  * `frontendDist` and serves it through the `tauri` protocol, so this is the path that carries the CSP
  * header. `tauri dev` on the desktop loads Vite directly and carries none.
  *
- * The packaging steps do not run: `beforeBuildCommand` and the `resources` map are merged away, because
- * neither a payload nor a helper has any bearing on the policy and a debug build launches its development
- * sidecar. Only the variant's own merge reaches the build.
+ * THE FRONTEND IS THE REAL PRODUCTION BUILD: `npm run build`, the app's own vite.config.ts, no extra config
+ * and no shim. A build that needs one fails here, and val-projectos-tenant-csp1a fails by name. The packaging
+ * steps after it do not run: `beforeBuildCommand` and the `resources` map are merged away, because neither
+ * a payload nor a helper has any bearing on the policy and a debug build launches its development sidecar.
+ *
+ * A variant with `sourceEdit` changes a tracked file so a control can fail, so it refuses to run unless
+ * CSP_PROOF_DISPOSABLE=1 says this is a throwaway clone. The edit is reverted afterwards with git.
  *
  * Supabase settings come from an env file named by CSP_PROOF_ENV_FILE and go to Vite through the process
  * environment. Nothing here prints them or writes them to a file of its own.
@@ -21,6 +25,9 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statfsSync, writeFileSync } from 'node:fs';
 import { join, parse, resolve } from 'node:path';
 import { CONTROL_CENTER, PROOF_BROWSER_ARGS, committedConf, policySupabaseHost, variants } from './variants.mjs';
+
+const REPO_ROOT = resolve(CONTROL_CENTER, '..', '..');
+const CORE = resolve(CONTROL_CENTER, '..', 'core');
 
 export const MIN_FREE_GB = 12;
 const TARGET_ROOT = process.env.CSP_PROOF_TARGET_ROOT ?? join(CONTROL_CENTER, 'src-tauri', 'target');
@@ -51,6 +58,26 @@ function run(command, args, env) {
   if (result.status !== 0) throw new Error(`${args.slice(0, 2).join(' ')} failed with status ${result.status}`);
 }
 
+/** Through the shell, because npm is a .cmd on Windows. */
+function npm(script, cwd, env) {
+  const result = spawnSync(`npm run ${script}`, { cwd, env, stdio: 'inherit', shell: true });
+  if (result.status !== 0) throw new Error(`npm run ${script} failed with status ${result.status}`);
+}
+
+/** The control's one change to a tracked file, in a throwaway clone only. */
+function applySourceEdit(edit) {
+  if (process.env.CSP_PROOF_DISPOSABLE !== '1') throw new Error('this variant edits tracked source: it runs only in a throwaway clone, with CSP_PROOF_DISPOSABLE=1');
+  const path = join(REPO_ROOT, edit.file);
+  const text = readFileSync(path, 'utf8');
+  if (!text.includes(edit.from)) throw new Error(`the control's edit no longer applies to ${edit.file}`);
+  writeFileSync(path, text.replace(edit.from, edit.to));
+}
+
+function revertSourceEdit(edit) {
+  const result = spawnSync('git', ['checkout', '--', edit.file], { cwd: REPO_ROOT, stdio: 'inherit' });
+  if (result.status !== 0) throw new Error(`could not revert ${edit.file}`);
+}
+
 export function buildVariant(name) {
   const variant = variants()[name];
   if (variant === undefined) throw new Error(`unknown variant: ${name}`);
@@ -74,11 +101,18 @@ export function buildVariant(name) {
   delete base.VITE_SUPABASE_URL;
   delete base.VITE_SUPABASE_ANON_KEY;
   const viteEnv = variant.profile === 'login' ? { ...base, ...supabaseEnv() } : base;
-  run(process.execPath, [
-    join(CONTROL_CENTER, 'node_modules', 'vite', 'bin', 'vite.js'), 'build',
-    '--config', join(CONTROL_CENTER, 'test', 'csp-webview', 'vite.proof.config.ts'),
-    '--logLevel', 'warn',
-  ], viteEnv);
+  if (variant.sourceEdit !== undefined) {
+    applySourceEdit(variant.sourceEdit);
+    npm('build', CORE, base);
+  }
+  try {
+    npm('build', CONTROL_CENTER, viteEnv);
+  } finally {
+    if (variant.sourceEdit !== undefined) {
+      revertSourceEdit(variant.sourceEdit);
+      npm('build', CORE, base);
+    }
+  }
 
   const cargoEnv = {
     ...base,

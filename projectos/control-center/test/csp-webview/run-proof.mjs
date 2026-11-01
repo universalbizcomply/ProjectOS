@@ -443,6 +443,9 @@ async function drive(cdp, variant, listener, live) {
     return false;
   }), 45_000);
   await sleep(1500);
+  obs.nodeGlobals = JSON.parse(await cdp.evaluate(`JSON.stringify({
+    Buffer: typeof Buffer, process: typeof process, global: typeof global, require: typeof require, setImmediate: typeof setImmediate,
+  })`).catch(() => 'null'));
   obs.loaded = {
     rendered: rendered === true,
     elements: await cdp.evaluate(`document.querySelectorAll('#root *').length`).catch(() => 0),

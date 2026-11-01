@@ -34,8 +34,11 @@ const blockedProbes = () => ({
 const PROBE_VIOLATIONS = ['script-src-elem', 'script-src', 'connect-src', 'img-src', 'style-src-elem', 'style-src-attr', 'base-uri', 'object-src', 'form-action']
   .map((directive) => ({ directive }));
 
+const NO_NODE_GLOBALS = { Buffer: 'undefined', process: 'undefined', global: 'undefined', require: 'undefined', setImmediate: 'undefined' };
+
 const passingShell = () => ({
   servedPolicy: committedPolicy() as string,
+  nodeGlobals: NO_NODE_GLOBALS,
   loaded: { rendered: true, elements: 400 },
   fonts: { bundledLoaded: true, widthDiffers: true, requested: [{}] },
   normalUseRan: true,
@@ -50,6 +53,7 @@ const passingShell = () => ({
 });
 const passingLogin = () => ({
   servedPolicy: committedPolicy() as string,
+  nodeGlobals: NO_NODE_GLOBALS,
   loaded: { rendered: true, elements: 30 },
   fonts: { bundledLoaded: true, widthDiffers: true, requested: [{}] },
   normalUseRan: true,
@@ -151,6 +155,11 @@ describe('the judge never passes silence', () => {
     expect(failing(judge({ ...obs, probes }, SHELL))).toEqual(['foreign-fetch-blocked']);
   });
 
+  it('a webview exposing a Node global fails: a rendered app would then prove nothing about loading without one', () => {
+    expect(failing(judge({ ...passingShell(), nodeGlobals: { ...NO_NODE_GLOBALS, Buffer: 'function' } }, SHELL))).toEqual(['no-node-globals']);
+    expect(failing(judge({ ...passingShell(), nodeGlobals: undefined }, SHELL))).toEqual(['no-node-globals']);
+  });
+
   it('IPC that fell back to postMessage fails, though the app still works', () => {
     expect(failing(judge({ ...passingShell(), ipcNative: 0 }, SHELL))).toEqual(['ipc-native']);
   });
@@ -236,6 +245,20 @@ describe('a control proves something only by failing where it says', () => {
       for (const id of entry.mustStillPass ?? []) expect(known).toContain(id);
       expect(entry.mustStillPass).not.toContain(entry.mustFailAt);
     }
+  });
+
+  it('the production build is the only frontend build: the harness carries no Vite config or stand-in of its own', () => {
+    const route = readdirSync(join(CONTROL_CENTER, 'test', 'csp-webview'));
+    expect(route.filter((name) => /vite|stub|shim/i.test(name))).toEqual([]);
+    const build = readFileSync(join(CONTROL_CENTER, 'test', 'csp-webview', 'build-variant.mjs'), 'utf8');
+    expect(build).toContain("npm('build', CONTROL_CENTER, viteEnv);");
+    expect(build).not.toMatch(/vite\.js|'--config', join\(CONTROL_CENTER/);
+  });
+
+  it('the control that restores the old bug names the blank window as its failure', () => {
+    const table = variants() as Record<string, { mustFailAt?: string; sourceEdit?: { to: string } }>;
+    expect(table['control-eager-node-global']?.mustFailAt).toBe('app-loaded');
+    expect(table['control-eager-node-global']?.sourceEdit?.to).toContain('Buffer.from(');
   });
 
   it('exactly one variant may reach Supabase', () => {

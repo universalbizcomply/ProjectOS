@@ -83,6 +83,19 @@ export function variants() {
       note: 'devCsp built in as the served policy. Its inline-style allowance is the one expected difference.',
       inlineStyleAllowed: true,
     },
+    // The bug that blanked the app from 2026-09-25: one Buffer.from while core loads, in the real build.
+    'control-eager-node-global': {
+      profile: 'shell',
+      csp: strict,
+      sourceEdit: {
+        file: 'projectos/core/src/hostReviewWire.ts',
+        from: 'export const HOST_WIRE_PROTOCOL_VERSION = 1;',
+        to: "export const HOST_LOAD_PROBE = Buffer.from('POS1', 'ascii');\nexport const HOST_WIRE_PROTOCOL_VERSION = 1;",
+      },
+      expect: 'fail',
+      mustFailAt: 'app-loaded',
+      mustStillPass: ['served-policy', 'no-node-globals'],
+    },
     'control-no-policy': {
       profile: 'shell',
       csp: null,

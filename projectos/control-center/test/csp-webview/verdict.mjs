@@ -45,6 +45,12 @@ const blocked = (probe, directive, obs) =>
 const COMMON = (obs, variant) => [
   ['served-policy', samePolicy(obs.servedPolicy, variant.csp) && variant.csp !== null, obs.servedPolicy === null ? 'no policy was served' : ''],
   ['app-loaded', obs.loaded?.rendered === true, `${obs.loaded?.elements ?? 0} elements`],
+  // A webview has none of these, so a rendered app is the proof nothing needed one while it loaded.
+  [
+    'no-node-globals',
+    ['Buffer', 'process', 'global', 'require', 'setImmediate'].every((name) => obs.nodeGlobals?.[name] === 'undefined'),
+    JSON.stringify(obs.nodeGlobals ?? null),
+  ],
   [
     'bundled-fonts',
     obs.fonts?.bundledLoaded === true && obs.fonts?.widthDiffers === true,
