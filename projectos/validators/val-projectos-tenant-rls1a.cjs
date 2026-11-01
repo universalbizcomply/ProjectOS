@@ -4,11 +4,11 @@
  *
  * Two kinds of rule, because each can only see half of this:
  *
- *   Text rules (TR-1 to TR-31) pin the migration bytes and the files around them. Each has named
+ *   Text rules (TR-1 to TR-35) pin the migration bytes and the files around them. Each has named
  *   mutations, applied in memory, and each counts as killed only when ITS OWN rule fires.
  *
- *   Harness rules (TR-H*, TR-PG, TR-D:*, TR-S:*, TR-P:*) run the real harness on a throwaway local
- *   cluster and judge its raw results here. The harness reports what each database mutation tripped;
+ *   Harness rules (TR-H*, TR-L*, TR-PG, TR-D:*, TR-S:*, TR-P:*, TR-PA:*) run the real harness on a throwaway
+ *   local cluster and judge its raw results here. The harness reports what each database mutation tripped;
  *   this file says what it must have tripped. A refusal only counts if it came from the rule named.
  *   That matters because the grant wall hides a `to public` policy and the read policy hides a
  *   cross-tenant update: "something failed" would prove nothing.
@@ -29,6 +29,7 @@ const TB_REL = `${CC}/supabase/migrations/0002_tenant_boundary.sql`;
 const SCHEMA_REL = `${CC}/supabase/schema.sql`;
 const INTERACTIVE_REL = `${CC}/supabase/interactive.sql`;
 const PREFLIGHT_REL = `${CC}/supabase/test/live-preflight.sql`;
+const POSTAPPLY_REL = `${CC}/supabase/test/live-postapply.sql`;
 const MEMBERSHIP_REL = `${CC}/supabase/test/live-owner-membership.sql`;
 const GATE_REL = `${CC}/supabase/test/privilege-gate.sql`;
 const ASSERT_REL = `${CC}/supabase/test/assertions.sql`;
@@ -41,13 +42,15 @@ const BOOT_REL = `${CC}/test/authBootstrap.test.tsx`;
 const DOC_REL = "docs/05_Schema.md";
 const VA_REL = "projectos/validators/validate-all.cjs";
 const CR_REL = "projectos/speed/cached-runner.cjs";
-const SOURCES = [BASE_REL, TB_REL, SCHEMA_REL, INTERACTIVE_REL, PREFLIGHT_REL, MEMBERSHIP_REL, GATE_REL, ASSERT_REL,
+const SOURCES = [BASE_REL, TB_REL, SCHEMA_REL, INTERACTIVE_REL, PREFLIGHT_REL, POSTAPPLY_REL, MEMBERSHIP_REL, GATE_REL, ASSERT_REL,
   SHAPE_REL, LIVE_REL, HARNESS_REL, SUPA_REL, AUTH_REL, BOOT_REL, DOC_REL, VA_REL, CR_REL];
 
 const SELF = "val-projectos-tenant-rls1a";
 const OWNER_ACCOUNT = "cd2e8678-1e00-4264-95bb-7d75738a1f50";
 const MIN_ASSERTIONS = 100;
 const HARNESS_TIMEOUT_MS = 300000;
+const LIVE_MAJOR = 17;
+const PASSED_ENV_TOKEN = /TOKEN|SECRET|PASSWORD|KEY/i;
 
 const MAP = ["bizcomply-v2", "boithok-khana", "brik", "coverdrive", "criclocal", "erp-system", "firm-flow",
   "jd-testing", "polygo", "projectos", "tkn", "trading-bot"];
@@ -82,13 +85,15 @@ const OLD_POLICIES = [`"projects public read" on public.projects`, `"projects au
 const PREFLIGHT_ITEMS = ["postgres owns both tables", "public.tenants is absent", "public.tenant_members is absent",
   "schema private is absent", "every row is in the map", "every id in the map is a row", "every row is byte-equal to the seed",
   "no orphan phases", "auth.users is the owner only", "every policy is one 0002 will replace",
-  "supabase_realtime can be emptied of these tables", "nothing else depends on these tables"];
+  "supabase_realtime can be emptied of these tables", "nothing else depends on these tables", "no client can create in schema public"];
+const POSTAPPLY_ITEMS = ["the privilege gate reports nothing", "no public table has an open policy", "row level security is on for every public table",
+  "the four tables are out of every publication", "no client can create in schema public"];
 
 /** Assertions the exit proof depends on; deleting one would silently shrink the proof. */
 const REQUIRED_ASSERTIONS = ["A-CTRL-A-projects", "A-XREAD-projects", "A-XREAD-phases", "A-XREAD-tenants", "A-XREAD-tenant_members",
   "A-XWRITE-update-projects", "A-XWRITE-delete-projects", "A-XWRITE-insert-projects", "A-STEAL-projects", "A-XFK-insert",
   "A-MEMBER-UPDATE-projects", "A-BOTH-TENANT-projects", "A-BOTH-XFK", "A-SELFADD-", "A-NONMEMBER-projects", "A-NULLCLAIMS-projects",
-  "A-ANON-projects", "A-TRUNCATE-authenticated-projects", "A-ROWS-UNCHANGED"];
+  "A-ANON-projects", "A-TRUNCATE-authenticated-projects", "A-ROWS-UNCHANGED", "A-MALFORMED-SUB-projects", "A-BOTH-UPSERT-ID"];
 
 // ---- what each database mutation must have tripped -------------------------------------------------
 
@@ -104,6 +109,7 @@ const DB_PROOFS = [
   { name: "using-true-tenant-members", failed: ["A-XREAD-tenant_members", "A-MEMBERS-SELF-ONLY", "A-NONMEMBER-tenant_members"] },
   { name: "uid-not-null-projects", failed: ["A-NONMEMBER-projects"] },
   { name: "uid-not-null-phases", failed: ["A-NONMEMBER-phases"] },
+  { name: "true-or-helper", failed: ["A-XREAD-projects", "A-NONMEMBER-projects"], gate: gate("nobody", "policy", 'public.projects "projects member read"', "EXPRESSION_DIFFERS") },
   { name: "to-public-policy", gate: gate("public", "policy", 'public.projects "projects member read"', "NOT_TO_AUTHENTICATED") },
   { name: "private-usage-anon", gate: gate("anon", "schema", "private", "USAGE") },
   { name: "public-function-added", gate: gate("anon", "function", "tenant_leak()", "EXECUTE") },
@@ -115,6 +121,8 @@ const DB_PROOFS = [
   { name: "xwrite-phases-open", failed: ["A-XWRITE-update-phases", "A-XWRITE-delete-phases", "A-XWRITE-insert-phases"] },
   { name: "owner-helper-widened", failed: ["A-MEMBER-INSERT-projects", "A-MEMBER-UPDATE-phases", "A-HELPER-member-owns-none"] },
   { name: "column-grant-tenant-id", failed: ["A-BOTH-TENANT-projects", "A-BOTH-UPSERT-TENANT"], gate: gate("authenticated", "column", "public.projects.tenant_id", "UPDATE") },
+  { name: "column-grant-id", failed: ["A-BOTH-ID-projects", "A-BOTH-UPSERT-ID"], gate: gate("authenticated", "column", "public.projects.id", "UPDATE") },
+  { name: "malformed-sub-falls-open", failed: ["projects", "phases", "tenants", "tenant_members"].map((t) => `A-MALFORMED-SUB-${t}`) },
   { name: "table-update-grant", failed: ["A-BOTH-TENANT-phases", "A-BOTH-ID-phases", "A-BOTH-PROJECT-phases"] },
   { name: "composite-fk-dropped", failed: ["A-XFK-insert", "A-BOTH-XFK"] },
   { name: "truncate-granted", failed: ["projects", "phases", "tenants", "tenant_members"].flatMap((t) => [`A-TRUNCATE-authenticated-${t}`, `A-TRUNCATE-anon-${t}`]) },
@@ -134,7 +142,8 @@ const DB_PROOFS = [
 ];
 
 const SOURCE_PROOFS = ["src-using-true", "src-uid-not-null", "src-to-public", "src-private-usage-anon", "src-revoke-skips-anon",
-  "src-truncate-granted", "src-update-all-columns", "src-column-default", "unmapped-row"];
+  "src-truncate-granted", "src-update-all-columns", "src-column-default", "src-true-or-helper", "src-no-role-guard",
+  "unmapped-row", "rewritten-row", "apply-as-superuser"];
 
 const PREFLIGHT_PROOFS = {
   "pf-stranger-row": "every row is in the map",
@@ -148,6 +157,16 @@ const PREFLIGHT_PROOFS = {
   "pf-unknown-policy": "every policy is one 0002 will replace",
   "pf-view-depends": "nothing else depends on these tables",
   "pf-function-mentions": "nothing else depends on these tables",
+  "pf-client-can-create": "no client can create in schema public",
+};
+
+const POSTAPPLY_PROOFS = {
+  "pa-true-or-helper": "no public table has an open policy",
+  "pa-to-public": "no public table has an open policy",
+  "pa-anon-select": "the privilege gate reports nothing",
+  "pa-new-table-no-rls": "row level security is on for every public table",
+  "pa-realtime-added": "the four tables are out of every publication",
+  "pa-client-can-create": "no client can create in schema public",
 };
 
 // ---- named text mutations ---------------------------------------------------------------------------
@@ -163,6 +182,7 @@ const MUTATIONS = [
   M("baseline-column-order-differs", "TR-2", BASE_REL, "  created_at   timestamptz not null default now(),\n  advisor_note text not null default '',\n", "  advisor_note text not null default '',\n  created_at   timestamptz not null default now(),\n"),
   M("baseline-drops-cascade", "TR-2", BASE_REL, "references public.projects(id) on delete cascade", "references public.projects(id)"),
   M("baseline-not-idempotent", "TR-2", BASE_REL, "create table if not exists public.phases", "create table public.phases"),
+  M("baseline-no-lock-timeout", "TR-2", BASE_REL, "set local lock_timeout = '10s';\n", ""),
   // TR-3
   M("migration-not-transactional", "TR-3", TB_REL, "\nbegin;\n", "\n"),
   M("migration-commits-early", "TR-3", TB_REL, "-- ---- 6. Grants: the first wall", "commit;\nbegin;\n-- ---- 6. Grants: the first wall"),
@@ -172,11 +192,19 @@ const MUTATIONS = [
   M("final-check-never-raises", "TR-4", TB_REL, "  if problems is not null then", "  if false then"),
   M("final-check-moved-early", "TR-4", TB_REL, "$check$;\n\ncommit;", "$check$;\n\ngrant select on table public.projects to anon;\n\ncommit;"),
   M("final-check-ignores-grants", "TR-4", TB_REL, "select 'authenticated can update ' || r.relname", "select 'authenticated may update ' || r.relname"),
+  M("final-check-ignores-table-owner", "TR-4", TB_REL, "where pg_catalog.pg_get_userbyid(r.relowner) <> 'postgres'", "where false"),
+  M("final-check-ignores-schema-owner", "TR-4", TB_REL, "pg_catalog.pg_get_userbyid(n.nspowner) <> 'postgres'", "false"),
+  M("final-check-ignores-helper-owner", "TR-4", TB_REL, "where pg_catalog.pg_get_userbyid(h.proowner) <> 'postgres'", "where false"),
+  M("final-check-loose-qual", "TR-4", TB_REL, "where l.qual is distinct from e.qual\n", "where pg_catalog.strpos(l.qual, e.qual) = 0\n"),
+  M("final-check-loose-with-check", "TR-4", TB_REL, "or l.with_check is distinct from e.with_check\n", "or pg_catalog.strpos(l.with_check, e.with_check) = 0\n"),
   // TR-5
-  M("map-row-dropped", "TR-5", TB_REL, "    ('tkn',           'owner-personal'),\n", ""),
-  M("map-row-to-agency", "TR-5", TB_REL, "('polygo',        'owner-personal')", "('polygo',        'agency-business')"),
-  M("map-row-added", "TR-5", TB_REL, "    ('tkn',           'owner-personal'),\n", "    ('tkn',           'owner-personal'),\n    ('seo-agency',    'owner-personal'),\n"),
+  M("map-row-dropped", "TR-5", TB_REL, "    ('tkn',           'owner-personal', 'TKN',              'none',                                'installed', true,  0),\n", ""),
+  M("map-row-to-agency", "TR-5", TB_REL, "('polygo',        'owner-personal',", "('polygo',        'agency-business',"),
+  M("map-row-added", "TR-5", TB_REL, "    ('tkn',           'owner-personal', 'TKN',", "    ('seo-agency',    'owner-personal', 'SEO',              'none',                                'installed', true,  0),\n    ('tkn',           'owner-personal', 'TKN',"),
+  M("map-content-drifts", "TR-5", TB_REL, "'universalbizcomply/ProjectOS',        'installed', false, 12)", "'attacker/fork',                       'installed', false, 12)"),
   M("backfill-catch-all", "TR-5", TB_REL, " where p.id = m.project_id\n", " where m.project_id = 'projectos'\n"),
+  M("backfill-ignores-repo", "TR-5", TB_REL, "   and p.repo = m.repo\n", ""),
+  M("backfill-ignores-open-phases", "TR-5", TB_REL, "   and p.open_phases = m.open_phases\n", ""),
   // TR-6
   M("unmapped-only-warns", "TR-6", TB_REL, "raise exception 'TENANT_BACKFILL_UNMAPPED: no tenant for projects: %', unmapped;", "raise notice 'TENANT_BACKFILL_UNMAPPED: no tenant for projects: %', unmapped;"),
   M("unmapped-check-removed", "TR-6", TB_REL, "  if unmapped is not null then", "  if false then"),
@@ -186,7 +214,9 @@ const MUTATIONS = [
   // TR-8
   M("pk-global", "TR-8", TB_REL, "add constraint projects_pkey primary key (tenant_id, id)", "add constraint projects_pkey primary key (id)"),
   M("phases-pk-global", "TR-8", TB_REL, "add constraint phases_pkey primary key (tenant_id, id)", "add constraint phases_pkey primary key (id)"),
-  M("fk-not-composite", "TR-8", TB_REL, "add constraint phases_tenant_project_fkey foreign key (tenant_id, project_id)\n    references public.projects(tenant_id, id) on delete cascade,\n", ""),
+  M("fk-not-composite", "TR-8", TB_REL, "add constraint phases_tenant_project_fkey foreign key (tenant_id, project_id)\n      references public.projects(tenant_id, id) on delete cascade,\n", ""),
+  M("keys-always-recreated", "TR-8", TB_REL, "= k.condef) = 5 then\n    return;\n  end if;\n", "= k.condef) = 99 then\n    return;\n  end if;\n"),
+  M("key-guard-deleted", "TR-8", TB_REL, "    return;\n  end if;\n\n  alter table public.phases\n    drop constraint", "    null;\n  end if;\n\n  alter table public.phases\n    drop constraint"),
   M("phase-unique-global", "TR-8", TB_REL, "unique (tenant_id, project_id, phase_id);", "unique (project_id, phase_id);"),
   M("helper-path-index-dropped", "TR-8", TB_REL, "create index if not exists tenant_members_user_id_idx on public.tenant_members (user_id);\n", ""),
   // TR-9
@@ -252,6 +282,7 @@ const MUTATIONS = [
   M("membership-not-transactional", "TR-24", MEMBERSHIP_REL, "\nbegin;\n", "\n"),
   // TR-25
   M("gate-reads-information-schema", "TR-25", GATE_REL, "from pg_policy p join tables t on t.oid = p.polrelid\n   where pg_get_expr", "from information_schema.tables x, pg_policy p join tables t on t.oid = p.polrelid\n   where pg_get_expr"),
+  M("gate-skips-expressions", "TR-25", GATE_REL, "'EXPRESSION_DIFFERS'", "'NOT_COMPARED'"),
   M("gate-ignores-private", "TR-25", GATE_REL, "where n.nspname in ('public', 'private') and c.relkind", "where n.nspname in ('public') and c.relkind"),
   M("gate-ignores-public-functions", "TR-25", GATE_REL, "   where n.nspname in ('public', 'private')\n),\nallowed_table", "   where n.nspname in ('private')\n),\nallowed_table"),
   M("gate-allows-anon", "TR-25", GATE_REL, "allowed_table(rolname, nspname, relname, priv) as (values\n", "allowed_table(rolname, nspname, relname, priv) as (values\n  ('anon', 'public', 'projects', 'SELECT'),\n"),
@@ -262,9 +293,11 @@ const MUTATIONS = [
   M("seed-import-restored", "TR-26", SUPA_REL, "import { createClient, type SupabaseClient } from '@supabase/supabase-js';", "import { createClient, type SupabaseClient } from '@supabase/supabase-js';\nimport { PROJECTS } from './projects';"),
   M("test-mock-restored", "TR-26", BOOT_REL, "  isSupabaseConfigured: true,\n", "  isSupabaseConfigured: true,\n  fetchProjects: async () => ({ rows: [] }),\n"),
   // TR-27
-  M("public-read-comment-restored", "TR-27", SUPA_REL, " * Those tables are not public.", " * This reads a public `projects` table protected by row-level security (public read-only).\n * Those tables are not public."),
+  M("public-read-comment-restored", "TR-27", SUPA_REL, " * Today only Supabase Auth is used", " * This reads a public `projects` table protected by row-level security (public read-only).\n * Today only Supabase Auth is used"),
   M("static-seed-comment-restored", "TR-27", SUPA_REL, "When those are absent `getClient` returns null.", "When those are absent the app falls back to the static seed."),
-  M("auth-comment-restored", "TR-27", AUTH_REL, "(see supabase/migrations/0002_tenant_boundary.sql)", "(see supabase/schema.sql RLS)"),
+  M("auth-comment-restored", "TR-27", AUTH_REL, "supabase/migrations/", "supabase/schema.sql"),
+  M("auth-comment-claims-the-apply-happened", "TR-27", AUTH_REL, "A session carries no kernel authority.", "A session reaches only the rows of tenants the user belongs to, and carries no kernel authority."),
+  M("client-comment-claims-the-apply-happened", "TR-27", SUPA_REL, " * Today only Supabase Auth is used", " * Those tables are tenant-bound by row level security.\n * Today only Supabase Auth is used"),
   // TR-28
   M("harness-one-start", "TR-28", HARNESS_REL, `      { label: "live-shaped start", db: "start_live", expectedSeed: SEED_ROWS },\n`, ""),
   M("harness-applies-once", "TR-28", HARNESS_REL, `      applyMigrations(st.db, st.label + ", pass 2");\n`, ""),
@@ -273,7 +306,20 @@ const MUTATIONS = [
   M("harness-binds-everywhere", "TR-28", HARNESS_REL, "-c listen_addresses=127.0.0.1", "-c listen_addresses=*"),
   M("harness-leaves-the-server", "TR-28", HARNESS_REL, "  } finally {\n    stopServer();\n", "  } finally {\n"),
   M("harness-leaves-the-directory", "TR-28", HARNESS_REL, "    const failure = scratch.cleanup(dir);\n", "    const failure = null;\n"),
-  M("harness-own-temp-dir", "TR-28", HARNESS_REL, `const dir = scratch.owned("tenant-rls-pg");`, `const dir = fs.mkdtempSync("tenant-rls-pg");`),
+  M("harness-own-temp-dir", "TR-28", HARNESS_REL, "const dir = scratch.owned(SCRATCH_TAG);", `const dir = fs.mkdtempSync("tenant-rls-pg");`),
+  M("harness-trusts", "TR-28", HARNESS_REL, `"--auth=scram-sha-256"`, `"--auth=trust"`),
+  M("harness-password-on-the-command-line", "TR-28", HARNESS_REL, `"--pwfile=" + pwfile`, `"--pwprompt=" + password`),
+  M("harness-inherits-the-environment", "TR-28", HARNESS_REL, "const env = minimalEnv(pg.dir);", "const env = { ...process.env, ...minimalEnv(pg.dir) };"),
+  M("harness-passes-a-token", "TR-28", HARNESS_REL, `const PASSED_ENV = ["SystemRoot",`, `const PASSED_ENV = ["GITHUB_TOKEN", "SystemRoot",`),
+  M("harness-no-sweep", "TR-28", HARNESS_REL, "result.swept = sweepStale(pgctl, env);", "result.swept = [];"),
+  M("harness-sweep-ignores-owner", "TR-28", HARNESS_REL, "return old || !isAlive(owner.pid);", "return true;"),
+  M("harness-sweep-loose-prefix", "TR-28", HARNESS_REL, "const STALE_DIR = /^projectos-tenant-rls-pg-[A-Za-z0-9]{6}$/;", "const STALE_DIR = /^projectos-/;"),
+  M("harness-stop-defined-late", "TR-28", HARNESS_REL, "  let data = null;\n", `  let data = null;\n  spawnSync(pgctl, ["-o", "x", "-w", "start"]);\n`),
+  M("harness-graceful-stop-only", "TR-28", HARNESS_REL, `    stopped = true;\n    spawnSync(pgctl, ["-D", data, "-m", "immediate", "-w", "stop"]`, `    stopped = true;\n    spawnSync(pgctl, ["-D", data, "-m", "fast", "-w", "stop"]`),
+  M("harness-asks-the-shell-where", "TR-28", HARNESS_REL, "const found = (explicit ? [explicit] : candidateDirs())", `const found = (explicit ? [explicit] : [path.dirname(spawnSync("where", ["psql"]).stdout.toString().trim())])`),
+  M("harness-trusts-relative-path", "TR-28", HARNESS_REL, "if (path.isAbsolute(d)) dirs.push(d);", "dirs.push(d);"),
+  M("harness-ignores-live-major", "TR-28", HARNESS_REL, "found.find((f) => f.major === LIVE_MAJOR) || found[0]", "found[0]"),
+  M("harness-silent-fallback", "TR-28", HARNESS_REL, "return { ...chosen, note: `FALLBACK: running on PostgreSQL", "return { ...chosen, note: null, unused: `FALLBACK: running on PostgreSQL"),
   M("shape-owner-is-superuser", "TR-28", SHAPE_REL, "create role postgres login nosuperuser createrole bypassrls;", "create role postgres login superuser;"),
   M("shape-no-default-acl", "TR-28", SHAPE_REL, "alter default privileges for role postgres in schema public\n  grant all on tables to anon, authenticated, service_role;\n", ""),
   M("shape-auth-users-owned-by-postgres", "TR-28", SHAPE_REL, "alter table auth.users owner to supabase_auth_admin;", "alter table auth.users owner to postgres;"),
@@ -291,6 +337,27 @@ const MUTATIONS = [
   M("doc-keeps-the-old-source", "TR-31", DOC_REL, "### `public.projects`\n", "### `public.projects` (`schema.sql`)\n"),
   M("doc-keeps-the-old-policy", "TR-31", DOC_REL, "**RLS:** enabled on all four, not forced.", "**RLS:** `using (true)`."),
   M("doc-auth-flow-stale", "TR-31", DOC_REL, "tenant RLS on public.tenants, tenant_members, projects, phases", "RLS policies on public.projects/phases"),
+  M("doc-drops-the-upsert-warning", "TR-31", DOC_REL, "fails with `permission denied`, by design", "works"),
+  // TR-32
+  M("role-guard-removed", "TR-32", TB_REL, "  if current_user <> 'postgres' then\n    raise exception 'TENANT_BOUNDARY_WRONG_ROLE: run this as postgres, not %', current_user;\n  end if;\n", ""),
+  M("role-guard-any-superuser", "TR-32", TB_REL, "if current_user <> 'postgres' then", "if current_user not in ('postgres', 'supabase_admin') then"),
+  M("role-guard-after-the-work", "TR-32", TB_REL, "set local search_path = '';\n", "set local search_path = '';\ncreate schema if not exists early;\n"),
+  // TR-33
+  M("postapply-writes", "TR-33", POSTAPPLY_REL, "with client_roles as (", "with writes as (update public.projects set name = name returning 1),\nclient_roles as ("),
+  M("postapply-second-statement", "TR-33", POSTAPPLY_REL, "order by seq, item;", "order by seq, item;\nselect 1;"),
+  M("postapply-information-schema", "TR-33", POSTAPPLY_REL, "from pg_default_acl d left join", "from information_schema.role_table_grants g, pg_default_acl d left join"),
+  // TR-34
+  M("postapply-gate-drifts", "TR-34", POSTAPPLY_REL, "array['USAGE', 'CREATE']", "array['CREATE']"),
+  M("gate-drifts-from-postapply", "TR-34", GATE_REL, "array['USAGE', 'CREATE']", "array['CREATE']"),
+  // TR-35
+  M("postapply-verdict-always-true", "TR-35", POSTAPPLY_REL, "bool_and(ok) as ok", "true as ok"),
+  M("postapply-no-nspacl", "TR-35", POSTAPPLY_REL, "select 70, 'public schema', coalesce(nullif(a.grantee, 0)::regrole::text, 'PUBLIC'), null,\n         string_agg(a.privilege_type, ', ' order by a.privilege_type)\n    from pg_namespace n cross join lateral aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) a\n   where n.nspname = 'public'\n   group by a.grantee\n  union all\n", ""),
+  M("postapply-no-default-acl-listing", "TR-35", POSTAPPLY_REL, "    from pg_default_acl d left join pg_namespace n on n.oid = d.defaclnamespace\n", "    from (select null::oid as defaclrole, null::\"char\" as defaclobjtype, null::oid as defaclnamespace, null::aclitem[] as defaclacl) d left join pg_namespace n on n.oid = d.defaclnamespace\n"),
+  M("postapply-no-open-policy-check", "TR-35", POSTAPPLY_REL, "'no public table has an open policy'", "'policies listed'"),
+  M("postapply-open-policy-names-only", "TR-35", POSTAPPLY_REL, "          or pg_get_expr(p.polqual, p.polrelid) is distinct from a.qual\n          or pg_get_expr(p.polwithcheck, p.polrelid) is distinct from a.with_check\n          or p.polroles", "          or p.polroles"),
+  M("postapply-no-realtime-check", "TR-35", POSTAPPLY_REL, "'the four tables are out of every publication'", "'realtime listed'"),
+  // TR-23, added with the public schema row
+  M("preflight-no-nspacl", "TR-23", PREFLIGHT_REL, "   where n.nspname = 'public'\n   group by a.grantee\n", "   where n.nspname = 'none'\n   group by a.grantee\n"),
 ];
 
 // ---- reading ------------------------------------------------------------------------------------------
@@ -371,6 +438,9 @@ function stripJs(text) {
   return out;
 }
 
+/** A seed row as `id|tenant|name|repo|status|freeze|open`, so the migration's map and the preflight's can be compared. */
+const SEED_ROW = /^\s*\('([^']+)',\s*'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*(true|false),\s*(\d+)\),?\s*$/gm;
+const seedRows = (text) => [...text.matchAll(SEED_ROW)].map((m) => m.slice(1, 8).join("|"));
 const collapse = (s) => s.replace(/\s+/g, " ").trim();
 const statements = (sql, re) => (sql.match(re) || []).map((s) => collapse(s.replace(/;$/, "")));
 const sameSet = (a, b) => a.length === b.length && [...a].sort().join("\n") === [...b].sort().join("\n");
@@ -403,8 +473,9 @@ function check(raw) {
   // TR-2: the baseline is the live shape, and is safe to re-run.
   if (!/created_at\s+timestamptz not null default now\(\),\s*advisor_note\s+text not null default ''/.test(base) ||
       !base.includes("references public.projects(id) on delete cascade") || !/unique \(project_id, phase_id\)/.test(base) ||
-      !base.includes("create table if not exists public.projects") || !base.includes("create table if not exists public.phases")) {
-    E("TR-2", "0001 no longer matches the live shape, or cannot be re-run");
+      !base.includes("create table if not exists public.projects") || !base.includes("create table if not exists public.phases") ||
+      !base.includes("set local lock_timeout = '10s';")) {
+    E("TR-2", "0001 no longer matches the live shape, cannot be re-run, or has no lock timeout");
   }
 
   // TR-3: one transaction, nothing destructive.
@@ -418,17 +489,24 @@ function check(raw) {
   // TR-4: the check runs last, raises, and judges every wall.
   const needed = ["row level security is off on", "tenant_id is nullable, missing or has a default on", "key is missing or different",
     "policy is not expected", "policy is not for authenticated alone", "policy is not bound to its helper", "anon holds", "PUBLIC holds",
-    "authenticated holds", "authenticated can update", "anon can use schema private", "helper is not stable", "still in supabase_realtime"];
-  if (!/if problems is not null then\s+raise exception 'TENANT_BOUNDARY_CHECK_FAILED: %'/.test(tb) ||
+    "authenticated holds", "authenticated can update", "anon can use schema private", "helper is not stable", "still in supabase_realtime",
+    "where pg_catalog.pg_get_userbyid(r.relowner) <> 'postgres'", "pg_catalog.pg_get_userbyid(n.nspowner) <> 'postgres'",
+    "where pg_catalog.pg_get_userbyid(h.proowner) <> 'postgres'", "where l.qual is distinct from e.qual\n", "or l.with_check is distinct from e.with_check\n"];
+  if (!/if problems is not null then\s+raise exception 'TENANT_BOUNDARY_CHECK_FAILED: %'/.test(tb) || /strpos/.test(tb) ||
       !/\$check\$;\s*commit;\s*$/.test(tb) || !needed.every((n) => tb.includes(n))) {
     E("TR-4", "the in-transaction check no longer runs last, no longer raises, or no longer judges every wall");
   }
 
-  // TR-5: the backfill map is exactly the audited twelve, all in owner-personal, by exact id.
-  const mapText = /from \(values([\s\S]*?)\) as m\(project_id, tenant_id\)/.exec(tb);
-  const pairs = mapText ? [...mapText[1].matchAll(/\('([^']+)',\s*'([^']+)'\)/g)].map((m) => [m[1], m[2]]) : [];
-  if (!sameSet(pairs.map((p) => p[0]), MAP) || pairs.some((p) => p[1] !== "owner-personal") || !tb.includes(" where p.id = m.project_id\n")) {
-    E("TR-5", "the backfill map is not exactly the twelve audited projects in owner-personal");
+  // TR-5: the backfill map is exactly the audited twelve, in owner-personal, and a row must match on content
+  // as well as id. The preflight holds the same rows, so a change to one without the other is caught.
+  const mapText = /from \(values([\s\S]*?)\) as m\(project_id, tenant_id, name, repo, install_status, production_freeze, open_phases\)/.exec(tb);
+  const preSeedText = /seed\(id, tenant, name, repo, install_status, production_freeze, open_phases\) as \(values([\s\S]*?)\n\),\nowner_account/.exec(pre);
+  const mapRows = mapText ? seedRows(mapText[1] + "\n") : [];
+  const preRows = preSeedText ? seedRows(preSeedText[1] + "\n") : [];
+  const contentPins = [" where p.id = m.project_id\n", ...["name", "repo", "install_status", "production_freeze", "open_phases"].map((c) => `   and p.${c} = m.${c}\n`)];
+  if (!sameSet(mapRows.map((r) => r.split("|")[0]), MAP) || mapRows.some((r) => r.split("|")[1] !== "owner-personal") ||
+      !sameSet(mapRows, preRows) || !contentPins.every((p) => tb.includes(p))) {
+    E("TR-5", "the backfill map is not exactly the twelve audited rows in owner-personal, compared by content, and equal to the preflight's");
   }
 
   // TR-6: an unmapped row raises.
@@ -452,6 +530,9 @@ function check(raw) {
       !/add constraint phases_tenant_project_fkey foreign key \(tenant_id, project_id\)\s+references public\.projects\(tenant_id, id\) on delete cascade/.test(tb)) {
     E("TR-8", "a key is no longer per tenant, or the composite foreign key is gone");
   }
+  const keyGuardAt = tb.search(/= k\.condef\) = 5 then\s+return;\s+end if;/);
+  const firstKeyDrop = tb.indexOf("drop constraint if exists phases_project_id_fkey");
+  if (keyGuardAt < 0 || firstKeyDrop < keyGuardAt) E("TR-8", "matching keys are no longer left alone, so a re-run is not a no-op");
 
   // TR-9: all four tables are revoked from all three client contexts.
   if (!/revoke all on table public\.projects, public\.phases, public\.tenants, public\.tenant_members\s+from public, anon, authenticated;/.test(tb)) {
@@ -535,7 +616,8 @@ function check(raw) {
   const seedText = /seed\(id, tenant, name, repo, install_status, production_freeze, open_phases\) as \(values([\s\S]*?)\n\),\nowner_account/.exec(pre);
   const seedIds = seedText ? [...seedText[1].matchAll(/^\s*\('([^']+)',\s*'owner-personal'/gm)].map((m) => m[1]) : [];
   if (!PREFLIGHT_ITEMS.every((i) => pre.includes(`'${i}'`)) || !sameSet(seedIds, MAP) || !pre.includes(`'${OWNER_ACCOUNT}'`) ||
-      !pre.includes("bool_and(ok) as ok") || !pre.includes("'PREFLIGHT'")) {
+      !pre.includes("bool_and(ok) as ok") || !pre.includes("'PREFLIGHT'") ||
+      !/'public schema: '[\s\S]*?where n\.nspname = 'public'\s+group by a\.grantee/.test(pre)) {
     E("TR-23", "the live preflight no longer covers the delta's list, its map differs from the migration's, or its verdict is not computed");
   }
 
@@ -551,7 +633,7 @@ function check(raw) {
   if (/information_schema/i.test(gateSql) ||
       !["where n.nspname in ('public', 'private') and c.relkind", "where n.nspname in ('public', 'private')\n),\nallowed_table",
         "has_table_privilege(r.rolname, t.oid, p.priv)\n     and not exists", "has_column_privilege(r.rolname, c.oid, c.attnum, p.priv)", "has_function_privilege(r.rolname, f.oid, 'EXECUTE')",
-        "has_schema_privilege(r.rolname, 'private', p.priv)", "'NOT_TO_AUTHENTICATED'", "'ALWAYS_TRUE'", "'NOT_APPROVED'", "'RLS_DISABLED'", "'PUBLISHED'", "'LOGIN'"].every((p) => gateSql.includes(p)) ||
+        "has_schema_privilege(r.rolname, n.oid, p.priv)", "'NOT_TO_AUTHENTICATED'", "'ALWAYS_TRUE'", "'NOT_APPROVED'", "'EXPRESSION_DIFFERS'", "'RLS_DISABLED'", "'PUBLISHED'", "'LOGIN'"].every((p) => gateSql.includes(p)) ||
       !anonAllowed || /'anon'/.test(anonAllowed[0])) {
     E("TR-25", "the privilege gate no longer judges effective privileges across public and private");
   }
@@ -562,9 +644,12 @@ function check(raw) {
   }
 
   // TR-27: comments are the point here, so these two scan raw text.
+  // They must be true before and after the owner's apply, so neither may state what the database enforces today.
+  const claimsApplied = /tenants the user belongs to|tenant-bound|row level security/i;
   if (/public read-only|static seed|public `projects`/.test(raw[SUPA_REL]) || /supabase\/schema\.sql/.test(raw[AUTH_REL]) ||
-      !raw[SUPA_REL].includes("0002_tenant_boundary.sql") || !raw[AUTH_REL].includes("0002_tenant_boundary.sql")) {
-    E("TR-27", "a comment claims a public or seed-backed table again");
+      claimsApplied.test(raw[SUPA_REL]) || claimsApplied.test(raw[AUTH_REL]) ||
+      !raw[SUPA_REL].includes("supabase/migrations/") || !raw[AUTH_REL].includes("supabase/migrations/")) {
+    E("TR-27", "a comment claims a public or seed-backed table, or states post-apply truth while live may not be applied");
   }
 
   // TR-28: the harness models production: both starts, twice, a non-superuser, the hazards, a clean exit.
@@ -574,8 +659,25 @@ function check(raw) {
     `{ label: "fresh start", db: "start_fresh", expectedSeed: 0 }`, `{ label: "live-shaped start", db: "start_live", expectedSeed: SEED_ROWS }`,
     `applyMigrations(st.db, st.label + ", pass 1");`, `applyMigrations(st.db, st.label + ", pass 2");`,
     `const a = sqlFile(db, "postgres", path.join(MIGRATIONS_DIR, m));`, `"-U", "supabase_admin"`, "-c listen_addresses=127.0.0.1",
-    "POSTGRES_MISSING", "process.exitCode = 3;", `const dir = scratch.owned("tenant-rls-pg");`, "const failure = scratch.cleanup(dir);",
+    "POSTGRES_MISSING", "process.exitCode = 3;", "const dir = scratch.owned(SCRATCH_TAG);", "const failure = scratch.cleanup(dir);",
+    // Auth: scram, a random password through a file and PGPASSWORD, never the command line or trust.
+    `"--auth=scram-sha-256"`, `"--pwfile=" + pwfile`, "const password = crypto.randomBytes(24).toString(\"hex\");", "PGPASSWORD: password",
+    // Environment: named variables only.
+    "const env = minimalEnv(pg.dir);", `const PASSED_ENV = ["SystemRoot", "SystemDrive", "windir", "ComSpec", "TEMP", "TMP", "TMPDIR"];`,
+    // Lifecycle: stop is defined before the start, immediate, and a killed run is swept by exact prefix, owner gone.
+    "const stopServer = () => {", `spawnSync(pgctl, ["-D", data, "-m", "immediate", "-w", "stop"], { stdio: "ignore", timeout: 60000, env });\n  };`,
+    "result.swept = sweepStale(pgctl, env);", "const STALE_DIR = /^projectos-tenant-rls-pg-[A-Za-z0-9]{6}$/;", "return old || !isAlive(owner.pid);",
+    // Binaries: live's major first, absolute paths, and a fallback that says so.
+    "const LIVE_MAJOR = 17;", "found.find((f) => f.major === LIVE_MAJOR) || found[0]", "if (path.isAbsolute(d)) dirs.push(d);",
+    "const found = (explicit ? [explicit] : candidateDirs())", "note: `FALLBACK: running on PostgreSQL",
   ];
+  const stopAt = harness.indexOf("const stopServer = () => {");
+  const startAt = harness.indexOf(`"-w", "start"]`);
+  if (stopAt < 0 || startAt < stopAt) E("TR-28", "stopServer must be defined before the server can start");
+  if (/\.\.\.process\.env/.test(harness) || /"-A", "trust"|--auth=trust/.test(harness) || /spawnSync\("where"|spawnSync\(process\.platform === "win32" \? "where"/.test(harness) ||
+      PASSED_ENV_TOKEN.test(/const PASSED_ENV = \[([^\]]*)\]/.exec(harness)?.[1] || "")) {
+    E("TR-28", "the harness inherits the environment, trusts connections, or asks the shell where Postgres is");
+  }
   const shapePins = ["create role postgres login nosuperuser createrole bypassrls;", "alter table auth.users owner to supabase_auth_admin;",
     "grant select on auth.users to postgres with grant option;", "grant references on auth.users to postgres;",
     "(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')",
@@ -604,8 +706,37 @@ function check(raw) {
   const section1 = doc.slice(doc.indexOf("## 1. Relational"), doc.indexOf("## 2. Relational"));
   if (/\(`schema\.sql`\)|\(`interactive\.sql`\)|`using \(true\)`\.$/m.test(section1) || !section1.includes("0002_tenant_boundary.sql") ||
       !section1.includes("### `public.tenant_members`") || !section1.includes("**PK `(tenant_id, id)`**") ||
-      !doc.includes("tenant RLS on public.tenants, tenant_members, projects, phases") || !section1.includes("**RLS:** enabled on all four")) {
+      !doc.includes("tenant RLS on public.tenants, tenant_members, projects, phases") || !section1.includes("**RLS:** enabled on all four") ||
+      !section1.includes("fails with `permission denied`, by design") || !collapse(section1).includes("Do not fix that by granting `tenant_id`")) {
     E("TR-31", "docs/05_Schema.md no longer matches the migrations");
+  }
+
+  // TR-32: the role guard comes first, and names postgres alone.
+  const guardAt = tb.search(/if current_user <> 'postgres' then\s+raise exception 'TENANT_BOUNDARY_WRONG_ROLE: run this as postgres, not %', current_user;/);
+  if (guardAt < 0 || /\b(create|alter|insert|update|revoke|grant|drop)\b/i.test(tb.slice(0, guardAt))) {
+    E("TR-32", "0002 must refuse to run as anyone but postgres, before it changes anything");
+  }
+
+  // TR-33: the post-apply check is one read-only SELECT over raw catalogues.
+  const post = stripSql(raw[POSTAPPLY_REL]);
+  const postBare = withoutStrings(post);
+  if (postBare.split(";").filter((s) => s.trim() !== "").length !== 1 || !/^\s*with\b/i.test(postBare) || /information_schema/i.test(post) ||
+      /\b(insert|update|delete|truncate|alter|create|drop|grant|revoke|merge|copy|call|do|vacuum|reindex|comment|lock|set)\b/i.test(postBare)) {
+    E("TR-33", "the live post-apply check must be a single read-only SELECT that never reads information_schema");
+  }
+
+  // TR-34: its gate is the gate: the CTEs from client_roles to findings are byte-equal.
+  const gateStart = gateSql.indexOf("with client_roles as (");
+  const gateEnd = gateSql.indexOf("\nselect grantee, object_type, object, privilege from findings");
+  const gateBody = gateStart < 0 || gateEnd < 0 ? null : gateSql.slice(gateStart, gateEnd);
+  if (gateBody === null || !post.includes(gateBody)) E("TR-34", "live-postapply.sql and privilege-gate.sql have drifted apart");
+
+  // TR-35: it answers the delta's live questions, lists what must be seen, and its verdict is computed.
+  if (!POSTAPPLY_ITEMS.every((i) => post.includes(`'${i}'`)) || !post.includes("bool_and(ok) as ok") || !post.includes("'POSTAPPLY'") ||
+      !post.includes("from pg_default_acl d left join pg_namespace n on n.oid = d.defaclnamespace") ||
+      !/select 70, 'public schema'[\s\S]*?aclexplode\(coalesce\(n\.nspacl, acldefault\('n', n\.nspowner\)\)\)/.test(post) ||
+      !/open_policy as \([\s\S]*?pg_get_expr\(p\.polqual, p\.polrelid\) is distinct from a\.qual[\s\S]*?pg_get_expr\(p\.polwithcheck, p\.polrelid\) is distinct from a\.with_check/.test(post)) {
+    E("TR-35", "the post-apply check no longer answers the live questions, or its verdict is not computed");
   }
   return errors;
 }
@@ -637,7 +768,66 @@ function runHarness(env) {
   } catch (_e) {
     result = null;
   }
-  return { status: r.status, result, stderr: r.stderr || "" };
+  return { status: r.status, result, stderr: r.stderr || "", stdout: r.stdout || "" };
+}
+
+function isAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}
+
+/** Runs the harness with its start broken: it must fail by name and leave no directory and no server. */
+function failedStartEvidence() {
+  const r = runHarness({ TENANT_RLS_TEST_SEAM: "fail-start" });
+  if (r.status === 3) return null;
+  const dir = r.result ? r.result.scratchDir : null;
+  return {
+    status: r.status,
+    named: Boolean(r.result && String(r.result.error).includes("pg_ctl start failed")),
+    dirGone: Boolean(dir) && !fs.existsSync(dir),
+    serverLeft: Boolean(r.result && r.result.serverLeft),
+  };
+}
+
+/** Kills a harness outright, as a validator timeout does. The next real run must clean up after it. */
+function killedRun() {
+  const r = runHarness({ TENANT_RLS_TEST_SEAM: "die-after-start" });
+  if (r.status === 3) return null;
+  const line = r.stdout.split(/\r?\n/).find((l) => l.startsWith("HARNESS_KILLED "));
+  const left = line ? JSON.parse(line.slice("HARNESS_KILLED ".length)) : null;
+  return { reported: left !== null, dir: left && left.dir, pid: left && left.pid, dirLeft: left !== null && fs.existsSync(left.dir), serverLeft: left !== null && isAlive(left.pid) };
+}
+
+/** TR-L1 and TR-L2: the lifecycle evidence, judged. Pure, so each rule can be shown to fire. */
+function judgeLifecycle(failedStart, killed, afterSweep) {
+  const errors = [];
+  const E = (rule, msg) => errors.push([rule, `${rule}: ${msg}`]);
+  if (failedStart !== null && (failedStart.status !== 1 || !failedStart.named || !failedStart.dirGone || failedStart.serverLeft)) {
+    E("TR-L1", `a failed start must fail by name and leave nothing behind: ${JSON.stringify(failedStart)}`);
+  }
+  if (killed !== null && (!killed.reported || !killed.dirLeft || !killed.serverLeft)) {
+    E("TR-L2", `the killed run did not really leave a server and a directory, so the sweep proves nothing: ${JSON.stringify(killed)}`);
+  }
+  if (killed !== null && afterSweep !== null && (afterSweep.dirLeft || afterSweep.serverLeft)) {
+    E("TR-L2", `the next run did not clean up after a killed run: ${JSON.stringify(afterSweep)}`);
+  }
+  return errors;
+}
+
+/** TR-H4: the choice of binaries, as a pure function: live's major wins, and anything else says so. */
+function pgChoiceProblems(choosePg) {
+  const problems = [];
+  const both = choosePg([{ dir: "a", major: 18 }, { dir: "b", major: LIVE_MAJOR }], false);
+  if (!both || both.dir !== "b" || both.note !== null) problems.push("live's major was not preferred");
+  const fallback = choosePg([{ dir: "a", major: 18 }], false);
+  if (!fallback || fallback.dir !== "a" || !/FALLBACK/.test(String(fallback.note))) problems.push("a fallback was silent");
+  if (choosePg([], false) !== null) problems.push("no binaries must mean no choice");
+  return problems;
 }
 
 /** Judges what the harness reported, against what this file requires. Returns `[rule, message]` pairs. */
@@ -654,8 +844,17 @@ function judge(status, result, stderr) {
   }
   // TR-H1: it ran, ended clean, and left nothing behind.
   const failedChecks = (result.checks || []).filter((c) => !c.ok).map((c) => c.label);
-  if (status !== 0 || result.ok !== true || failedChecks.length > 0 || result.error || result.scratchLeft) {
-    E("TR-H1", `the harness failed (exit ${status}): ${failedChecks.slice(0, 8).join("; ") || result.error || result.scratchLeft || "no detail"}`);
+  if (status !== 0 || result.ok !== true || failedChecks.length > 0 || result.error || result.scratchLeft || result.serverLeft) {
+    E("TR-H1", `the harness failed (exit ${status}): ${failedChecks.slice(0, 8).join("; ") || result.error || result.scratchLeft || result.serverLeft || "no detail"}`);
+  }
+  // TR-H4: the version is known, and a run that is not on live's major version says so.
+  if (!/^\d+\./.test(String(result.pgVersion)) || result.pgMajor !== Number(String(result.pgVersion).split(".")[0]) ||
+      (result.pgMajor !== LIVE_MAJOR && !/FALLBACK/.test(String(result.pgNote)))) {
+    E("TR-H4", `the Postgres version is unknown, or a run on ${result.pgMajor} did not say it fell back from ${LIVE_MAJOR}`);
+  }
+  // TR-H5: the server itself: scram on every rule, no passwordless login, no inherited token.
+  for (const label of ["every pg_hba rule is scram-sha-256", "a connection with no password is refused", "the server's environment holds no inherited token"]) {
+    if (!(result.checks || []).some((c) => c.ok && c.label === label)) E("TR-H5", `not shown: ${label}`);
   }
   // TR-H2: both starts, twice, with every assertion run and passing, and a clean gate.
   const starts = result.starts || [];
@@ -676,6 +875,12 @@ function judge(status, result, stderr) {
     }
     if (!(result.checks || []).some((c) => c.ok && c.label === `${label}: through authenticator, a member sees their tenant and not the other`)) {
       E("TR-H2", `${label}: the boundary was not shown through the authenticator login`);
+    }
+    if (!(result.checks || []).some((c) => c.ok && c.label === `${label}: the second apply did not re-create a single key`)) {
+      E("TR-H2", `${label}: the second apply was not shown to leave its keys alone`);
+    }
+    if (!(result.checks || []).some((c) => c.ok && c.label === `${label}: the read-only post-apply check passes`)) {
+      E("TR-H2", `${label}: the read-only post-apply check was not shown to pass`);
     }
   }
   // TR-D:<name>: each database mutation tripped the rule named for it, and every assertion still ran.
@@ -700,12 +905,25 @@ function judge(status, result, stderr) {
   }
   const realtime = (result.sourceMutations || []).find((m) => m.name === "realtime-member");
   if (!realtime || realtime.tablesLeft !== 0) E("TR-S:realtime-member", "tables already in supabase_realtime were not taken out");
+  const dependent = (result.sourceMutations || []).find((m) => m.name === "rerun-with-dependent-key");
+  if (!dependent || dependent.refused || !dependent.keysKept) E("TR-S:rerun-with-dependent-key", "a re-run failed, or re-created its keys, after a later object came to depend on one");
   // TR-P:<name>: the preflight passes on the live shape and refuses each deviation by the right check.
   const shaped = (result.preflight || []).find((p) => p.name === "pf-live-shaped-start");
   if (!shaped || !shaped.passed) E("TR-P:pf-live-shaped-start", "the preflight did not pass on the live-shaped start");
   for (const [name, item] of Object.entries(PREFLIGHT_PROOFS)) {
     const p = (result.preflight || []).find((x) => x.name === name);
     if (!p || !p.ran || p.passed || !p.failed.includes(item)) E(`TR-P:${name}`, `the preflight did not refuse ${name} by "${item}"`);
+  }
+  // TR-PA:<name>: the post-apply check passes on both migrated starts and refuses each deviation by the right check.
+  for (const name of ["pa-clean-start_fresh", "pa-clean-start_live"]) {
+    const p = (result.postapply || []).find((x) => x.name === name);
+    if (!p || !p.ran || !p.passed) E(`TR-PA:${name}`, `the post-apply check did not pass on ${name}`);
+  }
+  const unapplied = (result.postapply || []).find((x) => x.name === "pa-before-apply");
+  if (!unapplied || !unapplied.ran || unapplied.passed) E("TR-PA:pa-before-apply", "the post-apply check did not refuse a database that was never migrated");
+  for (const [name, item] of Object.entries(POSTAPPLY_PROOFS)) {
+    const p = (result.postapply || []).find((x) => x.name === name);
+    if (!p || !p.ran || p.passed || !p.failed.includes(item)) E(`TR-PA:${name}`, `the post-apply check did not refuse ${name} by "${item}"`);
   }
   return errors;
 }
@@ -744,6 +962,24 @@ function judgeSelfTest(result) {
     target.passed = true;
     fires(0, passed, `TR-P:${name}`, `the preflight passing ${name}`);
   }
+  for (const name of Object.keys(POSTAPPLY_PROOFS)) {
+    const passed = clone();
+    const target = passed.postapply.find((p) => p.name === name);
+    if (!target) continue;
+    target.passed = true;
+    fires(0, passed, `TR-PA:${name}`, `the post-apply check passing ${name}`);
+  }
+  const unnamedFallback = clone();
+  unnamedFallback.pgMajor = 18;
+  unnamedFallback.pgVersion = "18.4";
+  unnamedFallback.pgNote = null;
+  fires(0, unnamedFallback, "TR-H4", "a silent fallback to 18");
+  const trusting = clone();
+  trusting.checks = trusting.checks.filter((c) => c.label !== "every pg_hba rule is scram-sha-256");
+  fires(0, trusting, "TR-H5", "a run that never showed scram");
+  const dependent = clone();
+  dependent.sourceMutations.find((m) => m.name === "rerun-with-dependent-key").keysKept = false;
+  fires(0, dependent, "TR-S:rerun-with-dependent-key", "keys re-created on a re-run");
   const noLive = clone();
   noLive.starts = noLive.starts.filter((s) => s.label !== "live-shaped start");
   fires(0, noLive, "TR-H2", "a run with no live-shaped start");
@@ -769,10 +1005,30 @@ function run() {
     errors.push(`TR-PG: with no Postgres the harness must exit 3 and name POSTGRES_MISSING (exit ${absent.status})`);
   }
 
+  errors.push(...pgChoiceProblems(require(path.join(ROOT, ...HARNESS_REL.split("/"))).choosePg).map((p) => `TR-H4: ${p}`));
+
+  // A failed start, then a run killed the way a validator timeout kills it, then the real run, which must
+  // clean up after the killed one. With no Postgres the first two have nothing to prove; TR-PG says so.
+  const failedStart = failedStartEvidence();
+  const killed = killedRun();
   const real = runHarness({});
+  const afterSweep = killed === null || !killed.reported ? null : { dirLeft: fs.existsSync(killed.dir), serverLeft: isAlive(killed.pid) };
+  errors.push(...judgeLifecycle(failedStart, killed, afterSweep).map(([, msg]) => msg));
   errors.push(...judge(real.status, real.result, real.stderr).map(([, msg]) => msg));
   // The judge is only tested against a run that passed; a failed run has already said why.
-  if (real.status === 0 && real.result) errors.push(...judgeSelfTest(real.result));
+  if (real.status === 0 && real.result) {
+    errors.push(...judgeSelfTest(real.result));
+    const good = { failed: { status: 1, named: true, dirGone: true, serverLeft: false }, killed: { reported: true, dirLeft: true, serverLeft: true } };
+    const fires = (args, rule, what) => {
+      if (!judgeLifecycle(...args).some(([r]) => r === rule)) errors.push(`TR-M: ${what} survived; ${rule} did not fire`);
+    };
+    fires([{ ...good.failed, dirGone: false }, null, null], "TR-L1", "a failed start that left its directory");
+    fires([{ ...good.failed, serverLeft: true }, null, null], "TR-L1", "a failed start that left a server");
+    fires([{ ...good.failed, status: 0 }, null, null], "TR-L1", "a failed start reported as a pass");
+    fires([null, { ...good.killed, serverLeft: false }, null], "TR-L2", "a killed run that left no server to sweep");
+    fires([null, good.killed, { dirLeft: true, serverLeft: false }], "TR-L2", "a sweep that left the directory");
+    fires([null, good.killed, { dirLeft: false, serverLeft: true }], "TR-L2", "a sweep that left the server");
+  }
   lastRun = real.result;
   return errors;
 }
@@ -788,9 +1044,10 @@ if (require.main === module) {
   } else {
     const r = lastRun;
     console.log(`${SELF}: PASS (${MUTATIONS.length} text mutations and ${DB_PROOFS.length} database mutations killed by their own rules, ` +
-      `${SOURCE_PROOFS.length} source scenarios, ${Object.keys(PREFLIGHT_PROOFS).length} preflight refusals, ${r.starts[0].total} assertions on 2 starts, ` +
-      `PostgreSQL ${r.pgVersion}, ${r.ms} ms)`);
+      `${SOURCE_PROOFS.length + 2} source scenarios, ${Object.keys(PREFLIGHT_PROOFS).length} preflight and ${Object.keys(POSTAPPLY_PROOFS).length + 1} post-apply refusals, ` +
+      `failed start and killed run cleaned up, ${r.starts[0].total} assertions on 2 starts, PostgreSQL ${r.pgVersion}, ${r.ms} ms)`);
+    if (r.pgNote) console.log(`${SELF}: ${r.pgNote}`);
   }
 }
 
-module.exports = { run, check, selfTest, judge, judgeSelfTest, MUTATIONS, DB_PROOFS };
+module.exports = { run, check, selfTest, judge, judgeSelfTest, judgeLifecycle, MUTATIONS, DB_PROOFS };
