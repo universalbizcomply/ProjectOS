@@ -1,12 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core window permissions + open external URLs (ChatGPT hand-off) + listen to the read-only daemon event channel.",
+  "description": "Least privilege, PROJECTOS-TENANT-CSP1A: the window listens to the read-only daemon event channel and nothing else. App commands are authorised by their own Rust handlers, not by this list.",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "core:event:default",
-    "opener:default",
-    "opener:allow-open-url"
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
   ]
 }
