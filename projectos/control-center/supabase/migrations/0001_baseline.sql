@@ -7,6 +7,8 @@
 
 begin;
 
+set local lock_timeout = '10s';
+
 create table if not exists public.projects (
   id                text primary key,
   name              text not null,

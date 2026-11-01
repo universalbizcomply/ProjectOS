@@ -2,14 +2,22 @@
 --
 -- Replaces the using(true) policies with tenant-bound access. Forward-only and transactional: the
 -- check at the end raises inside the transaction, so a bad apply leaves the database as it was.
--- Re-running it converges on the same state. It runs as the table owner, `postgres`, which on Supabase
--- is not a superuser. Owner membership is a separate step (test/live-owner-membership.sql) so these
--- bytes hold no personal identifier.
+-- Re-running it changes nothing. It must run as the table owner, `postgres`, which on Supabase is not a
+-- superuser: objects made by anyone else would be unreadable to it. Owner membership is a separate step
+-- (test/live-owner-membership.sql) so these bytes hold no personal identifier.
 
 begin;
 
 set local lock_timeout = '10s';
 set local search_path = '';
+
+do $role$
+begin
+  if current_user <> 'postgres' then
+    raise exception 'TENANT_BOUNDARY_WRONG_ROLE: run this as postgres, not %', current_user;
+  end if;
+end
+$role$;
 
 -- ---- 1. Tenants and their members --------------------------------------------------------------
 
@@ -33,8 +41,9 @@ insert into public.tenants (id, name) values
 on conflict (id) do nothing;
 
 -- ---- 2. tenant_id, backfilled from an explicit map --------------------------------------------
--- A row the map does not name is not guessed at: it stops the migration. The column has no default,
--- so nothing can land in a tenant by accident.
+-- A row the map does not name is not guessed at: it stops the migration. Sign-up was open, so a known id
+-- is not enough: a row whose content differs from the seed is not mapped either. The column has no
+-- default, so nothing can land in a tenant by accident.
 
 alter table public.projects add column if not exists tenant_id text;
 alter table public.phases add column if not exists tenant_id text;
@@ -42,20 +51,25 @@ alter table public.phases add column if not exists tenant_id text;
 update public.projects as p
    set tenant_id = m.tenant_id
   from (values
-    ('bizcomply-v2',  'owner-personal'),
-    ('boithok-khana', 'owner-personal'),
-    ('brik',          'owner-personal'),
-    ('coverdrive',    'owner-personal'),
-    ('criclocal',     'owner-personal'),
-    ('erp-system',    'owner-personal'),
-    ('firm-flow',     'owner-personal'),
-    ('jd-testing',    'owner-personal'),
-    ('polygo',        'owner-personal'),
-    ('projectos',     'owner-personal'),
-    ('tkn',           'owner-personal'),
-    ('trading-bot',   'owner-personal')
-  ) as m(project_id, tenant_id)
+    ('bizcomply-v2',  'owner-personal', 'BizComply V2',     'universalbizcomply/opsoft-ios-lab',   'installed', true,  0),
+    ('boithok-khana', 'owner-personal', 'Boithok Khana',    'none',                                'installed', true,  0),
+    ('brik',          'owner-personal', 'Brik',             'universalbizcomply/brik',             'installed', true,  0),
+    ('coverdrive',    'owner-personal', 'Coverdrive',       'coverdrivemanchester-art/Coverdrive', 'installed', true,  0),
+    ('criclocal',     'owner-personal', 'CricLocal',        'muraddevbuild-maker/criclocal',       'installed', true,  0),
+    ('erp-system',    'owner-personal', 'ERP System',       'none',                                'installed', true,  0),
+    ('firm-flow',     'owner-personal', 'Firm Flow',        'none',                                'installed', true,  0),
+    ('jd-testing',    'owner-personal', 'JD Testing',       'jdonlinetesting/JDtesting',           'installed', true,  0),
+    ('polygo',        'owner-personal', 'PolyGo',           'polygonia-apres/polygo',              'installed', true,  0),
+    ('projectos',     'owner-personal', 'ProjectOS (self)', 'universalbizcomply/ProjectOS',        'installed', false, 12),
+    ('tkn',           'owner-personal', 'TKN',              'none',                                'installed', true,  0),
+    ('trading-bot',   'owner-personal', 'Trading Bot',      'none',                                'installed', true,  0)
+  ) as m(project_id, tenant_id, name, repo, install_status, production_freeze, open_phases)
  where p.id = m.project_id
+   and p.name = m.name
+   and p.repo = m.repo
+   and p.install_status = m.install_status
+   and p.production_freeze = m.production_freeze
+   and p.open_phases = m.open_phases
    and p.tenant_id is null;
 
 do $unmapped$
@@ -93,26 +107,48 @@ alter table public.phases
 -- ---- 3. Keys ----------------------------------------------------------------------------------
 -- Keys are per tenant, so an id cannot reveal that another tenant holds the same id, and the composite
 -- foreign key means a phase cannot point at another tenant's project even for a user who owns both.
+-- Keys that already match are left alone: a re-run is a true no-op, and it cannot fail because a later
+-- object has come to depend on one of them.
 
-alter table public.phases
-  drop constraint if exists phases_project_id_fkey,
-  drop constraint if exists phases_tenant_project_fkey,
-  drop constraint if exists phases_project_id_phase_id_key,
-  drop constraint if exists phases_tenant_project_phase_key,
-  drop constraint if exists phases_pkey;
-alter table public.projects
-  drop constraint if exists projects_tenant_id_fkey,
-  drop constraint if exists projects_pkey;
+do $keys$
+begin
+  if (select count(*)
+        from pg_catalog.pg_constraint as c
+        join (values
+          ('public.projects', 'projects_pkey', 'PRIMARY KEY (tenant_id, id)'),
+          ('public.projects', 'projects_tenant_id_fkey', 'FOREIGN KEY (tenant_id) REFERENCES public.tenants(id)'),
+          ('public.phases', 'phases_pkey', 'PRIMARY KEY (tenant_id, id)'),
+          ('public.phases', 'phases_tenant_project_fkey',
+            'FOREIGN KEY (tenant_id, project_id) REFERENCES public.projects(tenant_id, id) ON DELETE CASCADE'),
+          ('public.phases', 'phases_tenant_project_phase_key', 'UNIQUE (tenant_id, project_id, phase_id)')
+        ) as k(relname, conname, condef)
+          on c.conrelid = k.relname::pg_catalog.regclass
+         and c.conname = k.conname
+         and pg_catalog.pg_get_constraintdef(c.oid) = k.condef) = 5 then
+    return;
+  end if;
 
-alter table public.projects
-  add constraint projects_pkey primary key (tenant_id, id),
-  add constraint projects_tenant_id_fkey foreign key (tenant_id) references public.tenants(id);
+  alter table public.phases
+    drop constraint if exists phases_project_id_fkey,
+    drop constraint if exists phases_tenant_project_fkey,
+    drop constraint if exists phases_project_id_phase_id_key,
+    drop constraint if exists phases_tenant_project_phase_key,
+    drop constraint if exists phases_pkey;
+  alter table public.projects
+    drop constraint if exists projects_tenant_id_fkey,
+    drop constraint if exists projects_pkey;
 
-alter table public.phases
-  add constraint phases_pkey primary key (tenant_id, id),
-  add constraint phases_tenant_project_fkey foreign key (tenant_id, project_id)
-    references public.projects(tenant_id, id) on delete cascade,
-  add constraint phases_tenant_project_phase_key unique (tenant_id, project_id, phase_id);
+  alter table public.projects
+    add constraint projects_pkey primary key (tenant_id, id),
+    add constraint projects_tenant_id_fkey foreign key (tenant_id) references public.tenants(id);
+
+  alter table public.phases
+    add constraint phases_pkey primary key (tenant_id, id),
+    add constraint phases_tenant_project_fkey foreign key (tenant_id, project_id)
+      references public.projects(tenant_id, id) on delete cascade,
+    add constraint phases_tenant_project_phase_key unique (tenant_id, project_id, phase_id);
+end
+$keys$;
 
 -- The policy paths on projects and phases are served by the keys above, which lead with tenant_id.
 create index if not exists tenant_members_user_id_idx on public.tenant_members (user_id);
@@ -277,17 +313,24 @@ begin
       'FOREIGN KEY (tenant_id, project_id) REFERENCES public.projects(tenant_id, id) ON DELETE CASCADE'),
     ('phases', 'phases_tenant_project_phase_key', 'UNIQUE (tenant_id, project_id, phase_id)')
   ),
-  expected_policy(relname, polname, polcmd, helper) as (values
-    ('tenants', 'tenants member read', 'r', 'private.my_tenant_ids()'),
-    ('tenant_members', 'tenant_members self read', 'r', 'auth.uid()'),
-    ('projects', 'projects member read', 'r', 'private.my_tenant_ids()'),
-    ('projects', 'projects owner insert', 'a', 'private.my_owned_tenant_ids()'),
-    ('projects', 'projects owner update', 'w', 'private.my_owned_tenant_ids()'),
-    ('projects', 'projects owner delete', 'd', 'private.my_owned_tenant_ids()'),
-    ('phases', 'phases member read', 'r', 'private.my_tenant_ids()'),
-    ('phases', 'phases owner insert', 'a', 'private.my_owned_tenant_ids()'),
-    ('phases', 'phases owner update', 'w', 'private.my_owned_tenant_ids()'),
-    ('phases', 'phases owner delete', 'd', 'private.my_owned_tenant_ids()')
+  member_expr(expr) as (values ('(tenant_id IN ( SELECT private.my_tenant_ids() AS my_tenant_ids))')),
+  owner_expr(expr) as (values ('(tenant_id IN ( SELECT private.my_owned_tenant_ids() AS my_owned_tenant_ids))')),
+  expected_policy(relname, polname, polcmd, qual, with_check) as (
+    select 'tenants', 'tenants member read', 'r', '(id IN ( SELECT private.my_tenant_ids() AS my_tenant_ids))', null
+    union all
+    select 'tenant_members', 'tenant_members self read', 'r', '(user_id = ( SELECT auth.uid() AS uid))', null
+    union all
+    select t.relname, t.relname || ' member read', 'r', m.expr, null
+      from (values ('projects'), ('phases')) as t(relname) cross join member_expr as m
+    union all
+    select t.relname, t.relname || ' owner insert', 'a', null, o.expr
+      from (values ('projects'), ('phases')) as t(relname) cross join owner_expr as o
+    union all
+    select t.relname, t.relname || ' owner update', 'w', o.expr, o.expr
+      from (values ('projects'), ('phases')) as t(relname) cross join owner_expr as o
+    union all
+    select t.relname, t.relname || ' owner delete', 'd', o.expr, null
+      from (values ('projects'), ('phases')) as t(relname) cross join owner_expr as o
   ),
   live_policy as (
     select r.relname, p.polname, p.polcmd::text as polcmd, p.polroles,
@@ -343,8 +386,20 @@ begin
     select 'policy is not bound to its helper: ' || l.polname
       from live_policy as l
       join expected_policy as e on e.relname = l.relname and e.polname = l.polname
-     where (l.qual is not null and pg_catalog.strpos(l.qual, e.helper) = 0)
-        or (l.with_check is not null and pg_catalog.strpos(l.with_check, e.helper) = 0)
+     where l.qual is distinct from e.qual
+        or l.with_check is distinct from e.with_check
+    union all
+    select 'not owned by postgres: table ' || r.relname
+      from rels as r
+     where pg_catalog.pg_get_userbyid(r.relowner) <> 'postgres'
+    union all
+    select 'not owned by postgres: schema private'
+      from pg_catalog.pg_namespace as n
+     where n.nspname = 'private' and pg_catalog.pg_get_userbyid(n.nspowner) <> 'postgres'
+    union all
+    select 'not owned by postgres: helper ' || h.proname
+      from live_helper as h
+     where pg_catalog.pg_get_userbyid(h.proowner) <> 'postgres'
     union all
     select 'anon holds ' || p.priv || ' on ' || r.relname
       from rels as r cross join privs as p
