@@ -144,6 +144,7 @@ that needs a running connector stays later.
 | `projectos/core/src/tenant.ts`, `taskEnvelope.ts`, `actionRegistry.ts`, `connectorContract.ts` | CONTRACT, CONNECTOR | Pure rules, no I/O |
 | `projectos/agent/src/installation/tenantRegistry.ts` | PRINCIPAL | Committed-bytes reader; validates the whole file first |
 | `projectos/agent/src/commands/tenant.ts` | PRINCIPAL | `tenant show`, read-only |
+| `projectos/control-center/supabase/migrations/0003_default_privileges.sql` | RLS | Owner decision D7: new objects in `public` start locked. Existing objects keep their grants |
 | `projectos/control-center/supabase/migrations/0001_baseline.sql`, `0002_tenant_boundary.sql` | RLS | Forward-only, transactional. `0001` holds no policies and no seed |
 | `projectos/control-center/supabase/test/` (harness, `auth` stub, assertions, privilege gate, `live-preflight.sql`) | RLS | Throwaway local cluster, adapted from the watchdog harness |
 | `projectos/connectors/registry.json` | CONNECTOR | Empty list, schema-valid, so the first connector has a home |
@@ -264,6 +265,12 @@ Reviews of revision 1, before any code. Agency corpus `ad9264e3`.
    this machine until Stage 4 isolation and service-held secrets are done.
 5. **D5 — Connectors:** "Rules now, connectors later (Recommended)".
 6. **D6 — CSP:** "Approve strict policy (Recommended)".
+
+7. **D7 — Live route (2026-11-01, plan v1.28 decision):** "Not mcp but use the PAT". The Management API replaces the plugin.
+8. **D8 — Live apply (2026-11-01):** "Yes, apply it now (Recommended)". Applied the same day from the reviewed bytes, preflight and
+   post-check passed. Sign-up was found still open; on the owner's "Yes, switch it off (Recommended)" it was closed through the same route.
+9. **D9 — New objects (2026-11-01):** "Yes, lock by default (Recommended)". Adds `0003_default_privileges.sql` through plan v1.29.
+10. **D10 — ADR-T1 (2026-11-01):** "Accept it (Recommended)", with projectos and polygo in Develop and seo-agency in Business.
 
 Owner acts still to come: switch sign-up off and check Users; run `/mcp` to sign in to Supabase; `plan decide`
 for v1.28; yes to the live apply; adding the owner's Supabase account to the tenants, because the login email

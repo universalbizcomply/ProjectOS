@@ -1145,6 +1145,7 @@
       "writePaths": [
         "projectos/control-center/supabase/migrations/0001_baseline.sql",
         "projectos/control-center/supabase/migrations/0002_tenant_boundary.sql",
+        "projectos/control-center/supabase/migrations/0003_default_privileges.sql",
         "projectos/control-center/supabase/test/",
         "projectos/control-center/supabase/schema.sql",
         "projectos/control-center/supabase/interactive.sql",
@@ -1173,7 +1174,8 @@
         "anon, an authenticated non-member and null-claims authenticated read nothing.",
         "The ported privilege gate, judged on effective privileges, reports nothing, and these mutations each fail the harness: using(true); auth.uid() is not null; a to public policy; USAGE on private granted to anon; an added public function.",
         "Backfill comes from an explicit project-to-tenant map, raises on any unmapped row, and the column has no default; the migration ends with an in-transaction check; both apply twice on a fresh cluster.",
-        "A re-run of the retired SQL files cannot recreate a permissive policy, tested."
+        "A re-run of the retired SQL files cannot recreate a permissive policy, tested.",
+        "Owner decision, 2026-11-01, \"Yes, lock by default (Recommended)\": a new table, sequence or function made by postgres in public gives anon and authenticated nothing, tested with a positive control, and existing objects keep their grants."
       ],
       "requiredValidators": [
         "val-projectos-tenant-rls1a",
