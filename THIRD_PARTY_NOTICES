@@ -1,7 +1,8 @@
 THIRD-PARTY NOTICES
 
 ProjectOS is the owner's product, and it includes credited open-source components. This file gives those
-components the credit they are owed. Each licence text below is copied from that project's own LICENSE file.
+components the credit they are owed. Each source's licence text is copied from that project's own LICENSE file.
+The Pi / pi-mono text comes from the Pi entry in OpenClaw's own notices file, as that note says.
 
 It covers source code copied, translated or adapted into this repository. Packages installed as dependencies
 carry their own notices and are not listed here.
@@ -26,8 +27,14 @@ this file, in this form:
     Licence-Text: SOURCE <source id>, in this file
     Also-Credits: pi-mono
 
-Also-Credits is required on every OpenClaw entry and left out otherwise. The licence text is held once per
-source, under APPROVED SOURCES, and each entry points to it.
+Also-Credits is required on every OpenClaw entry. It names a further upstream: code inside a source that came from
+somewhere else. List several with commas, and name the same ones in the file's header. The licence text is held once
+per source, under APPROVED SOURCES, and each entry points to it.
+
+A recorded header goes only with the owner's committed decision naming the path. That record replaces the entry:
+
+    REMOVED: <our path in this repository>
+    Owner-Record: .projectops/plan-decisions/PLANDEC-<id>.json
 
 
 APPROVED SOURCES
@@ -72,6 +79,7 @@ Licence: MIT
 Copyright: Copyright (c) 2026 OpenClaw Foundation
 NOTICE-File: none; it has its own THIRD_PARTY_NOTICES.md, whose Pi / pi-mono entry carries through here
 Also-Credits: pi-mono, on every OpenClaw entry, because OpenClaw does not list which files came from Pi
+Further-Upstream: hermes-agent, for its packages/agent-core/src/repetition-guard.ts; a port of that file credits it too
 
 === BEGIN LICENCE TEXT ===
 MIT License
@@ -352,41 +360,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 === END LICENCE TEXT ===
 
-SOURCE: isl-openbot
-Name: OpenBot (Intel ISL, smartphone robotics)
-Upstream: https://github.com/ob-f/OpenBot
-Pinned-Commit: c5f05271a067ca83d3de38e5976fa07bcec74b6e
-Licence: MIT
-Copyright: Copyright (c) 2020 Intel ISL (Intel Intelligent Systems Lab)
-NOTICE-File: none at the repository root at the pinned commit
-Formerly: https://github.com/isl-org/OpenBot
-Embedded: some of its files are Apache-2.0 or BSD-3-Clause under their own headers; none is credited here
-Disclaimer: its DISCLAIMER.md adds use conditions; whether they bind a port is a question for legal review
-
-=== BEGIN LICENCE TEXT ===
-MIT License
-
-Copyright (c) 2020 Intel ISL (Intel Intelligent Systems Lab)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-=== END LICENCE TEXT ===
-
 
 INHERITED CREDIT
 
@@ -398,7 +371,7 @@ Copyright: Copyright (c) 2025 Mario Zechner
 Reached-Through: openclaw
 Provenance: OpenClaw's own THIRD_PARTY_NOTICES.md, at its pinned commit, says portions of OpenClaw were adapted from Pi / pi-mono
 Scope: it does not say which files, so ProjectOS credits Pi on every OpenClaw entry and ports no Pi file directly
-Text-From: the Pi entry in that same file, because ProjectOS holds no copy of Pi's own LICENSE
+Text-From: the Pi entry in OpenClaw's own THIRD_PARTY_NOTICES.md, because ProjectOS holds no copy of Pi's own LICENSE
 
 === BEGIN LICENCE TEXT ===
 MIT License

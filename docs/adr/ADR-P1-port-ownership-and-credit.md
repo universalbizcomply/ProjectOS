@@ -1,7 +1,7 @@
 # ADR-P1 — Port ownership and credit
 
-**Status:** APPROVED in substance by the owner's 'Approved' of the port delta, 2026-11-01. Only the owner marks an
-ADR Accepted, and this one is not marked.
+**Status:** Proposed. The owner approved the port delta on 2026-11-01 ("Approved"), and this ADR carries out that
+delta. Only the owner marks an ADR Accepted, and this one is not marked.
 
 **Applies to:** every file copied, translated or adapted from another project into ProjectOS. It serves
 `docs/changes/delta_spec_V4_PORTS.md`, and it applies before the first upstream line lands.
@@ -18,6 +18,7 @@ optional or removable.
 
 - Say: "ProjectOS is my product, and it includes credited open-source components".
 - Own the original ProjectOS code and every change made to ported code.
+  Who legally holds the original code is still open (§9).
 - Brand, rename, change and sell the product, under the licences below.
 - Do not say the owner wrote the upstream code.
 - Do not use an upstream project's name or logo as ProjectOS branding, or to imply endorsement.
@@ -33,9 +34,15 @@ For every ported file:
   licence, copyright, and a pointer to the licence text.
 - **OpenClaw files.** Each also credits Pi / pi-mono. OpenClaw says portions of it were adapted from Pi and does not
   say which, so the credit cannot be ruled out for any file.
-- **Notices already in the upstream file.** They stay, word for word, below our header.
+- **Notices already in the upstream file.** They stay, word for word, below our header, after the end marker in §7.
+- **Further upstreams.** Code inside a source may have come from somewhere else, as OpenClaw's own notices say of Pi
+  and Hermes. A port names each one with `Also-Credits`, in the header and in the entry. One that is not yet recorded
+  needs a reviewed addition to the validator and its licence text in `THIRD_PARTY_NOTICES`.
 
 A translation from Python to TypeScript is still a derivative work, and the same duties apply.
+
+A header is never dropped by line count or by a rewrite claim. Once a file has been recorded as ported, removing its
+header needs a committed owner record naming the path (§7). How much of the file changed does not decide it.
 
 ## 4. Apache-2.0 duties
 
@@ -59,8 +66,12 @@ prompts, skills, UI and assets are not copied, translated or closely paraphrased
 features are ideas, and ProjectOS builds them from MIT sources and our own code, as the delta sets out. The builder is
 not given that repository. The only route to its actual code is a commercial licence from Synthetify Labs.
 
-Any other PolyForm source is refused on the same ground. A new source goes on the approved list only through an owner
-decision, after its licence has been read from its own `LICENSE` file.
+Any other PolyForm source is refused on the same ground. So is LobeHub: its Community License requires a commercial
+licence for a derivative work, and Hermes `tools/terminal_tool_result.py` carries a fragment ported from it
+(`docs/legal/vendor-provenance.md` §1). That behaviour is rewritten from scratch, not translated.
+
+A new source goes on the approved list only through an owner decision, after its licence has been read from its own
+`LICENSE` file.
 
 ## 6. Approved sources
 
@@ -71,10 +82,12 @@ decision, after its licence has been read from its own `LICENSE` file.
 | `copilotkit-openbot` | MIT | Copyright (c) 2026 CopilotKit | `c396a5f68c817043846f1ca3c2b42061ee73ceb5` |
 | `oh-my-hermes` | MIT | Copyright (c) 2026 oh-my-hermes contributors | `612a1cd9c44a19ecddcd263865e40e8c3910a514` |
 | `rakazo` | Apache-2.0 | Copyright 2026 Rakazo contributors | `bf78ebd7961a28a8b437c605319c47b59edadc1c` |
-| `isl-openbot` | MIT | Copyright (c) 2020 Intel ISL (Intel Intelligent Systems Lab) | `c5f05271a067ca83d3de38e5976fa07bcec74b6e` |
 
-`isl-openbot` is approved for its MIT files only. Its embedded Apache-2.0 and BSD-3-Clause files need their licence
-text in `THIRD_PARTY_NOTICES` and a validator change before one is ported.
+Each row is the validator's record. A re-pin moves the old commit to `earlierPins` in the validator and `Earlier-Pins`
+in `THIRD_PARTY_NOTICES`. A file already ported keeps its true commit, and is never restamped.
+
+`isl-openbot` is not on this list. Its licence file is MIT, but it embeds Apache-2.0 and BSD-3-Clause files that an MIT
+header would misdescribe. Its phase adds it, with per-file licence handling.
 
 ## 7. How a file is marked
 
@@ -92,10 +105,15 @@ A file in a port directory opens with one of two things, in its own comment synt
 // Port-Strategy: DIRECT
 // Modified-By: ProjectOS 2026-11-03: modified for ProjectOS. CHANGED: imports cut to ProjectOS equivalents
 // Notice: full licence text in THIRD_PARTY_NOTICES
+// End-Of-Credit-Header
 ```
 
-`Also-Credits` is for OpenClaw files. `Port-Strategy` and `Notice` are optional. `CHANGED:` is required for Apache-2.0
-sources and recommended for all. For later changes, add a dated `Modified-By` line and keep the earlier ones.
+`Also-Credits` is required on OpenClaw files and names any further upstream. `Port-Strategy` and `Notice` are optional.
+`CHANGED:` is required for Apache-2.0 sources and recommended for all. For later changes, add a dated `Modified-By`
+line and keep the earlier ones.
+
+`End-Of-Credit-Header` ends our header. It is required only when upstream text is kept below it, because anything above
+it is read as ours. Without it, an upstream `SPDX-License-Identifier` line reads as a second, incomplete header.
 
 **Original.** The file was written here:
 
@@ -103,7 +121,8 @@ sources and recommended for all. For later changes, add a dated `Modified-By` li
 // Origin: original ProjectOS code
 ```
 
-The mark names no company, because the legal holder is still open (§9).
+The mark names no company, because the legal holder is still open (§9). A file with this mark may not carry a
+copyright line, a licence identifier, licence text, or an upstream name or URL.
 
 A format with no comment syntax, such as JSON, cannot carry either mark, so it does not belong in a port directory.
 
@@ -118,6 +137,20 @@ A format with no comment syntax, such as JSON, cannot carry either mark, so it d
 - `projectos/agent/src/memory/`
 - `projectos/agent/src/skills/`
 
+**Test directories.** Most files here are ours and carry no mark. A file is judged only once it shows an upstream mark,
+and then it needs a header and an entry like any other:
+
+- `projectos/core/test/`
+- `projectos/agent/test/`
+
+Outside these directories, tracked source carries no `Ported-From:` line and no upstream copyright line. Adding a port
+directory is a listed, reviewed change, made here and in the validator together.
+
+**Removing a recorded header.** The entry is replaced by a `REMOVED` record pointing at a committed
+`.projectops/plan-decisions/PLANDEC-*.json` that approves it, was decided by the owner, and names the path. The validator
+reads every path ever entered from the history of `THIRD_PARTY_NOTICES`, so a header and its entry cannot vanish in one
+commit.
+
 ## 8. What enforces this, and what does not
 
 `projectos/validators/val-projectos-port-credit1a.cjs` judges every file in those directories, including ones that do
@@ -129,7 +162,8 @@ not exist yet. It refuses, by name:
 - a wrong sha;
 - any PolyForm or nightly-labs source;
 - a partial header, a wrong licence or copyright, an Apache file that does not state its change, an OpenClaw file with
-  no Pi credit, and an original mark on a file that shows upstream marks.
+  no Pi credit, an unrecorded further upstream, and an original mark on a file that shows upstream marks;
+- a recorded port that lost its header, and an upstream mark outside the directories above.
 
 The directories are empty today, so a pass over the real tree proves nothing. The rules are proved against fixture
 files in a temporary directory, with a positive control that a correct file passes.
@@ -141,8 +175,18 @@ files in a temporary directory, with a positive control that a correct file pass
 - **Names and logos in ported code.** It refuses a brand asset as a source path. It does not sweep identifiers or
   user-visible text for upstream names. Each port's review does that.
 - **Claims.** What the owner says in sales or marketing is outside any validator. §2 is the rule for those.
-- **Ports outside the port directories.** A file placed elsewhere is not judged. A later phase that ports into another
-  directory must add it here and in the validator, in the same change.
+- **Ports with every mark removed, outside the port directories.** A tracked file with a `Ported-From:` line or an
+  upstream copyright line is refused. One with no such text is not seen. Only tracked files are scanned.
+- **Whether a `Source-Path` exists at the pin.** The validator reads no vendor folder, because those exist only on this
+  machine. The path is checked for shape and against the entry, not against upstream.
+- **Shipping the notices with the product.** Having the file in the repository does not put it in the installer, the
+  app or a hosted service. The MIT and Apache-2.0 duties apply to what ships, and each release must carry it.
+- **Per-file licences inside a source.** A source's licence is judged as one licence. A file inside it may carry its
+  own, which is why `isl-openbot` is left out. Each port reads the header of the file it takes.
+- **OpenClaw's own notice entries.** They are not carried wholesale. SQLite and GitHub Octicons need a credit only if a
+  port takes that code, and Hermes only for the file OpenClaw says came from it.
+- **A rewrite under a new path.** A recorded path is tracked, not its content. A similarity check could help: it is
+  feasible hash-only, and it would be advisory, not a gate.
 - **Refused behaviour.** The delta's refused list, such as `tools/approval_smart.py`, is a matter for each port's
   gates and review. This validator judges credit, not safety.
 
@@ -168,5 +212,7 @@ differ, this ADR and the approved delta win:
 | Validator | `val-ported-file-provenance.cjs` | `val-projectos-port-credit1a.cjs` |
 | Pins | The 2026-10-29 pins | The commits in §6 |
 | Header statement | `Modified-By` with a date | The same, and it must say "modified for ProjectOS" |
+| End of header | Not defined | `End-Of-Credit-Header`, when upstream text is kept below |
+| `isl-openbot` | A planned source | Left out until its phase |
 
 The draft files are unchanged, and they still show the earlier pins for Hermes, OpenClaw and CopilotKit OpenBot.

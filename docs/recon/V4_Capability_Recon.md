@@ -27,6 +27,7 @@ repositories:
 - It is positioned against **xAI Grok Bot** (https://x.ai/news/introducing-grok-bot, beta since
   11 Aug 2026).
 - It is not intel-isl/OpenBot, which is a robotics project.
+- It is also not nightly-labs/openbot, which is PolyForm Noncommercial and is never a source.
 
 Claims are those of the cited docs. Anything marked UNVERIFIED in the subagent reports stays open.
 

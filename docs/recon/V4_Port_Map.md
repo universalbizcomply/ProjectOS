@@ -14,7 +14,8 @@ given it, and a credit does not license it. Its features are built from the sour
 
 **Re-pinned 2026-11-01.** Ports take their code from the folders below and credit these commits. The first three are
 the owner's downloads of 2026-11-01. Each pin was read from its zip's archive comment. The clones at the earlier pins
-stay in `C:\dev\ProjectOS-vendor\` until the ports are done, and they are not a source.
+stay in `C:\dev\ProjectOS-vendor\` until the ports are done, and they are not a source. A later re-pin adds a pin, and a
+file already ported keeps its true commit (ADR-P1 §6).
 
 | Repo | Local folder | Pinned commit | Earlier pin, 2026-10-29 |
 |---|---|---|---|
@@ -23,7 +24,7 @@ stay in `C:\dev\ProjectOS-vendor\` until the ports are done, and they are not a 
 | CopilotKit/OpenBot | `C:\dev\ProjectOS-vendor\incoming-2026-11-01\openbot-upper\OpenBot-main` | `c396a5f68c817043846f1ca3c2b42061ee73ceb5` | `4766e4247675eb73ff80d525ff645dd8a9da815f` |
 | rlaope/oh-my-hermes | `C:\dev\ProjectOS-vendor\oh-my-hermes\oh-my-hermes-main` | `612a1cd9c44a19ecddcd263865e40e8c3910a514` | Unchanged |
 | elie222/rakazo | `C:\dev\ProjectOS-vendor\rakazo\rakazo-main` | `bf78ebd7961a28a8b437c605319c47b59edadc1c` | Unchanged |
-| ob-f/OpenBot (was isl-org/OpenBot) | `C:\dev\ProjectOS-vendor\openbot-master\OpenBot-master` | `c5f05271a067ca83d3de38e5976fa07bcec74b6e` | Unchanged |
+| ob-f/OpenBot (was isl-org/OpenBot), **not approved until its phase** | `C:\dev\ProjectOS-vendor\openbot-master\OpenBot-master` | `c5f05271a067ca83d3de38e5976fa07bcec74b6e` | Unchanged |
 
 **Changed since the earlier pin.** The delta records that the port-list files match the earlier pins, with one
 exception: OpenBot `server/src/computer/policy-network.ts`, which differs from `4766e42`. It is reviewed in its phase,
@@ -42,7 +43,7 @@ script was run. The sources were only read, with `git log`, `git ls-files`, `ls`
 | OpenBot (CopilotKit) | MIT | `Copyright (c) 2026 CopilotKit` |
 | oh-my-hermes | MIT | `Copyright (c) 2026 oh-my-hermes contributors` |
 | rakazo | Apache-2.0 | `Copyright 2026 Rakazo contributors` |
-| OpenBot (isl-org) | MIT, with embedded Apache-2.0 and BSD-3-Clause files | `Copyright (c) 2020 Intel ISL (Intel Intelligent Systems Lab)` |
+| OpenBot (isl-org), not approved until its phase | MIT, with embedded Apache-2.0 and BSD-3-Clause files | `Copyright (c) 2020 Intel ISL (Intel Intelligent Systems Lab)` |
 
 **Embedded third-party code that a port must carry forward:**
 - **OpenClaw** has its own `THIRD_PARTY_NOTICES.md`. Its entries are:
@@ -53,6 +54,8 @@ script was run. The sources were only read, with `git log`, `git ls-files`, `ls`
 
   Any OpenClaw file we port must be checked for Pi provenance. If it has any, the Pi notice goes into
   our `THIRD_PARTY_NOTICES` too.
+- **Hermes** `tools/terminal_tool_result.py` carries a fragment "ported from lobehub/lobehub#19329". LobeHub's Community
+  License needs a commercial licence for a derivative work, so the validator denies it and the behaviour is rewritten.
 - **Hermes** `agent/vault_login_classifier.py` says it is a port of Merit-Systems/OpenInstinct (MIT). We
   should not port it anyway, because of the vault ban below.
 - OpenClaw's notice file is a ready template for our `THIRD_PARTY_NOTICES` entry format: upstream URL,
