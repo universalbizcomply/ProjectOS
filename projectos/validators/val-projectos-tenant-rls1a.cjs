@@ -4,7 +4,7 @@
  *
  * Two kinds of rule, because each can only see half of this:
  *
- *   Text rules (TR-1 to TR-35) pin the migration bytes and the files around them. Each has named
+ *   Text rules (TR-1 to TR-41) pin the migration bytes and the files around them. Each has named
  *   mutations, applied in memory, and each counts as killed only when ITS OWN rule fires.
  *
  *   Harness rules (TR-H*, TR-L*, TR-PG, TR-D:*, TR-S:*, TR-P:*, TR-PA:*) run the real harness on a throwaway
@@ -19,6 +19,7 @@
  */
 
 const { spawnSync } = require("child_process");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
@@ -31,6 +32,8 @@ const INTERACTIVE_REL = `${CC}/supabase/interactive.sql`;
 const PREFLIGHT_REL = `${CC}/supabase/test/live-preflight.sql`;
 const POSTAPPLY_REL = `${CC}/supabase/test/live-postapply.sql`;
 const MEMBERSHIP_REL = `${CC}/supabase/test/live-owner-membership.sql`;
+const DEFAULTS_REL = `${CC}/supabase/migrations/0003_default_privileges.sql`;
+const PREFLIGHT3_REL = `${CC}/supabase/test/live-preflight-0003.sql`;
 const GATE_REL = `${CC}/supabase/test/privilege-gate.sql`;
 const ASSERT_REL = `${CC}/supabase/test/assertions.sql`;
 const SHAPE_REL = `${CC}/supabase/test/supabase-shape.sql`;
@@ -42,13 +45,29 @@ const BOOT_REL = `${CC}/test/authBootstrap.test.tsx`;
 const DOC_REL = "docs/05_Schema.md";
 const VA_REL = "projectos/validators/validate-all.cjs";
 const CR_REL = "projectos/speed/cached-runner.cjs";
-const SOURCES = [BASE_REL, TB_REL, SCHEMA_REL, INTERACTIVE_REL, PREFLIGHT_REL, POSTAPPLY_REL, MEMBERSHIP_REL, GATE_REL, ASSERT_REL,
+const SOURCES = [BASE_REL, TB_REL, DEFAULTS_REL, SCHEMA_REL, INTERACTIVE_REL, PREFLIGHT_REL, PREFLIGHT3_REL, POSTAPPLY_REL, MEMBERSHIP_REL, GATE_REL, ASSERT_REL,
   SHAPE_REL, LIVE_REL, HARNESS_REL, SUPA_REL, AUTH_REL, BOOT_REL, DOC_REL, VA_REL, CR_REL];
 
 const SELF = "val-projectos-tenant-rls1a";
 const OWNER_ACCOUNT = "cd2e8678-1e00-4264-95bb-7d75738a1f50";
 const MIN_ASSERTIONS = 100;
 const HARNESS_TIMEOUT_MS = 300000;
+
+/** These bytes are applied on the live project. A changed byte means the repository no longer says what ran. */
+const LIVE_APPLIED = {
+  [BASE_REL]: "11fc5de040b5025beef5ce5068871709418604ad10be32d5eb4d8f656f42ef4a",
+  [TB_REL]: "7d1520b3ee2562be3fede900b83401bfed68141e102bf9bfa6000bdf84e3d4c6",
+  [MEMBERSHIP_REL]: "31d554d0c71afd993d81b5319a17c1339a8f9128eaac92dd4fa675ec4a1a8517",
+};
+
+const DEFAULTS_STATEMENTS = [
+  ...["tables", "sequences", "functions"].map((k) => `alter default privileges for role postgres in schema public revoke all on ${k} from anon, authenticated`),
+  "alter default privileges for role postgres revoke execute on functions from public",
+];
+const OPEN_TO_CLIENTS = "anon|t|t|t\nauthenticated|t|t|t\nservice_role|t|t|t\nPUBLIC|t";
+const CLOSED_TO_CLIENTS = "anon|f|f|f\nauthenticated|f|f|f\nservice_role|t|t|t\nPUBLIC|f";
+const PREFLIGHT3_ITEMS = ["public.tenants exists", "public.tenant_members exists", "both helpers exist", "tenant_id is required on projects and phases",
+  "the owner account owns both tenants", "the privilege gate reports nothing", "no public table has an open policy", "no global function default exists yet"];
 const LIVE_MAJOR = 17;
 const PASSED_ENV_TOKEN = /TOKEN|SECRET|PASSWORD|KEY/i;
 
@@ -87,13 +106,15 @@ const PREFLIGHT_ITEMS = ["postgres owns both tables", "public.tenants is absent"
   "no orphan phases", "auth.users is the owner only", "every policy is one 0002 will replace",
   "supabase_realtime can be emptied of these tables", "nothing else depends on these tables", "no client can create in schema public"];
 const POSTAPPLY_ITEMS = ["the privilege gate reports nothing", "no public table has an open policy", "row level security is on for every public table",
-  "the four tables are out of every publication", "no client can create in schema public"];
+  "the four tables are out of every publication", "no client can create in schema public",
+  "postgres default ACL in public gives anon and authenticated nothing", "new postgres functions give PUBLIC nothing"];
 
 /** Assertions the exit proof depends on; deleting one would silently shrink the proof. */
 const REQUIRED_ASSERTIONS = ["A-CTRL-A-projects", "A-XREAD-projects", "A-XREAD-phases", "A-XREAD-tenants", "A-XREAD-tenant_members",
   "A-XWRITE-update-projects", "A-XWRITE-delete-projects", "A-XWRITE-insert-projects", "A-STEAL-projects", "A-XFK-insert",
   "A-MEMBER-UPDATE-projects", "A-BOTH-TENANT-projects", "A-BOTH-XFK", "A-SELFADD-", "A-NONMEMBER-projects", "A-NULLCLAIMS-projects",
-  "A-ANON-projects", "A-TRUNCATE-authenticated-projects", "A-ROWS-UNCHANGED", "A-MALFORMED-SUB-projects", "A-BOTH-UPSERT-ID"];
+  "A-ANON-projects", "A-TRUNCATE-authenticated-projects", "A-ROWS-UNCHANGED", "A-MALFORMED-SUB-projects", "A-BOTH-UPSERT-ID",
+  ...["table", "sequence", "function"].flatMap((k) => ["anon", "authenticated", "service_role"].map((r) => `A-NEWOBJ-${k}-${r}`)), "A-NEWOBJ-function-public"];
 
 // ---- what each database mutation must have tripped -------------------------------------------------
 
@@ -139,11 +160,19 @@ const DB_PROOFS = [
   { name: "retired-policy-recreated", failed: ["A-XREAD-projects"], gate: gate("nobody", "policy", 'public.projects "projects authenticated write"', "NOT_APPROVED") },
   { name: "ownership-drift", gate: gate("service_role", "owner_drift", "public.tenants", "OWNER") },
   { name: "client-role-login", gate: gate("anon", "role", "anon", "LOGIN") },
+  // 0003, drifted back: only a new object can show it.
+  { name: "default-acl-tables", failed: ["A-NEWOBJ-table-anon", "A-NEWOBJ-table-authenticated"] },
+  { name: "default-acl-sequences", failed: ["A-NEWOBJ-sequence-anon", "A-NEWOBJ-sequence-authenticated"] },
+  { name: "default-acl-functions", failed: ["A-NEWOBJ-function-anon", "A-NEWOBJ-function-authenticated"] },
+  { name: "default-acl-public-execute", failed: ["A-NEWOBJ-function-public", "A-NEWOBJ-function-anon"] },
+  { name: "default-acl-service-role-lost", failed: ["A-NEWOBJ-table-service_role", "A-NEWOBJ-sequence-service_role", "A-NEWOBJ-function-service_role"] },
 ];
 
 const SOURCE_PROOFS = ["src-using-true", "src-uid-not-null", "src-to-public", "src-private-usage-anon", "src-revoke-skips-anon",
   "src-truncate-granted", "src-update-all-columns", "src-column-default", "src-true-or-helper", "src-no-role-guard",
-  "unmapped-row", "rewritten-row", "apply-as-superuser"];
+  "unmapped-row", "rewritten-row", "apply-as-superuser",
+  "src3-tables-kept", "src3-sequences-kept", "src3-functions-kept", "src3-authenticated-kept", "src3-public-execute-kept",
+  "src3-public-execute-per-schema", "src3-service-role-revoked", "0003-as-superuser"];
 
 const PREFLIGHT_PROOFS = {
   "pf-stranger-row": "every row is in the map",
@@ -160,7 +189,23 @@ const PREFLIGHT_PROOFS = {
   "pf-client-can-create": "no client can create in schema public",
 };
 
+const PREFLIGHT3_PROOFS = {
+  "pf3-anon-grant": "the privilege gate reports nothing",
+  "pf3-open-policy": "no public table has an open policy",
+  "pf3-helper-gone": "both helpers exist",
+  "pf3-owner-not-member": "the owner account owns both tenants",
+  "pf3-tables-already-locked": "anon and authenticated still hold the default on tables",
+  "pf3-global-default-set": "no global function default exists yet",
+  "pf3-after-0003-start_fresh": "no global function default exists yet",
+  "pf3-after-0003-start_live": "no global function default exists yet",
+};
+
 const POSTAPPLY_PROOFS = {
+  "pa-default-acl-tables": "postgres default ACL in public gives anon and authenticated nothing",
+  "pa-default-acl-sequences": "postgres default ACL in public gives anon and authenticated nothing",
+  "pa-default-acl-functions": "postgres default ACL in public gives anon and authenticated nothing",
+  "pa-public-execute": "new postgres functions give PUBLIC nothing",
+  "pa-supabase-admin-table": "the privilege gate reports nothing",
   "pa-true-or-helper": "no public table has an open policy",
   "pa-to-public": "no public table has an open policy",
   "pa-anon-select": "the privilege gate reports nothing",
@@ -321,7 +366,10 @@ const MUTATIONS = [
   M("harness-ignores-live-major", "TR-28", HARNESS_REL, "found.find((f) => f.major === LIVE_MAJOR) || found[0]", "found[0]"),
   M("harness-silent-fallback", "TR-28", HARNESS_REL, "return { ...chosen, note: `FALLBACK: running on PostgreSQL", "return { ...chosen, note: null, unused: `FALLBACK: running on PostgreSQL"),
   M("shape-owner-is-superuser", "TR-28", SHAPE_REL, "create role postgres login nosuperuser createrole bypassrls;", "create role postgres login superuser;"),
-  M("shape-no-default-acl", "TR-28", SHAPE_REL, "alter default privileges for role postgres in schema public\n  grant all on tables to anon, authenticated, service_role;\n", ""),
+  M("shape-no-default-acl", "TR-28", SHAPE_REL, "alter default privileges for role postgres in schema public\n  grant all on tables to postgres, anon, authenticated, service_role;\n", ""),
+  M("shape-no-admin-default", "TR-28", SHAPE_REL, "alter default privileges for role supabase_admin in schema public\n  grant all on tables to postgres, anon, authenticated, service_role;\n", ""),
+  M("harness-applies-0003-once", "TR-28", HARNESS_REL, `      applyDefaults("pass 2");\n`, ""),
+  M("harness-skips-the-positive-control", "TR-28", HARNESS_REL, "objectsBefore === OPEN_TO_CLIENTS, objectsBefore);", "true, objectsBefore);"),
   M("shape-auth-users-owned-by-postgres", "TR-28", SHAPE_REL, "alter table auth.users owner to supabase_auth_admin;", "alter table auth.users owner to postgres;"),
   M("shape-uid-ignores-claims", "TR-28", SHAPE_REL, "(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')", "null"),
   M("live-shape-loses-a-policy", "TR-28", LIVE_REL, `create policy "phases authenticated all" on public.phases\n  for all to authenticated using (true) with check (true);\n`, ""),
@@ -358,6 +406,46 @@ const MUTATIONS = [
   M("postapply-no-realtime-check", "TR-35", POSTAPPLY_REL, "'the four tables are out of every publication'", "'realtime listed'"),
   // TR-23, added with the public schema row
   M("preflight-no-nspacl", "TR-23", PREFLIGHT_REL, "   where n.nspname = 'public'\n   group by a.grantee\n", "   where n.nspname = 'none'\n   group by a.grantee\n"),
+  // TR-36: bytes already applied live
+  M("applied-0001-edited", "TR-36", BASE_REL, "set local lock_timeout = '10s';", "set local lock_timeout = '30s';"),
+  M("applied-0002-edited", "TR-36", TB_REL, "('owner-personal', 'Owner personal'),", "('owner-personal', 'Owner'),"),
+  M("applied-membership-edited", "TR-36", MEMBERSHIP_REL, "set local search_path = '';", "set local search_path = 'public';"),
+  // TR-37
+  M("defaults-not-transactional", "TR-37", DEFAULTS_REL, "\nbegin;\n", "\n"),
+  M("defaults-commits-early", "TR-37", DEFAULTS_REL, "-- Judges what pg_default_acl now says", "commit;\nbegin;\n-- Judges what pg_default_acl now says"),
+  M("defaults-no-lock-timeout", "TR-37", DEFAULTS_REL, "set local lock_timeout = '10s';\n", ""),
+  M("defaults-no-role-guard", "TR-37", DEFAULTS_REL, "  if current_user <> 'postgres' then\n    raise exception 'TENANT_BOUNDARY_WRONG_ROLE: run this as postgres, not %', current_user;\n  end if;\n", ""),
+  M("defaults-guard-after-the-work", "TR-37", DEFAULTS_REL, "set local search_path = '';\n", "set local search_path = '';\nalter default privileges for role postgres in schema public revoke all on tables from anon, authenticated;\n"),
+  // TR-38
+  M("defaults-keeps-tables", "TR-38", DEFAULTS_REL, "  revoke all on tables from anon, authenticated;", "  revoke all on tables from anon;"),
+  M("defaults-keeps-sequences", "TR-38", DEFAULTS_REL, "alter default privileges for role postgres in schema public\n  revoke all on sequences from anon, authenticated;\n", ""),
+  M("defaults-keeps-functions", "TR-38", DEFAULTS_REL, "alter default privileges for role postgres in schema public\n  revoke all on functions from anon, authenticated;\n", ""),
+  M("defaults-public-execute-per-schema", "TR-38", DEFAULTS_REL, "alter default privileges for role postgres\n  revoke execute", "alter default privileges for role postgres in schema public\n  revoke execute"),
+  M("defaults-touches-service-role", "TR-38", DEFAULTS_REL, "revoke all on sequences from anon, authenticated;", "revoke all on sequences from anon, authenticated, service_role;"),
+  M("defaults-touches-existing-tables", "TR-38", DEFAULTS_REL, "-- Judges what pg_default_acl now says", "revoke all on table public.projects from service_role;\n-- Judges what pg_default_acl now says"),
+  M("defaults-grants-something", "TR-38", DEFAULTS_REL, "-- Judges what pg_default_acl now says", "grant select on public.tenants to service_role;\n-- Judges what pg_default_acl now says"),
+  // TR-39
+  M("defaults-check-never-raises", "TR-39", DEFAULTS_REL, "  if problems is not null then", "  if false then"),
+  M("defaults-check-moved-early", "TR-39", DEFAULTS_REL, "$check$;\n\ncommit;", "$check$;\n\nalter default privileges for role postgres in schema public revoke all on tables from anon, authenticated;\n\ncommit;"),
+  M("defaults-check-reads-a-literal", "TR-39", DEFAULTS_REL, "from pg_catalog.pg_default_acl as d", "from (select 0::pg_catalog.oid as defaclrole) as d"),
+  M("defaults-check-ignores-public-execute", "TR-39", DEFAULTS_REL, "where not exists (select 1 from entries as e where e.kind = 'f' and e.defaclnamespace = 0)", "where false"),
+  M("defaults-check-ignores-service-role", "TR-39", DEFAULTS_REL, "           <> k.service_role_privileges", "           < 0"),
+  M("defaults-check-ignores-clients", "TR-39", DEFAULTS_REL, "     where e.nspname = 'public' or e.defaclnamespace = 0\n", "     where false\n"),
+  // TR-40
+  M("preflight3-writes", "TR-40", PREFLIGHT3_REL, "with client_roles as (", "with writes as (update public.projects set name = name returning 1),\nclient_roles as ("),
+  M("preflight3-second-statement", "TR-40", PREFLIGHT3_REL, "order by seq, item;", "order by seq, item;\nselect 1;"),
+  M("preflight3-information-schema", "TR-40", PREFLIGHT3_REL, "from pg_default_acl d left join", "from information_schema.role_table_grants g, pg_default_acl d left join"),
+  M("preflight3-gate-drifts", "TR-40", PREFLIGHT3_REL, "array['USAGE', 'CREATE']", "array['CREATE']"),
+  M("preflight3-verdict-always-true", "TR-40", PREFLIGHT3_REL, "bool_and(ok) as ok", "true as ok"),
+  M("preflight3-no-global-check", "TR-40", PREFLIGHT3_REL, "'no global function default exists yet'", "'global default listed'"),
+  M("preflight3-no-owner-check", "TR-40", PREFLIGHT3_REL, "'the owner account owns both tenants'", "'tenants have members'"),
+  M("preflight3-no-absent-check", "TR-40", PREFLIGHT3_REL, "'anon and authenticated still hold the default on '", "'default listed for '"),
+  // TR-41
+  M("postapply-no-known-limit", "TR-41", POSTAPPLY_REL, "'known limit: objects made by supabase_admin in public stay exposed'", "'defaults listed'"),
+  M("postapply-default-ignores-global", "TR-41", POSTAPPLY_REL, "     and d.defaclnamespace in (0, (select oid from pg_namespace where nspname = 'public'))\n", "     and d.defaclnamespace = (select oid from pg_namespace where nspname = 'public')\n"),
+  M("postapply-default-ignores-a-kind", "TR-41", POSTAPPLY_REL, "     and d.defaclobjtype::text in ('r', 'S', 'f')\n", "     and d.defaclobjtype::text in ('r', 'f')\n"),
+  M("postapply-public-execute-unchecked", "TR-41", POSTAPPLY_REL, "         and not exists (select 1 from postgres_defaults e where e.grantee = 0),\n", "         ,\n"),
+  M("postapply-global-row-not-required", "TR-41", POSTAPPLY_REL, "         exists (select 1 from postgres_defaults e where e.kind = 'f' and e.defaclnamespace = 0)\n         and not exists", "         not exists"),
 ];
 
 // ---- reading ------------------------------------------------------------------------------------------
@@ -668,6 +756,7 @@ function check(raw) {
     "const stopServer = () => {", `spawnSync(pgctl, ["-D", data, "-m", "immediate", "-w", "stop"], { stdio: "ignore", timeout: 60000, env });\n  };`,
     "result.swept = sweepStale(pgctl, env);", "const STALE_DIR = /^projectos-tenant-rls-pg-[A-Za-z0-9]{6}$/;", "return old || !isAlive(owner.pid);",
     // Binaries: live's major first, absolute paths, and a fallback that says so.
+    `applyDefaults("pass 1");`, `applyDefaults("pass 2");`, "objectsBefore === OPEN_TO_CLIENTS, objectsBefore);",
     "const LIVE_MAJOR = 17;", "found.find((f) => f.major === LIVE_MAJOR) || found[0]", "if (path.isAbsolute(d)) dirs.push(d);",
     "const found = (explicit ? [explicit] : candidateDirs())", "note: `FALLBACK: running on PostgreSQL",
   ];
@@ -681,7 +770,7 @@ function check(raw) {
   const shapePins = ["create role postgres login nosuperuser createrole bypassrls;", "alter table auth.users owner to supabase_auth_admin;",
     "grant select on auth.users to postgres with grant option;", "grant references on auth.users to postgres;",
     "(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')",
-    ...["tables", "sequences", "functions"].map((k) => `alter default privileges for role postgres in schema public\n  grant all on ${k} to anon, authenticated, service_role;`)];
+    ...["postgres", "supabase_admin"].flatMap((role) => ["tables", "sequences", "functions"].map((k) => `alter default privileges for role ${role} in schema public\n  grant all on ${k} to postgres, anon, authenticated, service_role;`))];
   const livePolicies = ["projects authenticated read", "projects authenticated write", "phases authenticated all"].every((n) => live.includes(`"${n}"`));
   if (!harnessPins.every((p) => harness.includes(p)) || !/\} finally \{\s*stopServer\(\);/.test(harness) ||
       !shapePins.every((p) => shape.includes(p)) || !livePolicies || !live.includes("set role postgres;")) {
@@ -737,6 +826,52 @@ function check(raw) {
       !/select 70, 'public schema'[\s\S]*?aclexplode\(coalesce\(n\.nspacl, acldefault\('n', n\.nspowner\)\)\)/.test(post) ||
       !/open_policy as \([\s\S]*?pg_get_expr\(p\.polqual, p\.polrelid\) is distinct from a\.qual[\s\S]*?pg_get_expr\(p\.polwithcheck, p\.polrelid\) is distinct from a\.with_check/.test(post)) {
     E("TR-35", "the post-apply check no longer answers the live questions, or its verdict is not computed");
+  }
+
+  // TR-36: what ran on live stays what the repository says ran.
+  for (const [rel, want] of Object.entries(LIVE_APPLIED)) {
+    if (crypto.createHash("sha256").update(raw[rel], "utf8").digest("hex") !== want) E("TR-36", `${rel} is applied live and its bytes must not change`);
+  }
+
+  // TR-37: 0003 is one transaction, with the same lock timeout and role guard as 0002, guard first.
+  const d3 = stripSql(raw[DEFAULTS_REL]);
+  const d3Guard = d3.search(/if current_user <> 'postgres' then\s+raise exception 'TENANT_BOUNDARY_WRONG_ROLE: run this as postgres, not %', current_user;/);
+  if ((d3.match(/^begin;\s*$/gm) || []).length !== 1 || (d3.match(/^commit;\s*$/gm) || []).length !== 1 || !/^\s*begin;/.test(d3) || !/commit;\s*$/.test(d3) ||
+      !d3.includes("set local lock_timeout = '10s';") || d3Guard < 0 || /\balter\b/i.test(d3.slice(0, d3Guard))) {
+    E("TR-37", "0003 must be one transaction with a lock timeout, refusing anyone but postgres before it changes anything");
+  }
+
+  // TR-38: 0003 is exactly these four statements. Nothing that exists is touched, and the PUBLIC revoke is global.
+  const d3Statements = statements(d3, /alter\s+default\s+privileges[\s\S]*?;/gi);
+  const d3Rest = withoutStrings(d3).replace(/alter\s+default\s+privileges[\s\S]*?;/gi, " ");
+  if (!sameSet(d3Statements, DEFAULTS_STATEMENTS) || /\b(create|drop|truncate|insert|update|delete|grant|revoke|alter)\b/i.test(d3Rest)) {
+    E("TR-38", "0003 must make exactly the approved default-privilege changes and touch nothing else");
+  }
+
+  // TR-39: 0003's check runs last, raises, and reads pg_default_acl for each thing it promises.
+  if (!/if problems is not null then\s+raise exception 'TENANT_DEFAULT_PRIVILEGES_CHECK_FAILED: %'/.test(d3) || !/\$check\$;\s*commit;\s*$/.test(d3) ||
+      !["from pg_catalog.pg_default_acl as d", "where e.nspname = 'public' or e.defaclnamespace = 0\n",
+        "where not exists (select 1 from entries as e where e.kind = 'f' and e.defaclnamespace = 0)",
+        "<> k.service_role_privileges", "('r', 'tables', 8), ('S', 'sequences', 3), ('f', 'functions', 1)"].every((p) => d3.includes(p))) {
+    E("TR-39", "0003's in-transaction check no longer reads pg_default_acl, raises last, or judges what it promises");
+  }
+
+  // TR-40: the 0003 preflight is one read-only SELECT, with the real gate, and shows 0003 is absent.
+  const pre3 = stripSql(raw[PREFLIGHT3_REL]);
+  const pre3Bare = withoutStrings(pre3);
+  if (pre3Bare.split(";").filter((s) => s.trim() !== "").length !== 1 || !/^\s*with\b/i.test(pre3Bare) || /information_schema/i.test(pre3) ||
+      /\b(insert|update|delete|truncate|alter|create|drop|grant|revoke|merge|copy|call|do|vacuum|reindex|comment|lock|set)\b/i.test(pre3Bare) ||
+      gateBody === null || !pre3.includes(gateBody) || !PREFLIGHT3_ITEMS.every((i) => pre3.includes(`'${i}'`)) ||
+      !pre3.includes("'anon and authenticated still hold the default on '") || !pre3.includes("bool_and(ok) as ok") || !pre3.includes("'PREFLIGHT'")) {
+    E("TR-40", "the 0003 preflight must be a single read-only SELECT with the real gate, a computed verdict and proof 0003 is absent");
+  }
+
+  // TR-41: the post-apply check judges postgres's defaults in public and globally, and names the known limit.
+  if (!post.includes("'known limit: objects made by supabase_admin in public stay exposed'") ||
+      !post.includes("     and d.defaclnamespace in (0, (select oid from pg_namespace where nspname = 'public'))\n") ||
+      !post.includes("     and d.defaclobjtype::text in ('r', 'S', 'f')\n") ||
+      !/exists \(select 1 from postgres_defaults e where e\.kind = 'f' and e\.defaclnamespace = 0\)\s+and not exists \(select 1 from postgres_defaults e where e\.grantee = 0\)/.test(post)) {
+    E("TR-41", "the post-apply check no longer judges postgres's defaults, or no longer names the supabase_admin limit");
   }
   return errors;
 }
@@ -882,6 +1017,21 @@ function judge(status, result, stderr) {
     if (!(result.checks || []).some((c) => c.ok && c.label === `${label}: the read-only post-apply check passes`)) {
       E("TR-H2", `${label}: the read-only post-apply check was not shown to pass`);
     }
+    // TR-H6: 0003 on this start: applied twice, the control open before and shut after, and nothing else moved.
+    const shown = [`${label}, pass 1: apply 0003_default_privileges.sql as non-superuser postgres`,
+      `${label}, pass 2: apply 0003_default_privileges.sql as non-superuser postgres`,
+      `${label}: the second apply of 0003 changed nothing in the catalogue`,
+      `${label}: before 0003 the post-apply check fails on its two default rows and nothing else`,
+      `${label}: 0003 changed nothing that already existed`,
+      `${label}: service_role's defaults are unchanged`,
+      `${label}: supabase_admin's defaults are unchanged`,
+      `${label}: known limit: a table made by supabase_admin stays exposed after 0003`,
+      `${label}: the post-apply check lists supabase_admin's defaults as a known limit`,
+      `${label}: re-running all three migrations after 0003 changed nothing`];
+    for (const name of shown) if (!(result.checks || []).some((c) => c.ok && c.label === name)) E("TR-H6", `not shown: ${name}`);
+    const control = (result.defaultAcl || []).find((d) => d.label === label);
+    if (!control || control.objectsBefore !== OPEN_TO_CLIENTS) E("TR-H6", `${label}: the positive control did not show new objects open before 0003`);
+    if (!control || control.objectsAfter !== CLOSED_TO_CLIENTS) E("TR-H6", `${label}: new objects are not closed to clients, with service_role kept, after 0003`);
   }
   // TR-D:<name>: each database mutation tripped the rule named for it, and every assertion still ran.
   const clean = starts[0] ? starts[0].total : 0;
@@ -913,6 +1063,15 @@ function judge(status, result, stderr) {
   for (const [name, item] of Object.entries(PREFLIGHT_PROOFS)) {
     const p = (result.preflight || []).find((x) => x.name === name);
     if (!p || !p.ran || p.passed || !p.failed.includes(item)) E(`TR-P:${name}`, `the preflight did not refuse ${name} by "${item}"`);
+  }
+  // TR-P3:<name>: the 0003 preflight passes from the state after 0002 and refuses each deviation by the right check.
+  for (const name of ["pf3-clean-start_fresh", "pf3-clean-start_live"]) {
+    const p = (result.preflight0003 || []).find((x) => x.name === name);
+    if (!p || !p.ran || !p.passed) E(`TR-P3:${name}`, `the 0003 preflight did not pass on ${name}`);
+  }
+  for (const [name, item] of Object.entries(PREFLIGHT3_PROOFS)) {
+    const p = (result.preflight0003 || []).find((x) => x.name === name);
+    if (!p || !p.ran || p.passed || !p.failed.includes(item)) E(`TR-P3:${name}`, `the 0003 preflight did not refuse ${name} by "${item}"`);
   }
   // TR-PA:<name>: the post-apply check passes on both migrated starts and refuses each deviation by the right check.
   for (const name of ["pa-clean-start_fresh", "pa-clean-start_live"]) {
@@ -968,6 +1127,18 @@ function judgeSelfTest(result) {
     if (!target) continue;
     target.passed = true;
     fires(0, passed, `TR-PA:${name}`, `the post-apply check passing ${name}`);
+  }
+  for (const name of Object.keys(PREFLIGHT3_PROOFS)) {
+    const passed = clone();
+    const target = passed.preflight0003.find((p) => p.name === name);
+    if (!target) continue;
+    target.passed = true;
+    fires(0, passed, `TR-P3:${name}`, `the 0003 preflight passing ${name}`);
+  }
+  for (const field of ["objectsBefore", "objectsAfter"]) {
+    const uncontrolled = clone();
+    uncontrolled.defaultAcl[0][field] = "anon|f|f|f";
+    fires(0, uncontrolled, "TR-H6", `a run whose ${field} differ`);
   }
   const unnamedFallback = clone();
   unnamedFallback.pgMajor = 18;
@@ -1044,7 +1215,7 @@ if (require.main === module) {
   } else {
     const r = lastRun;
     console.log(`${SELF}: PASS (${MUTATIONS.length} text mutations and ${DB_PROOFS.length} database mutations killed by their own rules, ` +
-      `${SOURCE_PROOFS.length + 2} source scenarios, ${Object.keys(PREFLIGHT_PROOFS).length} preflight and ${Object.keys(POSTAPPLY_PROOFS).length + 1} post-apply refusals, ` +
+      `${SOURCE_PROOFS.length + 2} source scenarios, ${Object.keys(PREFLIGHT_PROOFS).length} preflight, ${Object.keys(PREFLIGHT3_PROOFS).length} 0003 preflight and ${Object.keys(POSTAPPLY_PROOFS).length + 1} post-apply refusals, ` +
       `failed start and killed run cleaned up, ${r.starts[0].total} assertions on 2 starts, PostgreSQL ${r.pgVersion}, ${r.ms} ms)`);
     if (r.pgNote) console.log(`${SELF}: ${r.pgNote}`);
   }
