@@ -8,7 +8,7 @@
 // Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: the config type stated here in place of its plugin-sdk import; toSorted replaced for the ES2022 target
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
-import { prepareSimilarityText, preparedTextSimilarity, type PreparedSimilarityText } from './tokenize.js';
+import { prepareSimilarityText, preparedTextSimilarity, type PreparedSimilarityText } from './lexer.js';
 
 // Carbonell & Goldstein (1998): maximize λ * relevance - (1-λ) * similarity.
 

@@ -7,11 +7,19 @@
  * chunked, so it brings a `lineMap` with one source line per flattened line. A map of any other length would put a
  * wrong line in a citation, so it is refused rather than padded.
  *
+ * THIS IS THE INDEX BOUNDARY. A dot-segment, a credential name or secret content makes no record, whoever handed the
+ * source in, and comes back in `skipped` by name.
+ *
+ * A CITATION CLAIMS ONLY WHAT IS SHOWN. `excerptOf` cuts a long chunk and moves the end of the range to the last row
+ * shown. A record keeps the source line of every row, because remapped lines have gaps and a wide line splits.
+ *
  * Pure. Whoever calls this read the text.
  */
 import { isProjectId } from '../tenant.js';
 import { citationPathProblem, SEARCH_SOURCE_KINDS, type SearchSourceKind } from './citation.js';
-import { chunkMarkdown, remapChunkLines, type MarkdownChunk } from './markdownChunks.js';
+import { chunkMarkdown, remapChunkLines } from './markdownChunks.js';
+import { sensitiveContentProblem, sensitivePathProblem, type SensitiveReason } from './sensitiveContent.js';
+import { truncateUtf16Safe } from './textBudget.js';
 
 export interface SearchChunking {
   readonly tokens: number;
@@ -19,6 +27,7 @@ export interface SearchChunking {
 }
 
 export const DEFAULT_SEARCH_CHUNKING: SearchChunking = { tokens: 400, overlap: 80 };
+export const MAX_EXCERPT_CHARS = 700;
 
 export interface SearchSourceText {
   readonly project: string;
@@ -38,10 +47,18 @@ export interface SearchChunkRecord {
   readonly endLine: number;
   readonly text: string;
   readonly hash: string;
+  readonly rowLines: readonly number[];
   readonly mtimeMs: number | null;
 }
 
-export type ChunkRecordsResult = { readonly ok: true; readonly records: readonly SearchChunkRecord[] } | { readonly ok: false; readonly problem: string };
+export interface SkippedSource {
+  readonly path: string;
+  readonly reason: SensitiveReason;
+}
+
+export type ChunkRecordsResult =
+  | { readonly ok: true; readonly records: readonly SearchChunkRecord[]; readonly skipped: readonly SkippedSource[] }
+  | { readonly ok: false; readonly problem: string };
 
 function sourceProblem(input: SearchSourceText): string | null {
   if (!isProjectId(input.project)) return `'${String(input.project)}' is not a project id`;
@@ -58,10 +75,12 @@ function sourceProblem(input: SearchSourceText): string | null {
 export function chunkRecordsOf(input: SearchSourceText, chunking: SearchChunking = DEFAULT_SEARCH_CHUNKING): ChunkRecordsResult {
   const problem = sourceProblem(input);
   if (problem !== null) return { ok: false, problem };
-  const chunks: readonly MarkdownChunk[] = remapChunkLines(chunkMarkdown(input.content, chunking), input.lineMap);
+  const sensitive = sensitivePathProblem(input.path) ?? sensitiveContentProblem(input.content);
+  if (sensitive !== null) return { ok: true, records: [], skipped: [{ path: input.path, reason: sensitive }] };
   return {
     ok: true,
-    records: chunks
+    skipped: [],
+    records: remapChunkLines(chunkMarkdown(input.content, chunking), input.lineMap)
       .filter((chunk) => chunk.text.trim() !== '')
       .map((chunk) => ({
         project: input.project,
@@ -71,7 +90,19 @@ export function chunkRecordsOf(input: SearchSourceText, chunking: SearchChunking
         endLine: chunk.endLine,
         text: chunk.text,
         hash: chunk.hash,
+        rowLines: chunk.rowLines,
         mtimeMs: input.mtimeMs ?? null,
       })),
   };
+}
+
+/** The text a reader sees and the last line of it. Rows that do not fit give line 0, which the door refuses. */
+export function excerptOf(chunk: { readonly text: string; readonly endLine: number; readonly rowLines: readonly number[] }): {
+  readonly snippet: string;
+  readonly endLine: number;
+} {
+  const snippet = truncateUtf16Safe(chunk.text, MAX_EXCERPT_CHARS);
+  if (snippet.length === chunk.text.length) return { snippet, endLine: chunk.endLine };
+  const shownRows = snippet.replace(/\n+$/, '').split('\n').length;
+  return { snippet, endLine: chunk.rowLines[shownRows - 1] ?? 0 };
 }

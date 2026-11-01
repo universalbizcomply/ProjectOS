@@ -5,7 +5,7 @@
 // Source-Copyright: Copyright (c) 2026 OpenClaw Foundation
 // Also-Credits: pi-mono (Copyright (c) 2025 Mario Zechner, MIT)
 // Port-Strategy: DIRECT
-// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: the query type stated here and the two string helpers inlined in place of plugin-sdk imports; language keyword expansion cut; a token of underscores alone no longer reaches MATCH
+// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: the query type stated here and the two string helpers inlined in place of plugin-sdk imports; language keyword expansion and the trigram lane cut, because the index tokenizes with unicode61 alone; a token of underscores alone no longer reaches MATCH
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 export type TextQuery =
@@ -13,14 +13,11 @@ export type TextQuery =
   | { readonly kind: 'any'; readonly clauses: readonly TextQuery[] }
   | { readonly kind: 'all'; readonly clauses: readonly TextQuery[] };
 
-type FtsCanonicalTokenizer = 'unicode61' | 'trigram';
-
 // unicode61 reads `_` as a separator, so such a token is an empty phrase, and one empty phrase makes an AND match nothing.
 const HAS_LETTER_OR_NUMBER = /[\p{L}\p{N}]/u;
 
-export function tokenizeFtsQuery(raw: string, includeLeadingMarks = false): string[] {
-  const pattern = includeLeadingMarks ? /[\p{L}\p{M}\p{N}_]+/gu : /[\p{L}\p{N}_][\p{L}\p{M}\p{N}_]*/gu;
-  return (raw.match(pattern) ?? [])
+export function tokenizeFtsQuery(raw: string): string[] {
+  return (raw.match(/[\p{L}\p{N}_][\p{L}\p{M}\p{N}_]*/gu) ?? [])
     .map((entry) => entry.trim())
     .filter((entry) => HAS_LETTER_OR_NUMBER.test(entry));
 }
@@ -103,13 +100,13 @@ function unicode61TokenizerKey(term: string): string {
   return key.replace(/ +/g, ' ').trim();
 }
 
-function canonicalTermForms(term: string, tokenizer?: FtsCanonicalTokenizer): string[] {
-  if (!tokenizer) {
+function canonicalTermForms(term: string, canonical: boolean): string[] {
+  if (!canonical) {
     return [term];
   }
   const seen = new Set<string>();
   return [term, term.normalize('NFC'), term.normalize('NFD')].filter((form) => {
-    const key = tokenizer === 'unicode61' ? unicode61TokenizerKey(form) : Array.from(form, simpleCaseFold).join('');
+    const key = unicode61TokenizerKey(form);
     if (seen.has(key)) {
       return false;
     }
@@ -120,14 +117,14 @@ function canonicalTermForms(term: string, tokenizer?: FtsCanonicalTokenizer): st
 
 export function buildMatchQueryFromTerms(
   terms: readonly string[],
-  canonicalTokenizer?: FtsCanonicalTokenizer,
+  canonical = false,
   matchAny = false,
 ): TextQuery | null {
   if (terms.length === 0) {
     return null;
   }
   const clauses: TextQuery[] = [...new Set(terms)].map((term) => {
-    const forms = canonicalTermForms(term, canonicalTokenizer);
+    const forms = canonicalTermForms(term, canonical);
     const alternatives: TextQuery[] = forms.map((text) => ({ kind: 'term', text }));
     // Alternatives belong to each word: one document can mix NFC and NFD words.
     return alternatives.length === 1 ? (alternatives[0] as TextQuery) : { kind: 'any', clauses: alternatives };
@@ -137,37 +134,11 @@ export function buildMatchQueryFromTerms(
 
 export function planKeywordSearch(params: {
   query: string;
-  ftsTokenizer?: FtsCanonicalTokenizer;
-  includeLeadingMarks?: boolean;
   canonicalVariants?: boolean;
   matchAny?: boolean;
-}): { matchQuery: TextQuery | null; substringTerms: string[]; tokens: string[] } {
-  const canonicalTokenizer = params.canonicalVariants ? (params.ftsTokenizer ?? 'unicode61') : undefined;
-  const tokens = tokenizeFtsQuery(
-    params.query,
-    params.ftsTokenizer === 'trigram' && params.includeLeadingMarks === true,
-  );
-  if (params.ftsTokenizer !== 'trigram') {
-    const matchQuery = buildMatchQueryFromTerms(tokens, canonicalTokenizer, params.matchAny);
-    return { matchQuery, substringTerms: [], tokens };
-  }
-  const matchTerms: string[] = [];
-  const substringTerms: string[] = [];
-  for (const token of tokens) {
-    const forms = canonicalTermForms(token, canonicalTokenizer);
-    // MATCH cannot find fewer than three code points. A decomposed spelling
-    // must not hide a short composed form from the normalized substring owner.
-    if (forms.some((form) => Array.from(form).length < 3)) {
-      substringTerms.push(token);
-    } else {
-      matchTerms.push(token);
-    }
-  }
-  return {
-    matchQuery: buildMatchQueryFromTerms(matchTerms, canonicalTokenizer, params.matchAny),
-    substringTerms,
-    tokens,
-  };
+}): { matchQuery: TextQuery | null; tokens: string[] } {
+  const tokens = tokenizeFtsQuery(params.query);
+  return { matchQuery: buildMatchQueryFromTerms(tokens, params.canonicalVariants, params.matchAny), tokens };
 }
 
 export function bm25RankToScore(rank: number): number {

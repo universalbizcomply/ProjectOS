@@ -430,6 +430,26 @@ Copyright: Copyright (c) 2026 OpenClaw Foundation
 Licence-Text: SOURCE openclaw, in this file
 Also-Credits: pi-mono
 
+ENTRY: projectos/core/src/search/lexer.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: extensions/memory-core/src/memory/tokenize.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/search/lexer.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: packages/normalization-core/src/string-coerce.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
 ENTRY: projectos/core/src/search/markdownChunks.ts
 Source: openclaw
 Upstream: https://github.com/openclaw/openclaw
@@ -474,26 +494,6 @@ ENTRY: projectos/core/src/search/textBudget.ts
 Source: openclaw
 Upstream: https://github.com/openclaw/openclaw
 Source-Path: packages/normalization-core/src/utf16-slice.ts
-Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
-Licence: MIT
-Copyright: Copyright (c) 2026 OpenClaw Foundation
-Licence-Text: SOURCE openclaw, in this file
-Also-Credits: pi-mono
-
-ENTRY: projectos/core/src/search/tokenize.ts
-Source: openclaw
-Upstream: https://github.com/openclaw/openclaw
-Source-Path: extensions/memory-core/src/memory/tokenize.ts
-Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
-Licence: MIT
-Copyright: Copyright (c) 2026 OpenClaw Foundation
-Licence-Text: SOURCE openclaw, in this file
-Also-Credits: pi-mono
-
-ENTRY: projectos/core/src/search/tokenize.ts
-Source: openclaw
-Upstream: https://github.com/openclaw/openclaw
-Source-Path: packages/normalization-core/src/string-coerce.ts
 Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
 Licence: MIT
 Copyright: Copyright (c) 2026 OpenClaw Foundation

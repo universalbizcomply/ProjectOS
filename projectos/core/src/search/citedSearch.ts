@@ -40,6 +40,10 @@ export const DEFAULT_SEARCH_TEMPORAL_DECAY: TemporalDecayConfig = { enabled: fal
 const KEYWORD_ONLY_WEIGHTS = { vectorWeight: 0, textWeight: 1 };
 const HYBRID_WEIGHTS = { vectorWeight: 0.7, textWeight: 0.3 };
 
+/** Only rows that know their time speak. Keyword rows come last, because they are the index's own record. */
+const recordedTimes = (rows: readonly (KeywordCandidate | VectorCandidate)[]): ReadonlyMap<string, number> =>
+  new Map(rows.flatMap((row) => (typeof row.mtimeMs === 'number' ? [[sourceTimeKey(row.source, row.path), row.mtimeMs] as const] : [])));
+
 export interface CitedSearchOutcome {
   readonly hits: readonly CitedSearchHit[];
   readonly refused: readonly CitationRefusal[];
@@ -69,7 +73,7 @@ export function rankCitedResults(params: {
     keyword,
     vector,
     ...(vector.length > 0 ? HYBRID_WEIGHTS : KEYWORD_ONLY_WEIGHTS),
-    sourceTimes: new Map([...keyword, ...vector].map((row) => [sourceTimeKey(row.source, row.path), row.mtimeMs ?? undefined])),
+    sourceTimes: recordedTimes([...vector, ...keyword]),
     mmr: params.mmr ?? DEFAULT_SEARCH_MMR,
     temporalDecay: params.temporalDecay ?? DEFAULT_SEARCH_TEMPORAL_DECAY,
     nowMs: params.nowMs,

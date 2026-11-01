@@ -6,8 +6,10 @@
  * `CitedSearchHit`, so code holding a hit holds a citation. A refusal carries no text from the result: what
  * could not be cited cannot be used.
  *
- * A CITATION NAMES A FILE INSIDE THE PROJECT. An absolute path, a climb out of the tree, a backslash or a
- * control character is not a citation, because the path is shown to people and written into prompts.
+ * A CITATION NAMES A FILE INSIDE THE PROJECT. Paths are an allowlist, by segment: letters, marks, numbers, spaces and
+ * a few plain punctuation marks. A path is shown to people and written into prompts outside the fence, so `<`, `>`,
+ * `=`, quotes, line and paragraph separators, bidi marks and zero-width characters are not citations. Nor is an
+ * absolute path, a climb out of the tree or a backslash.
  *
  * THE RESULT IS HELD TO THE SCOPE IT WAS ASKED IN. A result from another project is refused even if it is
  * otherwise perfect, so a later tenant scope has one line to bind and no second route around it.
@@ -57,19 +59,16 @@ export interface CitationRefusal {
 
 export type SearchResultAdmission = { readonly ok: true; readonly hit: CitedSearchHit } | { readonly ok: false; readonly refusal: CitationRefusal };
 
-const CONTROL_CHARACTER = /\p{Cc}/u;
-const DRIVE_OR_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
+const CITABLE_SEGMENT = /^[\p{L}\p{M}\p{N} ._()\[\]+,@~#&-]+$/u;
 
 /** Why this path is not a citation, or null. A relative path with `/` separators, inside the project. */
 export function citationPathProblem(path: unknown): 'no-path' | 'unsafe-path' | null {
   if (typeof path !== 'string' || path.trim() === '') return 'no-path';
-  if (path.startsWith('/') || path.includes('\\') || DRIVE_OR_SCHEME.test(path) || CONTROL_CHARACTER.test(path)) {
-    return 'unsafe-path';
-  }
-  return path.split('/').some((segment) => segment === '' || segment === '.' || segment === '..') ? 'unsafe-path' : null;
+  const segments = path.split('/');
+  return segments.every((segment) => CITABLE_SEGMENT.test(segment) && segment.trim() !== '' && segment !== '.' && segment !== '..') ? null : 'unsafe-path';
 }
 
-function lineRangeIsCitable(startLine: unknown, endLine: unknown): boolean {
+export function lineRangeIsCitable(startLine: unknown, endLine: unknown): boolean {
   return Number.isSafeInteger(startLine) && Number.isSafeInteger(endLine) && (startLine as number) >= 1 && (endLine as number) >= (startLine as number);
 }
 

@@ -34,7 +34,7 @@ describe('the markdown chunker', () => {
 
   it('a short file is one chunk, with its hash: the positive control', () => {
     expect(chunkMarkdown('# Title\n\nbody', { tokens: 100, overlap: 0 })).toEqual([
-      { startLine: 1, endLine: 3, text: '# Title\n\nbody', hash: sha256Hex('# Title\n\nbody') },
+      { startLine: 1, endLine: 3, text: '# Title\n\nbody', hash: sha256Hex('# Title\n\nbody'), rowLines: [1, 2, 3] },
     ]);
   });
 
@@ -99,14 +99,16 @@ describe('the markdown chunker', () => {
     expect(chunks.map((chunk) => chunk.text).join('')).toBe('\u{20000}'.repeat(40));
   });
 
-  it('per entry, a list entry keeps its span and a section does not', () => {
-    const chunks = chunkMarkdown('# Heading\nintro\n- first\n  more\n- second', { tokens: 100, overlap: 0, perEntry: true });
+  it('CRLF text keeps its line numbers, and its rows keep their lines', () => {
+    const [chunk] = chunkMarkdown('one\r\ntwo\r\nthree', { tokens: 100, overlap: 0 });
 
-    expect(chunks.map((chunk) => [chunk.startLine, chunk.endLine, chunk.entryStartLine, chunk.entryEndLine])).toEqual([
-      [1, 2, undefined, undefined],
-      [3, 4, 3, 4],
-      [5, 5, 5, 5],
-    ]);
+    expect(chunk).toMatchObject({ startLine: 1, endLine: 3, rowLines: [1, 2, 3] });
+  });
+
+  it('each row of a chunk knows its line, including the tail of a wide line', () => {
+    const chunks = chunkMarkdown(`${'a'.repeat(60)}\n${'q'.repeat(50)}`, { tokens: 16, overlap: 3 });
+
+    expect(chunks[1]?.rowLines).toEqual([1, 2]);
   });
 
   it('a chunker fed in parts joins a line split across them', () => {
@@ -126,7 +128,7 @@ describe('the markdown chunker', () => {
 
     const remapped = remapChunkLines(chunks, [7, 12]);
 
-    expect(remapped[0]).toMatchObject({ startLine: 7, endLine: 12 });
+    expect(remapped[0]).toMatchObject({ startLine: 7, endLine: 12, rowLines: [7, 12] });
     expect(JSON.stringify(chunks)).toBe(before);
     expect(remapChunkLines(chunks, undefined)).toEqual(chunks);
     expect(remapChunkLines(chunks, undefined)).not.toBe(chunks);
@@ -264,7 +266,7 @@ describe('the keyword query', () => {
   });
 
   it('nothing to search plans no query', () => {
-    expect(planKeywordSearch({ query: '...' })).toEqual({ matchQuery: null, substringTerms: [], tokens: [] });
+    expect(planKeywordSearch({ query: '...' })).toEqual({ matchQuery: null, tokens: [] });
   });
 
   it('a repeated term is one clause', () => {
@@ -288,17 +290,6 @@ describe('the keyword query', () => {
     const plan = planKeywordSearch({ query: 'a\u0301\u0483b', canonicalVariants: true });
 
     expect(plan.tokens.length).toBeGreaterThan(0);
-  });
-
-  it('with the trigram tokenizer, a short term goes to the substring owner', () => {
-    const plan = planKeywordSearch({ query: 'ab abcd', ftsTokenizer: 'trigram', canonicalVariants: true });
-
-    expect(plan.substringTerms).toEqual(['ab']);
-    expect(plan.matchQuery).toEqual({ kind: 'all', clauses: [{ kind: 'term', text: 'abcd' }] });
-  });
-
-  it('with leading marks on, a trigram query keeps them', () => {
-    expect(planKeywordSearch({ query: '\u0301abc', ftsTokenizer: 'trigram', includeLeadingMarks: true }).tokens).toEqual(['\u0301abc']);
   });
 
   it('bm25 ranks turn into scores between 0 and 1', () => {
@@ -471,6 +462,18 @@ describe('selecting results', () => {
     });
 
     expect(selected.map((entry) => entry.path)).toEqual(['strong', 'weak-keyword']);
+  });
+
+  it('spare capacity takes one row per line range', () => {
+    const selected = selectHybridSearchResults({
+      merged: [ranked('strong', 0.9), ranked('twice', 0.2), ranked('twice', 0.1)],
+      keyword: [range('strong'), range('twice')],
+      vectorCandidates: [],
+      maxResults: 5,
+      minScore: 0.5,
+    });
+
+    expect(selected.map((entry) => [entry.path, entry.textScore])).toEqual([['strong', 0.9], ['twice', 0.2]]);
   });
 
   it('spare capacity respects the cap', () => {

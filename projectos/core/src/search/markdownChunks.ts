@@ -5,7 +5,7 @@
 // Source-Copyright: Copyright (c) 2026 OpenClaw Foundation
 // Also-Credits: pi-mono (Copyright (c) 2025 Mario Zechner, MIT)
 // Port-Strategy: DIRECT
-// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: imports cut to ProjectOS equivalents; embedding input, provenance and the curated-entry splitter cut; chunks are built without mutation and line remapping returns new chunks; chunking version restarted for this index
+// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: imports cut to ProjectOS equivalents; embedding input, provenance and all per-entry chunking cut; each chunk records the source line of each of its rows; chunks are built without mutation and line remapping returns new chunks; chunking version restarted for this index
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 import { sha256Hex } from '../execution/evidence.js';
@@ -14,34 +14,14 @@ import { CHARS_PER_TOKEN_ESTIMATE, estimateStringChars, truncateUtf16Safe } from
 export type MarkdownChunk = {
   readonly startLine: number;
   readonly endLine: number;
-  readonly entryStartLine?: number;
-  readonly entryEndLine?: number;
   readonly text: string;
   readonly hash: string;
+  /** The source line of each row of `text`. A wide line split in two gives that line twice. */
+  readonly rowLines: readonly number[];
 };
 
 // Persisted with index metadata so boundary changes rebuild unchanged files.
 export const MARKDOWN_CHUNKING_VERSION = 1;
-
-type CuratedEntryKind = 'entry' | 'section';
-
-function curatedMarkdownEntryKind(line: string): CuratedEntryKind | undefined {
-  return line.startsWith('- ') ? 'entry' : /^#{1,6}(?:\s|$)/u.test(line) ? 'section' : undefined;
-}
-
-function* curatedMarkdownEntrySpans(lines: readonly string[]) {
-  let startLine = 1;
-  let kind: CuratedEntryKind = lines[0]?.startsWith('- ') ? 'entry' : 'section';
-  for (let index = 1; index < lines.length; index += 1) {
-    const nextKind = curatedMarkdownEntryKind(lines[index] ?? '');
-    if (nextKind) {
-      yield { startLine, endLine: index, kind };
-      startLine = index + 1;
-      kind = nextKind;
-    }
-  }
-  yield { startLine, endLine: lines.length, kind };
-}
 
 /** Takes the trailing slice of text within the weighted char budget, without splitting surrogate pairs. */
 function takeTailByEstimatedChars(text: string, budget: number): string {
@@ -77,7 +57,13 @@ export function createMarkdownChunker(
       return;
     }
     const text = current.map((entry) => entry.line).join('\n');
-    onChunk({ startLine: firstEntry.lineNo, endLine: lastEntry.lineNo, text, hash: sha256Hex(text) });
+    onChunk({
+      startLine: firstEntry.lineNo,
+      endLine: lastEntry.lineNo,
+      text,
+      hash: sha256Hex(text),
+      rowLines: current.map((entry) => entry.lineNo),
+    });
   };
 
   const carryOverlap = (window: number) => {
@@ -172,27 +158,12 @@ export function createMarkdownChunker(
   };
 }
 
-export function chunkMarkdown(
-  content: string,
-  chunking: { readonly tokens: number; readonly overlap: number; readonly perEntry?: boolean },
-): MarkdownChunk[] {
-  const lines = content.split('\n');
-  const entries = chunking.perEntry
-    ? [...curatedMarkdownEntrySpans(lines)]
-    : [{ startLine: 1, endLine: lines.length, kind: 'section' as const }];
-  return entries.flatMap((entry) => {
-    const chunks: MarkdownChunk[] = [];
-    const chunker = createMarkdownChunker(chunking, (chunk) => {
-      chunks.push(
-        entry.kind === 'entry' ? { ...chunk, entryStartLine: entry.startLine, entryEndLine: entry.endLine } : chunk,
-      );
-    });
-    for (let i = entry.startLine - 1; i < entry.endLine; i += 1) {
-      chunker.appendLine(lines[i] ?? '', i + 1);
-    }
-    chunker.flush();
-    return chunks;
-  });
+export function chunkMarkdown(content: string, chunking: { readonly tokens: number; readonly overlap: number }): MarkdownChunk[] {
+  const chunks: MarkdownChunk[] = [];
+  const chunker = createMarkdownChunker(chunking, (chunk) => chunks.push(chunk));
+  content.split('\n').forEach((line, index) => chunker.appendLine(line, index + 1));
+  chunker.flush();
+  return chunks;
 }
 
 /**
@@ -213,5 +184,6 @@ export function remapChunkLines(chunks: readonly MarkdownChunk[], lineMap: reado
     // startLine/endLine are 1-indexed; lineMap is 0-indexed by content line
     startLine: lineMap[chunk.startLine - 1] ?? chunk.startLine,
     endLine: lineMap[chunk.endLine - 1] ?? chunk.endLine,
+    rowLines: chunk.rowLines.map((line) => lineMap[line - 1] ?? line),
   }));
 }

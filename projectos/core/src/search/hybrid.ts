@@ -5,7 +5,7 @@
 // Source-Copyright: Copyright (c) 2026 OpenClaw Foundation
 // Also-Credits: pi-mono (Copyright (c) 2025 Mario Zechner, MIT)
 // Port-Strategy: DIRECT
-// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: imports cut to ProjectOS equivalents; project-affinity ranking, exact-path tiers, media handling and LIKE recall cut, because no ProjectOS index produces them; every candidate carries its project; a keyword row's citation wins over a vector row's; synchronous and without mutation
+// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: imports cut to ProjectOS equivalents; project-affinity ranking, exact-path tiers, media handling and LIKE recall cut, because no ProjectOS index produces them; every candidate carries its project; a keyword row's citation wins over a vector row's; spare-capacity selection written as filters, with upstream's one row per line range kept; synchronous and without mutation
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 import { applyMMRToHybridResults, type MMRConfig } from './mmr.js';
@@ -163,15 +163,18 @@ export function selectHybridSearchResults<TSource extends HybridSource>(params: 
   // Score completion does not turn a keyword-only candidate into a vector
   // candidate. Preserve its spare-capacity eligibility after enrichment.
   const vectorKeys = new Set(params.vectorCandidates.map(hybridResultRangeKey));
-  const seen = new Set(selected.map((entry) => hybridResultRangeKey(entry)));
+  const taken = new Set(selected.map((entry) => hybridResultRangeKey(entry)));
   const spare = params.merged.filter((entry) => {
     const key = hybridResultRangeKey(entry);
     return (
       entry.eligibilityScore < params.minScore &&
       (entry.vectorScore === 0 || !vectorKeys.has(key)) &&
       isLexicalCandidate(entry) &&
-      !seen.has(key)
+      !taken.has(key)
     );
   });
-  return [...selected, ...spare].slice(0, params.maxResults).map(withoutEligibility);
+  const onePerRange = spare.filter(
+    (entry, index) => spare.findIndex((other) => hybridResultRangeKey(other) === hybridResultRangeKey(entry)) === index,
+  );
+  return [...selected, ...onePerRange].slice(0, params.maxResults).map(withoutEligibility);
 }
