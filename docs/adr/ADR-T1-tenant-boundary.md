@@ -19,6 +19,11 @@ boundary against a hostile worker.
 - **A Supabase identity carries no kernel authority.** Sign-in reaches the cloud tables only. A JWT
   releases no credential, selects no project and passes no gate.
 - `principal` and `actor` in the envelope are ADR-K1's. This ADR adds no new role.
+- **cwd selects the checkout.** The tenant is derived and cannot be supplied, but which work it is derived for is
+  wherever the process started. A second `run --execute` from another tenant's root gets that tenant, and nothing ties
+  the two runs. So "kernel-bound work context" means the checkout the process stands in, proved by a test
+  (PROJECTOS-TENANT-PRINCIPAL1A), and an agent that can start a process in another tenant's root gets that tenant's
+  envelope. PROJECTOS-TENANT-CREDENTIALS1A replaces this for releases with a kernel-issued run handle (§10).
 
 ## 2. Tenant versus domain
 
@@ -33,7 +38,9 @@ Two tenants exist (owner decision D2, "Agency apart, rest mine (Recommended)"):
 | `owner-personal` | ProjectOS, PolyGo and the owner's other projects |
 | `agency-business` | The SEO agency |
 
-The registry lists only the three projects the Stage 2 exit proof needs. An unlisted project is
+The registry listed the three projects the Stage 2 exit proof needs, and PROJECTOS-TENANT-PRINCIPAL1A added the eight
+others that have `.projectops` and an origin, in `owner-personal` under D2. Their domain is the implementer's reading.
+`tkn`, `erp-system` and `wizard-probe` have no origin, so no line can bind them. An unlisted project is
 refused by name (`TENANT_UNKNOWN`) and never defaults to the owner, so a new project needs a
 `tenant-registry-change`. The Add Project wizard is not changed until Stage 6.
 
@@ -66,6 +73,25 @@ domain. The repository is canonicalised by `parseRemoteUrl`, the rule the instal
   another git name. This phase's transcription of the registry is such a commit: the owner's authority for
   its content is D2, not the commit.
 
+**PROJECTOS-TENANT-PRINCIPAL1A chose the receipt, and what it proves is narrow.** `projectos tenant receipt` is the P5
+action `tenant-registry-change`: the first characters of the registry blob are retyped in an interactive terminal,
+after the bindings and what moved since the last receipt have been shown, and it is refused with no TTY. The receipt
+lives in the installation state, names the blob, records the method `typed-terminal`, and needs its admission line
+in `tenant-registry-changes.jsonl`. There is one receipt, not one per blob, so going back to an older registry needs a
+new one. A registry with no matching receipt is refused by name (`TENANT_REGISTRY_NO_RECEIPT`).
+
+**A receipt proves a console confirmation and nothing more.** It shows that a person or a process confirmed this blob at
+a console. It is not the owner's signature, the envelope does not claim the owner for it, and it is never a
+credential-release grant. It stops an agent with no terminal on this route, and it stops a registry commit alone from
+moving a tenant. It does not stop a process that drives a console, which about 130 lines of PowerShell does, or a
+process that writes the receipt and its line directly (§10).
+
+**The replace-ref lesson.** Pinning a commit and naming a blob was not yet "committed bytes". A `git replace` ref changes
+what a name yields, with no commit and no diff, and `refs/replace` is shared across linked worktrees, so the name a
+receipt keys on and the bytes judged could disagree. Every read of these records therefore passes
+`--no-replace-objects` and requires `sha1("blob <len>\0" + bytes)` to equal the blob. A receipt is only as strong as the
+bytes behind its name, and that holds for each reader separately: the allowlist reader had the same hole.
+
 The action registry, `projectos/security/action-registry.json`, is ADR-K1 §1 made real. It is held on
 the same terms: changing it is the P5 action `action-registry-change`, with a floor in code, and the
 limit above applies to it equally. It reads both vocabularies without changing either.
@@ -80,6 +106,8 @@ limit above applies to it equally. It reads both vocabularies without changing e
   `principal` (R3). The principal is added to ADR-K1's list here: a child acting as someone else is a
   different authority, not a narrower task. Cross-tenant access is never a child. It is the P5 action
   `cross-tenant-access`, and each use is a new root envelope in the data-owning tenant (ADR-K1 §4).
+- **R2 stops a caller naming a tenant. It does not stop a caller choosing where to stand.** Since cwd selects the
+  checkout (§1), a process that can start elsewhere is derived elsewhere.
 - **Envelope scope for Stage 2:** minted where a tenant can be crossed: run start, credential release,
   broker call, Control Center project selection and MCP bridge read. Other operations are not yet
   enveloped; that is Stage 4.
@@ -97,6 +125,10 @@ directory borrow another repository's history. Copying that refusal would make e
    `--git-common-dir` run inside it, are rewritable from inside and count for nothing. A `prunable`
    record counts for nothing either: its directory is gone, and something new at that path was not
    attached by anyone.
+   **What the `.git` file IS read for.** It can only refuse, and it attaches nothing. Real git keeps listing a removed
+   worktree's path, and does not call it `prunable`, once a new directory with a `.git` of its own stands there. So
+   `prunable` does not cover that case, and a listed path is also required to have a `.git` file leading into the
+   registered root's `.git/worktrees/`. A `.git` file that passes this still proves nothing; the listing does.
 3. **The origin must still match** the registered repository. A submodule-style `.git` pointer is not in
    the listing and is refused. A listing means nothing apart from the root that gave it, so one taken
    anywhere else attaches nothing, and a checkout at or under ANOTHER entry's root is refused even when
@@ -215,6 +247,13 @@ ADR-K1 §3 true.
   gatekeeper key. Writes are bound to the plan; reads are not. Stage 2 stops the kernel's routes and the
   database. The real fixes are Host service custody for secrets and Stage 4.3 isolation for files.
 - **The registry's owner check rests on a git name,** which cannot tell the owner from an agent (§3).
+  That was the check this ADR started from, and PROJECTOS-TENANT-PRINCIPAL1A replaced it with a receipt.
+- **A receipt proves a console confirmation and nothing more** (§3). A process that drives a console, or writes the
+  receipt and its line directly, is not stopped. The file lives outside every repository, so a forgery is not a diff.
+- **cwd selects the checkout** (§1). No piece of work is bound to one tenant yet. **BINDING on
+  PROJECTOS-TENANT-CREDENTIALS1A:** the requester is a kernel-issued run handle that survives process boundaries, never
+  cwd; worktree binding alone releases nothing; a receipt is never a credential-release grant; no JWT or OAuth
+  requester; `run-start` has a budget.
 - **No product flow uses the tenant tables yet** (F2). The database boundary is proved by the harness.
 - **Eight of the nine connector scenarios** are defined in Stage 2 and first run in Stage 5.
 - **One owner sees both tenants,** by membership (§7).

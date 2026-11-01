@@ -4,8 +4,8 @@
   "note": "Which tenant and domain each governed project belongs to. Tenant = whose data and authority. Domain = Develop, Business, Personal or Phone. Each project has exactly one of each; a tenant can hold several domains. It lives in the installation rather than in a project, because a project's .projectops/ is writable by that project's own work. See docs/adr/ADR-T1-tenant-boundary.md.",
   "authority": "owner",
   "authorisedBy": "Murad",
-  "provenance": "Transcribed by the implementer (Claude) from the owner's Plan Mode decision of 2026-11-01, D2 'Agency apart, rest mine (Recommended)', recorded in docs/changes/delta_spec.md: agency-business holds the SEO agency and owner-personal holds ProjectOS, PolyGo and the others. PolyGo is listed as the second owner-personal project and its repository is not touched. D2 names tenants only: the domain on each line is the lead's reading, not an owner decision. Only the projects the Stage 2 exit proof needs are listed. An unlisted project is refused by name, and adding one is the action below.",
-  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. Read from committed bytes at the installation's HEAD and validated whole before any match: a duplicate or wildcard refuses the entire file. Changing it is the P5 action tenant-registry-change. Every commit on this machine carries the name Murad, agent commits included, so an owner-last-commit check cannot tell the owner from an agent, and that action protects nothing beyond repo write access until an owner-only signature or an owner-gate receipt naming the registry blob sha exists. See ADR-T1 section 3.",
+  "provenance": "Transcribed by the implementer (Claude) from the owner's Plan Mode decision of 2026-11-01, D2 'Agency apart, rest mine (Recommended)', recorded in docs/changes/delta_spec.md: agency-business holds the SEO agency and owner-personal holds ProjectOS, PolyGo and the others. PolyGo is listed as the second owner-personal project and its repository is not touched. D2 names tenants only: the domain on each line is the lead's reading, not an owner decision. The first three lines are what the Stage 2 exit proof needs. The other eight are added in PROJECTOS-TENANT-PRINCIPAL1A, on the lead's instruction under plan v1.33, each read from the project's own .projectops/project-config.json and origin, in tenant owner-personal because D2 puts all the others there. Their domain is the implementer's reading, not an owner decision. tkn, erp-system and wizard-probe have .projectops but no origin, so no line can bind them. An unlisted project is refused by name, and adding one is the action below.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. Read from committed bytes at the installation's HEAD with replacement objects off, the bytes hashed against their blob, and validated whole before any match: a duplicate or wildcard refuses the entire file. Changing it is the P5 action tenant-registry-change, and every new blob needs a tenant receipt in the installation state. A receipt shows that a person or a process confirmed this blob at a console, nothing more: every commit on this machine carries the name Murad, agent commits included, so nothing here can show the owner did it, and a process that drives a console or writes the receipt and its line directly is not stopped. See ADR-T1 section 3.",
   "tenants": [
     {
       "tenantId": "owner-personal",
@@ -42,6 +42,70 @@
       "tenant": "agency-business",
       "domain": "business",
       "note": "Origin http://127.0.0.1:47900/SEOAgency-remote/seo-agency.git, a loopback remote, canonicalised by parseRemoteUrl; project-config repo value SEOAgency-remote/seo-agency. Moving the origin changes this identity, so it is a tenant-registry-change."
+    },
+    {
+      "projectId": "dead-aisle",
+      "repository": "github.com/universalbizcomply/deadaisle",
+      "governedRoot": "C:/dev/deadaisle",
+      "tenant": "owner-personal",
+      "domain": "develop",
+      "note": "Read from C:/dev/deadaisle-phase6-proof1a/.projectops/project-config.json. That checkout is a linked worktree this root lists, so it takes this line (ADR-T1 section 5); a linked worktree is never a registry entry."
+    },
+    {
+      "projectId": "jd-testing",
+      "repository": "github.com/jdonlinetesting/JDtesting",
+      "governedRoot": "C:/dev/JD Project",
+      "tenant": "owner-personal",
+      "domain": "develop",
+      "note": "Read from its own .projectops/project-config.json and origin."
+    },
+    {
+      "projectId": "criclocal",
+      "repository": "github.com/muraddevbuild-maker/criclocal",
+      "governedRoot": "C:/dev/CricLocal/criclocal-repo",
+      "tenant": "owner-personal",
+      "domain": "develop",
+      "note": "Read from its own .projectops/project-config.json and origin."
+    },
+    {
+      "projectId": "coverdrive",
+      "repository": "github.com/coverdrivemanchester-art/Coverdrive",
+      "governedRoot": "C:/dev/Coverdrive/coverdrive",
+      "tenant": "owner-personal",
+      "domain": "develop",
+      "note": "Read from its own .projectops/project-config.json and origin."
+    },
+    {
+      "projectId": "boithok-khana",
+      "repository": "github.com/universalbizcomply/bothokkhana",
+      "governedRoot": "C:/dev/Boithok Khana",
+      "tenant": "owner-personal",
+      "domain": "develop",
+      "note": "Read from its own .projectops/project-config.json and origin. Its config says repo none; the origin is what binds."
+    },
+    {
+      "projectId": "brik",
+      "repository": "github.com/universalbizcomply/brik",
+      "governedRoot": "C:/dev/Brik",
+      "tenant": "owner-personal",
+      "domain": "develop",
+      "note": "Read from its own .projectops/project-config.json and origin."
+    },
+    {
+      "projectId": "trading-bot",
+      "repository": "github.com/universalbizcomply/tbot",
+      "governedRoot": "C:/dev/Trading Bot",
+      "tenant": "owner-personal",
+      "domain": "develop",
+      "note": "Read from its own .projectops/project-config.json and origin. Its config says repo none; the origin is what binds."
+    },
+    {
+      "projectId": "bizcomply-v2",
+      "repository": "github.com/universalbizcomply/opsoft-ios-lab",
+      "governedRoot": "C:/dev/BizComply V2/Source",
+      "tenant": "owner-personal",
+      "domain": "develop",
+      "note": "Read from its own .projectops/project-config.json and origin."
     }
   ]
 }
