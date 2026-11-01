@@ -1,11 +1,11 @@
 {
   "schemaVersion": "1.0.0",
   "policy": "action-registry",
-  "note": "The one canonical action registry of ADR-K1 section 1: each action's class and target environment. Callers name an action and read these back; a caller's own label is ignored. An action not listed here is P5 (R5). Each entry names both existing vocabularies: governanceAction from core/src/permissions.ts and ownerOnlyAction from core/src/ownerOnlyActions.ts, null where that vocabulary has no spelling. Neither vocabulary is changed by this file. environment is where the executing capability acts; an action with no capability yet is production, the strictest.",
+  "note": "The one canonical action registry of ADR-K1 section 1: each action's class and target environment. Callers name an action and read these back; a caller's own label is ignored. An action not listed here is P5 (R5). Each entry names both existing vocabularies: governanceAction from core/src/permissions.ts and ownerOnlyAction from core/src/ownerOnlyActions.ts, null where that vocabulary has no spelling. Neither vocabulary is changed by this file. environment is where the executing capability acts: local when it stays on this machine, production when it reaches something live outside it, such as a third-party API or the shared remote. An action with no capability yet is production, the strictest. The boundary crossings run-start, credential-release, broker-call, project-selection and bridge-read are root envelopes tied to their run by checkRunLink, so R3's environment equality does not bend these values.",
   "authority": "owner",
   "authorisedBy": "Murad",
   "provenance": "Transcribed by the implementer (Claude) from ADR-K1 sections 3 and 4, accepted by the owner on 2026-11-01 (D3 'Accept it (Recommended)'), and from the Stage 2 delta the owner approved the same day.",
-  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. Read from committed bytes only and validated whole: a duplicate, a wildcard, a missing spelling or a class below its floor refuses the entire file. The floors are in core/src/actionRegistry.ts, so no edit here can lower an owner-only action (R6).",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. Read from committed bytes only and validated whole: a duplicate, a wildcard, a missing spelling or a class below its floor refuses the entire file. The floors are in core/src/actionRegistry.ts, so no edit here can lower an owner-only action (R6). Changing this file is the P5 action action-registry-change, on the same terms as tenant-registry-change, and the same limit applies: see ADR-T1 section 3.",
   "actions": [
     {
       "id": "create_phase",
@@ -132,7 +132,8 @@
       "governanceAction": null,
       "ownerOnlyAction": "push",
       "class": "P3",
-      "environment": "local"
+      "environment": "production",
+      "note": "production because it writes to the shared remote and cannot be taken back from this machine, whereas commit stays local. So a push is never a child of a local run: it is a root envelope, tied to its run by checkRunLink."
     },
     {
       "id": "secrets-handling",
@@ -165,12 +166,20 @@
       "note": "ADR-T1: the owner must have made the last commit to projectos/security/tenant-registry.json."
     },
     {
+      "id": "action-registry-change",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P5",
+      "environment": "local",
+      "note": "ADR-T1 section 3: this file is held on the same terms as the tenant registry."
+    },
+    {
       "id": "run-start",
       "governanceAction": null,
       "ownerOnlyAction": null,
       "class": "P2",
       "environment": "local",
-      "note": "Stage 2 envelope boundary: a governed run starting. What the run then commits or spends is enveloped under its own action."
+      "note": "Stage 2 envelope boundary: a governed run starting. What the run then commits or spends is enveloped under its own action: its paid calls are separate P3 broker-call roots, so P2 here does not contradict ADR-K1 section 3."
     },
     {
       "id": "credential-release",
@@ -178,15 +187,15 @@
       "ownerOnlyAction": null,
       "class": "P5",
       "environment": "local",
-      "note": "Stage 2 envelope boundary: the vault releasing a secret for one operation."
+      "note": "Stage 2 envelope boundary: the vault releasing a secret for one operation. P5, and OPEN: session release has no owner step today, so its grant source is for the owner to decide at PROJECTOS-TENANT-CREDENTIALS1A (ADR-T1 section 6)."
     },
     {
       "id": "broker-call",
       "governanceAction": null,
       "ownerOnlyAction": null,
       "class": "P3",
-      "environment": "local",
-      "note": "Stage 2 envelope boundary: a paid provider call through the trusted broker. ADR-K1 section 3 puts paid provider calls at P3."
+      "environment": "production",
+      "note": "Stage 2 envelope boundary: a paid provider call through the trusted broker, a root envelope tied to its run. ADR-K1 section 3 puts paid provider calls at P3. production because it is an outbound call to a live third party, and it sends data there. A zero budget is refused."
     },
     {
       "id": "project-selection",

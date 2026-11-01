@@ -55,14 +55,14 @@ const AT_POLYGO: CheckoutFacts = {
   projectId: 'polygo',
   repository: 'github.com/polygonia-apres/polygo',
   root: 'C:/dev/Polygo/polygo',
-  linkedWorktreesOfRegisteredRoot: [],
+  worktrees: null,
 };
 
 const AT_AGENCY: CheckoutFacts = {
   projectId: 'seo-agency',
   repository: '127.0.0.1:47900/SEOAgency-remote/seo-agency',
   root: 'C:/dev/SEOAgency',
-  linkedWorktreesOfRegisteredRoot: [],
+  worktrees: null,
 };
 
 describe('the committed tenant registry', () => {
@@ -117,7 +117,7 @@ describe('whole-file validation', () => {
     expect(codes(parseTenantRegistry({ ...raw, tenants }))).toContain('TENANT_REGISTRY_WILDCARD');
   });
 
-  it('a wildcard path is caught ONLY by the wildcard rule: its shape is otherwise legal', () => {
+  it('a wildcard is named as a wildcard, ahead of the shape rule that would also refuse it', () => {
     expect(codes(parseTenantRegistry(withExtraProject({ ...NEW_PROJECT, governedRoot: 'C:/dev/*' })))).toEqual(['TENANT_REGISTRY_WILDCARD']);
     expect(codes(parseTenantRegistry(withExtraProject({ ...NEW_PROJECT, repository: 'github.com/example/*' })))).toEqual(['TENANT_REGISTRY_WILDCARD']);
   });
@@ -256,21 +256,21 @@ describe('the linked-worktree rule (ADR-T1 §5)', () => {
   const LINKED = 'C:/dev/Polygo-worktrees/feature';
 
   it('a worktree the registered root lists takes its tenant and domain', () => {
-    const result = resolveTenant(registry(), { ...AT_POLYGO, root: LINKED, linkedWorktreesOfRegisteredRoot: [LINKED] });
+    const result = resolveTenant(registry(), { ...AT_POLYGO, root: LINKED, worktrees: { takenAtRoot: 'C:/dev/Polygo/polygo', paths: [LINKED] } });
     expect(result.ok && [result.binding.tenant, result.binding.via, result.binding.governedRoot]).toEqual(['owner-personal', 'linked-worktree', 'C:/dev/Polygo/polygo']);
   });
 
   it('a directory the registered root does not list is refused, whatever the directory says', () => {
-    const result = resolveTenant(registry(), { ...AT_POLYGO, root: LINKED, linkedWorktreesOfRegisteredRoot: ['C:/dev/Polygo-worktrees/other'] });
+    const result = resolveTenant(registry(), { ...AT_POLYGO, root: LINKED, worktrees: { takenAtRoot: 'C:/dev/Polygo/polygo', paths: ['C:/dev/Polygo-worktrees/other'] } });
     expect(result).toMatchObject({ ok: false, code: 'TENANT_MISMATCH' });
   });
 
   it('a worktree of one project cannot take another project id', () => {
-    const result = resolveTenant(registry(), { ...AT_AGENCY, repository: AT_POLYGO.repository, root: LINKED, linkedWorktreesOfRegisteredRoot: [LINKED] });
+    const result = resolveTenant(registry(), { ...AT_AGENCY, repository: AT_POLYGO.repository, root: LINKED, worktrees: { takenAtRoot: 'C:/dev/SEOAgency', paths: [LINKED] } });
     expect(result).toMatchObject({ ok: false, code: 'TENANT_MISMATCH' });
   });
 
-  it('parses the listing git prints, skipping the main tree and anything prunable', () => {
+  it('parses the listing git prints, dropping the registered root and anything prunable', () => {
     const porcelain = [
       'worktree C:/dev/Polygo/polygo',
       'HEAD 6e6db526085b00f673d9b8eb8830f9c2dd048a7f',
@@ -287,9 +287,10 @@ describe('the linked-worktree rule (ADR-T1 §5)', () => {
       '',
       '',
     ].join('\n');
-    expect(linkedWorktreesFromPorcelain(porcelain)).toEqual(['C:/dev/Polygo-worktrees/feature']);
-    expect(linkedWorktreesFromPorcelain(porcelain.split('\n').join('\r\n'))).toEqual(['C:/dev/Polygo-worktrees/feature']);
-    expect(linkedWorktreesFromPorcelain('')).toEqual([]);
+    const root = 'C:/dev/Polygo/polygo';
+    expect(linkedWorktreesFromPorcelain(porcelain, root)).toEqual({ takenAtRoot: root, paths: ['C:/dev/Polygo-worktrees/feature'] });
+    expect(linkedWorktreesFromPorcelain(porcelain.split('\n').join('\r\n'), root).paths).toEqual(['C:/dev/Polygo-worktrees/feature']);
+    expect(linkedWorktreesFromPorcelain('', root).paths).toEqual([]);
   });
 });
 

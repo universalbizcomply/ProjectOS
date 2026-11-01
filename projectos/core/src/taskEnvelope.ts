@@ -12,10 +12,24 @@
  * sites, which arrive in PROJECTOS-TENANT-PRINCIPAL1A. This module proves shape and the no-widening
  * rule, and says so rather than implying more.
  *
- * R3 HAS TWO HALVES. `tenant`, `domain`, `project` and `environment` must EQUAL the parent's: a child
- * that moves any of them is crossing a boundary, not narrowing a task. `scope`, `budget`, `expiry`
- * and the class must be AT MOST the parent's. Cross-tenant access is never a child: each use starts a
- * new root envelope in the data-owning tenant (ADR-K1 §4).
+ * PROVENANCE IS NOT SHAPE. A full-shape object is not an envelope. `mintEnvelope` and
+ * `readmitEnvelope` brand what they return in a private `WeakMap`, and the door takes nothing else, so a
+ * caller cannot hand `admitEnvelope` `{ ok: true, envelope: { ...actionClass: 'P1' } }`. Anything read
+ * back from disk goes through `readmitEnvelope`, which derives the five facts again and refuses any
+ * difference.
+ *
+ * R3 HAS TWO HALVES. `tenant`, `domain`, `project`, `environment` and `principal` must EQUAL the
+ * parent's: a child that moves any of them is crossing a boundary, not narrowing a task. `scope`,
+ * `budget`, `expiry` and the class must be AT MOST the parent's. Cross-tenant access is never a child:
+ * each use starts a new root envelope in the data-owning tenant (ADR-K1 §4).
+ *
+ * BOUNDARY CROSSINGS ARE ROOTS (ADR-T1 §8). A broker call is not in the environment of the run that made
+ * it, so it cannot be its child, and R3 is not loosened to pretend otherwise. `checkRunLink` carries the
+ * link instead: same tenant, domain, project and principal, and the run named in the crossing's scope.
+ *
+ * THE DOOR GATES THE CLASS. P6 is refused always, P4 has no grant to give (ADR-K1 §4), an unregistered
+ * action is refused by name, and P5 needs the grant port to confirm. Which grant answers for P5 is the
+ * port's business; this module only refuses to proceed without one.
  *
  * R4 IS FAIL-CLOSED. An admission that cannot be recorded did not happen. The recorder is a port, so
  * this module does no I/O, and a recorder that answers `false` or throws refuses the operation, the
@@ -25,11 +39,23 @@
  * but no v1 envelope was ever built. So there is no default here to fall back on (R1).
  *
  * The code adds `action` to ADR-K1 §2's table. §2 hashes it into `idempotencyKey` without listing it,
- * and a record that names a class but not the action is not an audit (ADR-T1 §8).
+ * and a record that names a class but not the action is not an audit (ADR-T1 §8). It is the one
+ * addition: `registered` and `via` live on the record line, not on the envelope.
  */
 import { createHash } from 'node:crypto';
 import { ROLES, type Role } from './types.js';
-import { ACTION_CLASSES, classAtMost, isActionName, KERNEL_ENVIRONMENTS, resolveAction, type ActionClass, type ActionRegistry, type KernelEnvironment } from './actionRegistry.js';
+import {
+  ACTION_CLASSES,
+  classAtMost,
+  isActionName,
+  isBoundaryAction,
+  KERNEL_ENVIRONMENTS,
+  PAID_ACTIONS,
+  resolveAction,
+  type ActionClass,
+  type ActionRegistry,
+  type KernelEnvironment,
+} from './actionRegistry.js';
 import { DOMAINS, isDerivedBinding, isProjectId, isTenantId, type Domain, type TenantBinding } from './tenant.js';
 
 export const ENVELOPE_VERSION = 2;
@@ -67,6 +93,7 @@ const SUBJECT_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const IDEMPOTENCY_KEY = /^sha256:[0-9a-f]{64}$/;
 const ACTOR_FIELDS = ['agent', 'provider', 'model'];
 const IDEMPOTENCY_DOMAIN = 'projectos-envelope-idempotency-v2:';
+const RUN_ACTION = 'run-start';
 
 function nonBlank(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '';
@@ -102,7 +129,7 @@ const FIELD_CHECKS: Readonly<Record<keyof TaskEnvelope, (value: unknown) => bool
   action: isActionName,
   actionClass: (value) => (ACTION_CLASSES as readonly unknown[]).includes(value),
   subjectHash: (value) => typeof value === 'string' && SUBJECT_HASH.test(value),
-  scope: (value) => Array.isArray(value) && value.every(nonBlank),
+  scope: (value) => Array.isArray(value) && [...value].every(nonBlank),
   budget: (value) => Number.isSafeInteger(value) && (value as number) >= 0,
   expiry: (value) => instantOf(value) !== null,
   idempotencyKey: (value) => typeof value === 'string' && IDEMPOTENCY_KEY.test(value),
@@ -118,6 +145,20 @@ export type EnvelopeResult =
 
 function refused(rule: EnvelopeRule, reasons: readonly string[]): Extract<EnvelopeResult, { ok: false }> {
   return { ok: false, rule, reasons };
+}
+
+/** What only the kernel knows about an envelope it minted. Recorded, never an envelope field. */
+interface EnvelopeProvenance {
+  readonly registered: boolean;
+  readonly via: TenantBinding['via'];
+}
+
+/** Envelopes `mintEnvelope` or `readmitEnvelope` produced. Nothing else passes the door. */
+const LIVE_ENVELOPES = new WeakMap<TaskEnvelope, EnvelopeProvenance>();
+
+function branded(result: EnvelopeResult, provenance: EnvelopeProvenance): EnvelopeResult {
+  if (result.ok) LIVE_ENVELOPES.set(result.envelope, provenance);
+  return result;
 }
 
 /**
@@ -137,6 +178,9 @@ export function parseEnvelope(raw: unknown): EnvelopeResult {
     ...Object.keys(record)
       .filter((key) => !(ENVELOPE_FIELDS as readonly string[]).includes(key))
       .map((key) => `the envelope carries an unknown field '${key}'`),
+    ...((PAID_ACTIONS as readonly unknown[]).includes(record['action']) && record['budget'] === 0
+      ? [`the paid action '${String(record['action'])}' has no budget`]
+      : []),
   ];
   if (reasons.length > 0) return refused('R1', reasons);
   const scope = Object.freeze([...(record['scope'] as readonly string[])]);
@@ -178,7 +222,11 @@ export interface KernelEnvelopeContext {
   readonly envelopeId: string;
 }
 
-/** The facts of the task itself. Nothing here can say whose it is or how dangerous it is. */
+/**
+ * The facts of the task itself. Nothing here can say whose it is. The caller does name the action, and
+ * the action selects the class, so a caller can choose what it asks for but not what that is called:
+ * the class comes from the registry entry for that action, and an unknown action is refused at the door.
+ */
 export interface EnvelopeRequest {
   readonly action: string;
   readonly subjectHash: string;
@@ -190,18 +238,23 @@ export interface EnvelopeRequest {
 
 /**
  * R3 against a presented child: both envelopes are parsed first, so a child cannot pass by being
- * malformed in a way the comparisons below would skip.
+ * malformed in a way the comparisons below would skip. The child's class and environment are derived
+ * again from the registry, because at-most against the parent says nothing about a label that lies.
  */
-export function checkChildEnvelope(parent: unknown, child: unknown): EnvelopeResult {
+export function checkChildEnvelope(parent: unknown, child: unknown, registry: ActionRegistry): EnvelopeResult {
   const parsedParent = parseEnvelope(parent);
   if (!parsedParent.ok) return refused('R1', parsedParent.reasons.map((reason) => `parent: ${reason}`));
   const parsedChild = parseEnvelope(child);
   if (!parsedChild.ok) return parsedChild;
   const up = parsedParent.envelope;
   const down = parsedChild.envelope;
+  const resolved = resolveAction(registry, down.action);
   const reasons: readonly string[] = [
     ...(down.parentEnvelopeId === up.envelopeId ? [] : [`the child's parentEnvelopeId is not ${up.envelopeId}`]),
-    ...(['tenant', 'domain', 'project', 'environment'] as const).flatMap((field) =>
+    ...(isBoundaryAction(down.action) ? [`'${down.action}' is a boundary crossing, so it is a root envelope and never a child`] : []),
+    ...(down.actionClass === resolved.actionClass ? [] : [`the child's class ${down.actionClass} is not the registry's ${resolved.actionClass} for '${down.action}'`]),
+    ...(down.environment === resolved.environment ? [] : [`the child's environment ${down.environment} is not the registry's ${resolved.environment} for '${down.action}'`]),
+    ...(['tenant', 'domain', 'project', 'environment', 'principal'] as const).flatMap((field) =>
       down[field] === up[field] ? [] : [`the child's ${field} '${down[field]}' is not its parent's '${up[field]}'`],
     ),
     ...down.scope.filter((item) => !up.scope.includes(item)).map((item) => `the child's scope '${item}' is outside its parent's`),
@@ -218,12 +271,16 @@ export function checkChildEnvelope(parent: unknown, child: unknown): EnvelopeRes
  * R2: the request is read field by field, never spread, and `tenant`, `domain`, `project`,
  * `environment` and `actionClass` have no other source than the binding and the registry. R5 is
  * `resolveAction`'s: an unregistered action mints as P5 rather than refusing, so the attempt is
- * recorded at the class it deserves.
+ * recorded at the class it deserves, and the door then refuses it by name. A parent must itself be
+ * branded, because its budget, scope and expiry are the limits the child is held to.
  */
 export function mintEnvelope(context: KernelEnvelopeContext, request: EnvelopeRequest, parent: TaskEnvelope | null = null): EnvelopeResult {
   const { binding, registry, principal, actor, envelopeId } = context;
   if (!isDerivedBinding(binding)) {
     return refused('R2', ['the tenant binding was not produced by resolveTenant, so the tenant is a claim']);
+  }
+  if (parent !== null && !LIVE_ENVELOPES.has(parent)) {
+    return refused('R2', ['the parent envelope was not minted or re-admitted here, so its limits are claims']);
   }
   const { action, subjectHash, scope, budget, expiry, intentScope } = request;
   if (!nonBlank(intentScope)) return refused('R1', ['the request has no intentScope, so no idempotency key can be derived']);
@@ -246,7 +303,72 @@ export function mintEnvelope(context: KernelEnvelopeContext, request: EnvelopeRe
     expiry,
     idempotencyKey: deriveIdempotencyKey({ tenant: binding.tenant, project: binding.projectId, action, subjectHash, intentScope }),
   };
-  return parent === null ? parseEnvelope(candidate) : checkChildEnvelope(parent, candidate);
+  const result = parent === null ? parseEnvelope(candidate) : checkChildEnvelope(parent, candidate, registry);
+  return branded(result, { registered: resolved.registered, via: binding.via });
+}
+
+/**
+ * Bring a persisted envelope back to the door.
+ *
+ * ITS OWN WORDS COUNT FOR NOTHING. A record on disk is writable, so `tenant`, `domain`, `project`,
+ * `environment` and `actionClass` are derived again from a live binding and the registry, and any
+ * difference refuses it. An action the registry has since dropped reads as unregistered here, and a
+ * class that has since changed refuses.
+ */
+export function readmitEnvelope(raw: unknown, binding: TenantBinding, registry: ActionRegistry): EnvelopeResult {
+  if (!isDerivedBinding(binding)) {
+    return refused('R2', ['the tenant binding was not produced by resolveTenant, so the tenant is a claim']);
+  }
+  const parsed = parseEnvelope(raw);
+  if (!parsed.ok) return parsed;
+  const { envelope } = parsed;
+  const resolved = resolveAction(registry, envelope.action);
+  const derived = {
+    tenant: binding.tenant,
+    domain: binding.domain,
+    project: binding.projectId,
+    environment: resolved.environment,
+    actionClass: resolved.actionClass,
+  } as const;
+  const reasons = (Object.keys(derived) as readonly (keyof typeof derived)[]).flatMap((field) =>
+    envelope[field] === derived[field] ? [] : [`the persisted ${field} '${envelope[field]}' is not the derived '${derived[field]}'`],
+  );
+  return reasons.length > 0 ? refused('R2', reasons) : branded(parsed, { registered: resolved.registered, via: binding.via });
+}
+
+/** The scope entry that ties a boundary crossing to the run it belongs to. */
+export function runLinkScope(runEnvelopeId: string): string {
+  return `run:${runEnvelopeId}`;
+}
+
+export type RunLinkResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly rule: 'R1' | 'RUN_LINK'; readonly reasons: readonly string[] };
+
+/**
+ * Is this boundary crossing part of this run?
+ *
+ * A crossing is a root, so lineage cannot say. This does, without loosening R3: the crossing may be in
+ * another environment, and it must still be the same tenant, domain, project and principal, and name
+ * the run in its scope, so a credential release can always be traced back to the run that asked.
+ */
+export function checkRunLink(run: unknown, crossing: unknown): RunLinkResult {
+  const parsedRun = parseEnvelope(run);
+  if (!parsedRun.ok) return { ok: false, rule: 'R1', reasons: parsedRun.reasons.map((reason) => `run: ${reason}`) };
+  const parsedCrossing = parseEnvelope(crossing);
+  if (!parsedCrossing.ok) return { ok: false, rule: 'R1', reasons: parsedCrossing.reasons };
+  const up = parsedRun.envelope;
+  const down = parsedCrossing.envelope;
+  const link = runLinkScope(up.envelopeId);
+  const reasons: readonly string[] = [
+    ...(up.action === RUN_ACTION ? [] : [`'${up.action}' is not a run`]),
+    ...(down.parentEnvelopeId === null ? [] : ['a boundary crossing is a root envelope, not a child']),
+    ...(['tenant', 'domain', 'project', 'principal'] as const).flatMap((field) =>
+      down[field] === up[field] ? [] : [`the crossing's ${field} '${down[field]}' is not its run's '${up[field]}'`],
+    ),
+    ...(down.scope.includes(link) ? [] : [`the crossing's scope does not name ${link}`]),
+  ];
+  return reasons.length > 0 ? { ok: false, rule: 'RUN_LINK', reasons } : { ok: true };
 }
 
 /** One line of the admission and execution record. Built here, written by the port. */
@@ -256,6 +378,10 @@ export interface EnvelopeRecord {
   /** The rule that decided a refusal, or the operation's own rule at execution. */
   readonly rule: string | null;
   readonly envelope: TaskEnvelope | null;
+  /** Whether the registry named the action; `null` when no branded envelope reached this line. */
+  readonly registered: boolean | null;
+  /** How the checkout was bound, so a linked-worktree admission is visible; `null` as above. */
+  readonly via: TenantBinding['via'] | null;
   readonly reasons: readonly string[];
   readonly at: string;
 }
@@ -271,32 +397,75 @@ function recorded(recorder: EnvelopeRecorder, record: EnvelopeRecord): boolean {
   }
 }
 
+/**
+ * Is there a grant for this P5 envelope? Answers `true` or it has not granted; a throw is not a grant.
+ * Which record answers is the port's business, and CREDENTIALS1A decides that for `credential-release`.
+ */
+export type EnvelopeGrantPort = (envelope: TaskEnvelope) => boolean;
+
+function granted(grant: EnvelopeGrantPort, envelope: TaskEnvelope): boolean {
+  try {
+    return grant(envelope) === true;
+  } catch {
+    return false;
+  }
+}
+
+export type EnvelopeClassRule = 'P6_PROHIBITED' | 'UNREGISTERED_ACTION' | 'P4_NO_GRANT' | 'P5_NO_GRANT';
+
+interface ClassRefusal {
+  readonly rule: EnvelopeClassRule;
+  readonly reasons: readonly string[];
+}
+
+/** May this class run? Asked at the door, in this order, so the port is never asked about P6. */
+function classRefusal(envelope: TaskEnvelope, provenance: EnvelopeProvenance, grant: EnvelopeGrantPort): ClassRefusal | null {
+  const { action, actionClass } = envelope;
+  if (actionClass === 'P6') return { rule: 'P6_PROHIBITED', reasons: [`'${action}' is P6: nobody may authorise it, ever`] };
+  if (!provenance.registered) return { rule: 'UNREGISTERED_ACTION', reasons: [`'${action}' is not in the action registry`] };
+  if (actionClass === 'P4') return { rule: 'P4_NO_GRANT', reasons: [`'${action}' is P4, and no P4 grant exists yet (ADR-K1 §4)`] };
+  if (actionClass === 'P5' && !granted(grant, envelope)) return { rule: 'P5_NO_GRANT', reasons: [`'${action}' is P5, and no grant confirms it`] };
+  return null;
+}
+
 export type EnvelopeAdmission =
   | { readonly admitted: true; readonly envelope: TaskEnvelope }
-  | { readonly admitted: false; readonly rule: EnvelopeRule | 'EXPIRED'; readonly reasons: readonly string[]; readonly recorded: boolean };
+  | {
+      readonly admitted: false;
+      readonly rule: EnvelopeRule | EnvelopeClassRule | 'EXPIRED';
+      readonly reasons: readonly string[];
+      readonly recorded: boolean;
+    };
 
 /**
  * R4: record at admission, refusals included, and only then answer.
  *
- * Takes what `mintEnvelope` or `parseEnvelope` returned and parses it again, because this is the door
- * and `{ ok: true }` is only an object. Nothing is admitted unless its line was written.
+ * THIS IS THE DOOR. It takes only what `mintEnvelope` or `readmitEnvelope` branded; `{ ok: true }` is
+ * only an object, and a perfect copy is not minted. Then expiry, then the class. Nothing is admitted
+ * unless its line was written.
  */
-export function admitEnvelope(minted: EnvelopeResult, now: string, recorder: EnvelopeRecorder): EnvelopeAdmission {
-  const parsed = minted.ok ? parseEnvelope(minted.envelope) : minted;
+export function admitEnvelope(minted: EnvelopeResult, now: string, recorder: EnvelopeRecorder, grant: EnvelopeGrantPort): EnvelopeAdmission {
   const at = { stage: 'admission', at: now } as const;
-  if (!parsed.ok) {
-    const wrote = recorded(recorder, { ...at, outcome: 'refused', rule: parsed.rule, envelope: null, reasons: parsed.reasons });
-    return { admitted: false, rule: parsed.rule, reasons: parsed.reasons, recorded: wrote };
-  }
-  if (envelopeExpired(parsed.envelope, now)) {
-    const reasons = [`the envelope expired at ${parsed.envelope.expiry}`];
-    const wrote = recorded(recorder, { ...at, outcome: 'refused', rule: 'EXPIRED', envelope: parsed.envelope, reasons });
-    return { admitted: false, rule: 'EXPIRED', reasons, recorded: wrote };
-  }
-  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope: parsed.envelope, reasons: [] })) {
+  const refuse = (
+    rule: EnvelopeRule | EnvelopeClassRule | 'EXPIRED',
+    reasons: readonly string[],
+    envelope: TaskEnvelope | null,
+    provenance: EnvelopeProvenance | null,
+  ): EnvelopeAdmission => {
+    const wrote = recorded(recorder, { ...at, outcome: 'refused', rule, envelope, registered: provenance?.registered ?? null, via: provenance?.via ?? null, reasons });
+    return { admitted: false, rule, reasons, recorded: wrote };
+  };
+  if (!minted.ok) return refuse(minted.rule, minted.reasons, null, null);
+  const { envelope } = minted;
+  const provenance = LIVE_ENVELOPES.get(envelope);
+  if (provenance === undefined) return refuse('R2', ['this envelope was not minted or re-admitted by the kernel'], null, null);
+  if (envelopeExpired(envelope, now)) return refuse('EXPIRED', [`the envelope expired at ${envelope.expiry}`], envelope, provenance);
+  const refusal = classRefusal(envelope, provenance, grant);
+  if (refusal !== null) return refuse(refusal.rule, refusal.reasons, envelope, provenance);
+  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {
     return { admitted: false, rule: 'R4', reasons: ['the admission could not be recorded, so the operation does not run'], recorded: false };
   }
-  return { admitted: true, envelope: parsed.envelope };
+  return { admitted: true, envelope };
 }
 
 /** R4, second half: the outcome at execution, naming the rule. `false` means the caller must stop. */
@@ -307,5 +476,6 @@ export function recordExecution(
   now: string,
   recorder: EnvelopeRecorder,
 ): boolean {
-  return recorded(recorder, { stage: 'execution', outcome, rule, envelope, reasons: [], at: now });
+  const provenance = LIVE_ENVELOPES.get(envelope);
+  return recorded(recorder, { stage: 'execution', outcome, rule, envelope, registered: provenance?.registered ?? null, via: provenance?.via ?? null, reasons: [], at: now });
 }

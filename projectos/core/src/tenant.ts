@@ -19,8 +19,9 @@
  * LINKED WORKTREES (ADR-T1 §5). A governed run may use a linked worktree, so the tenant must resolve
  * there, or every such run is refused. A worktree's own `.git` file is rewritable from inside it, so
  * its claim about its primary counts for nothing. The fact the rule accepts is the list git gives when
- * asked FROM THE REGISTERED ROOT. This grants tenant identity only: the installation allowlist still
- * refuses a linked worktree for anything that spends a credential, and this module does not change that.
+ * asked FROM THE REGISTERED ROOT, and a listing taken anywhere else attaches nothing. This grants tenant
+ * identity only. On its own it must never release a secret: the allowlist guards gatekeeper spend, not
+ * session release, so PROJECTOS-TENANT-CREDENTIALS1A decides that.
  *
  * NO I/O. The kernel reads the committed bytes and asks git; this module judges what it is handed.
  */
@@ -46,11 +47,21 @@ export const TENANT_CREDENTIAL_PREFIX = 'tenant.';
 const TENANT_ID = /^[a-z][a-z0-9-]{1,56}$/;
 /** A project id is a credential reference segment, so it has that segment's shape. */
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-/** `host/owner/name`, as `parseRemoteUrl` canonicalises it. The host may carry a port. */
-const REPOSITORY = /^[^\s/]+\/[^\s/]+\/\S+$/;
-/** An absolute drive path with forward slashes. Spaces are real (`C:/dev/BizComply V2`). */
-const GOVERNED_ROOT = /^[A-Za-z]:\/[^\\]*$/;
-/** `.`, `..`, or a segment Windows would silently trim: each is a second spelling of another root. */
+/**
+ * `host/owner/name`, as `parseRemoteUrl` canonicalises it: exactly three segments, ASCII. Only the
+ * loopback host may carry a port, because the registered `seo-agency` remote is one; a port on any
+ * other host is a second spelling of it.
+ */
+const REPOSITORY = /^(?:[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+|127\.0\.0\.1:[0-9]{1,5})\/[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** `parseRemoteUrl` strips this, so a registry line carrying it can never match a checkout. */
+const REPOSITORY_SUFFIX = /\.[Gg][Ii][Tt]$/;
+/**
+ * An absolute drive path, forward slashes, ASCII, one character class per segment. Spaces are real
+ * (`C:/dev/BizComply V2`). The class is what closes the aliases: `//`, a `:` beyond the drive, `~`
+ * short names, `%` escapes, NUL and zero-width characters have nowhere to sit.
+ */
+const GOVERNED_ROOT = /^[A-Za-z]:(?:\/[A-Za-z0-9_][A-Za-z0-9._ -]*)+$/;
+/** A segment Windows would silently trim is a second spelling of another root. */
 const GOVERNED_ROOT_ALIAS = /[. ](\/|$)/;
 /** `*` and `?` mean "more than one thing", which a binding may never mean. */
 const WILDCARD = /[*?]/;
@@ -67,6 +78,7 @@ export type TenantRegistryCode =
   | 'TENANT_REGISTRY_INVALID'
   | 'TENANT_REGISTRY_WILDCARD'
   | 'TENANT_REGISTRY_DUPLICATE'
+  | 'TENANT_REGISTRY_NESTED_ROOT'
   | 'TENANT_REGISTRY_RESERVED_ID';
 
 export interface TenantRegistryProblem {
@@ -117,14 +129,29 @@ function unknownFieldProblems(record: Readonly<Record<string, unknown>>, allowed
     .map((key) => invalid(`${label} carries an unknown field '${key}'`));
 }
 
-/** Is this project id one a credential reference would read as a tenant-class segment? */
-export function isReservedProjectId(projectId: string): boolean {
-  return projectId.toLowerCase().startsWith(TENANT_CREDENTIAL_PREFIX);
+/**
+ * Lower-cases A to Z and nothing else.
+ *
+ * `toLowerCase` folds U+212A KELVIN SIGN to `k`, so a non-ASCII spelling could equal a registered
+ * name. Registered values are ASCII, and what a checkout reports must not be folded onto them.
+ */
+function asciiLower(text: string): string {
+  return text.replace(/[A-Z]/g, (letter) => String.fromCharCode(letter.charCodeAt(0) + 32));
 }
 
-/** Canonical path key: separators normalised, case-insensitive, no trailing slash, as Windows resolves it. */
+/** Is this project id one a credential reference would read as a tenant-class segment? */
+export function isReservedProjectId(projectId: string): boolean {
+  return asciiLower(projectId).startsWith(TENANT_CREDENTIAL_PREFIX);
+}
+
+/** Canonical path key: separators normalised, ASCII case folded, no trailing slash, as Windows resolves it. */
 function rootKey(path: string): string {
-  return path.split(String.fromCharCode(92)).join('/').replace(/\/+$/, '').toLowerCase();
+  return asciiLower(path.split(String.fromCharCode(92)).join('/').replace(/\/+$/, ''));
+}
+
+/** Both are `rootKey`s. The slash is what keeps a sibling sharing a prefix from counting as inside. */
+function isAtOrUnder(path: string, root: string): boolean {
+  return path === root || path.startsWith(`${root}/`);
 }
 
 function headerProblems(root: Readonly<Record<string, unknown>>): readonly TenantRegistryProblem[] {
@@ -164,7 +191,7 @@ function bindingFieldProblem(field: (typeof BINDING_FIELDS)[number], value: stri
     case 'projectId':
       return PROJECT_ID.test(value) ? null : 'is not a valid project id';
     case 'repository':
-      return REPOSITORY.test(value) ? null : 'is not a canonical host/owner/name repository';
+      return REPOSITORY.test(value) && !REPOSITORY_SUFFIX.test(value) ? null : 'is not a canonical host/owner/name repository';
     case 'governedRoot':
       return GOVERNED_ROOT.test(value) && !GOVERNED_ROOT_ALIAS.test(value) ? null : 'is not one canonical absolute forward-slash path';
     case 'tenant':
@@ -211,8 +238,8 @@ function projectProblems(entry: unknown, index: number, tenantIds: ReadonlySet<s
  */
 function duplicateProblems(entries: readonly unknown[]): readonly TenantRegistryProblem[] {
   const keys: readonly (readonly [(typeof BINDING_FIELDS)[number], (value: string) => string])[] = [
-    ['projectId', (value) => value.toLowerCase()],
-    ['repository', (value) => value.toLowerCase()],
+    ['projectId', asciiLower],
+    ['repository', asciiLower],
     ['governedRoot', rootKey],
   ];
   return keys.flatMap(([field, keyOf]) => {
@@ -224,6 +251,20 @@ function duplicateProblems(entries: readonly unknown[]): readonly TenantRegistry
       .filter((value, index) => values.indexOf(value) !== index)
       .map((value) => ({ code: 'TENANT_REGISTRY_DUPLICATE' as const, message: `more than one project entry has the ${field} '${value}'` }));
   });
+}
+
+/**
+ * One root inside another. A checkout there would be both projects at once, and the same git walk
+ * would answer for either. An EQUAL root is `duplicateProblems`'s, so it is not reported twice.
+ */
+function nestedRootProblems(entries: readonly unknown[]): readonly TenantRegistryProblem[] {
+  const roots = entries.flatMap((entry) => {
+    const value = asRecord(entry)?.['governedRoot'];
+    return typeof value === 'string' ? [rootKey(value)] : [];
+  });
+  return roots
+    .filter((root) => roots.some((other) => other !== root && isAtOrUnder(root, other)))
+    .map((root) => ({ code: 'TENANT_REGISTRY_NESTED_ROOT' as const, message: `the governedRoot '${root}' is inside another entry's root` }));
 }
 
 /**
@@ -251,6 +292,7 @@ export function parseTenantRegistry(raw: unknown): TenantRegistryResult {
       .map((id) => ({ code: 'TENANT_REGISTRY_DUPLICATE' as const, message: `more than one tenant entry has the tenantId '${id}'` })),
     ...(projects ?? []).flatMap((entry, index) => projectProblems(entry, index, new Set(tenantIds))),
     ...duplicateProblems(projects ?? []),
+    ...nestedRootProblems(projects ?? []),
   ];
   if (problems.length > 0) return { ok: false, problems };
 
@@ -266,25 +308,34 @@ export function parseTenantRegistry(raw: unknown): TenantRegistryResult {
   return { ok: true, registry };
 }
 
+/** What git listed, and where it was asked. A listing means nothing apart from the root that gave it. */
+export interface WorktreeListing {
+  readonly takenAtRoot: string;
+  readonly paths: readonly string[];
+}
+
 /**
  * The linked worktrees git lists, from `git -C <registered root> worktree list --porcelain`.
  *
  * ASK THE REGISTERED ROOT, NOT THE CHECKOUT. Run from inside a checkout this would repeat what that
  * checkout's own `.git` file says; run from the root the registry names, it reports what that
- * repository actually attached. The first record is the main working tree, which is the registered
- * root itself and is not a linked worktree. A `prunable` record has lost its directory, and something
- * new sitting at that path has not been attached by anyone.
+ * repository actually attached. The record equal to `takenAtRoot` is that root and not a linked
+ * worktree; it is matched by path, not by position, so nothing rests on git's ordering. A `prunable`
+ * record has lost its directory, and something new sitting at that path has not been attached by anyone.
  */
-export function linkedWorktreesFromPorcelain(porcelain: string): readonly string[] {
+export function linkedWorktreesFromPorcelain(porcelain: string, takenAtRoot: string): WorktreeListing {
   const records = porcelain
     .split(/\r?\n\r?\n/)
     .map((record) => record.split(/\r?\n/).filter((line) => line !== ''))
     .filter((lines) => lines.length > 0);
-  return records.slice(1).flatMap((lines) => {
+  const paths = records.flatMap((lines) => {
     const head = lines[0] ?? '';
     if (!head.startsWith('worktree ')) return [];
-    return lines.some((line) => line === 'prunable' || line.startsWith('prunable ')) ? [] : [head.slice('worktree '.length)];
+    const path = head.slice('worktree '.length);
+    if (rootKey(path) === rootKey(takenAtRoot)) return [];
+    return lines.some((line) => line === 'prunable' || line.startsWith('prunable ')) ? [] : [path];
   });
+  return Object.freeze({ takenAtRoot, paths: Object.freeze(paths) });
 }
 
 /** What the kernel read about the checkout it is about to work in. Nothing here is taken from a worker. */
@@ -296,10 +347,10 @@ export interface CheckoutFacts {
   /** The checkout's absolute root. */
   readonly root: string;
   /**
-   * `linkedWorktreesFromPorcelain` of the listing taken at the REGISTERED root for this project id.
-   * Empty for an ordinary checkout. Never derived from the checkout being judged.
+   * `linkedWorktreesFromPorcelain` of the listing taken at the REGISTERED root for this project id,
+   * or `null` when none was taken. Never derived from the checkout being judged.
    */
-  readonly linkedWorktreesOfRegisteredRoot: readonly string[];
+  readonly worktrees: WorktreeListing | null;
 }
 
 export interface TenantBinding extends TenantProjectEntry {
@@ -319,7 +370,9 @@ export function registeredRootOf(registry: TenantRegistry, projectId: string): s
 
 function checkoutRoute(entry: TenantProjectEntry, checkout: CheckoutFacts): TenantBinding['via'] | null {
   if (rootKey(entry.governedRoot) === rootKey(checkout.root)) return 'governed-root';
-  const attached = checkout.linkedWorktreesOfRegisteredRoot.some((path) => rootKey(path) === rootKey(checkout.root));
+  const listing = checkout.worktrees;
+  if (listing === null || rootKey(listing.takenAtRoot) !== rootKey(entry.governedRoot)) return null;
+  const attached = listing.paths.some((path) => rootKey(path) === rootKey(checkout.root));
   return attached ? 'linked-worktree' : null;
 }
 
@@ -339,11 +392,19 @@ export function resolveTenant(registry: TenantRegistry, checkout: CheckoutFacts)
   if (entry === undefined) {
     return { ok: false, code: 'TENANT_UNKNOWN', reasons: [`project '${checkout.projectId}' is not in the tenant registry`] };
   }
-  if (checkout.repository === null || checkout.repository.toLowerCase() !== entry.repository.toLowerCase()) {
+  if (checkout.repository === null || asciiLower(checkout.repository) !== asciiLower(entry.repository)) {
     return {
       ok: false,
       code: 'TENANT_MISMATCH',
       reasons: [`project '${entry.projectId}' is registered at ${entry.repository}, and this checkout is ${checkout.repository ?? 'of no readable repository'}`],
+    };
+  }
+  const foreign = registry.projects.find((other) => other !== entry && isAtOrUnder(rootKey(checkout.root), rootKey(other.governedRoot)));
+  if (foreign !== undefined) {
+    return {
+      ok: false,
+      code: 'TENANT_MISMATCH',
+      reasons: [`${checkout.root} is at or under the root of '${foreign.projectId}', so it cannot be '${entry.projectId}', whatever lists it`],
     };
   }
   const via = checkoutRoute(entry, checkout);

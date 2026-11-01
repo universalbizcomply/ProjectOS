@@ -36,8 +36,24 @@ export type KernelEnvironment = (typeof KERNEL_ENVIRONMENTS)[number];
 export const UNREGISTERED_ACTION_CLASS: ActionClass = 'P5';
 export const UNREGISTERED_ACTION_ENVIRONMENT: KernelEnvironment = 'production';
 
-/** The tenant boundary's own two actions. A registry that lost either would hide what they are. */
-export const RESERVED_P5_ACTIONS = ['cross-tenant-access', 'tenant-registry-change'] as const;
+/** The boundary's own actions. A registry that lost one would hide what it is. */
+export const RESERVED_P5_ACTIONS = ['cross-tenant-access', 'tenant-registry-change', 'action-registry-change'] as const;
+
+/**
+ * The Stage 2 boundary crossings, each with the floor ADR-K1 gives it. Each is a ROOT envelope, never a
+ * child (ADR-T1 §8): `checkRunLink` ties it to its run, so it needs no parent.
+ */
+const BOUNDARY_FLOORS: readonly (readonly [string, ActionClass])[] = [
+  ['run-start', 'P2'],
+  ['credential-release', 'P5'],
+  ['broker-call', 'P3'],
+  ['project-selection', 'P1'],
+  ['bridge-read', 'P1'],
+];
+export const BOUNDARY_ACTIONS: readonly string[] = BOUNDARY_FLOORS.map(([action]) => action);
+
+/** Actions that spend. ADR-K1 §2: a missing budget on one of these is a refusal, and zero is missing. */
+export const PAID_ACTIONS = ['broker-call'] as const;
 
 /** The conditionally delegable owner-only actions are P3; the ADR's §4 gives them a technical grant. */
 const OWNER_ONLY_FLOOR: ActionClass = 'P3';
@@ -96,6 +112,11 @@ export function classAtMost(child: string, parent: string): boolean {
   const childAt = (ACTION_CLASSES as readonly string[]).indexOf(child);
   const parentAt = (ACTION_CLASSES as readonly string[]).indexOf(parent);
   return childAt >= 0 && parentAt >= 0 && childAt <= parentAt;
+}
+
+/** Is this a boundary crossing, and so a root envelope? */
+export function isBoundaryAction(action: string): boolean {
+  return BOUNDARY_ACTIONS.includes(action);
 }
 
 /** Could this be an action at all? It goes into a record, so it is one plain word, registered or not. */
@@ -171,7 +192,7 @@ function vocabularyProblems(records: readonly Readonly<Record<string, unknown>>[
   return [
     ...vocabulary('governanceAction', actionsFor('owner'), 'permissions.ts'),
     ...vocabulary('ownerOnlyAction', ALWAYS_OWNER_ONLY, 'ownerOnlyActions.ts'),
-    ...RESERVED_P5_ACTIONS.filter((action) => !ids.includes(action)).map((action) => ({
+    ...[...RESERVED_P5_ACTIONS, ...BOUNDARY_ACTIONS].filter((action) => !ids.includes(action)).map((action) => ({
       code: 'ACTION_REGISTRY_VOCABULARY' as const,
       message: `the reserved action '${action}' is missing`,
     })),
@@ -191,6 +212,7 @@ function floorProblems(record: Readonly<Record<string, unknown>>): readonly Acti
     ...(spellings.some((spelling) => (RESERVED_P5_ACTIONS as readonly string[]).includes(spelling)) && declared !== 'P5'
       ? [{ code: 'ACTION_REGISTRY_CLASS_LOWERED' as const, message: `'${String(record['id'])}' is ${declared}; the tenant boundary's actions are exactly P5` }]
       : []),
+    ...BOUNDARY_FLOORS.filter(([action]) => spellings.includes(action)).flatMap(([, floor]) => lowered(floor, 'it is a boundary action')),
   ];
 }
 

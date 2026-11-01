@@ -62,7 +62,7 @@ describe('the committed action registry', () => {
     expect([entry?.governanceAction, entry?.ownerOnlyAction]).toEqual(['close_phase', 'phase-closure']);
   });
 
-  it.each(['cross-tenant-access', 'tenant-registry-change'])('%s is registered as P5', (action) => {
+  it.each(['cross-tenant-access', 'tenant-registry-change', 'action-registry-change'])('%s is registered as P5', (action) => {
     expect(resolveAction(registry(), action)).toMatchObject({ registered: true, actionClass: 'P5' });
   });
 
@@ -76,6 +76,7 @@ describe('the committed action registry', () => {
     ['commit', 'P3'],
     ['push', 'P3'],
     ['broker-call', 'P3'],
+    ['action-registry-change', 'P5'],
     ['implement', 'P2'],
     ['run-start', 'P2'],
     ['run_validators', 'P1'],
@@ -160,7 +161,7 @@ describe('whole-file validation', () => {
     expect(codes(parseActionRegistry(withExtra({ ...NEW_ACTION, ownerOnlyAction: 'deploy' })))).toEqual(['ACTION_REGISTRY_VOCABULARY']);
   });
 
-  it.each(['cross-tenant-access', 'tenant-registry-change'])('losing the reserved action %s refuses the whole file', (id) => {
+  it.each(['cross-tenant-access', 'tenant-registry-change', 'action-registry-change'])('losing the reserved action %s refuses the whole file', (id) => {
     expect(codes(parseActionRegistry(without(id)))).toEqual(['ACTION_REGISTRY_VOCABULARY']);
   });
 

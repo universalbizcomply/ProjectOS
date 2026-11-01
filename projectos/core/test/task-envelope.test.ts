@@ -71,7 +71,9 @@ function minted(result: EnvelopeResult): TaskEnvelope {
 
 const root = (): TaskEnvelope => minted(mintEnvelope(context(), REQUEST));
 const CHILD_ID = `ENV-${'2'.repeat(24)}`;
-const child = (): TaskEnvelope => ({ ...root(), envelopeId: CHILD_ID, parentEnvelopeId: root().envelopeId });
+/** A plain child: `run-start` is a boundary crossing, so it can never be one itself. */
+const child = (): TaskEnvelope => ({ ...root(), envelopeId: CHILD_ID, parentEnvelopeId: root().envelopeId, action: 'implement' });
+const NO_GRANT = (): boolean => false;
 
 /** The literal field list, so that dropping a field from the code cannot drop it from this proof. */
 const ALL_FIELDS = [
@@ -256,43 +258,51 @@ describe('R2: the kernel derives, and the caller cannot say', () => {
 
 describe('R3: no widening downstream', () => {
   it('an unchanged child passes: the positive control for every refusal below', () => {
-    expect(checkChildEnvelope(root(), child())).toMatchObject({ ok: true });
+    expect(checkChildEnvelope(root(), child(), actions())).toMatchObject({ ok: true });
   });
 
   it.each([
     ['tenant', 'agency-business'],
     ['domain', 'business'],
     ['project', 'seo-agency'],
-    ['environment', 'production'],
+    ['principal', 'owner'],
   ])('a child that changes %s and nothing else is refused, naming it', (field, value) => {
-    const result = checkChildEnvelope(root(), { ...child(), [field]: value });
+    const result = checkChildEnvelope(root(), { ...child(), [field]: value }, actions());
     expect(result).toMatchObject({ ok: false, rule: 'R3' });
     expect(result.ok ? [] : result.reasons).toHaveLength(1);
     expect((result.ok ? [] : result.reasons)[0]).toContain(`child's ${field}`);
   });
 
+  it('a child in another environment than its parent is refused, the label being the registry\'s own', () => {
+    const parent = minted(mintEnvelope(context(), { ...REQUEST, action: 'secrets-handling' }));
+    const other = { ...parent, envelopeId: CHILD_ID, parentEnvelopeId: parent.envelopeId, action: 'payment-or-live-charge', environment: 'production' };
+    const result = checkChildEnvelope(parent, other, actions());
+    expect(result).toMatchObject({ ok: false, rule: 'R3' });
+    expect(result.ok ? [] : result.reasons).toEqual(["the child's environment 'production' is not its parent's 'local'"]);
+  });
+
   it('a child naming the same project and another tenant is refused', () => {
-    const result = checkChildEnvelope(root(), { ...child(), project: root().project, tenant: 'agency-business' });
+    const result = checkChildEnvelope(root(), { ...child(), project: root().project, tenant: 'agency-business' }, actions());
     expect(result).toMatchObject({ ok: false, rule: 'R3' });
   });
 
   it('a child of a different parent is refused', () => {
-    expect(checkChildEnvelope(root(), { ...child(), parentEnvelopeId: `ENV-${'8'.repeat(24)}` })).toMatchObject({ ok: false, rule: 'R3' });
-    expect(checkChildEnvelope(root(), { ...child(), parentEnvelopeId: null })).toMatchObject({ ok: false, rule: 'R3' });
+    expect(checkChildEnvelope(root(), { ...child(), parentEnvelopeId: `ENV-${'8'.repeat(24)}` }, actions())).toMatchObject({ ok: false, rule: 'R3' });
+    expect(checkChildEnvelope(root(), { ...child(), parentEnvelopeId: null }, actions())).toMatchObject({ ok: false, rule: 'R3' });
   });
 
   it('a child may narrow everything that may narrow', () => {
-    const narrow = { ...child(), scope: ['docs/'], budget: 10, expiry: SOONER, actionClass: 'P1' };
-    expect(checkChildEnvelope(root(), narrow)).toMatchObject({ ok: true });
+    const narrow = { ...child(), scope: ['docs/'], budget: 10, expiry: SOONER, action: 'run_validators', actionClass: 'P1' };
+    expect(checkChildEnvelope(root(), narrow, actions())).toMatchObject({ ok: true });
   });
 
   it.each([
     ['scope', { scope: ['docs/', 'projectos/security/'] }, "scope 'projectos/security/'"],
     ['budget', { budget: 5001 }, 'budget'],
     ['expiry', { expiry: '2026-11-01T13:00:00.001Z' }, 'expiry'],
-    ['class', { actionClass: 'P3' }, 'class'],
+    ['class', { action: 'commit', actionClass: 'P3' }, 'class'],
   ])('a child that widens %s is refused, naming it', (_name, change, mention) => {
-    const result = checkChildEnvelope(root(), { ...child(), ...change });
+    const result = checkChildEnvelope(root(), { ...child(), ...change }, actions());
     expect(result).toMatchObject({ ok: false, rule: 'R3' });
     expect(result.ok ? [] : result.reasons).toHaveLength(1);
     expect((result.ok ? [] : result.reasons)[0]).toContain(mention);
@@ -300,12 +310,12 @@ describe('R3: no widening downstream', () => {
 
   it('a malformed child is an R1 refusal, not a pass by omission', () => {
     const { tenant: _tenant, ...rest } = child();
-    expect(checkChildEnvelope(root(), rest)).toMatchObject({ ok: false, rule: 'R1' });
+    expect(checkChildEnvelope(root(), rest, actions())).toMatchObject({ ok: false, rule: 'R1' });
   });
 
   it('a malformed parent is refused', () => {
     const { tenant: _tenant, ...rest } = root();
-    expect(checkChildEnvelope(rest, child())).toMatchObject({ ok: false, rule: 'R1' });
+    expect(checkChildEnvelope(rest, child(), actions())).toMatchObject({ ok: false, rule: 'R1' });
   });
 
   it('a minted child inherits the lineage when it has the same tenant', () => {
@@ -315,13 +325,13 @@ describe('R3: no widening downstream', () => {
   });
 
   it('a second project in the SAME tenant is a different project: refused for project alone', () => {
-    const result = mintEnvelope(context({ binding: projectos(), envelopeId: CHILD_ID }), REQUEST, root());
+    const result = mintEnvelope(context({ binding: projectos(), envelopeId: CHILD_ID }), { ...REQUEST, action: 'implement' }, root());
     expect(result).toMatchObject({ ok: false, rule: 'R3' });
     expect(result.ok ? [] : result.reasons).toEqual(["the child's project 'projectos' is not its parent's 'polygo'"]);
   });
 
   it('a child minted under another tenant binding is refused: cross-tenant work is a new root', () => {
-    const result = mintEnvelope(context({ binding: agency(), envelopeId: CHILD_ID }), REQUEST, root());
+    const result = mintEnvelope(context({ binding: agency(), envelopeId: CHILD_ID }), { ...REQUEST, action: 'implement' }, root());
     expect(result).toMatchObject({ ok: false, rule: 'R3' });
   });
 
@@ -346,7 +356,7 @@ describe('R4: recorded at admission, or it does not run', () => {
 
   it('an admitted envelope is recorded as allowed before the answer returns', () => {
     const { record, lines } = recorder();
-    const result = admitEnvelope(mintEnvelope(context(), REQUEST), NOW, record);
+    const result = admitEnvelope(mintEnvelope(context(), REQUEST), NOW, record, NO_GRANT);
     expect(result).toMatchObject({ admitted: true });
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ stage: 'admission', outcome: 'allowed', at: NOW });
@@ -354,47 +364,47 @@ describe('R4: recorded at admission, or it does not run', () => {
 
   it('nothing is admitted when the line could not be written: the same envelope, a failing port', () => {
     const envelope = mintEnvelope(context(), REQUEST);
-    expect(admitEnvelope(envelope, NOW, () => true)).toMatchObject({ admitted: true });
-    expect(admitEnvelope(envelope, NOW, () => false)).toMatchObject({ admitted: false, rule: 'R4', recorded: false });
+    expect(admitEnvelope(envelope, NOW, () => true, NO_GRANT)).toMatchObject({ admitted: true });
+    expect(admitEnvelope(envelope, NOW, () => false, NO_GRANT)).toMatchObject({ admitted: false, rule: 'R4', recorded: false });
   });
 
   it('a recorder that throws is a recorder that failed, and the throw goes no further', () => {
     const failing = (): boolean => {
       throw new Error('disk full');
     };
-    expect(admitEnvelope(mintEnvelope(context(), REQUEST), NOW, failing)).toMatchObject({ admitted: false, rule: 'R4', recorded: false });
+    expect(admitEnvelope(mintEnvelope(context(), REQUEST), NOW, failing, NO_GRANT)).toMatchObject({ admitted: false, rule: 'R4', recorded: false });
   });
 
   it('a recorder that answers something other than true did not record', () => {
     const vague = (() => undefined) as unknown as (line: EnvelopeRecord) => boolean;
-    expect(admitEnvelope(mintEnvelope(context(), REQUEST), NOW, vague)).toMatchObject({ admitted: false, rule: 'R4' });
+    expect(admitEnvelope(mintEnvelope(context(), REQUEST), NOW, vague, NO_GRANT)).toMatchObject({ admitted: false, rule: 'R4' });
   });
 
   it('a refusal is recorded too, naming its rule', () => {
     const { record, lines } = recorder();
-    const result = admitEnvelope(mintEnvelope(context({ binding: { ...agency() } }), REQUEST), NOW, record);
+    const result = admitEnvelope(mintEnvelope(context({ binding: { ...agency() } }), REQUEST), NOW, record, NO_GRANT);
     expect(result).toMatchObject({ admitted: false, rule: 'R2', recorded: true });
     expect(lines[0]).toMatchObject({ outcome: 'refused', rule: 'R2' });
   });
 
   it('a refusal that cannot be recorded stays a refusal and says so', () => {
-    const result = admitEnvelope(mintEnvelope(context({ binding: { ...agency() } }), REQUEST), NOW, () => false);
+    const result = admitEnvelope(mintEnvelope(context({ binding: { ...agency() } }), REQUEST), NOW, () => false, NO_GRANT);
     expect(result).toMatchObject({ admitted: false, rule: 'R2', recorded: false });
   });
 
-  it('a forged { ok: true } is parsed again at the door', () => {
+  it('a forged { ok: true } is refused at the door and recorded', () => {
     const { record, lines } = recorder();
     const forged = { ok: true, envelope: { tenant: 'agency-business' } } as unknown as EnvelopeResult;
-    expect(admitEnvelope(forged, NOW, record)).toMatchObject({ admitted: false, rule: 'R1' });
-    expect(lines[0]).toMatchObject({ outcome: 'refused', rule: 'R1' });
+    expect(admitEnvelope(forged, NOW, record, NO_GRANT)).toMatchObject({ admitted: false, rule: 'R2' });
+    expect(lines[0]).toMatchObject({ outcome: 'refused', rule: 'R2' });
   });
 
   it('an expired envelope is refused at admission and recorded; one a millisecond earlier is not', () => {
     const { record, lines } = recorder();
     const envelope = mintEnvelope(context(), REQUEST);
-    expect(admitEnvelope(envelope, LATER, record)).toMatchObject({ admitted: false, rule: 'EXPIRED', recorded: true });
+    expect(admitEnvelope(envelope, LATER, record, NO_GRANT)).toMatchObject({ admitted: false, rule: 'EXPIRED', recorded: true });
     expect(lines[0]).toMatchObject({ outcome: 'refused', rule: 'EXPIRED' });
-    expect(admitEnvelope(envelope, '2026-11-01T12:59:59.999Z', record)).toMatchObject({ admitted: true });
+    expect(admitEnvelope(envelope, '2026-11-01T12:59:59.999Z', record, NO_GRANT)).toMatchObject({ admitted: true });
   });
 
   it('an unreadable clock has expired everything', () => {
@@ -402,10 +412,10 @@ describe('R4: recorded at admission, or it does not run', () => {
     expect(envelopeExpired(root(), NOW)).toBe(false);
   });
 
-  it('an unregistered action is admitted at P5, recorded at the class it deserves', () => {
+  it('an unregistered action is recorded at the class it deserves, and refused', () => {
     const { record, lines } = recorder();
-    const result = admitEnvelope(mintEnvelope(context(), { ...REQUEST, action: 'delete-everything' }), NOW, record);
-    expect(result).toMatchObject({ admitted: true });
+    const result = admitEnvelope(mintEnvelope(context(), { ...REQUEST, action: 'delete-everything' }), NOW, record, NO_GRANT);
+    expect(result).toMatchObject({ admitted: false, rule: 'UNREGISTERED_ACTION' });
     expect(lines[0]?.envelope).toMatchObject({ actionClass: 'P5', environment: 'production' });
   });
 
