@@ -63,6 +63,7 @@ const HARNESS_TIMEOUT_MS = 300000;
 const LIVE_APPLIED = {
   [BASE_REL]: "11fc5de040b5025beef5ce5068871709418604ad10be32d5eb4d8f656f42ef4a",
   [TB_REL]: "7d1520b3ee2562be3fede900b83401bfed68141e102bf9bfa6000bdf84e3d4c6",
+  [DEFAULTS_REL]: "094d74db53fff924bc65e2efb02112d7b101821270c438eb29559b6faa1617bf",
   [MEMBERSHIP_REL]: "31d554d0c71afd993d81b5319a17c1339a8f9128eaac92dd4fa675ec4a1a8517",
 };
 
@@ -448,6 +449,7 @@ const MUTATIONS = [
   // TR-36: bytes already applied live
   M("applied-0001-edited", "TR-36", BASE_REL, "set local lock_timeout = '10s';", "set local lock_timeout = '30s';"),
   M("applied-0002-edited", "TR-36", TB_REL, "('owner-personal', 'Owner personal'),", "('owner-personal', 'Owner'),"),
+  M("applied-0003-edited", "TR-36", DEFAULTS_REL, "set local lock_timeout = '10s';", "set local lock_timeout = '30s';"),
   M("applied-membership-edited", "TR-36", MEMBERSHIP_REL, "set local search_path = '';", "set local search_path = 'public';"),
   // TR-37
   M("defaults-not-transactional", "TR-37", DEFAULTS_REL, "\nbegin;\n", "\n"),

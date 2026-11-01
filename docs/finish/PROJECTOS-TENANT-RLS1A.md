@@ -93,8 +93,8 @@ named mutation killed by its own rule.
 | `migrations/0002_tenant_boundary.sql` | `7d1520b3ee2562be3fede900b83401bfed68141e102bf9bfa6000bdf84e3d4c6` |
 | `migrations/0003_default_privileges.sql` | `094d74db53fff924bc65e2efb02112d7b101821270c438eb29559b6faa1617bf` |
 
-`0001`, `0002` and `test/live-owner-membership.sql` are applied live, so rule TR-36 pins their sha256 and any change
-fails the validator. `0003` is not applied yet: check its hash again at the apply.
+`0001`, `0002`, `0003` and `test/live-owner-membership.sql` are applied live, so rule TR-36 pins their sha256 and any
+change fails the validator.
 
 ## 0003: default privileges (owner decision D9, plan v1.29)
 
