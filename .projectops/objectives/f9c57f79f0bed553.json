@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "f9c57f79f0bed553",
+  "objective": "Plan v1.33: four write paths on PROJECTOS-TENANT-PRINCIPAL1A and PROJECTOS-TENANT-CSP1A, named by their independent reviews; no phase, criterion or review changes.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "98852e21c2ccf9c90383d24afdc68c6f35381559",
+  "submittedAt": "2026-11-01T23:40:11.730Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
