@@ -28,7 +28,8 @@
     "Proposed for owner approval (plan v1.24): the independent reviewer reviews by reading only, a refused review names its denial reasons, and a reviewer rejection carries its findings to the gatekeeper, found by the exit proof's second run (owner: \"Yes, run it (Recommended)\"; \"Accept tripwires (Recommended)\").",
     "Proposed for owner approval (plan v1.25): the gatekeeper is told to name every file a correction must touch by its repository-relative path, and the reviewer to cite files that way, found by the exit proof's third run (owner: \"Yes, run it (Recommended)\").",
     "Proposed for owner approval (plan v1.26): PROJECTOS-KERNEL-CORRECTION-PATHS1A also gives an independent reviewer's rejection a fix route — the implementer corrects within the phase's approved writePaths, inside the existing correction budget, and a fresh independent review follows (owner, 2026-10-30, verbatim: \"Claude fixes, re-review (Recommended)\").",
-    "Proposed for owner approval (plan v1.27): PROJECTOS-KERNEL-CORRECTION-PATHS1A rewords the protected rule BC-8n to state the one exception the owner approved (owner, 2026-10-30, verbatim: \"Yes, reword it (Recommended)\")."
+    "Proposed for owner approval (plan v1.27): PROJECTOS-KERNEL-CORRECTION-PATHS1A rewords the protected rule BC-8n to state the one exception the owner approved (owner, 2026-10-30, verbatim: \"Yes, reword it (Recommended)\").",
+    "V4 Stage 2, per docs/changes/delta_spec.md revision 2: the tenant boundary in the database and the kernel, per-tenant credentials, a strict Control Center CSP, and the connector contract with no live connector."
   ],
   "environments": [
     {
@@ -1063,6 +1064,389 @@
       ],
       "requiredReviews": [
         "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-TENANT-CONTRACT1A",
+      "title": "Tenant contract: ADR-T1, registries and pure envelope rules",
+      "description": "V4 Stage 2, per docs/changes/delta_spec.md revision 2, approved by the owner in Plan Mode on 2026-11-01. No envelope exists in code today, so this phase builds it. ADR-T1 states the principal (the Windows operator plus the project the work is bound to; a Supabase identity carries no kernel authority), tenant versus domain, the registry trust basis, the linked-worktree rule, credential classes, and what Stage 2 does not prove. Owner decisions: \"Accept it (Recommended)\" for ADR-K1; \"Agency apart, rest mine (Recommended)\" for the tenant split, with PolyGo listed as the second owner-personal project and its repository untouched.",
+      "scope": "Write ADR-T1; mark ADR-K1 Accepted on the owner's word; add the committed tenant and action registries; add pure core code for tenant, the envelope v2 rules R1 to R5 and the action registry; sync stale docs.",
+      "writePaths": [
+        "docs/adr/ADR-T1-tenant-boundary.md",
+        "docs/adr/ADR-K1-kernel-contract.md",
+        "docs/00_Baseline_State.md",
+        "docs/01_PRD.md",
+        "docs/04_TRD.md",
+        "docs/05_Schema.md",
+        "projectos/security/tenant-registry.json",
+        "projectos/security/action-registry.json",
+        "projectos/security/trust-boundary.json",
+        "projectos/schemas/tenant-registry.schema.json",
+        "projectos/core/src/tenant.ts",
+        "projectos/core/src/taskEnvelope.ts",
+        "projectos/core/src/actionRegistry.ts",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/validators/val-projectos-tenant-contract1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, or any existing authority record.",
+        "Core stays pure: no I/O. No agent, credential or Control Center code is wired in this phase.",
+        "Editing ownerOnlyActions.ts is out of scope: the action registry reads both vocabularies and changes neither."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-EXIT-PROOF1A"
+      ],
+      "acceptanceCriteria": [
+        "ADR-T1 states every limit in the delta section \"What Stage 2 does not prove\", including that a worker can reach any tenant's secrets and files outside the kernel, and the owner's hard rule that no other party's data or credentials go on this machine until Stage 4 isolation and service-held secrets are done.",
+        "The registry binds projectId, repository and governedRoot to a tenant and a domain; a duplicate or wildcard refuses the whole file, tested.",
+        "The action registry names both existing vocabularies, and cross-tenant-access and tenant-registry-change are P5; an unregistered action is P5, tested.",
+        "A missing or unparseable envelope field is refused (R1); a child that changes tenant, domain, project or environment is refused (R3), tested.",
+        "Validator pin and named mutations, each killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-tenant-contract1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "Agency software-architect review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-TENANT-RLS1A",
+      "title": "Supabase tenant boundary, proved locally",
+      "description": "Replace the using(true) policies with tenant-bound access, as forward-only transactional migrations, and prove them on a throwaway local cluster shaped like Supabase. Live facts on 2026-11-01: sign-up was open, and any signed-in account could rewrite every row, so existing rows may be stranger-written. Nothing in the product reads these tables. This phase touches no production system; the live apply is a separate owner act using the exact bytes proved here, after a passed read-only preflight (owner: \"Connect the plugin (Recommended)\").",
+      "scope": "Add baseline and tenant-boundary migrations, a read-only live preflight, a harness with an auth stub, a non-superuser migration owner and the ported privilege gate; retire schema.sql and interactive.sql; remove the dead fetchProjects and its silent seed fallback; correct the false comments.",
+      "writePaths": [
+        "projectos/control-center/supabase/migrations/0001_baseline.sql",
+        "projectos/control-center/supabase/migrations/0002_tenant_boundary.sql",
+        "projectos/control-center/supabase/test/",
+        "projectos/control-center/supabase/schema.sql",
+        "projectos/control-center/supabase/interactive.sql",
+        "projectos/control-center/src/data/supabase.ts",
+        "projectos/control-center/src/data/auth.ts",
+        "projectos/control-center/test/authBootstrap.test.tsx",
+        "projectos/validators/val-projectos-tenant-rls1a.cjs",
+        "docs/05_Schema.md",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, or any existing authority record.",
+        "No connection to the live Supabase project and no production database mutation in this phase.",
+        "projectos/watchdog/** is copied from, never changed."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-EXIT-PROOF1A"
+      ],
+      "acceptanceCriteria": [
+        "Table grants are the first wall: nothing for anon, no TRUNCATE for any client role, and no client update of tenant_id, id or project_id.",
+        "With both tenants seeded, a member sees their own rows (positive control) and none of the other tenant's, in all four tables.",
+        "Every cross-tenant write is refused, including by a user who owns both tenants, and nobody can add themselves to tenant_members.",
+        "anon, an authenticated non-member and null-claims authenticated read nothing.",
+        "The ported privilege gate, judged on effective privileges, reports nothing, and these mutations each fail the harness: using(true); auth.uid() is not null; a to public policy; USAGE on private granted to anon; an added public function.",
+        "Backfill comes from an explicit project-to-tenant map, raises on any unmapped row, and the column has no default; the migration ends with an in-transaction check; both apply twice on a fresh cluster.",
+        "A re-run of the retired SQL files cannot recreate a permissive policy, tested."
+      ],
+      "requiredValidators": [
+        "val-projectos-tenant-rls1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC DATABASE review",
+        "ECC SECURITY review",
+        "Agency ai-generated-code-security-auditor review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-TENANT-PRINCIPAL1A",
+      "title": "Principal: tenant derived and enforced at the kernel's crossing points",
+      "description": "Tenant comes from the committed installation registry for the project the work is bound to, never from worker text, arguments or environment. The envelope is minted where a tenant can be crossed: run start, Control Center project selection and MCP bridge read. It is recorded at admission, and a refusal that cannot be recorded stops the operation, because appendRefusal in mcp/bridge.ts drops silently today. Changing the registry is a P5 action: the owner must have made its last commit. Authorship stays a git name until signed commits exist.",
+      "scope": "Add the committed-bytes registry reader with whole-file validation and the owner-last-commit check; derive tenant in the governed context; mint and record envelopes at the crossing points; add TENANT_UNKNOWN and TENANT_MISMATCH and a read-only tenant show.",
+      "writePaths": [
+        "projectos/agent/src/installation/tenantRegistry.ts",
+        "projectos/agent/src/commands/tenant.ts",
+        "projectos/agent/src/commands/run.ts",
+        "projectos/agent/src/governedContext.ts",
+        "projectos/agent/src/mcp/bridge.ts",
+        "projectos/agent/src/cli.ts",
+        "projectos/agent/test/",
+        "projectos/control-center/sidecar/host.mjs",
+        "projectos/validators/val-projectos-tenant-principal1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, or any existing authority record.",
+        "commands/run.ts gains one entry refusal only; composeGatekeeper and the route logic stay untouched.",
+        "A Supabase login carries no kernel authority anywhere in this phase."
+      ],
+      "dependsOn": [
+        "PROJECTOS-TENANT-CONTRACT1A"
+      ],
+      "acceptanceCriteria": [
+        "A tenant named in agent text, argv or environment changes nothing (R2), tested.",
+        "An unlisted project, a duplicate entry and a registry whose last commit is not the owner's are each refused by name, tested.",
+        "A refusal that cannot be recorded stops the operation, tested.",
+        "With the project check disabled by mutation, a bridge read across tenants is still refused by the tenant rule.",
+        "Linked worktrees follow the ADR-T1 rule, and governed runs still work in one, tested.",
+        "Validator pin and named mutations, each killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-tenant-principal1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "Agency identity-access-engineer review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-TENANT-CREDENTIALS1A",
+      "title": "Per-tenant credentials and the operation-path fix",
+      "description": "The operation path has no real project check today: operation-gate.cjs passes projectId: ref.project, so the vault compares a reference with itself. This phase gives run() and the vault a kernel-minted requester context and refuses plain strings. It adds the tenant class (the reserved project segment tenant.<tenantId>, matched case-insensitively) and the platform class (the gatekeeper key serves every tenant through the broker and is released to none). Each credential declares its reach, so an account-wide token is never projected into another tenant's session. The stored format is unchanged and no secret is re-entered.",
+      "scope": "Add the requester context, credential classes and reach declaration; bind provision, remove and present; make vault audit durable; check tenant at the broker, router and session router; update the credential pins for the new call shape.",
+      "writePaths": [
+        "projectos/credentials/vault.cjs",
+        "projectos/credentials/reference.cjs",
+        "projectos/credentials/operation-gate.cjs",
+        "projectos/credentials/credential-metadata.cjs",
+        "projectos/scripts/projectos-credential-router.cjs",
+        "projectos/session-router/router.cjs",
+        "projectos/session-router/session-profiles.cjs",
+        "projectos/security/gatekeeper-transport-broker.cjs",
+        "projectos/validators/val-projectos-credential-vault1a.cjs",
+        "projectos/validators/val-projectos-credential-router-adversarial1a.cjs",
+        "projectos/validators/val-projectos-session-router1a.cjs",
+        "projectos/validators/val-projectos-tenant-credentials1a.cjs",
+        "projectos/agent/test/",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, or any existing authority record.",
+        "projectos/credentials/windows-credential-store.* is unchanged, and no stored secret is read, moved, rotated or disclosed.",
+        "No existing rule in a credential validator is weakened; those pins change only for the new call shape.",
+        "The installation allowlist is unchanged."
+      ],
+      "dependsOn": [
+        "PROJECTOS-TENANT-PRINCIPAL1A"
+      ],
+      "acceptanceCriteria": [
+        "The operation path refuses a requester outside the reference's project, and that test fails on the code before this phase.",
+        "A plain-string requester is refused; only a kernel-minted context passes, tested.",
+        "A tenant secret is released to a second project in the same tenant (positive control) and refused across tenants; only the tenant rule can decide this.",
+        "A project id starting with tenant., in any case, is refused, and provision, remove and present are bound, tested with synthetic entries.",
+        "The platform credential is released to no tenant session, tested.",
+        "An account-wide token is not projected into another tenant's session, tested.",
+        "Validator pin and named mutations, each killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-tenant-credentials1a",
+        "val-projectos-credential-vault1a",
+        "val-projectos-credential-router-adversarial1a",
+        "val-projectos-session-router1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "Agency secrets-credential-hygiene-engineer review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-TENANT-CSP1A",
+      "title": "Strict Control Center content security policy",
+      "description": "The Control Center has no CSP (csp: null). Owner decision, 2026-11-01: \"Approve strict policy (Recommended)\", with the exact Supabase address and no wildcard, because a wildcard would let injected script post data to any Supabase project. A wrong policy can blank the app, so this is proved in a real app window and not only by reading config. The installed app gets it only when the MSI is next rebuilt.",
+      "scope": "Set the CSP and devCsp, review the window capabilities, tighten style-src if the app runs without unsafe-inline, and prove the app works under the policy in a real webview.",
+      "writePaths": [
+        "projectos/control-center/src-tauri/tauri.conf.json",
+        "projectos/control-center/src-tauri/capabilities/default.json",
+        "projectos/control-center/test/",
+        "projectos/validators/val-projectos-tenant-csp1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, or any existing authority record.",
+        "No MSI build or install is required by this phase; a debug bundle is enough, given the disk space.",
+        "No wildcard host in connect-src, and no unsafe-eval."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-EXIT-PROOF1A"
+      ],
+      "acceptanceCriteria": [
+        "The policy has no wildcard host, no unsafe-eval, and object-src, base-uri, form-action and frame-ancestors are locked.",
+        "In a real webview the app loads, signs in, reaches the sidecar and renders fonts, with no CSP violation in the console.",
+        "A deliberate violation is blocked in that webview, so the proof can fail.",
+        "Validator pin and named mutations, each killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-tenant-csp1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-CONNECTOR-CONTRACT1A",
+      "title": "Connector contract: the rules, with no live connector",
+      "description": "Owner decision, 2026-11-01: \"Rules now, connectors later (Recommended)\". This phase writes what every connector must declare (tenant, scopes, secret reference, data categories, idempotency, last acceptance date), the release gate that blocks an unqualified connector, and the standard execution receipt and error vocabulary, including outcome_unknown. The acceptance scenarios from the blueprint are defined here; cross-tenant denial is proved in Stage 2 and the other eight first run in Stage 5. Task ledger and webhooks stay in Stage 4 and 5; channel adapters stay in Stage 5 onward in the owner's agreed order.",
+      "scope": "Add the connector registry schema, an empty schema-valid registry, the pure contract in core, and a release gate validator.",
+      "writePaths": [
+        "projectos/schemas/connector-registry.schema.json",
+        "projectos/connectors/registry.json",
+        "projectos/core/src/connectorContract.ts",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/validators/val-projectos-connector-contract1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, or any existing authority record.",
+        "Zero live connectors, no external call, no inbound endpoint and no new dependency."
+      ],
+      "dependsOn": [
+        "PROJECTOS-TENANT-CREDENTIALS1A"
+      ],
+      "acceptanceCriteria": [
+        "A connector entry without a tenant, a secret reference or a passing release record is refused, tested.",
+        "A connector's action must exist in the action registry; an unregistered one is P5, tested.",
+        "The error vocabulary distinguishes authentication_required, permission_denied, rate_limited, invalid_input, approval_required, upstream_unavailable and outcome_unknown, and a retry after outcome_unknown is refused until reconciled, tested.",
+        "Validator pin and named mutations, each killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-connector-contract1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "ECC CODE review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-TENANT-EXIT-PROOF1A",
+      "title": "Stage 2 exit proof",
+      "description": "Prove on three real projects that the database and the kernel's own routes each refuse a cross-tenant read: projectos and polygo in owner-personal, seo-agency in agency-business. The same-tenant pair is what lets the proof fail. A proof counts only if removing its rule makes it fail. Spend is $0, so no temporary allowlist entry is needed. The owner's live database apply, with a passed preflight, comes before this phase. This is not a boundary against a hostile worker, and the evidence says so.",
+      "scope": "Run the proofs, record the results, and state what Stage 2 does not prove.",
+      "writePaths": [
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, or any existing authority record.",
+        "Evidence only: no code change, no spend, no allowlist entry, and nothing written to the PolyGo or agency repositories."
+      ],
+      "dependsOn": [
+        "PROJECTOS-TENANT-RLS1A",
+        "PROJECTOS-TENANT-CREDENTIALS1A",
+        "PROJECTOS-TENANT-CSP1A",
+        "PROJECTOS-CONNECTOR-CONTRACT1A"
+      ],
+      "acceptanceCriteria": [
+        "Every database claim in the delta exit proof passes on a throwaway cluster, and each named mutation fails it.",
+        "Live and read-only, after the owner's apply: sign-up disabled, no permissive policy on any public table, tables out of realtime, anon reads nothing.",
+        "Every kernel claim in the delta exit proof passes against the real committed registry, and removing each rule fails it.",
+        "The evidence states each limit in \"What Stage 2 does not prove\"."
+      ],
+      "requiredValidators": [
+        "val-projectos-tenant-contract1a",
+        "val-projectos-tenant-rls1a",
+        "val-projectos-tenant-principal1a",
+        "val-projectos-tenant-credentials1a",
+        "val-projectos-tenant-csp1a",
+        "val-projectos-connector-contract1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC DATABASE review",
         "ECC SECURITY review"
       ]
     }

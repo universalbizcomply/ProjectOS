@@ -291,3 +291,7 @@ Forge, the signed installer, and the Host unattended-review route.
   refusal before any network call (`GKREQ-4bfc24adceb5683ac1d2a326`). It took four runs and three fix phases
   (CODEX-UNC1A, REVIEW-READONLY1A, CORRECTION-PATHS1A). Phase spend $0.0076. TEMPORARY seo-agency allowlist entry removed
   (`381acb1`). Evidence: `docs/finish/PROJECTOS-KERNEL-EXIT-PROOF1A.md`.
+- 2026-11-01: **Stage 2 delta approved** by the owner in Plan Mode (`docs/changes/delta_spec.md` revision 2; six decisions
+  recorded there; v1.17 delta archived). Audit found live Supabase sign-up open (`disable_signup=false`), and no envelope in
+  code. Reviewed before any code: `ecc:database-reviewer`, Agency `identity-access-engineer`. No code written; plan v1.28
+  still needs `plan decide`.
