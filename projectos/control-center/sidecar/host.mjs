@@ -60,7 +60,8 @@ import {
   GOVERNED_PORTFOLIO_MESSAGE_KIND,
   toProjectSummary,
 } from '../node-build/governed/projectInventory.js';
-import { phase as phaseCommand, approve as approveCommand, report as reportCommand, plan as planCommand, nodeSystem as agentSystem, setGovernanceEngines, controlCenterVerbRefusal, controlCenterTenantRefusal, projectSelectionRefusal } from '@projectos/agent';
+import { phase as phaseCommand, approve as approveCommand, report as reportCommand, plan as planCommand, nodeSystem as agentSystem, setGovernanceEngines, controlCenterVerbRefusal } from '@projectos/agent';
+import { controlCenterTenantRefusal, projectSelectionRefusal } from '@projectos/agent';
 import { gitBoundSystem } from './gitBoundSystem.mjs';
 import { startOffLoopCommand } from './offLoopCommand.mjs';
 
