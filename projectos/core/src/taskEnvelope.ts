@@ -15,8 +15,8 @@
  * PROVENANCE IS NOT SHAPE. A full-shape object is not an envelope. `mintEnvelope` and
  * `readmitEnvelope` brand what they return in a private `WeakMap`, and the door takes nothing else, so a
  * caller cannot hand `admitEnvelope` `{ ok: true, envelope: { ...actionClass: 'P1' } }`. Anything read
- * back from disk goes through `readmitEnvelope`, which derives the five facts again and refuses any
- * difference.
+ * back from disk goes through `readmitEnvelope`, which derives the five facts again, holds the rest to
+ * limits the kernel states, and refuses any difference.
  *
  * R3 HAS TWO HALVES. `tenant`, `domain`, `project`, `environment` and `principal` must EQUAL the
  * parent's: a child that moves any of them is crossing a boundary, not narrowing a task. `scope`,
@@ -24,11 +24,11 @@
  * each use starts a new root envelope in the data-owning tenant (ADR-K1 §4).
  *
  * BOUNDARY CROSSINGS ARE ROOTS (ADR-T1 §8). A broker call is not in the environment of the run that made
- * it, so it cannot be its child, and R3 is not loosened to pretend otherwise. `checkRunLink` carries the
- * link instead: same tenant, domain, project and principal, and the run named in the crossing's scope.
+ * it, so it cannot be its child, and R3 is not loosened to pretend otherwise. `mintCrossing` carries the
+ * link instead, and it is not optional: the door refuses `RUN_LINKED_ACTIONS` from anywhere else.
  *
  * THE DOOR GATES THE CLASS. P6 is refused always, P4 has no grant to give (ADR-K1 §4), an unregistered
- * action is refused by name, and P5 needs the grant port to confirm. Which grant answers for P5 is the
+ * action is refused by name, and P3 and P5 need the grant port to confirm. Which grant answers is the
  * port's business; this module only refuses to proceed without one.
  *
  * R4 IS FAIL-CLOSED. An admission that cannot be recorded did not happen. The recorder is a port, so
@@ -49,6 +49,7 @@ import {
   classAtMost,
   isActionName,
   isBoundaryAction,
+  isRunLinkedAction,
   KERNEL_ENVIRONMENTS,
   PAID_ACTIONS,
   resolveAction,
@@ -91,7 +92,7 @@ const ENVELOPE_ID = /^ENV-[0-9a-f]{24}$/;
 /** A git commit, or a SHA-256 of the exact bytes acted on. */
 const SUBJECT_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const IDEMPOTENCY_KEY = /^sha256:[0-9a-f]{64}$/;
-const ACTOR_FIELDS = ['agent', 'provider', 'model'];
+const ACTOR_FIELDS = ['agent', 'provider', 'model'] as const;
 const IDEMPOTENCY_DOMAIN = 'projectos-envelope-idempotency-v2:';
 const RUN_ACTION = 'run-start';
 
@@ -137,7 +138,7 @@ const FIELD_CHECKS: Readonly<Record<keyof TaskEnvelope, (value: unknown) => bool
 
 export const ENVELOPE_FIELDS = Object.keys(FIELD_CHECKS) as readonly (keyof TaskEnvelope)[];
 
-export type EnvelopeRule = 'R1' | 'R2' | 'R3' | 'R4';
+export type EnvelopeRule = 'R1' | 'R2' | 'R3' | 'R4' | 'RUN_LINK' | 'EXPIRED';
 
 export type EnvelopeResult =
   | { readonly ok: true; readonly envelope: TaskEnvelope }
@@ -151,6 +152,8 @@ function refused(rule: EnvelopeRule, reasons: readonly string[]): Extract<Envelo
 interface EnvelopeProvenance {
   readonly registered: boolean;
   readonly via: TenantBinding['via'];
+  /** Only `mintCrossing` sets this, so a persisted crossing comes back without it and is minted again. */
+  readonly runLinked: boolean;
 }
 
 /** Envelopes `mintEnvelope` or `readmitEnvelope` produced. Nothing else passes the door. */
@@ -304,24 +307,48 @@ export function mintEnvelope(context: KernelEnvelopeContext, request: EnvelopeRe
     idempotencyKey: deriveIdempotencyKey({ tenant: binding.tenant, project: binding.projectId, action, subjectHash, intentScope }),
   };
   const result = parent === null ? parseEnvelope(candidate) : checkChildEnvelope(parent, candidate, registry);
-  return branded(result, { registered: resolved.registered, via: binding.via });
+  return branded(result, { registered: resolved.registered, via: binding.via, runLinked: false });
+}
+
+/** What the kernel states about a persisted envelope. Every field is required: none is read from disk. */
+export interface ReadmissionLimits {
+  readonly principal: Role;
+  readonly actor: EnvelopeActor;
+  /** The latest expiry the kernel will honour. An unreadable one refuses. */
+  readonly latestExpiry: string;
+  /** The most the kernel will honour, in micro-USD. A non-integer refuses. */
+  readonly maxBudget: number;
+  readonly now: string;
+}
+
+function limitProblems(envelope: TaskEnvelope, limits: ReadmissionLimits): readonly string[] {
+  const latest = instantOf(limits.latestExpiry);
+  return [
+    ...(envelope.principal === limits.principal ? [] : [`the persisted principal '${envelope.principal}' is not the kernel's '${limits.principal}'`]),
+    ...(ACTOR_FIELDS.every((field) => envelope.actor[field] === limits.actor[field]) ? [] : ['the persisted actor is not the kernel\'s']),
+    ...(Number.isSafeInteger(limits.maxBudget) && envelope.budget <= limits.maxBudget ? [] : [`the persisted budget ${envelope.budget} is above the limit`]),
+    ...(latest !== null && (instantOf(envelope.expiry) as number) <= latest ? [] : [`the persisted expiry ${envelope.expiry} is after the limit`]),
+  ];
 }
 
 /**
  * Bring a persisted envelope back to the door.
  *
- * ITS OWN WORDS COUNT FOR NOTHING. A record on disk is writable, so `tenant`, `domain`, `project`,
- * `environment` and `actionClass` are derived again from a live binding and the registry, and any
- * difference refuses it. An action the registry has since dropped reads as unregistered here, and a
- * class that has since changed refuses.
+ * ITS OWN WORDS COUNT FOR NOTHING. A record on disk is writable, and a readmitted envelope caps its
+ * children, so nothing it says about itself may stand unchecked. `tenant`, `domain`, `project`,
+ * `environment` and `actionClass` are derived again from a live binding and the registry. `principal`
+ * and `actor` must equal what the kernel states, and `budget` and `expiry` must sit within limits it
+ * states. An action the registry has since dropped reads as unregistered here, and a class that has
+ * since changed refuses. A crossing loses its run link, so it is minted again rather than trusted.
  */
-export function readmitEnvelope(raw: unknown, binding: TenantBinding, registry: ActionRegistry): EnvelopeResult {
+export function readmitEnvelope(raw: unknown, binding: TenantBinding, registry: ActionRegistry, limits: ReadmissionLimits): EnvelopeResult {
   if (!isDerivedBinding(binding)) {
     return refused('R2', ['the tenant binding was not produced by resolveTenant, so the tenant is a claim']);
   }
   const parsed = parseEnvelope(raw);
   if (!parsed.ok) return parsed;
   const { envelope } = parsed;
+  if (envelopeExpired(envelope, limits.now)) return refused('EXPIRED', [`the persisted envelope expired at ${envelope.expiry}`]);
   const resolved = resolveAction(registry, envelope.action);
   const derived = {
     tenant: binding.tenant,
@@ -330,45 +357,50 @@ export function readmitEnvelope(raw: unknown, binding: TenantBinding, registry: 
     environment: resolved.environment,
     actionClass: resolved.actionClass,
   } as const;
-  const reasons = (Object.keys(derived) as readonly (keyof typeof derived)[]).flatMap((field) =>
-    envelope[field] === derived[field] ? [] : [`the persisted ${field} '${envelope[field]}' is not the derived '${derived[field]}'`],
-  );
-  return reasons.length > 0 ? refused('R2', reasons) : branded(parsed, { registered: resolved.registered, via: binding.via });
+  const reasons = [
+    ...(Object.keys(derived) as readonly (keyof typeof derived)[]).flatMap((field) =>
+      envelope[field] === derived[field] ? [] : [`the persisted ${field} '${envelope[field]}' is not the derived '${derived[field]}'`],
+    ),
+    ...limitProblems(envelope, limits),
+  ];
+  return reasons.length > 0 ? refused('R2', reasons) : branded(parsed, { registered: resolved.registered, via: binding.via, runLinked: false });
 }
 
 /** The scope entry that ties a boundary crossing to the run it belongs to. */
-export function runLinkScope(runEnvelopeId: string): string {
+function runLinkScope(runEnvelopeId: string): string {
   return `run:${runEnvelopeId}`;
 }
 
-export type RunLinkResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly rule: 'R1' | 'RUN_LINK'; readonly reasons: readonly string[] };
+/** A crossing's request has no scope: `mintCrossing` derives the only one it may have. */
+export type CrossingRequest = Omit<EnvelopeRequest, 'scope'>;
 
 /**
- * Is this boundary crossing part of this run?
+ * Mint a boundary crossing tied to its run. The only route the door accepts for `RUN_LINKED_ACTIONS`.
  *
- * A crossing is a root, so lineage cannot say. This does, without loosening R3: the crossing may be in
- * another environment, and it must still be the same tenant, domain, project and principal, and name
- * the run in its scope, so a credential release can always be traced back to the run that asked.
+ * A crossing is a root, so lineage cannot tie it to a run, and R3 is not loosened to do so: a crossing
+ * may be in another environment. This ties it instead. The run must be branded, unexpired and really a
+ * run, and the crossing must match its tenant, domain, project and principal and stay within its expiry
+ * and budget. The scope is derived here, so a caller cannot add to it, and a credential release can
+ * always be traced back to the run that asked. `now` is passed in because this module has no clock.
  */
-export function checkRunLink(run: unknown, crossing: unknown): RunLinkResult {
-  const parsedRun = parseEnvelope(run);
-  if (!parsedRun.ok) return { ok: false, rule: 'R1', reasons: parsedRun.reasons.map((reason) => `run: ${reason}`) };
-  const parsedCrossing = parseEnvelope(crossing);
-  if (!parsedCrossing.ok) return { ok: false, rule: 'R1', reasons: parsedCrossing.reasons };
-  const up = parsedRun.envelope;
-  const down = parsedCrossing.envelope;
-  const link = runLinkScope(up.envelopeId);
+export function mintCrossing(context: KernelEnvelopeContext, request: CrossingRequest, run: TaskEnvelope, now: string): EnvelopeResult {
+  if (!LIVE_ENVELOPES.has(run)) return refused('RUN_LINK', ['the run was not minted or re-admitted here, so it links nothing']);
+  const { binding, principal } = context;
+  const { action, subjectHash, budget, expiry, intentScope } = request;
+  const bound = { tenant: binding.tenant, domain: binding.domain, project: binding.projectId, principal } as const;
   const reasons: readonly string[] = [
-    ...(up.action === RUN_ACTION ? [] : [`'${up.action}' is not a run`]),
-    ...(down.parentEnvelopeId === null ? [] : ['a boundary crossing is a root envelope, not a child']),
-    ...(['tenant', 'domain', 'project', 'principal'] as const).flatMap((field) =>
-      down[field] === up[field] ? [] : [`the crossing's ${field} '${down[field]}' is not its run's '${up[field]}'`],
+    ...(run.action === RUN_ACTION ? [] : [`'${run.action}' is not a run`]),
+    ...(isRunLinkedAction(action) ? [] : [`'${action}' is not a run-linked action`]),
+    ...(envelopeExpired(run, now) ? [`the run expired at ${run.expiry}`] : []),
+    ...(Object.keys(bound) as readonly (keyof typeof bound)[]).flatMap((field) =>
+      bound[field] === run[field] ? [] : [`the crossing's ${field} '${bound[field]}' is not its run's '${run[field]}'`],
     ),
-    ...(down.scope.includes(link) ? [] : [`the crossing's scope does not name ${link}`]),
+    ...(budget <= run.budget ? [] : [`the crossing's budget ${budget} is above its run's ${run.budget}`]),
+    ...((instantOf(expiry) ?? Number.POSITIVE_INFINITY) <= (instantOf(run.expiry) as number) ? [] : [`the crossing's expiry ${expiry} is after its run's ${run.expiry}`]),
   ];
-  return reasons.length > 0 ? { ok: false, rule: 'RUN_LINK', reasons } : { ok: true };
+  if (reasons.length > 0) return refused('RUN_LINK', reasons);
+  const result = mintEnvelope(context, { action, subjectHash, scope: [runLinkScope(run.envelopeId)], budget, expiry, intentScope });
+  return result.ok ? branded(result, { ...(LIVE_ENVELOPES.get(result.envelope) as EnvelopeProvenance), runLinked: true }) : result;
 }
 
 /** One line of the admission and execution record. Built here, written by the port. */
@@ -382,6 +414,8 @@ export interface EnvelopeRecord {
   readonly registered: boolean | null;
   /** How the checkout was bound, so a linked-worktree admission is visible; `null` as above. */
   readonly via: TenantBinding['via'] | null;
+  /** On an allowed admission line: whether `mintCrossing` tied it to a run. */
+  readonly runLinked?: boolean;
   readonly reasons: readonly string[];
   readonly at: string;
 }
@@ -398,8 +432,9 @@ function recorded(recorder: EnvelopeRecorder, record: EnvelopeRecord): boolean {
 }
 
 /**
- * Is there a grant for this P5 envelope? Answers `true` or it has not granted; a throw is not a grant.
- * Which record answers is the port's business, and CREDENTIALS1A decides that for `credential-release`.
+ * Is there a grant for this P3 or P5 envelope? Answers `true` or it has not granted; a throw is not a
+ * grant. Which record answers is the port's business. For P3 that is the technical gate, wired by later
+ * phases. CREDENTIALS1A decides it for `credential-release`.
  */
 export type EnvelopeGrantPort = (envelope: TaskEnvelope) => boolean;
 
@@ -411,7 +446,7 @@ function granted(grant: EnvelopeGrantPort, envelope: TaskEnvelope): boolean {
   }
 }
 
-export type EnvelopeClassRule = 'P6_PROHIBITED' | 'UNREGISTERED_ACTION' | 'P4_NO_GRANT' | 'P5_NO_GRANT';
+export type EnvelopeClassRule = 'P6_PROHIBITED' | 'UNREGISTERED_ACTION' | 'P4_NO_GRANT' | 'RUN_LINK_REQUIRED' | 'P5_NO_GRANT' | 'P3_NO_GRANT';
 
 interface ClassRefusal {
   readonly rule: EnvelopeClassRule;
@@ -424,7 +459,9 @@ function classRefusal(envelope: TaskEnvelope, provenance: EnvelopeProvenance, gr
   if (actionClass === 'P6') return { rule: 'P6_PROHIBITED', reasons: [`'${action}' is P6: nobody may authorise it, ever`] };
   if (!provenance.registered) return { rule: 'UNREGISTERED_ACTION', reasons: [`'${action}' is not in the action registry`] };
   if (actionClass === 'P4') return { rule: 'P4_NO_GRANT', reasons: [`'${action}' is P4, and no P4 grant exists yet (ADR-K1 §4)`] };
+  if (isRunLinkedAction(action) && !provenance.runLinked) return { rule: 'RUN_LINK_REQUIRED', reasons: [`'${action}' must be minted by mintCrossing, tied to its run`] };
   if (actionClass === 'P5' && !granted(grant, envelope)) return { rule: 'P5_NO_GRANT', reasons: [`'${action}' is P5, and no grant confirms it`] };
+  if (actionClass === 'P3' && !granted(grant, envelope)) return { rule: 'P3_NO_GRANT', reasons: [`'${action}' is P3, and no grant confirms it`] };
   return null;
 }
 
@@ -440,7 +477,7 @@ export type EnvelopeAdmission =
 /**
  * R4: record at admission, refusals included, and only then answer.
  *
- * THIS IS THE DOOR. It takes only what `mintEnvelope` or `readmitEnvelope` branded; `{ ok: true }` is
+ * THIS IS THE DOOR. It takes only what this module branded; `{ ok: true }` is
  * only an object, and a perfect copy is not minted. Then expiry, then the class. Nothing is admitted
  * unless its line was written.
  */

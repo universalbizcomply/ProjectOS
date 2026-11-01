@@ -147,18 +147,24 @@ for it must be decided there. This ADR does not invent one.
 
 `core/src/taskEnvelope.ts` implements R1–R5 as pure rules. The points the code settles:
 
-- **Provenance is not shape.** The door admits only an envelope `mintEnvelope` or `readmitEnvelope`
-  branded. A persisted envelope comes back through `readmitEnvelope`, which derives `tenant`, `domain`,
-  `project`, `environment` and `actionClass` again and refuses any difference.
+- **Provenance is not shape.** The door admits only an envelope this module branded. A persisted envelope
+  comes back through `readmitEnvelope`, which derives `tenant`, `domain`, `project`, `environment` and
+  `actionClass` again, requires `principal` and `actor` to equal what the kernel states, holds `budget` and
+  `expiry` to limits the caller must supply, and refuses a record already expired.
 - **The door gates the class.** P6 is refused always. An unregistered action mints at P5 (R5) and is
-  refused by name, and the attempt is recorded. P4 has no grant to give (ADR-K1 §4). P5 is refused unless
-  the grant port confirms a grant. P3 passes: its grants are decided on the paths that own them.
+  refused by name, and the attempt is recorded. P4 has no grant to give (ADR-K1 §4). P3 and P5 are refused
+  unless the grant port confirms a grant, each by its own named rule, so nothing is admitted silently.
+  **P3's grant source stays the technical gate, wired by later phases.** Until then the port answers for it.
 - **Boundary crossings are roots.** `run-start`, `credential-release`, `broker-call`,
   `project-selection` and `bridge-read` are root envelopes, never children, and R3 is not loosened for
-  them. `checkRunLink` ties a crossing to its run: same `tenant`, `domain`, `project` and `principal`,
-  and `run:<envelopeId>` in its scope, so a credential release can always be traced to the run that asked.
-  So `environment` can be honest: `broker-call` and `push` are `production`, because each reaches something
-  live outside this machine, and `commit` stays `local`. A push is therefore a root too.
+  them. So `environment` can be honest: `broker-call` and `push` are `production`, because each reaches
+  something live outside this machine, and `commit` stays `local`. A push is therefore a root too.
+- **The link to the run is not optional.** `RUN_LINKED_ACTIONS` names `credential-release`, `broker-call`,
+  `commit` and `push`, and the door refuses them unless `mintCrossing` minted them. It requires a branded,
+  unexpired run, the same `tenant`, `domain`, `project` and `principal`, and expiry and budget within the
+  run's, and it derives the single `run:<envelopeId>` in its scope, so a caller can neither supply nor add
+  one, and a credential release can always be traced to the run that asked. A persisted crossing loses
+  its link and is minted again. `run-start`, `project-selection` and `bridge-read` stay plain roots.
 - **Only v2 exists.** ADR-K1 describes v1 for Stage 1, but no v1 envelope was ever built, so there is no
   default to fall back on.
 - **`action` is added to ADR-K1 §2's table, and it is the one addition.** §2 hashes it without listing it,

@@ -41,7 +41,7 @@ export const RESERVED_P5_ACTIONS = ['cross-tenant-access', 'tenant-registry-chan
 
 /**
  * The Stage 2 boundary crossings, each with the floor ADR-K1 gives it. Each is a ROOT envelope, never a
- * child (ADR-T1 §8): `checkRunLink` ties it to its run, so it needs no parent.
+ * child (ADR-T1 §8). Those that act on a run's behalf are in `RUN_LINKED_ACTIONS`.
  */
 const BOUNDARY_FLOORS: readonly (readonly [string, ActionClass])[] = [
   ['run-start', 'P2'],
@@ -51,6 +51,12 @@ const BOUNDARY_FLOORS: readonly (readonly [string, ActionClass])[] = [
   ['bridge-read', 'P1'],
 ];
 export const BOUNDARY_ACTIONS: readonly string[] = BOUNDARY_FLOORS.map(([action]) => action);
+
+/**
+ * Actions that must be tied to a run: the door admits them only from `mintCrossing`, which derives the
+ * link itself. `run-start`, `project-selection` and `bridge-read` are plain roots.
+ */
+export const RUN_LINKED_ACTIONS = ['credential-release', 'broker-call', 'commit', 'push'] as const;
 
 /** Actions that spend. ADR-K1 §2: a missing budget on one of these is a refusal, and zero is missing. */
 export const PAID_ACTIONS = ['broker-call'] as const;
@@ -117,6 +123,11 @@ export function classAtMost(child: string, parent: string): boolean {
 /** Is this a boundary crossing, and so a root envelope? */
 export function isBoundaryAction(action: string): boolean {
   return BOUNDARY_ACTIONS.includes(action);
+}
+
+/** Must this action come from `mintCrossing`? */
+export function isRunLinkedAction(action: string): boolean {
+  return (RUN_LINKED_ACTIONS as readonly string[]).includes(action);
 }
 
 /** Could this be an action at all? It goes into a record, so it is one plain word, registered or not. */

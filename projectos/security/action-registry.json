@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0.0",
   "policy": "action-registry",
-  "note": "The one canonical action registry of ADR-K1 section 1: each action's class and target environment. Callers name an action and read these back; a caller's own label is ignored. An action not listed here is P5 (R5). Each entry names both existing vocabularies: governanceAction from core/src/permissions.ts and ownerOnlyAction from core/src/ownerOnlyActions.ts, null where that vocabulary has no spelling. Neither vocabulary is changed by this file. environment is where the executing capability acts: local when it stays on this machine, production when it reaches something live outside it, such as a third-party API or the shared remote. An action with no capability yet is production, the strictest. The boundary crossings run-start, credential-release, broker-call, project-selection and bridge-read are root envelopes tied to their run by checkRunLink, so R3's environment equality does not bend these values.",
+  "note": "The one canonical action registry of ADR-K1 section 1: each action's class and target environment. Callers name an action and read these back; a caller's own label is ignored. An action not listed here is P5 (R5). Each entry names both existing vocabularies: governanceAction from core/src/permissions.ts and ownerOnlyAction from core/src/ownerOnlyActions.ts, null where that vocabulary has no spelling. Neither vocabulary is changed by this file. environment is where the executing capability acts: local when it stays on this machine, production when it reaches something live outside it, such as a third-party API or the shared remote. An action with no capability yet is production, the strictest. The boundary actions run-start, credential-release, broker-call, project-selection and bridge-read are root envelopes, never children, so R3's environment equality does not bend these values. credential-release, broker-call, commit and push are admitted only from mintCrossing, which ties them to their run.",
   "authority": "owner",
   "authorisedBy": "Murad",
   "provenance": "Transcribed by the implementer (Claude) from ADR-K1 sections 3 and 4, accepted by the owner on 2026-11-01 (D3 'Accept it (Recommended)'), and from the Stage 2 delta the owner approved the same day.",
@@ -125,7 +125,8 @@
       "governanceAction": null,
       "ownerOnlyAction": "commit",
       "class": "P3",
-      "environment": "local"
+      "environment": "local",
+      "note": "Stays on this machine, so local. Admitted only from mintCrossing, tied to its run."
     },
     {
       "id": "push",
@@ -133,7 +134,7 @@
       "ownerOnlyAction": "push",
       "class": "P3",
       "environment": "production",
-      "note": "production because it writes to the shared remote and cannot be taken back from this machine, whereas commit stays local. So a push is never a child of a local run: it is a root envelope, tied to its run by checkRunLink."
+      "note": "production because it writes to the shared remote and cannot be taken back from this machine, whereas commit stays local. So a push is never a child of a local run: it is a root envelope from mintCrossing."
     },
     {
       "id": "secrets-handling",
@@ -163,7 +164,7 @@
       "ownerOnlyAction": null,
       "class": "P5",
       "environment": "local",
-      "note": "ADR-T1: the owner must have made the last commit to projectos/security/tenant-registry.json."
+      "note": "ADR-T1 section 3: changing the tenant registry. An owner-last-commit check cannot tell the owner from an agent, so this protects nothing beyond repo write access until PROJECTOS-TENANT-PRINCIPAL1A adds an owner-only signature or an owner-gate receipt naming the registry blob sha."
     },
     {
       "id": "action-registry-change",
@@ -187,7 +188,7 @@
       "ownerOnlyAction": null,
       "class": "P5",
       "environment": "local",
-      "note": "Stage 2 envelope boundary: the vault releasing a secret for one operation. P5, and OPEN: session release has no owner step today, so its grant source is for the owner to decide at PROJECTOS-TENANT-CREDENTIALS1A (ADR-T1 section 6)."
+      "note": "Stage 2 envelope boundary: the vault releasing a secret for one operation, a root envelope from mintCrossing, tied to its run. P5, and OPEN: session release has no owner step today, so its grant source is for the owner to decide at PROJECTOS-TENANT-CREDENTIALS1A (ADR-T1 section 6)."
     },
     {
       "id": "broker-call",
@@ -195,7 +196,7 @@
       "ownerOnlyAction": null,
       "class": "P3",
       "environment": "production",
-      "note": "Stage 2 envelope boundary: a paid provider call through the trusted broker, a root envelope tied to its run. ADR-K1 section 3 puts paid provider calls at P3. production because it is an outbound call to a live third party, and it sends data there. A zero budget is refused."
+      "note": "Stage 2 envelope boundary: a paid provider call through the trusted broker, a root envelope from mintCrossing, tied to its run. ADR-K1 section 3 puts paid provider calls at P3. production because it is an outbound call to a live third party, and it sends data there. A zero budget is refused."
     },
     {
       "id": "project-selection",
