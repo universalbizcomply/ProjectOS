@@ -6,7 +6,8 @@
   "description": "ProjectOS Control Center — Mission Control desktop UI (Vite + React) over the core, wrapped by Tauri.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json && vite build",
+    "build": "npm --prefix ../core run build && npm run build:renderer && node test/csp-webview/scan-bundle.cjs",
+    "build:renderer": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build:sidecar": "tsc -p tsconfig.node.json",

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Least privilege, PROJECTOS-TENANT-CSP1A: the window listens to the read-only daemon event channel and nothing else. App commands are authorised by their own Rust handlers, not by this list.",
+  "description": "Least privilege, PROJECTOS-TENANT-CSP1A: the window can listen to the read-only daemon event channel and can call no core or plugin command. This list does not gate app commands. Those have no caller check of their own, including set_credential, register_project and import_project_file, so the CSP is the barrier that keeps injected script away from them.",
   "windows": ["main"],
   "permissions": [
     "core:event:allow-listen",

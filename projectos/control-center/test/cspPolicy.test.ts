@@ -95,6 +95,21 @@ describe('the committed policy', () => {
 });
 
 describe('what the frontend needs from the policy and the capability', () => {
+  it('the capability says what is true: commands have no caller check, and the CSP is the barrier', () => {
+    const { description } = JSON.parse(readFileSync(join(CONTROL_CENTER, 'src-tauri', 'capabilities', 'default.json'), 'utf8'));
+    expect(description).not.toContain('authorised by their own Rust handlers');
+    for (const command of ['set_credential', 'register_project', 'import_project_file']) expect(description).toContain(command);
+    expect(description).toContain('the CSP');
+  });
+
+  it('the build rebuilds core first, then scans what it built, so a stale dist cannot reach the bundle', () => {
+    const { scripts } = JSON.parse(readFileSync(join(CONTROL_CENTER, 'package.json'), 'utf8'));
+    const steps = (scripts.build as string).split(' && ');
+    expect(steps).toEqual(['npm --prefix ../core run build', 'npm run build:renderer', 'node test/csp-webview/scan-bundle.cjs']);
+    expect(scripts['build:renderer']).toBe('tsc -p tsconfig.json && vite build');
+    expect(scripts['release:prepare']).toContain('npm run build &&');
+  });
+
   it('the window holds exactly the two event permissions', () => {
     const capability = JSON.parse(readFileSync(join(CONTROL_CENTER, 'src-tauri', 'capabilities', 'default.json'), 'utf8'));
     expect(capability.windows).toEqual(['main']);
@@ -108,12 +123,15 @@ describe('what the frontend needs from the policy and the capability', () => {
   });
 
   it('the frontend has no route that writes inline style or script as markup', () => {
-    const route = /<style[\s>]|dangerouslySetInnerHTML|setAttribute\(\s*['"]style|document\.write|\binsertAdjacentHTML\b|\.innerHTML\s*=|\beval\(|new Function\(/;
+    const route = /<style[\s>]|dangerouslySetInnerHTML|setAttribute\(\s*['"]style|document\.write|\binsertAdjacentHTML\b|\.(?:inner|outer)HTML\s*\+?=|\bsrcdoc\b|\beval\(|new Function\(/;
     expect(SOURCES.filter((text) => route.test(text))).toEqual([]);
   });
 
   it('the frontend opens no connection of its own: Supabase and the IPC are the only callers', () => {
-    expect(SOURCES.filter((text) => /\bfetch\(|new WebSocket\(|new EventSource\(|new XMLHttpRequest\(/.test(text))).toEqual([]);
+    const connection = /\bfetch\(|new WebSocket\(|new EventSource\(|new XMLHttpRequest\(|navigator\.sendBeacon\(|new (?:Shared)?Worker\(|importScripts\(|serviceWorker\.register\(/;
+    expect(SOURCES.filter((text) => connection.test(text))).toEqual([]);
+    const remote = /<(?:img|script|link|iframe|audio|video|source|object|embed)\b[^>]*\b(?:src|href|data|srcSet)=\{?["'`]https?:/;
+    expect(SOURCES.filter((text) => remote.test(text))).toEqual([]);
   });
 });
 

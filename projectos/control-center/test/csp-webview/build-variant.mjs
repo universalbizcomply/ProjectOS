@@ -106,7 +106,9 @@ export function buildVariant(name) {
     npm('build', CORE, base);
   }
   try {
-    npm('build', CONTROL_CENTER, viteEnv);
+    // A control that restores the bug needs the bad bundle, and the build now refuses to make one.
+    if (variant.sourceEdit !== undefined) npm('build:renderer', CONTROL_CENTER, viteEnv);
+    else npm('build', CONTROL_CENTER, viteEnv);
   } finally {
     if (variant.sourceEdit !== undefined) {
       revertSourceEdit(variant.sourceEdit);

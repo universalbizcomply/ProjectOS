@@ -9,12 +9,24 @@
  * val-projectos-tenant-csp1a calls the evidence stale.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { CONTROL_CENTER, committedDevPolicy, committedPolicy, variants } from './variants.mjs';
 import { outcome } from './verdict.mjs';
 
+const { COMMAND_MANIFEST, surfaceHash } = createRequire(import.meta.url)('./frontend-surface.cjs');
+
 export const sha256 = (text) => createHash('sha256').update(text).digest('hex');
+
+const readText = (path) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+
+function sourceFiles(dir) {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    return statSync(path).isDirectory() ? sourceFiles(path) : /\.tsx?$/.test(name) ? [readText(path)] : [];
+  });
+}
 
 /** What the production build is made of. Change one and the build evidence is stale. */
 export const BUILD_SOURCES = [
@@ -90,6 +102,13 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]).endsWith('collect-
     devPolicySha256: sha256(committedDevPolicy()),
     capabilityPermissionsSha256: sha256(JSON.stringify(JSON.parse(capability).permissions)),
     buildSources: Object.fromEntries(BUILD_SOURCES.map((rel) => [rel, source(rel)])),
+    frontendSurfaceSha256: surfaceHash({
+      appRs: readText(join(CONTROL_CENTER, 'src-tauri', 'src', 'app.rs')),
+      sources: sourceFiles(join(CONTROL_CENTER, 'src')),
+      packageJson: readText(join(CONTROL_CENTER, 'package.json')),
+      indexHtml: readText(join(CONTROL_CENTER, 'index.html')),
+    }),
+    commandManifest: COMMAND_MANIFEST,
     build: JSON.parse(readFileSync(join(dir, 'build.json'), 'utf8')),
     earlierLiveSignIn: earlier.earlierLiveSignIn ?? null,
     runs,
