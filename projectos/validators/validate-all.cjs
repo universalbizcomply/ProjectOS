@@ -149,7 +149,9 @@ const MODULES = [
   // PROJECTOS-PORT-SKILLS1A — skill rules: an agent only proposes; a validator pass, an independent review and a hash pin promote.
   "val-projectos-port-skills1a",
   // PROJECTOS-PORT-CONTEXT1A — context accounting and compaction: decisions kept, source text stays untrusted.
-  "val-projectos-port-context1a"
+  "val-projectos-port-context1a",
+  // PROJECTOS-TENANT-PRINCIPAL1A — the tenant read from committed bytes and minted at real crossings.
+  "val-projectos-tenant-principal1a"
 ];
 
 // RETIRED: validator files that are deliberately NOT run by this suite, each with its recorded reason.
