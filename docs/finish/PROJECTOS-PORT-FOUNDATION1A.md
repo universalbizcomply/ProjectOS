@@ -15,7 +15,7 @@ This phase ports no upstream code. Nothing was run from a vendor folder.
 |---|---|---|
 | Notices | `THIRD_PARTY_NOTICES` | Entry format, five approved sources, the Pi / pi-mono note, an empty PORTED FILES section |
 | Decision | `docs/adr/ADR-P1-port-ownership-and-credit.md` | Written. Status: Proposed, with the owner's approval of the delta stated |
-| Validator | `projectos/validators/val-projectos-port-credit1a.cjs` | 23 rules, 125 fixture and 57 record mutations; registered in both runners |
+| Validator | `projectos/validators/val-projectos-port-credit1a.cjs` | 25 rules, 128 fixture and 58 record mutations; registered in both runners |
 | Records | ADR-S1, ADR-S2, `docs/recon/V4_Capability_Recon.md` | ADOPT recorded as superseding, in the owner's words, with the history kept |
 | Port map | `docs/recon/V4_Port_Map.md` | §1 re-pinned, downloads named, PolyForm warning, changed OpenBot file noted, §2 and §7 updated, `isl-openbot` marked not approved |
 | Plan | `docs/06_Plan.md` | Stages 3 and 4 expanded with phases 3.5 to 3.10 and 4.4 to 4.9. Nothing ticked, Log untouched |
@@ -24,11 +24,11 @@ This phase ports no upstream code. Nothing was run from a vendor folder.
 
 | Criterion | Evidence |
 |---|---|
-| ADR-P1 states the owner's rule in the owner's words, what the owner may claim and what must be credited, the Apache-2.0 duties, and that a credit does not license non-commercial code | §1 to §5. PC-18 pins each, with 25 record mutations |
+| ADR-P1 states the owner's rule in the owner's words, what the owner may claim and what must be credited, the Apache-2.0 duties, and that a credit does not license non-commercial code | §1 to §5. PC-18 pins each, with 26 record mutations |
 | A ported file with no header, no notices entry, an unknown source, or a source outside the approved list is refused by name, tested | PC-1, PC-5 and PC-3, with fixture mutations for each, plus a positive control |
 | nightly-labs/openbot and any PolyForm source are refused by name, tested | PC-2, 19 fixture mutations, including punctuation, tab, no-break space, U+2011, zero-width and full-width spellings, split words, a short sha, and LobeHub |
 | ADR-S1, ADR-S2 and the capability recon no longer say code is never copied, and they cite the owner's decision | PC-19, 15 record mutations, including one per record that says code is never copied |
-| Validator pin and named mutations, each killed by its own rule | 182 named mutations. A fixture mutation counts only when exactly its named rule fires, plus any rule declared as also true of it |
+| Validator pin and named mutations, each killed by its own rule | 186 named mutations. A fixture mutation counts only when exactly its named rule fires, plus any rule declared as also true of it |
 
 ## Sources checked
 
@@ -60,14 +60,15 @@ Licence text was copied by script from each project's own `LICENSE` file, so non
 `node projectos/validators/val-projectos-port-credit1a.cjs`:
 
 ```text
-val-projectos-port-credit1a: PASS (0 real file(s) judged; 125 fixture and 57 record mutations killed)
+val-projectos-port-credit1a: PASS (0 real file(s) judged; 128 fixture and 58 record mutations killed)
 ```
 
 **The "0 real files" is deliberate and is not the proof.** The port directories hold nothing yet. `selfTest` always
 runs, and writes its fixtures to one scratch directory, removed in a `finally`.
 
 **Removing each rule.** A scratchpad harness, not committed, removed each rule body from an in-memory copy of the
-validator and ran it against the real records. Result: 70 removals, 70 failed as they must, across 6 shards. Each removal made the run fail, naming that rule. It also
+validator and ran it against the real records. Result: 70 removals, 70 failed as they must, across 6 shards, before PC-24 and PC-25 were added. Those two had 6 targeted
+removals afterwards, and all 6 failed by name. Each removal made the run fail, naming that rule. It also
 made the validator refuse everything, which the positive control caught, and refuse nothing, which the mutations caught.
 
 **What the removals found.** An earlier harness run had two real survivors. Removing the climb check on an entry changed
@@ -157,6 +158,25 @@ loosened. The key stays full path, source and source path, and three mutations p
   string. The cheapest fix is for that validator to build the line from parts. Exempting port validators here would be
   a wider rule, and that is the lead's call.
 
+### PC-24 and PC-25: a port file git never saw
+
+PORT-SEARCH1A's `projectos/core/src/search/tokenize.ts` was never committed. The root `.gitignore` rule `*token*` hid it,
+so tests and validators passed on disk while a clean checkout failed to compile. `*token*` is a secret guard and stays.
+
+- **PC-24, not tracked.** Every file judged in a port directory must be tracked by git.
+- **PC-25, git-ignored.** A file there that matches an ignore rule is refused by name. That includes a force-added file,
+  because ADR-P1 §7 says a file a port needs must not match an ignore rule. The file takes another name.
+
+The tests came first. The six new proofs failed with nothing firing, and the committed-file control passed. After the
+rules, all pass. `ignoreProofs` runs in a real temporary repository with a `*token*` rule: a committed file passes, an
+untracked file is PC-24, an ignored `tokenize.ts` is PC-25, and the same file force-added is PC-25.
+
+**Against the real defect, read-only.** Judging `port-search1a` at `8b1efbf3` gives
+`PC-25 git-ignored: projectos/core/src/search/tokenize.ts`. That phase must rename the file.
+
+**A consequence for builders.** A new file in a port directory fails PC-24 until it is at least `git add`ed, because the
+index is what counts. This validator should run after staging.
+
 ### Item 11: the delta is refused
 
 `docs/changes/delta_spec_V4_PORTS.md` is not in this phase's write paths, and it is a document the owner approved. A
@@ -196,4 +216,5 @@ which was extended.
 - `06226536` docs(recon): record ADOPT as superseding and re-pin the port sources
 - `44e7ef2c` docs(finish): PROJECTOS-PORT-FOUNDATION1A evidence
 - `5a70d168` fix(validators): answer the port credit review round
-- The evidence commit that adds this review round.
+- `1ceea0b7` docs(finish): PROJECTOS-PORT-FOUNDATION1A review round evidence
+- The commit that adds PC-24 and PC-25.

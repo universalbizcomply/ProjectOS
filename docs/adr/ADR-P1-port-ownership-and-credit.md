@@ -137,6 +137,10 @@ A format with no comment syntax, such as JSON, cannot carry either mark, so it d
 - `projectos/agent/src/memory/`
 - `projectos/agent/src/skills/`
 
+Every file in these directories must be tracked by git. A file a port needs must not match an ignore rule. An ignored
+file passes every check on disk and is missing from a clean checkout, and force-adding it does not help the next
+person, so the file takes another name. `.gitignore` is not changed to suit it: `*token*` is a secret guard.
+
 **Test directories.** Most files here are ours and carry no mark. A file is judged only once it shows an upstream mark,
 and then it needs a header and an entry like any other:
 

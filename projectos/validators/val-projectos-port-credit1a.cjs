@@ -29,6 +29,8 @@
  *   PC-21 "register it later"                       — and nothing ever runs this file
  *   PC-22 "the file was rewritten, so it is ours"   — and a header and its entry vanish together
  *   PC-23 "it is only a helper, it can live there"  — and a port lands outside every directory judged here
+ *   PC-24 "it is on disk, so it is in the phase"    — and every check passes for a file nobody committed
+ *   PC-25 "the tests pass here"                     — and an ignore rule keeps the file out of every clean checkout
  *
  * AN EMPTY TREE PROVES NOTHING. The port directories hold no file today, so a pass over the real tree is
  * vacuous. `selfTest` therefore always runs: every rule is proved against fixture files in one temp directory,
@@ -201,6 +203,8 @@ const RULE_NAMES = {
   "PC-21": "not registered",
   "PC-22": "header lost",
   "PC-23": "upstream mark outside the port directories",
+  "PC-24": "not tracked",
+  "PC-25": "git-ignored",
 };
 
 const refusal = (code, file, message) => ({ code, file, message: `${code} ${RULE_NAMES[code]}: ${file}: ${message}` });
@@ -547,6 +551,16 @@ function strayMarkProblems(root, records, ctx) {
   });
 }
 
+/** A port that is only on disk passes here and fails in a clean checkout. An ignore rule does that silently. */
+function trackingProblems(found, ctx) {
+  return found.flatMap((rel) => {
+    if (ctx.ignored.includes(rel)) {
+      return [refusal("PC-25", rel, "a git ignore rule matches it, so it is missing from a clean checkout. Give the file another name, and leave the ignore rule alone")];
+    }
+    return ctx.tracked.includes(rel) ? [] : [refusal("PC-24", rel, "it is not tracked by git, so it is missing from a clean checkout")];
+  });
+}
+
 function judgeRoot(root, ctx) {
   const noticesAbs = path.join(root, NOTICES_REL);
   if (!fs.existsSync(noticesAbs)) {
@@ -561,6 +575,7 @@ function judgeRoot(root, ctx) {
       ...noticesProblems(text, records, root, ctx),
       ...strange.map((rel) => refusal("PC-13", rel, "it is a link or a device, so it cannot be judged")),
       ...found.flatMap((rel) => judgeFile(rel, fs.readFileSync(absOf(root, rel), "utf8"), records, ctx)),
+      ...trackingProblems(found, ctx),
       ...strayMarkProblems(root, records, ctx),
     ],
   };
@@ -571,9 +586,13 @@ function gitFacts(root) {
   const git = (...args) => spawnSync("git", ["-C", root, "-c", "core.quotepath=off", ...args], { encoding: "utf8", maxBuffer: 1 << 28 });
   const tracked = git("ls-files", "-z");
   const history = git("log", "--full-history", "--no-color", "--no-ext-diff", "--format=", "-p", "--", NOTICES_REL);
-  if (tracked.status !== 0 || history.status !== 0) return null;
+  const ignoredOff = git("ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", ...PORT_DIRS);
+  const ignoredOn = git("ls-files", "-z", "--cached", "--ignored", "--exclude-standard", "--", ...PORT_DIRS);
+  if ([tracked, history, ignoredOff, ignoredOn].some((result) => result.status !== 0)) return null;
+  const listed = (result) => result.stdout.split("\0").filter((rel) => rel !== "");
   return {
-    tracked: tracked.stdout.split("\0").filter((rel) => rel !== ""),
+    tracked: listed(tracked),
+    ignored: [...listed(ignoredOff), ...listed(ignoredOn)],
     recordedEver: [...history.stdout.matchAll(/^\+ENTRY: (\S+)\r?$/gm)].map((m) => m[1]),
   };
 }
@@ -601,6 +620,7 @@ const ADR_P_PINS = {
   "Apache-2.0 section 6": "| §6 | No right to the licensor's names or marks |",
   "the non-commercial rule": "A credit does not license non-commercial code.",
   "the header rule": "A header is never dropped by line count or by a rewrite claim.",
+  "the ignore rule": "A file a port needs must not match an ignore rule.",
   "the limit on Source-Path": "Whether a `Source-Path` exists at the pin.",
   "the limit on shipping": "Shipping the notices with the product.",
   "the limit on per-file licences": "Per-file licences inside a source.",
@@ -786,7 +806,8 @@ const FIXTURE_ENTRIES =
   entryOf(TWO_PATHS, "openclaw", COERCE_SOURCE);
 const FIXTURE_FACTS = {
   sources: SOURCES,
-  tracked: [TEST_FILE, PLAIN, FIXTURE_OWNER_RECORD, FIXTURE_REJECTED, FIXTURE_OTHER, FIXTURE_NOTE],
+  tracked: Object.keys(fixtureFiles()),
+  ignored: [],
   recordedEver: [...FIXTURE_PORTS.map((p) => p.rel), KEPT, TWO, TWO_PATHS],
 };
 const REPINNED = { ...SOURCES, openclaw: { ...OPENCLAW, sha: NEW_PIN, earlierPins: [OPENCLAW.sha] } };
@@ -978,6 +999,11 @@ const FIXTURE_MUTATIONS = [
   W("an-upstream-copyright-outside-the-port-directories-passes", "PC-23", "projectos/agent/src/loop/other.cjs", `// ${OPENCLAW.copyright}\n${BODY}`, [], { tracked: [...FIXTURE_FACTS.tracked, "projectos/agent/src/loop/other.cjs"] }),
   W("a-test-file-with-upstream-marks-and-no-header-passes", "PC-1", "projectos/agent/test/other.test.ts", `// ${OPENCLAW.copyright}\n${BODY}`, [], { tracked: [...FIXTURE_FACTS.tracked, "projectos/agent/test/other.test.ts"] }),
 
+  // PC-24 and PC-25: what passes on disk and is missing from a clean checkout. `gitProofs` repeats these in a real repository.
+  W("an-untracked-port-file-passes", "PC-24", "projectos/core/src/search/fresh.ts", MARK_LINE + BODY, [], { untracked: true }),
+  W("a-git-ignored-port-file-passes", "PC-25", "projectos/core/src/search/tokenizer.ts", MARK_LINE + BODY, [], { untracked: true, ignored: ["projectos/core/src/search/tokenizer.ts"] }),
+  W("a-force-added-file-matching-an-ignore-rule-passes", "PC-25", "projectos/core/src/search/tokenizer.ts", MARK_LINE + BODY, [], { ignored: ["projectos/core/src/search/tokenizer.ts"] }),
+
   // A line of whitespace that a backtracking pattern never finishes. There is no clock here: such a pattern hangs.
   W("a-long-comment-line-stalls-the-judge", null, "projectos/core/src/context/long.ts", `${MARK_LINE}//${" ".repeat(200000)}x${" ".repeat(200000)}\n${BODY}`),
 ];
@@ -1004,6 +1030,7 @@ const RECORD_MUTATIONS = [
   R("adr-loses-apache-6", "PC-18", ADR_P_REL, "| §6 | No right to the licensor's names or marks |", "| §6 | |"),
   R("adr-lets-a-credit-license-non-commercial-code", "PC-18", ADR_P_REL, "A credit does not license non-commercial code. It meets", "A credit is enough. It meets"),
   R("adr-loses-the-header-rule", "PC-18", ADR_P_REL, "A header is never dropped by line count or by a rewrite claim.", "A rewritten file needs no header."),
+  R("adr-loses-the-ignore-rule", "PC-18", ADR_P_REL, "A file a port needs must not match an ignore rule.", "Ignore rules are a matter for the builder."),
   R("adr-loses-the-limit-on-source-path", "PC-18", ADR_P_REL, "Whether a `Source-Path` exists at the pin.", "Everything else."),
   R("adr-loses-the-limit-on-shipping", "PC-18", ADR_P_REL, "Shipping the notices with the product.", "Everything else."),
   R("adr-loses-the-limit-on-per-file-licences", "PC-18", ADR_P_REL, "Per-file licences inside a source.", "Everything else."),
@@ -1060,7 +1087,12 @@ function firedBy(dir, m, base) {
     const current = fs.readFileSync(noticesAbs, "utf8");
     fs.writeFileSync(noticesAbs, current.replace(m.notices[0], m.notices[1]));
   }
-  const ctx = { ...FIXTURE_FACTS, ...(m.sources === undefined ? {} : { sources: m.sources }), ...(m.tracked === undefined ? {} : { tracked: m.tracked }) };
+  const ctx = {
+    ...FIXTURE_FACTS,
+    ...(m.sources === undefined ? {} : { sources: m.sources }),
+    tracked: [...(m.tracked ?? FIXTURE_FACTS.tracked), ...(m.untracked ? [] : [m.rel])],
+    ignored: m.ignored ?? [],
+  };
   const { refusals } = judgeRoot(dir, ctx);
   if (m.link || m.write !== undefined) fs.rmSync(abs, { force: true });
   else fs.writeFileSync(abs, base[m.rel]);
@@ -1100,6 +1132,40 @@ function gitProofs(dir) {
   ];
 }
 
+/**
+ * The defect itself, in a real repository: an ignored file that every check on disk accepts. `*token*` is the rule
+ * that hid a real port file. The positive control is a committed file, so a refusal below is not a refusal of anything.
+ */
+function ignoreProofs(dir, noticesText) {
+  const repo = path.join(dir, "ignored");
+  const port = path.join(repo, "projectos", "core", "src", "search");
+  fs.mkdirSync(port, { recursive: true });
+  const git = (...args) => spawnSync("git", ["-C", repo, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", ...args], { encoding: "utf8" });
+  const notices = noticesText.slice(0, `\n${noticesText}`.indexOf(`\n${PORTED_FILES_HEADING}`)) + PORTED_FILES_HEADING;
+  const write = (name) => fs.writeFileSync(path.join(port, name), MARK_LINE + BODY);
+  fs.writeFileSync(path.join(repo, NOTICES_REL), notices);
+  fs.writeFileSync(path.join(repo, ".gitignore"), "*token*\n");
+  write("committed.ts");
+  git("init", "-q");
+  git("add", ".");
+  git("update-ref", "HEAD", git("commit-tree", git("write-tree").stdout.trim(), "-m", "fixture").stdout.trim());
+
+  const judged = () => judgeRoot(repo, { sources: SOURCES, ...gitFacts(repo) });
+  const cases = [
+    { name: "a-committed-port-file-is-refused", file: null, rule: null, before: () => {} },
+    { name: "an-untracked-file-passes-in-a-real-repository", file: "fresh.ts", rule: "PC-24", before: () => write("fresh.ts") },
+    { name: "an-ignored-file-passes-in-a-real-repository", file: "tokenize.ts", rule: "PC-25", before: () => { fs.rmSync(path.join(port, "fresh.ts")); write("tokenize.ts"); } },
+    { name: "a-force-added-file-passes-in-a-real-repository", file: "tokenize.ts", rule: "PC-25", before: () => git("add", "-f", "--", "projectos/core/src/search/tokenize.ts") },
+  ];
+  return cases.flatMap(({ name, file, rule, before }) => {
+    before();
+    const { refusals } = judged();
+    const named = file === null ? true : refusals.some((r) => r.file === `projectos/core/src/search/${file}`);
+    const fired = refusals.map((r) => r.code).join(", ");
+    return fired === (rule ?? "") && named ? [] : [`PC-M: real repository proof '${name}' wanted ${rule ?? "nothing"} and fired ${fired || "nothing"}`];
+  });
+}
+
 function fixtureProofs(dir, base) {
   const errors = [];
   for (const [rel, text] of Object.entries(base)) {
@@ -1117,7 +1183,7 @@ function fixtureProofs(dir, base) {
   }
   if (errors.length > 0) return errors;
 
-  errors.push(...gitProofs(dir));
+  errors.push(...gitProofs(dir), ...ignoreProofs(dir, base[NOTICES_REL]));
 
   for (const m of FIXTURE_MUTATIONS) {
     if (!applies(m, base)) {
