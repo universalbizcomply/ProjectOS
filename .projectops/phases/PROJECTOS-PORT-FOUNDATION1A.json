@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-PORT-FOUNDATION1A",
+  "project": "ProjectOS",
+  "objective": "First phase of docs/changes/delta_spec_V4_PORTS.md, approved by the owner on 2026-11-01 (\"Approved\"). Owner's rule: \"i want to claim it's mine with giving credits to the due\". ProjectOS is the owner's product and upstream code keeps its credit. This phase builds what makes that enforceable: the notices file, a per-file header, and a validator that refuses a ported file with no recorded source, or any file taken from a non-commercial source. It also brings the older records into line with the owner's ADOPT decision of 2026-10-29.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:03.913Z",
+      "note": "Owner-approved plans v1.30 to v1.32. Implemented by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:04.526Z",
+      "note": "credit system: THIRD_PARTY_NOTICES, ADR-P1, val-projectos-port-credit1a"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:05.088Z",
+      "note": "core 1856/1856, agent 3056/3056, control-center 890/890 at cf5a316d with normal package resolution. validate-all 159/161 at cf5a316d, the 2 failures being validate-desktop-e2e (needs a built bundle; the build itself was broken since 2026-09-25 and is repaired in TENANT-CSP1A) and val-cd-b4-sealed-expected-window-facts1a."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:05.676Z",
+      "note": "Evidence: docs/finish/PROJECTOS-PORT-FOUNDATION1A.md (cf5a316d)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:06.258Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (APPROVE WITH CHANGES; recheck: items closed, three new findings fixed in a final bounded round the lead read as a stat and through three ports passing unmodified, not re-reviewed); Agency software-architect review (APPROVE WITH CHANGES, F1-F6 fixed)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:06.794Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
