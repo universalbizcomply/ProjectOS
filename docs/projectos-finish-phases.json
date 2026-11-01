@@ -1324,6 +1324,10 @@
       "writePaths": [
         "projectos/control-center/src-tauri/tauri.conf.json",
         "projectos/control-center/src-tauri/capabilities/default.json",
+        "projectos/control-center/vite.config.ts",
+        "projectos/control-center/src/shims/",
+        "projectos/core/src/hostReviewWire.ts",
+        "projectos/core/test/",
         "projectos/control-center/test/",
         "projectos/validators/val-projectos-tenant-csp1a.cjs",
         "projectos/validators/validate-all.cjs",
@@ -1343,6 +1347,7 @@
         "The policy has no wildcard host, no unsafe-eval, and object-src, base-uri, form-action and frame-ancestors are locked.",
         "In a real webview the app loads, signs in, reaches the sidecar and renders fonts, with no CSP violation in the console.",
         "A deliberate violation is blocked in that webview, so the proof can fail.",
+        "The production build succeeds from a clean checkout with no proof-only shim, and the built app is not blank; found by this phase, broken since 2026-09-25 and hidden by a known-failure label.",
         "Validator pin and named mutations, each killed by its own rule."
       ],
       "requiredValidators": [
