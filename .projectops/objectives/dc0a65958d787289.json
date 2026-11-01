@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "dc0a65958d787289",
+  "objective": "Plan v1.31: a write-path repair only. The notices file path in the six port phases gains its leading ./ as the grant rule requires; no phase, criterion or review changes.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "fff9d6d66cab1d35a3a246932544fe8b34dbac67",
+  "submittedAt": "2026-11-01T20:35:18.984Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
