@@ -350,3 +350,6 @@ Forge, the signed installer, and the Host unattended-review route.
 - 2026-11-01: `docs/changes/delta_spec_V4_PORTS.md` written, PROPOSED, for the owner's approval (owner: "Yes, write the port plan"
   and "i want to claim it's mine with giving credits to the due"). The owner's fresh downloads are pinned there. nightly-labs/openbot is
   PolyForm Noncommercial, so it is never a code source; its features are built from MIT sources and our own code.
+- 2026-11-01: the port delta approved ("Approved"). Plans v1.30 to v1.32 (`25f431a0`, `b0768486`, `14fa45b8`) added the six port phases, a write-path repair, and a Control Center build repair. Owner: "Now use as many as agents possible to complete this project" and "You have full authority".
+- 2026-11-01: PORT-FOUNDATION1A, SEARCH1A, MEMORY1A and APPROVALS1A **CLOSED** owner-direct on that grant, evidence subject `cf5a316d`, `06dc092d`, plan v1.32 28/35. core 1856, agent 3056, control-center 890, validate-all 159/161. None of the ported code is wired into a route yet. Reviews found real defects, fixed: a source file hidden by `.gitignore`, an approval replay, terminal escapes passing a threat scan.
+- 2026-11-01: the Control Center production build has failed since 2026-09-25, hidden behind a known-failure label for `validate-desktop-e2e`. Found by TENANT-CSP1A, repaired there, not yet closed.
