@@ -122,7 +122,7 @@ it is read as ours. Without it, an upstream `SPDX-License-Identifier` line reads
 ```
 
 The mark names no company, because the legal holder is still open (§9). A file with this mark may not carry a
-copyright line, a licence identifier, licence text, or an upstream name or URL.
+copyright line, a licence identifier, licence text or an upstream URL. Naming a project in a comment is fine.
 
 A format with no comment syntax, such as JSON, cannot carry either mark, so it does not belong in a port directory.
 
@@ -150,10 +150,19 @@ and then it needs a header and an entry like any other:
 Outside these directories, tracked source carries no `Ported-From:` line and no upstream copyright line. Adding a port
 directory is a listed, reviewed change, made here and in the validator together.
 
+**Quoting a mark.** A port's own proofs may need to quote what they pin. Two kinds of file may do that, inside a string
+or a regular expression only:
+
+- a port validator on the list in `val-projectos-port-credit1a.cjs`, which also exports `SOURCES` to import instead;
+- a file in a test directory that opens with `// Credit-Fixture: quotes upstream marks as test data`.
+
+A mark in a comment is never covered by this.
+
 **Removing a recorded header.** The entry is replaced by a `REMOVED` record pointing at a committed
-`.projectops/plan-decisions/PLANDEC-*.json` that approves it, was decided by the owner, and names the path. The validator
-reads every path ever entered from the history of `THIRD_PARTY_NOTICES`, so a header and its entry cannot vanish in one
-commit.
+`.projectops/plan-decisions/PLANDEC-*.json` that approves it, was decided by the owner, and names the path. It must have
+the shape `projectos plan decide` writes: `recordedBy`, a `decisionId` equal to its file name, and a `planDigest`. The
+validator reads every path ever entered from the history of `THIRD_PARTY_NOTICES`, so a header and its entry cannot
+vanish in one commit.
 
 ## 8. What enforces this, and what does not
 
@@ -189,6 +198,8 @@ files in a temporary directory, with a positive control that a correct file pass
   own, which is why `isl-openbot` is left out. Each port reads the header of the file it takes.
 - **OpenClaw's own notice entries.** They are not carried wholesale. SQLite and GitHub Octicons need a credit only if a
   port takes that code, and Hermes only for the file OpenClaw says came from it.
+- **A forged owner record.** The shape is checked and the record is unsigned, so a careful hand-written file still
+  passes. The check stops a casual one. Signed commits for authority paths are plan item 1.7.
 - **A rewrite under a new path.** A recorded path is tracked, not its content. A similarity check could help: it is
   feasible hash-only, and it would be advisory, not a gate.
 - **Refused behaviour.** The delta's refused list, such as `tools/approval_smart.py`, is a matter for each port's

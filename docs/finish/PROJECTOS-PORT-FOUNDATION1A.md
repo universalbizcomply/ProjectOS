@@ -4,7 +4,7 @@
 **Branch:** `projectos-port-foundation1a`, worktree `C:/dev/ProjectOS-worktrees/port-foundation1a`, based on `b0768486`.
 Not pushed, not merged, phase not closed, no phase record created.
 **State:** implementation complete and one review round answered: ECC SECURITY and Agency software-architect, both
-APPROVE WITH CHANGES at `44e7ef2c`. Item 11's delta correction is refused here, see "Review round". Full `validate-all`
+APPROVE WITH CHANGES at `44e7ef2c`. Item 11's delta correction was refused here and made by the lead in `4bf6735d`. The final bounded round is answered too. Full `validate-all`
 is the lead's and was not run here.
 
 This phase ports no upstream code. Nothing was run from a vendor folder.
@@ -15,7 +15,7 @@ This phase ports no upstream code. Nothing was run from a vendor folder.
 |---|---|---|
 | Notices | `THIRD_PARTY_NOTICES` | Entry format, five approved sources, the Pi / pi-mono note, an empty PORTED FILES section |
 | Decision | `docs/adr/ADR-P1-port-ownership-and-credit.md` | Written. Status: Proposed, with the owner's approval of the delta stated |
-| Validator | `projectos/validators/val-projectos-port-credit1a.cjs` | 25 rules, 128 fixture and 58 record mutations; registered in both runners |
+| Validator | `projectos/validators/val-projectos-port-credit1a.cjs` | 25 rules, 147 fixture and 59 record mutations; registered in both runners |
 | Records | ADR-S1, ADR-S2, `docs/recon/V4_Capability_Recon.md` | ADOPT recorded as superseding, in the owner's words, with the history kept |
 | Port map | `docs/recon/V4_Port_Map.md` | §1 re-pinned, downloads named, PolyForm warning, changed OpenBot file noted, §2 and §7 updated, `isl-openbot` marked not approved |
 | Plan | `docs/06_Plan.md` | Stages 3 and 4 expanded with phases 3.5 to 3.10 and 4.4 to 4.9. Nothing ticked, Log untouched |
@@ -24,11 +24,11 @@ This phase ports no upstream code. Nothing was run from a vendor folder.
 
 | Criterion | Evidence |
 |---|---|
-| ADR-P1 states the owner's rule in the owner's words, what the owner may claim and what must be credited, the Apache-2.0 duties, and that a credit does not license non-commercial code | §1 to §5. PC-18 pins each, with 26 record mutations |
+| ADR-P1 states the owner's rule in the owner's words, what the owner may claim and what must be credited, the Apache-2.0 duties, and that a credit does not license non-commercial code | §1 to §5. PC-18 pins each, with 27 record mutations |
 | A ported file with no header, no notices entry, an unknown source, or a source outside the approved list is refused by name, tested | PC-1, PC-5 and PC-3, with fixture mutations for each, plus a positive control |
 | nightly-labs/openbot and any PolyForm source are refused by name, tested | PC-2, 19 fixture mutations, including punctuation, tab, no-break space, U+2011, zero-width and full-width spellings, split words, a short sha, and LobeHub |
 | ADR-S1, ADR-S2 and the capability recon no longer say code is never copied, and they cite the owner's decision | PC-19, 15 record mutations, including one per record that says code is never copied |
-| Validator pin and named mutations, each killed by its own rule | 186 named mutations. A fixture mutation counts only when exactly its named rule fires, plus any rule declared as also true of it |
+| Validator pin and named mutations, each killed by its own rule | 206 named mutations. A fixture mutation counts only when exactly its named rule fires, plus any rule declared as also true of it |
 
 ## Sources checked
 
@@ -60,15 +60,14 @@ Licence text was copied by script from each project's own `LICENSE` file, so non
 `node projectos/validators/val-projectos-port-credit1a.cjs`:
 
 ```text
-val-projectos-port-credit1a: PASS (0 real file(s) judged; 128 fixture and 58 record mutations killed)
+val-projectos-port-credit1a: PASS (0 real file(s) judged; 147 fixture and 59 record mutations killed)
 ```
 
 **The "0 real files" is deliberate and is not the proof.** The port directories hold nothing yet. `selfTest` always
 runs, and writes its fixtures to one scratch directory, removed in a `finally`.
 
 **Removing each rule.** A scratchpad harness, not committed, removed each rule body from an in-memory copy of the
-validator and ran it against the real records. Result: 70 removals, 70 failed as they must, across 6 shards, before PC-24 and PC-25 were added. Those two had 6 targeted
-removals afterwards, and all 6 failed by name. Each removal made the run fail, naming that rule. It also
+validator and ran it against the real records. Result on the final text: 85 removals, 85 failed as they must, across 6 shards. Each removal made the run fail, naming that rule. It also
 made the validator refuse everything, which the positive control caught, and refuse nothing, which the mutations caught.
 
 **What the removals found.** An earlier harness run had two real survivors. Removing the climb check on an entry changed
@@ -117,8 +116,8 @@ Each defect was reproduced first, with a scratch script against the committed va
 | H3 | One pin per source | PC-4 on a true commit | `earlierPins` and `Earlier-Pins`. A file keeps its commit, and restamping it is refused because file and entry disagree |
 | H4 | Further upstreams unmodelled | An unknown one passed; LobeHub passed | `FURTHER` plus approved sources. An unrecorded one is PC-9. LobeHub verified and denied |
 | H5 | Header and entry can vanish | Both cases passed | PC-22, reading every path ever entered from git history |
-| M6 | Original mark passes licence text | 5 of 6 passed | PC-10 refuses all six kinds |
-| M7 | Denied spellings | 8 of 8 passed | NFKC, lowercase and non-alphanumerics stripped before matching; `7ef25fbc` prefix |
+| M6 | Original mark passes licence text | 5 of 6 passed | PC-10 refuses them. The final round lets a bare project name stand |
+| M7 | Denied spellings | 8 of 8 passed | NFKC, lowercase and non-alphanumerics stripped before matching; a 7-character sha prefix |
 | M8 | `isl-openbot` | An MIT header passed on an Apache file | Off the list until its phase |
 | M9 | Superlinear comment pattern | **A line of 30,000 spaces did not finish in over 100 s** | Trim first, then look at the ends; a 400,000-character line is a test |
 | M10 | Marks outside `PORT_DIRS` | No scan existed | PC-23 over tracked source and tests. Test trees are judged |
@@ -177,6 +176,45 @@ untracked file is PC-24, an ignored `tokenize.ts` is PC-25, and the same file fo
 **A consequence for builders.** A new file in a port directory fails PC-24 until it is at least `git add`ed, because the
 index is what counts. This validator should run after staging.
 
+### Final bounded round, ECC recheck at `4bf6735d`
+
+`4bf6735d` is the lead's own commit correcting the delta. The tests came first: 11 proofs failed as expected before any
+rule changed.
+
+| # | Finding | Now |
+|---|---|---|
+| 1 | A port's own validator or test that quotes a mark is refused | A mark inside a string or a regular expression is allowed in a port validator on a named list, or in a test file that opens with the `Credit-Fixture` marker. `SOURCES` and `FURTHER` are exported to import instead. A mark in a comment is never covered |
+| 2 | A hand-written JSON record passes PC-22 | Also requires `recordedBy` to be `projectos plan decide`, a `decisionId` equal to the file name, and a `sha256:` `planDigest`. All 35 real records have that shape |
+| 3 | `git add -N` passes PC-24 | The tracked list comes from `ls-files -s`, and an entry with the empty blob is dropped. A truly empty staged file drops too, which costs nothing: an empty port file already fails PC-1 |
+| 4 | An original file naming Hermes in a comment is refused | Allowed. Copyright lines, licence text and upstream URLs stay refused |
+| 5 | `7ef25fb` passes | Matched from 7 characters |
+
+**A survivor this round.** Removing the comment check from `isQuoted` changed nothing at first, because `//` happens to
+open and close like a regular expression. It matters for `// the "Copyright…" line`, where the quote would otherwise
+make a comment's mark read as quoted. That case is now a proof.
+
+**Item 1, proved read-only on the real validators.** Each file's exact text was copied into a scratch tree, so nothing was
+written to those worktrees.
+
+| Port validator | Quoted marks | As it stands | With a comment copyright, a bare header, or a trailing comment | `selfTest` on this notices text plus its entries |
+|---|---|---|---|---|
+| search | 0 | Passes | PC-23, all three | 0 errors, 10 entries |
+| memory | 3 | Passes | PC-23, all three | 0 errors, 11 entries |
+| approvals | 1 | Passes | PC-23, all three | 0 errors, 7 entries |
+
+No test file in those worktrees quotes a mark today. Judging each whole worktree leaves only PC-14 and PC-15, from their
+notices predating this file. Those clear when they take this text above `PORTED FILES`.
+
+**Carried, not fixed.**
+
+- **Misspelled denied names.** The scan normalises spelling variants. A real misspelling such as `nightlylab` is not matched.
+- **The LobeHub fragment's Hermes path.** The denied scan reads text. A port of `tools/terminal_tool_result.py` with the
+  words "lobehub" removed is not refused by path.
+- **The Hermes credit for `repetition-guard.ts`.** OpenClaw says that file came from Hermes. `THIRD_PARTY_NOTICES` records
+  it, but no rule requires `Also-Credits: hermes-agent` on a port of that file.
+- **PC-23 scans code files only.** It does not read `.go`, `.md`, `.json` or `docs/`.
+- **The owner record is unsigned.** The shape check stops a casual forgery. A careful one still passes, until plan item 1.7.
+
 ### Item 11: the delta is refused
 
 `docs/changes/delta_spec_V4_PORTS.md` is not in this phase's write paths, and it is a document the owner approved. A
@@ -196,8 +234,7 @@ which was extended.
 - **`docs/legal/` still shows earlier details.** `porting-convention.md` and `THIRD_PARTY_NOTICES.draft.md` name
   `THIRD_PARTY_NOTICES.md`, `PORTED_FILES.tsv`, `val-ported-file-provenance.cjs` and the earlier pins. They are outside
   this phase's write paths. ADR-P1 §10 says which wins.
-- **The delta still says a validator enforces every row of the ownership rule.** See item 11. ADR-P1 §8 lists what it
-  cannot: a false "original" mark on a file with its marks removed, upstream names in identifiers, sales claims,
+- **What the validator cannot enforce.** The lead corrected the delta in `4bf6735d`, and ADR-P1 §8 lists it: a false "original" mark on a file with its marks removed, upstream names in identifiers, sales claims,
   whether a `Source-Path` exists at the pin, shipping the notices with the product, per-file licences inside a source,
   and OpenClaw's own notice entries.
 - **A rewrite under a new path is not seen.** A similarity check is advisory, feasible hash-only, and not a gate.
@@ -208,7 +245,6 @@ which was extended.
 1. **The legal holder of original ProjectOS code.** ADR-P1 leaves it open and no file names a company.
 2. **Formal acceptance of ADR-P1.** It is Proposed.
 3. **The product name**, already open in the delta.
-4. **The two-line delta correction** above.
 
 ## Commits
 
@@ -217,4 +253,6 @@ which was extended.
 - `44e7ef2c` docs(finish): PROJECTOS-PORT-FOUNDATION1A evidence
 - `5a70d168` fix(validators): answer the port credit review round
 - `1ceea0b7` docs(finish): PROJECTOS-PORT-FOUNDATION1A review round evidence
-- The commit that adds PC-24 and PC-25.
+- `a3976ff1` feat(validators): refuse port files git cannot see
+- `4bf6735d` docs(plan): the lead's correction of the delta
+- The commit that adds the final bounded round.

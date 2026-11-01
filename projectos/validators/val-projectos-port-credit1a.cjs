@@ -142,7 +142,8 @@ const PI_ID = "pi-mono";
 const PI = FURTHER[PI_ID];
 const pinsOf = (source) => [source.sha, ...(source.earlierPins ?? [])];
 const COPYRIGHTS = [...Object.values(SOURCES), ...Object.values(FURTHER)].map((s) => s.copyright);
-const UPSTREAM_NAMES = ["hermes", "nous research", "openclaw", "copilotkit", "openbot", "rakazo", "pi-mono", "mario zechner", "earendil", ...Object.values(SOURCES).map((s) => s.url.toLowerCase())];
+/** An original file may name a project in a comment. It may not point at one, or carry its licence. */
+const UPSTREAM_URLS = [...Object.values(SOURCES), ...Object.values(FURTHER)].map((s) => s.url.replace("https://", "").toLowerCase());
 const LICENCE_MARK = /\bcopyright\b|©|\(c\)\s*\d{4}|\bSPDX-License-Identifier\b|Permission is hereby granted|Ported-From:/i;
 
 /**
@@ -150,7 +151,7 @@ const LICENCE_MARK = /\bcopyright\b|©|\(c\)\s*\d{4}|\bSPDX-License-Identifier\b
  * Noncommercial, with its owner, folder, domain and pin. LobeHub: its Community License needs a commercial licence
  * for a derivative work (docs/legal/vendor-provenance.md §1), and a Hermes file quotes a fragment of it.
  */
-const DENIED_PIN_PREFIX = "7ef25fbc";
+const DENIED_PIN_PREFIX = "7ef25fb";
 const DENIED_TERMS = ["polyform", "nightlylabs", "synthetify", "openbotlower", "openbotrun", "lobehub", DENIED_PIN_PREFIX];
 const compact = (text) => text.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 const deniedIn = (text) => {
@@ -159,6 +160,14 @@ const deniedIn = (text) => {
 };
 
 const ORIGINAL_MARK = "Origin: original ProjectOS code";
+const FIXTURE_MARK = "Credit-Fixture: quotes upstream marks as test data";
+/** What `projectos plan decide` writes on every owner record. It raises the bar on a hand-written file; it is not a signature. */
+const OWNER_RECORDER = "projectos plan decide";
+const PLAN_DIGEST = /^sha256:[0-9a-f]{64}$/;
+/** Each port phase's own validator. A reviewed list: a later port phase adds its name here. */
+const PORT_VALIDATORS = ["search", "memory", "skills", "context", "approvals"].map((name) => `projectos/validators/val-projectos-port-${name}1a.cjs`);
+/** The empty blob. An intent-to-add entry is listed with it, and `git commit` leaves that file out. */
+const EMPTY_BLOB = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391";
 /** Ends our header. Upstream text kept below it, as ADR-P1 §3 and Apache-2.0 §4(c) require, is not read as ours. */
 const HEADER_END = "End-Of-Credit-Header";
 const MODIFIED_STATEMENT = "modified for ProjectOS";
@@ -336,10 +345,10 @@ function pathProblems(rel, id, sourcePath, block, records) {
 
 function originalProblems(rel, text, blocks) {
   const lower = text.toLowerCase();
-  const names = UPSTREAM_NAMES.filter((name) => lower.includes(name));
+  const urls = UPSTREAM_URLS.filter((url) => lower.includes(url));
   const licence = LICENCE_MARK.exec(text);
-  if (blocks.length > 0 || licence !== null || names.length > 0) {
-    return [refusal("PC-10", rel, `it is marked original and carries upstream marks: ${[...(licence === null ? [] : [licence[0]]), ...names].join("; ") || "a credit header"}`)];
+  if (blocks.length > 0 || licence !== null || urls.length > 0) {
+    return [refusal("PC-10", rel, `it is marked original and carries upstream marks: ${[...(licence === null ? [] : [licence[0]]), ...urls].join("; ") || "a credit header"}`)];
   }
   return [];
 }
@@ -492,7 +501,8 @@ function ownerRecordHolds(rel, records, root, ctx) {
   const text = fs.readFileSync(abs, "utf8");
   try {
     const decision = JSON.parse(text);
-    return decision.decision === "approve" && decision.decidedBy === OWNER_NAME && text.includes(rel);
+    return decision.decision === "approve" && decision.decidedBy === OWNER_NAME && decision.recordedBy === OWNER_RECORDER &&
+      decision.decisionId === path.posix.basename(record, ".json") && PLAN_DIGEST.test(String(decision.planDigest)) && text.includes(rel);
   } catch {
     return false;
   }
@@ -539,13 +549,49 @@ function walkPortDirs(root) {
 const isScanned = (rel) => SCANNED_SOURCE.test(rel) && rel !== THIS_FILE && !inDirs(rel, PORT_DIRS) && !NOT_SOURCE.some((prefix) => rel.startsWith(prefix));
 const showsUpstream = (text) => text.includes("Ported-From:") || COPYRIGHTS.some((line) => text.includes(line));
 
+/** Whether position `at` sits inside a string or a regular expression that opens on this line. */
+function isQuoted(line, at) {
+  let open = null;
+  for (let i = 0; i < at; i += 1) {
+    const c = line[i];
+    if (open !== null) {
+      if (c === "\\") i += 1;
+      else if (c === open) open = null;
+    } else if (c === "/" && (line[i + 1] === "/" || line[i + 1] === "*")) {
+      return false;
+    } else if ("\"'`/".includes(c)) {
+      open = c;
+    }
+  }
+  return open !== null;
+}
+
+function marksAreQuoted(text) {
+  const quotedIn = (line, mark) => {
+    for (let at = line.indexOf(mark); at >= 0; at = line.indexOf(mark, at + 1)) {
+      if (!isQuoted(line, at)) return false;
+    }
+    return true;
+  };
+  return normalise(text).split("\n").every((line) => ["Ported-From:", ...COPYRIGHTS].every((mark) => quotedIn(line, mark)));
+}
+
+/**
+ * A port's own proofs quote the marks they pin. This covers a listed validator or a marked test, and only marks in a
+ * string or a regular expression. A stowaway's marks sit in comments, so they stay refused.
+ */
+function mayQuote(rel, text) {
+  const listed = PORT_VALIDATORS.includes(rel) || (inDirs(rel, TEST_DIRS) && leadingComment(normalise(text)).includes(FIXTURE_MARK));
+  return listed && marksAreQuoted(text);
+}
+
 /** Tracked source outside the port directories carries no upstream mark. A granted test tree is judged instead. */
 function strayMarkProblems(root, records, ctx) {
   return ctx.tracked.filter(isScanned).flatMap((rel) => {
     const abs = absOf(root, rel);
     if (!isFile(abs)) return [];
     const text = fs.readFileSync(abs, "utf8");
-    if (!showsUpstream(text)) return [];
+    if (!showsUpstream(text) || mayQuote(rel, text)) return [];
     if (inDirs(rel, TEST_DIRS)) return judgeFile(rel, text, records, ctx);
     return [refusal("PC-23", rel, "it carries an upstream mark outside the port directories. Adding a port directory is a listed, reviewed change")];
   });
@@ -584,14 +630,14 @@ function judgeRoot(root, ctx) {
 /** What only git knows. Null when git cannot say, and `run` refuses rather than judging without it. */
 function gitFacts(root) {
   const git = (...args) => spawnSync("git", ["-C", root, "-c", "core.quotepath=off", ...args], { encoding: "utf8", maxBuffer: 1 << 28 });
-  const tracked = git("ls-files", "-z");
+  const tracked = git("ls-files", "-s", "-z");
   const history = git("log", "--full-history", "--no-color", "--no-ext-diff", "--format=", "-p", "--", NOTICES_REL);
   const ignoredOff = git("ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", ...PORT_DIRS);
   const ignoredOn = git("ls-files", "-z", "--cached", "--ignored", "--exclude-standard", "--", ...PORT_DIRS);
   if ([tracked, history, ignoredOff, ignoredOn].some((result) => result.status !== 0)) return null;
   const listed = (result) => result.stdout.split("\0").filter((rel) => rel !== "");
   return {
-    tracked: listed(tracked),
+    tracked: listed(tracked).filter((entry) => entry.split(/\s/)[1] !== EMPTY_BLOB).map((entry) => entry.slice(entry.indexOf("\t") + 1)),
     ignored: [...listed(ignoredOff), ...listed(ignoredOn)],
     recordedEver: [...history.stdout.matchAll(/^\+ENTRY: (\S+)\r?$/gm)].map((m) => m[1]),
   };
@@ -621,6 +667,7 @@ const ADR_P_PINS = {
   "the non-commercial rule": "A credit does not license non-commercial code.",
   "the header rule": "A header is never dropped by line count or by a rewrite claim.",
   "the ignore rule": "A file a port needs must not match an ignore rule.",
+  "the quoting rule": "A mark in a comment is never covered by this.",
   "the limit on Source-Path": "Whether a `Source-Path` exists at the pin.",
   "the limit on shipping": "Shipping the notices with the product.",
   "the limit on per-file licences": "Per-file licences inside a source.",
@@ -757,6 +804,15 @@ const FIXTURE_OWNER_RECORD = ".projectops/plan-decisions/PLANDEC-fixture.json";
 const FIXTURE_REJECTED = ".projectops/plan-decisions/PLANDEC-rejected.json";
 const FIXTURE_OTHER = ".projectops/plan-decisions/PLANDEC-other.json";
 const FIXTURE_NOTE = "docs/my-note.json";
+/** Hand-written records, each wrong in one field. JSON drops an undefined value, so that field is simply absent. */
+const FIXTURE_FORGED = [
+  ["a-record-with-no-recorder-passes", ".projectops/plan-decisions/PLANDEC-no-recorder.json", { recordedBy: undefined }],
+  ["a-record-from-another-recorder-passes", ".projectops/plan-decisions/PLANDEC-by-hand.json", { recordedBy: "written by hand" }],
+  ["a-record-with-no-decision-id-passes", ".projectops/plan-decisions/PLANDEC-no-id.json", { decisionId: undefined }],
+  ["a-record-with-another-decision-id-passes", ".projectops/plan-decisions/PLANDEC-other-id.json", { decisionId: "PLANDEC-someone-else" }],
+  ["a-record-with-no-plan-digest-passes", ".projectops/plan-decisions/PLANDEC-no-digest.json", { planDigest: undefined }],
+  ["a-record-with-a-malformed-plan-digest-passes", ".projectops/plan-decisions/PLANDEC-bad-digest.json", { planDigest: "sha256:abc" }],
+];
 const BODY = "export const value = 1;\n";
 const MARK_LINE = `// ${ORIGINAL_MARK}\n`;
 const END_LINE = `// ${HEADER_END}\n`;
@@ -790,11 +846,20 @@ function fixtureFiles() {
   files["projectos/core/src/skills/deep/er/plain"] = `# ${ORIGINAL_MARK}\nvalue = 1\n`;
   files[PLAIN] = BODY;
   // Each record passes every check but one, so each proof below stands on its own rule.
-  const record = (decision, decidedBy) => `${JSON.stringify({ decision, decidedBy, note: `Removing the header of ${SEARCH}` })}\n`;
-  files[FIXTURE_OWNER_RECORD] = record("approve", OWNER_NAME);
-  files[FIXTURE_NOTE] = record("approve", OWNER_NAME);
-  files[FIXTURE_REJECTED] = record("reject", OWNER_NAME);
-  files[FIXTURE_OTHER] = record("approve", "An Agent");
+  const record = (rel, decision, decidedBy, change = {}) => `${JSON.stringify({
+    decisionId: rel.split("/").pop().replace(/\.json$/, ""),
+    decision,
+    decidedBy,
+    recordedBy: OWNER_RECORDER,
+    planDigest: `sha256:${"a".repeat(64)}`,
+    note: `Removing the header of ${SEARCH}`,
+    ...change,
+  })}\n`;
+  files[FIXTURE_OWNER_RECORD] = record(FIXTURE_OWNER_RECORD, "approve", OWNER_NAME);
+  files[FIXTURE_NOTE] = record(FIXTURE_NOTE, "approve", OWNER_NAME);
+  files[FIXTURE_REJECTED] = record(FIXTURE_REJECTED, "reject", OWNER_NAME);
+  files[FIXTURE_OTHER] = record(FIXTURE_OTHER, "approve", "An Agent");
+  for (const [, rel, change] of FIXTURE_FORGED) files[rel] = record(rel, "approve", OWNER_NAME, change);
   return files;
 }
 const FIXTURE_ENTRIES =
@@ -810,6 +875,12 @@ const FIXTURE_FACTS = {
   ignored: [],
   recordedEver: [...FIXTURE_PORTS.map((p) => p.rel), KEPT, TWO, TWO_PATHS],
 };
+const PORT_VALIDATOR = "projectos/validators/val-projectos-port-search1a.cjs";
+const FIXTURE_TEST = "projectos/core/test/credit-fixture.test.ts";
+/** Quoted the way the real port validators quote: in a string, in a regular expression, and an upstream copyright. */
+const QUOTED_MARKS = String.raw`const a = "// Ported-From: rakazo https://github.com/elie222/rakazo\n";` + "\n" +
+  String.raw`const b = text.matchAll(/^\/\/ Ported-From: (\S+)$/gm);` + "\n" +
+  `const c = '// Also-Credits: pi-mono (${PI.copyright}, MIT)';\n`;
 const REPINNED = { ...SOURCES, openclaw: { ...OPENCLAW, sha: NEW_PIN, earlierPins: [OPENCLAW.sha] } };
 
 /** The notices text above PORTED FILES, with fixture entries: a real entry's file is not in the fixture tree. */
@@ -863,7 +934,7 @@ const FIXTURE_MUTATIONS = [
   F("the-denied-folder-passes-as-a-source-path", "PC-2", SEARCH, `Source-Path: ${SEARCH_SOURCE}`, "Source-Path: incoming-2026-11-01/openbot-lower/src/index.ts", ["PC-16"]),
   denyInBody("the-denied-domain-passes", "licenses@openbot.run"),
   F("the-denied-pin-passes-under-an-approved-name", "PC-2", SEARCH, OPENCLAW.sha, "7ef25fbcc6f71a5a1888485ef0a6f3d2d5c8b5dd"),
-  denyInBody("a-short-denied-sha-passes", DENIED_PIN_PREFIX),
+  denyInBody("a-short-denied-sha-passes", "7ef25fb"),
   denyInBody("a-denied-licence-passes-in-a-comment-in-an-original-file", "PolyForm Noncommercial License 1.0.0"),
   denyInBody("a-dotted-denied-name-passes", "nightly.labs"),
   denyInBody("a-tabbed-denied-name-passes", "nightly\tlabs"),
@@ -934,7 +1005,8 @@ const FIXTURE_MUTATIONS = [
   F("a-licence-identifier-in-an-original-file-passes", "PC-10", NOTE, BODY, `const s = "SPDX-License-Identifier: GPL-3.0";\n${BODY}`),
   F("pasted-mit-text-in-an-original-file-passes", "PC-10", NOTE, BODY, `// Permission is hereby granted, free of charge\n${BODY}`),
   F("an-upstream-url-in-an-original-file-passes", "PC-10", NOTE, BODY, `// see ${SOURCES.rakazo.url}\n${BODY}`),
-  F("an-upstream-name-in-an-original-file-passes", "PC-10", NOTE, BODY, `// from Hermes\n${BODY}`),
+  F("the-pi-url-in-an-original-file-passes", "PC-10", NOTE, BODY, `// see ${PI.url}\n${BODY}`),
+  F("a-bare-project-name-in-a-comment-is-refused", null, NOTE, BODY, `// The same idea as Hermes and OpenClaw, written here.\n${BODY}`),
 
   // PC-11: one header does not cover a second file pasted below it.
   F("a-header-below-the-code-passes", "PC-11", SEARCH, BODY, `${BODY}// Ported-From: stranger https://example.invalid/x\n`),
@@ -991,6 +1063,7 @@ const FIXTURE_MUTATIONS = [
   F("a-record-outside-the-owner-store-passes", "PC-22", SEARCH, SEARCH_FILE, ORIGINAL_FILE, [], { notices: [SEARCH_ENTRY, `REMOVED: ${SEARCH}\nOwner-Record: ${FIXTURE_NOTE}\n\n`] }),
   F("a-rejected-decision-passes-as-an-owner-record", "PC-22", SEARCH, SEARCH_FILE, ORIGINAL_FILE, [], { notices: [SEARCH_ENTRY, `REMOVED: ${SEARCH}\nOwner-Record: ${FIXTURE_REJECTED}\n\n`] }),
   F("another-decider-passes-as-the-owner", "PC-22", SEARCH, SEARCH_FILE, ORIGINAL_FILE, [], { notices: [SEARCH_ENTRY, `REMOVED: ${SEARCH}\nOwner-Record: ${FIXTURE_OTHER}\n\n`] }),
+  ...FIXTURE_FORGED.map(([name, rel]) => F(name, "PC-22", SEARCH, SEARCH_FILE, ORIGINAL_FILE, [], { notices: [SEARCH_ENTRY, `REMOVED: ${SEARCH}\nOwner-Record: ${rel}\n\n`] })),
   F("an-owner-record-that-is-not-tracked-passes", "PC-22", SEARCH, SEARCH_FILE, ORIGINAL_FILE, [], { notices: [SEARCH_ENTRY, `REMOVED: ${SEARCH}\nOwner-Record: ${FIXTURE_OWNER_RECORD}\n\n`], tracked: FIXTURE_FACTS.tracked.filter((rel) => rel !== FIXTURE_OWNER_RECORD) }),
   F("a-committed-owner-record-does-not-allow-a-removal", null, SEARCH, SEARCH_FILE, ORIGINAL_FILE, [], { notices: [SEARCH_ENTRY, `REMOVED: ${SEARCH}\nOwner-Record: ${FIXTURE_OWNER_RECORD}\n\n`] }),
 
@@ -998,6 +1071,20 @@ const FIXTURE_MUTATIONS = [
   W("a-ported-from-line-outside-the-port-directories-passes", "PC-23", "projectos/core/src/other.ts", `// Ported-From: openclaw ${OPENCLAW.url}\n${BODY}`, [], { tracked: [...FIXTURE_FACTS.tracked, "projectos/core/src/other.ts"] }),
   W("an-upstream-copyright-outside-the-port-directories-passes", "PC-23", "projectos/agent/src/loop/other.cjs", `// ${OPENCLAW.copyright}\n${BODY}`, [], { tracked: [...FIXTURE_FACTS.tracked, "projectos/agent/src/loop/other.cjs"] }),
   W("a-test-file-with-upstream-marks-and-no-header-passes", "PC-1", "projectos/agent/test/other.test.ts", `// ${OPENCLAW.copyright}\n${BODY}`, [], { tracked: [...FIXTURE_FACTS.tracked, "projectos/agent/test/other.test.ts"] }),
+
+  // A port's own proofs quote the marks they pin. A stowaway's marks sit in comments, so those stay refused.
+  W("a-listed-port-validator-cannot-quote-a-mark", null, PORT_VALIDATOR, QUOTED_MARKS),
+  W("a-validator-off-the-list-may-quote-a-mark", "PC-23", "projectos/validators/val-other.cjs", QUOTED_MARKS),
+  W("a-listed-validator-hides-a-comment-mark", "PC-23", PORT_VALIDATOR, `${QUOTED_MARKS}// ${OPENCLAW.copyright}\n`),
+  W("a-listed-validator-hides-a-trailing-comment-mark", "PC-23", PORT_VALIDATOR, `${QUOTED_MARKS}const after = "https://x.invalid"; // ${OPENCLAW.copyright}\n`),
+  W("a-quote-inside-a-comment-hides-a-mark", "PC-23", PORT_VALIDATOR, `${QUOTED_MARKS}// the "${OPENCLAW.copyright}" line\n`),
+  W("a-listed-validator-hides-a-block-comment-mark", "PC-23", PORT_VALIDATOR, `${QUOTED_MARKS}/*\n ${OPENCLAW.copyright}\n*/\n`),
+  W("a-listed-validator-hides-a-bare-header-line", "PC-23", PORT_VALIDATOR, `${QUOTED_MARKS}// Ported-From: stranger https://example.invalid/x\n`),
+  W("a-marked-test-fixture-cannot-quote-a-mark", null, FIXTURE_TEST, `// ${FIXTURE_MARK}\n${QUOTED_MARKS}`),
+  W("a-test-may-quote-a-mark-with-no-marker", "PC-1", FIXTURE_TEST, QUOTED_MARKS),
+  W("a-marked-test-fixture-hides-a-comment-mark", "PC-1", FIXTURE_TEST, `// ${FIXTURE_MARK}\n${QUOTED_MARKS}// ${OPENCLAW.copyright}\n`),
+  W("the-fixture-marker-works-outside-a-test-tree", "PC-23", "projectos/core/src/quoted.ts", `// ${FIXTURE_MARK}\n${QUOTED_MARKS}`),
+  W("a-marker-below-the-code-counts", "PC-1", FIXTURE_TEST, `${QUOTED_MARKS}// ${FIXTURE_MARK}\n`),
 
   // PC-24 and PC-25: what passes on disk and is missing from a clean checkout. `gitProofs` repeats these in a real repository.
   W("an-untracked-port-file-passes", "PC-24", "projectos/core/src/search/fresh.ts", MARK_LINE + BODY, [], { untracked: true }),
@@ -1030,6 +1117,7 @@ const RECORD_MUTATIONS = [
   R("adr-loses-apache-6", "PC-18", ADR_P_REL, "| §6 | No right to the licensor's names or marks |", "| §6 | |"),
   R("adr-lets-a-credit-license-non-commercial-code", "PC-18", ADR_P_REL, "A credit does not license non-commercial code. It meets", "A credit is enough. It meets"),
   R("adr-loses-the-header-rule", "PC-18", ADR_P_REL, "A header is never dropped by line count or by a rewrite claim.", "A rewritten file needs no header."),
+  R("adr-loses-the-quoting-rule", "PC-18", ADR_P_REL, "A mark in a comment is never covered by this.", "Quoting is a matter for the builder."),
   R("adr-loses-the-ignore-rule", "PC-18", ADR_P_REL, "A file a port needs must not match an ignore rule.", "Ignore rules are a matter for the builder."),
   R("adr-loses-the-limit-on-source-path", "PC-18", ADR_P_REL, "Whether a `Source-Path` exists at the pin.", "Everything else."),
   R("adr-loses-the-limit-on-shipping", "PC-18", ADR_P_REL, "Shipping the notices with the product.", "Everything else."),
@@ -1154,7 +1242,9 @@ function ignoreProofs(dir, noticesText) {
   const cases = [
     { name: "a-committed-port-file-is-refused", file: null, rule: null, before: () => {} },
     { name: "an-untracked-file-passes-in-a-real-repository", file: "fresh.ts", rule: "PC-24", before: () => write("fresh.ts") },
-    { name: "an-ignored-file-passes-in-a-real-repository", file: "tokenize.ts", rule: "PC-25", before: () => { fs.rmSync(path.join(port, "fresh.ts")); write("tokenize.ts"); } },
+    { name: "intent-to-add-passes-though-commit-omits-it", file: "fresh.ts", rule: "PC-24", before: () => git("add", "-N", "--", "projectos/core/src/search/fresh.ts") },
+    { name: "a-staged-file-is-refused", file: null, rule: null, before: () => git("add", "--", "projectos/core/src/search/fresh.ts") },
+    { name: "an-ignored-file-passes-in-a-real-repository", file: "tokenize.ts", rule: "PC-25", before: () => write("tokenize.ts") },
     { name: "a-force-added-file-passes-in-a-real-repository", file: "tokenize.ts", rule: "PC-25", before: () => git("add", "-f", "--", "projectos/core/src/search/tokenize.ts") },
   ];
   return cases.flatMap(({ name, file, rule, before }) => {
@@ -1263,4 +1353,5 @@ if (require.main === module) {
   console.log(`${THIS_VALIDATOR}: PASS (${judged} real file(s) judged; ${FIXTURE_MUTATIONS.length} fixture and ${RECORD_MUTATIONS.length} record mutations killed)`);
 }
 
-module.exports = { run, judgeRoot, judgeFile, parseNotices, recordProblems, selfTest, commentText, gitFacts, SOURCES, FIXTURE_MUTATIONS, RECORD_MUTATIONS, RULE_NAMES };
+/** `SOURCES` and `FURTHER` are for a port's own validator, which can import a copyright line instead of quoting it. */
+module.exports = { run, judgeRoot, judgeFile, parseNotices, recordProblems, selfTest, commentText, gitFacts, SOURCES, FURTHER, FIXTURE_MUTATIONS, RECORD_MUTATIONS, RULE_NAMES };
