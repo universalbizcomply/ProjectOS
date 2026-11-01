@@ -175,7 +175,8 @@ Broker: brokeredHttpPort.ts ─▶ git show HEAD:projectos/security/gatekeeper-t
 
 ## 5. Known risks found by this audit (not fixed; each needs an owner decision)
 
-1. **Supabase RLS is effectively open to any authenticated user.** In
+1. **FIXED on live 2026-11-01** (PROJECTOS-TENANT-RLS1A: sign-up closed, tenant policies applied; the rest
+   of this item is what the audit found). **Supabase RLS is effectively open to any authenticated user.** In
    `control-center/supabase/*.sql`, `public.projects` and `public.phases` allow ALL operations with
    `using (true) with check (true)`. If sign-up is open on that Supabase project, any new account can
    read and rewrite them. Live sign-up was found open on 2026-11-01. The fix is Stage 2

@@ -162,7 +162,9 @@ Each spike ends in an ADR: adopt as adapter, reference only, or reject.
 Goal: no domain ships to a second party until this passes. Independent reviewers (mandatory):
 ECC database-reviewer and security-reviewer.
 
-- [ ] 2.1 **[OWNER]** Supabase RLS. Replace `using(true)` on `public.projects` and `public.phases`
+- [x] 2.1 (2026-11-01, on the owner's "Yes, apply it now (Recommended)": 0001, 0002, membership and 0003 applied live;
+      post-check passed; anon refused, owner sees 12 projects, a made-up account sees nothing; evidence in
+      `docs/finish/PROJECTOS-TENANT-RLS1A.md`) **[OWNER]** Supabase RLS. Replace `using(true)` on `public.projects` and `public.phases`
       with `auth.uid()`-bound owner and tenant policies, and close open sign-up. This is a production
       database mutation.
 - [ ] 2.2 Principal model: tenant and domain come from the authenticated context. A tenant id in
@@ -300,10 +302,14 @@ Forge, the signed installer, and the Host unattended-review route.
   draft 4de16599e4604e47, including the three credential validators"). Live audit, read-only: one account (the owner's), 12
   project rows equal to the seed, 0 phases, so nothing stranger-written. Sign-up was still open despite the owner's report;
   closed by the lead on the owner's yes (`disable_signup=true`, confirmed from two sources; the only field changed).
-- 2026-11-01: PROJECTOS-TENANT-CONTRACT1A and PROJECTOS-TENANT-RLS1A built in parallel worktrees and stacked at `74d88d0`,
-  NOT pushed and NOT closed. Reviews: ECC SECURITY on CONTRACT, no HIGH open after one recheck, then a final bounded round
+- 2026-11-01: PROJECTOS-TENANT-CONTRACT1A and PROJECTOS-TENANT-RLS1A built in parallel worktrees and stacked on branch
+  `projectos-tenant-stack2`, NOT pushed and NOT closed. Reviews: ECC SECURITY on CONTRACT, no HIGH open after one recheck, then a final bounded round
   read by the lead; ECC SECURITY on RLS APPROVE WITH CHANGES; ECC DATABASE on RLS recheck APPROVE. Agency reports hit a
   guard that blocks the wrapper's handback: software-architect was recovered from its task output, and
   ai-generated-code-security-auditor was not delivered and is open. core 1161, agent 2921, control-center 890, validate-all
-  155/157 (the 2 known baseline failures). Live database apply not run. Evidence: `docs/finish/PROJECTOS-TENANT-CONTRACT1A.md`,
+  155/157 (the 2 known baseline failures). Evidence: `docs/finish/PROJECTOS-TENANT-CONTRACT1A.md`,
   `docs/finish/PROJECTOS-TENANT-RLS1A.md`.
+- 2026-11-01: **tenant boundary LIVE.** Owner: "Yes, apply it now (Recommended)", "Yes, lock by default (Recommended)", "Accept it
+  (Recommended)" for ADR-T1. Plan v1.29 (`89b5f0f`, PLANDEC-f39515528b11588f3afdd66d) added `0003_default_privileges.sql`. All three
+  migrations and the owner's membership applied; preflight and post-check passed; ECC DATABASE APPROVE on 0003. The personal
+  access token must be revoked by the owner: it was pasted in chat and it reaches the whole account.

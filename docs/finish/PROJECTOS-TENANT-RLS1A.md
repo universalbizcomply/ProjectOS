@@ -110,6 +110,52 @@ approved scope.
 
 ## Live apply
 
+Run by the lead on 2026-11-01, on the owner's words "Yes, apply it now (Recommended)" (D8) and "Yes, lock by default
+(Recommended)" (D9), through the Supabase Management API with a personal access token the owner supplied. The token was held
+in an environment variable for each run and written to no file. Each script checked the sha256 of the SQL first, and stopped
+at the first failure. The plan's write route was the plugin; the owner changed it to the token (D7).
+
+**Before.** Sign-up was reported off and was found ON by both the admin API and the public settings endpoint. On the owner's
+"Yes, switch it off (Recommended)" `disable_signup` was set to true; a before-and-after comparison showed it was the only field
+changed. The read-only audit found one account (the owner's), 12 project rows equal to the seed and 0 phases.
+
+| Step | Run as | Result |
+|---|---|---|
+| Sign-up off, re-read | admin API | `disable_signup: true` |
+| `test/live-preflight.sql` | `supabase_read_only_user` on PostgreSQL 17.6 | PREFLIGHT all true, 20 checks, 0 failed |
+| Export of both tables | `supabase_read_only_user` | 12 projects, 0 phases, kept outside the repo in the session scratchpad |
+| `0001_baseline.sql` | `postgres` | HTTP 201 |
+| `0002_tenant_boundary.sql` | `postgres` | HTTP 201; its in-transaction check passed |
+| `test/live-owner-membership.sql` | `postgres` | HTTP 201; owner of both tenants |
+| `test/live-postapply.sql` at that time | `supabase_read_only_user` | POSTAPPLY all true, 5 checks, 0 failed |
+| `test/live-preflight-0003.sql` | `supabase_read_only_user` | PREFLIGHT all true, 16 checks, 0 failed |
+| `0003_default_privileges.sql` | `postgres` | HTTP 201; its in-transaction check passed |
+| `test/live-postapply.sql` final | `supabase_read_only_user` | POSTAPPLY all true, 7 checks, 0 failed |
+
+**Proved from outside, after 0002.** These do not rest on the migration's own check.
+
+| Who | Route | Result |
+|---|---|---|
+| anon, with the real public key | REST, all four tables | 401, code 42501, on each |
+| The owner's account | `set local role authenticated` with their claims, in a read-only DO block ending in RAISE, so it cannot commit | 12 projects, 0 phases, 2 tenants, 2 memberships |
+| A made-up account | Same block | 0 rows in all four tables |
+
+The owner's line is the positive control: the refusals are the boundary and not an empty database. Rows after the probes: 12.
+No policy on any public table is permissive, nothing in public is in `supabase_realtime`, and client roles hold no TRUNCATE.
+
+**After 0003.** `postgres`'s defaults in public give anon and authenticated nothing, service_role keeps its defaults, and new
+functions no longer default to PUBLIC EXECUTE. The four existing tables kept identical grants. ECC DATABASE proved the global
+form cannot be narrowed: a per-schema revoke left anon able to execute a new function. New-object behaviour on live is
+read from `pg_default_acl`; no object was created on live to demonstrate it. The behaviour itself is proved in the harness.
+
+**Not proved live.** A real sign-in through the Control Center with the owner's password, and PostgREST behaviour for an
+authenticated JWT. Nothing in the product reads these tables, so no screen was expected to change. The Management API's
+handling of a failed transaction was never exercised, because no step failed.
+
+**What the owner should know for later tables.** A new table made as `postgres` now answers "permission denied", not an
+empty result, until a migration grants it, even when an RLS policy exists. A `serial` column also needs a sequence grant.
+A function needs `grant execute`, and an auth hook needs a grant to `supabase_auth_admin`. Objects made by `supabase_admin`
+are not covered.
 
 ## Commands and results
 
@@ -218,8 +264,12 @@ policy, an anon grant, a new table with no row level security, a table in realti
   apply. The preflight lists them. If one fails, the transaction rolls back and nothing changes.
 - **`src/data/projects.ts` is orphaned.** Its only importer was `fetchProjects`. Deleting it needs a writePath this
   phase does not have.
-- **`docs/00_Baseline_State.md` §5.1 is stale until the live apply.** It stays true until then, and is outside
-  writePaths.
+- **`docs/00_Baseline_State.md` §5.1** was corrected by the lead after the live apply, under CONTRACT1A's write path.
+- **LOWs from the 0003 review, carried:** `live-preflight-0003.sql` does not mirror two of `0003`'s checks, so such a state
+  stops at the migration's own check instead; no listing of functions `postgres` owns outside public; the `0003` comment on
+  who can call a new function is loose about schemas with per-schema rows.
+- **Agency `ai-generated-code-security-auditor`: OPEN.** It ran; its report could not be delivered because the Agency guard
+  refuses the wrapper's handback tool. It does not count as a completed review until the report arrives.
 
 ## Not modelled, and what the owner's apply should expect
 
