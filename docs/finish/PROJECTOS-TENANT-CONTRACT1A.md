@@ -25,6 +25,8 @@ a live service, and nothing at run time reads these records yet.
 | `0f728210` | gstack round: readmission checks scope and identity; minted is not admitted; the port sees provenance; budget ruling; TC-T reads stripped source |
 | `a4ac1c66` | gstack round: 0003 pinned as applied live in the RLS validator; its evidence corrected |
 | `b6eb149a` | gstack round: the only-a-run proof now reaches its own rule |
+| `1d66bc1d` | gstack recheck: a parent must be admitted; ADR-T1 on late outcomes and the ledger's reach; P3 port test |
+| `8fb6710f` | gstack recheck: D11 recorded in the delta |
 
 ## Acceptance criteria
 
@@ -39,7 +41,7 @@ a live service, and nothing at run time reads these records yet.
 4. **R1 and R3, tested:** met. `task-envelope.test.ts`. Each of the 16 fields is removed in turn against a
    literal list, so dropping a field from the code cannot drop it from the proof. Each R3 field changes
    alone, and the unchanged child is the positive control.
-5. **Validator pin and named mutations, each killed by its own rule:** met. 338 of 338, 41 rules.
+5. **Validator pin and named mutations, each killed by its own rule:** met. 346 of 346, 41 rules.
 
 ## Verification (run in this worktree)
 
@@ -47,15 +49,16 @@ a live service, and nothing at run time reads these records yet.
 |---|---|---|
 | Core typecheck | `npx tsc -p tsconfig.json --noEmit` in `projectos/core` | 0 errors |
 | Core and agent build | `npm run -s build` in `projectos/core`, then `projectos/agent` | 0 errors. Agent `tsc` compiled against the new barrel |
-| Full core suite | `npx vitest run` in `projectos/core` | 31 files, 1180 tests, all pass |
-| New tests | `tenant`, `action-registry`, `task-envelope`, `tenant-contract-review` | 65, 85, 98 and 151 tests (399) |
+| Full core suite | `npx vitest run` in `projectos/core` | 31 files, 1186 tests, all pass |
+| New tests | `tenant`, `action-registry`, `task-envelope`, `tenant-contract-review` | 65, 85, 98 and 157 tests (405) |
 | Fail-before evidence | `tenant-contract-review.test.ts` run at `1a6b44e`, before any fix | 88 failed, 15 passed. The 15 are positive controls and invariants. Some of the 88 fail because the new API did not yet exist; the forged envelope, the class gate, R3 principal, alias, floor and environment tests fail on behaviour |
 | Fail-before evidence, final round | The final-round tests run at `336feda`, before any fix | 31 failed, 8 passed. The 8 are controls and behaviour that must stay. Some of the 31 fail because `mintCrossing` did not exist; the readmission and P3 tests fail on behaviour |
 | Fail-before evidence, gstack round | The suite run at `f77e1731` with the new tests added, before any fix | 15 failed: 14 of the 19 new tests and 1 reworked existing test. `0f728210`'s message says 15 of 19; this split is the exact one. Of the 5 new tests that passed, 3 are positive controls, 1 is the per-call budget test, which pins existing behaviour, and 1, the port-tampering test, passed for the wrong reason until `via` reached the port; its mutation `provenance-left-mutable` shows it now discriminates |
-| This phase's validator | `node projectos/validators/val-projectos-tenant-contract1a.cjs` | PASS, 338 named mutations killed |
-| Own-rule count, second harness | Script applying each mutation and reading `check()` output, separate from `selfTest` | 338 of 338, 41 rules |
-| RLS validator | `val-projectos-tenant-rls1a` at `a4ac1c66` | PASS, 205 named mutations killed, its Postgres harness run |
-| Validators reading a touched file | 52, each in its own process through `run()`, at `a4ac1c66` | 52 PASS, 0 FAIL. Includes `validate-no-secrets`, `val-projectos-trust-boundary1a`, `val-projectos-kernel-followup1a` (FU-6, runners identical), `validate-speed-validation-cache`, `validate-forbidden-actions` |
+| Fail-before evidence, gstack recheck | The suite run at `cc0bff46` with the new tests added, before any fix | 3 of 6 new tests failed, including the reported attack. The other 3 pin behaviour that must stay: the positive control, the late outcome, and the P3 port, which proves itself through its mutation `port-not-handed-the-provenance-at-p3` |
+| This phase's validator | `node projectos/validators/val-projectos-tenant-contract1a.cjs` | PASS, 346 named mutations killed |
+| Own-rule count, second harness | Script applying each mutation and reading `check()` output, separate from `selfTest` | 346 of 346, 41 rules |
+| RLS validator | `val-projectos-tenant-rls1a` at `8fb6710f` | PASS, 205 named mutations killed, its Postgres harness run |
+| Validators reading a touched file | 52, each in its own process through `run()`, at `8fb6710f` | 52 PASS, 0 FAIL. Includes `validate-no-secrets`, `val-projectos-trust-boundary1a`, `val-projectos-kernel-followup1a` (FU-6, runners identical), `validate-speed-validation-cache`, `validate-forbidden-actions` |
 | Rerun on the final tree, this file included | `validate-no-secrets`, `val-projectos-tenant-contract1a`, `val-projectos-trust-boundary1a`, `val-projectos-kernel-followup1a` | 4 PASS |
 
 **Not run:** full `validate-all` (the lead runs it after stacking). Agent tests. No test or validator here
@@ -63,9 +66,18 @@ reads the registries through the kernel, because that reader does not exist yet.
 
 ## Do the tests themselves discriminate?
 
-The validator's mutations are text pins, so 338 of 338 says the pins fire, not that a behaviour test fails.
+The validator's mutations are text pins, so 346 of 346 says the pins fire, not that a behaviour test fails.
 So each mutation of a core source file was also applied to the real file, the four test files
 run, and the file restored. Clean `git status` confirmed the restore.
+
+- **Sweep of the gstack recheck, at `8fb6710f`:** 223 core-source mutations, 208 killed by a behavioural test,
+  including `port-not-handed-the-provenance-at-p3`, `parent-needs-only-a-brand` and
+  `execution-refuses-a-late-outcome`.
+- **All 15 survivors alter no behaviour, and the validator is their only catch:** the same 2 comment and 13
+  purity or type-only survivors as the gstack round below. No real gap this time. Only this evidence file
+  follows this sweep.
+
+The earlier rounds:
 
 - **Sweep of the gstack round, at `a4ac1c66`:** 220 core-source mutations, 204 killed by a behavioural test.
 - **One survivor was a real test defect, caused by this round and now fixed:** `crossing-from-anything`. The
@@ -75,9 +87,6 @@ run, and the file restored. Clean `git status` confirmed the restore.
 - **The other 15 survivors are correct, and the validator is their only catch:** they alter no behaviour.
   Two change only a comment: `code-hides-the-per-call-budget`, `code-calls-the-field-a-total`. The rest are the
   13 purity and type-only survivors listed under the final round below.
-
-The earlier rounds:
-
 - **Sweep of the final round, at `dd2ce19`:** 205 core-source mutations, 192 killed by a behavioural test.
 - **The 13 survivors are correct, and the validator is their only catch:** purity and type-only changes alter
   no behaviour. They are `tenant-reads-environment`, `tenant-imports-the-filesystem`, `tenant-bare-import`,
@@ -108,7 +117,7 @@ Every mutation below was killed by the rule it names.
 |---|---|---|
 | TC-1 | 6 | `adr-hides-worker-reach`, `adr-hides-the-real-fixes`, `adr-hides-git-name-limit`, `adr-hides-harness-only-proof`, `adr-hides-unrun-scenarios`, `adr-hides-owner-sees-both` |
 | TC-2 | 2 | `adr-softens-hard-rule`, `adr-exit-proof-lifts-hard-rule` |
-| TC-3 | 40 | `adr-drops-principal`, `adr-gives-supabase-authority`, `adr-drops-tenant-versus-domain`, `adr-drops-trust-basis`, `adr-drops-self-hosted-rationale`, `adr-hides-that-all-commits-are-murad`, `adr-overclaims-the-owner-check`, `adr-unbacks-same-terms`, `adr-claims-domains-were-decided`, `adr-drops-principal-from-r3`, `adr-any-listing-attaches`, `adr-claims-allowlist-guards-release`, `adr-worktree-may-release`, `adr-closes-the-release-grant`, `adr-hides-no-owner-step`, `adr-drops-postgres-rule`, `adr-postgres-wins`, `adr-drops-roots-ruling`, `adr-drops-run-link`, `adr-keeps-broker-call-local`, `adr-readmission-trusts-the-subject`, `adr-readmission-trusts-the-scope`, `adr-drops-minted-not-admitted`, `adr-calls-the-budget-cumulative`, `adr-adds-a-second-ledger`, `adr-hides-that-the-port-sees-via`, `code-hides-the-per-call-budget`, `code-calls-the-field-a-total`, `adr-makes-the-link-optional`, `adr-hides-the-p3-grant-source`, `adr-drops-readmission-limits`, `adr-worktree-trusts-itself`, `adr-worktree-grants-spend`, `adr-drops-tenant-class`, `adr-drops-platform-class`, `adr-drops-project-class`, `adr-drops-owner-sees-both-ruling`, `adr-drops-service-role`, `adr-drops-stop-work`, `adr-drops-one-user-limit` |
+| TC-3 | 45 | `adr-drops-principal`, `adr-gives-supabase-authority`, `adr-drops-tenant-versus-domain`, `adr-drops-trust-basis`, `adr-drops-self-hosted-rationale`, `adr-hides-that-all-commits-are-murad`, `adr-overclaims-the-owner-check`, `adr-unbacks-same-terms`, `adr-claims-domains-were-decided`, `adr-drops-principal-from-r3`, `adr-any-listing-attaches`, `adr-claims-allowlist-guards-release`, `adr-worktree-may-release`, `adr-closes-the-release-grant`, `adr-hides-no-owner-step`, `adr-drops-postgres-rule`, `adr-postgres-wins`, `adr-drops-roots-ruling`, `adr-drops-run-link`, `adr-keeps-broker-call-local`, `adr-readmission-trusts-the-subject`, `adr-readmission-trusts-the-scope`, `adr-drops-minted-not-admitted`, `adr-calls-the-budget-cumulative`, `adr-adds-a-second-ledger`, `adr-says-expired-gets-no-line`, `adr-calls-the-ledger-account-wide`, `adr-says-the-record-counts-money`, `adr-says-workers-pass-through`, `adr-drops-the-stage-4-carry`, `adr-hides-that-the-port-sees-via`, `code-hides-the-per-call-budget`, `code-calls-the-field-a-total`, `adr-makes-the-link-optional`, `adr-hides-the-p3-grant-source`, `adr-drops-readmission-limits`, `adr-worktree-trusts-itself`, `adr-worktree-grants-spend`, `adr-drops-tenant-class`, `adr-drops-platform-class`, `adr-drops-project-class`, `adr-drops-owner-sees-both-ruling`, `adr-drops-service-role`, `adr-drops-stop-work`, `adr-drops-one-user-limit` |
 | TC-4 | 1 | `adr-t1-acceptance-drops-owner-word` |
 | TC-5 | 3 | `adr-k1-still-proposed`, `adr-k1-names-no-owner-word`, `adr-k1-status-rule-dropped` |
 | TC-6 | 5 | `registry-moves-agency-to-owner`, `registry-changes-a-domain`, `registry-moves-a-root`, `registry-repository-not-canonical`, `registry-loses-polygo` |
@@ -139,8 +148,8 @@ Every mutation below was killed by the rule it names.
 | TC-31 | 3 | `barrel-omits-tenant`, `barrel-omits-action-registry`, `barrel-omits-envelope` |
 | TC-32 | 2 | `validate-all-omits-this-validator`, `cached-runner-omits-this-validator` |
 | TC-33 | 9 | `trd-denies-engines-again`, `baseline-denies-engines-again`, `baseline-loses-the-tenant-records`, `baseline-count-of-record-dropped`, `prd-loses-the-tenant-vocabulary`, `prd-loses-the-hard-rule`, `trd-loses-the-tenant-section`, `schema-doc-loses-tenant-registry`, `schema-doc-loses-action-registry` |
-| TC-34 | 35 | `door-takes-unbranded`, `brand-never-set`, `provenance-left-mutable`, `readmit-ignores-the-scope`, `readmit-trusts-its-subject`, `readmit-trusts-its-idempotency-key`, `readmit-trusts-its-parent`, `readmit-fact-compare-always-holds`, `door-never-marks-admitted`, `mint-marks-admitted`, `execution-records-the-unadmitted`, `mint-does-not-brand`, `parse-brands-its-output`, `readmit-marks-everything-registered`, `readmit-keeps-a-run-link`, `readmit-takes-the-record-as-its-limit`, `readmit-accepts-an-expired-record`, `readmit-trusts-its-principal`, `readmit-trusts-its-actor`, `readmit-trusts-its-budget`, `readmit-trusts-its-expiry`, `readmit-unreadable-limit-passes`, `forged-parent-accepted`, `readmit-takes-a-copied-binding`, `readmit-trusts-its-tenant`, `readmit-trusts-its-domain`, `readmit-trusts-its-project`, `readmit-trusts-its-environment`, `readmit-trusts-its-class`, `readmit-compare-always-holds`, `readmit-reasons-do-not-refuse`, `readmit-derives-from-the-record`, `child-class-not-rederived`, `child-environment-not-rederived`, `child-derives-from-itself` |
-| TC-35 | 18 | `p6-reaches-the-port`, `port-asked-before-p6`, `unregistered-reaches-the-port`, `p4-reaches-the-door`, `p5-needs-no-grant`, `p3-needs-no-grant`, `port-not-told-the-provenance`, `port-not-handed-the-provenance-at-p5`, `run-link-not-asked-at-the-door`, `run-link-asked-after-the-port`, `grant-truthy-accepted`, `grant-throw-reads-as-granted`, `class-refusal-ignored`, `allowed-line-omits-provenance`, `refusal-line-omits-provenance`, `execution-line-omits-provenance`, `envelope-gains-a-registered-field`, `envelope-gains-a-via-field` |
+| TC-34 | 37 | `door-takes-unbranded`, `brand-never-set`, `provenance-left-mutable`, `readmit-ignores-the-scope`, `readmit-trusts-its-subject`, `readmit-trusts-its-idempotency-key`, `readmit-trusts-its-parent`, `readmit-fact-compare-always-holds`, `door-never-marks-admitted`, `mint-marks-admitted`, `execution-records-the-unadmitted`, `mint-does-not-brand`, `parse-brands-its-output`, `readmit-marks-everything-registered`, `readmit-keeps-a-run-link`, `readmit-takes-the-record-as-its-limit`, `readmit-accepts-an-expired-record`, `readmit-trusts-its-principal`, `readmit-trusts-its-actor`, `readmit-trusts-its-budget`, `readmit-trusts-its-expiry`, `readmit-unreadable-limit-passes`, `forged-parent-accepted`, `parent-needs-only-a-brand`, `execution-refuses-a-late-outcome`, `readmit-takes-a-copied-binding`, `readmit-trusts-its-tenant`, `readmit-trusts-its-domain`, `readmit-trusts-its-project`, `readmit-trusts-its-environment`, `readmit-trusts-its-class`, `readmit-compare-always-holds`, `readmit-reasons-do-not-refuse`, `readmit-derives-from-the-record`, `child-class-not-rederived`, `child-environment-not-rederived`, `child-derives-from-itself` |
+| TC-35 | 19 | `p6-reaches-the-port`, `port-asked-before-p6`, `unregistered-reaches-the-port`, `p4-reaches-the-door`, `p5-needs-no-grant`, `p3-needs-no-grant`, `port-not-told-the-provenance`, `port-not-handed-the-provenance-at-p3`, `port-not-handed-the-provenance-at-p5`, `run-link-not-asked-at-the-door`, `run-link-asked-after-the-port`, `grant-truthy-accepted`, `grant-throw-reads-as-granted`, `class-refusal-ignored`, `allowed-line-omits-provenance`, `refusal-line-omits-provenance`, `execution-line-omits-provenance`, `envelope-gains-a-registered-field`, `envelope-gains-a-via-field` |
 | TC-36 | 24 | `crossing-may-be-a-child`, `boundary-test-always-false`, `crossing-omits-tenant`, `crossing-omits-domain`, `crossing-omits-project`, `crossing-omits-principal`, `crossing-compare-always-holds`, `crossing-takes-an-unbranded-run`, `crossing-takes-a-merely-minted-run`, `crossing-from-anything`, `crossing-for-any-action`, `crossing-from-an-expired-run`, `crossing-above-the-run-budget`, `crossing-after-the-run-expiry`, `crossing-reasons-dropped`, `crossing-takes-the-caller-scope`, `crossing-not-marked-linked`, `run-link-scope-any-text`, `run-link-check-is-back`, `run-linked-omits-credential-release`, `run-linked-omits-broker-call`, `run-linked-omits-commit`, `run-linked-omits-push`, `run-linked-test-always-false` |
 | TC-37 | 7 | `root-admits-any-text`, `root-alias-not-asked`, `repository-admits-any-segments`, `repository-admits-any-port`, `repository-keeps-git-suffix`, `ascii-lower-folds-unicode`, `repository-compare-folds-unicode` |
 | TC-38 | 5 | `listing-from-anywhere-attaches`, `checkout-under-foreign-root-allowed`, `at-or-under-drops-the-slash`, `nested-roots-not-judged`, `listing-loses-its-root` |
@@ -170,11 +179,35 @@ are live, and their bytes did not change.
 | Finding | Disposition |
 |---|---|
 | `readmitEnvelope` did not check `scope`, `subjectHash`, `idempotencyKey` or `parentEnvelopeId`; a tampered scope was readmitted and then admitted a `secrets/**` child its parent had refused | Fixed. Required limits: the allowed scope, and the expected `subjectHash`, `idempotencyKey` and `parentEnvelopeId`. Any difference refuses |
-| **Rated CRITICAL by the skill:** `budget <= run.budget` is per call and nothing draws the run down | **Not changed in code, by decision.** The observation is correct and the rating is not, because cumulative spend is already capped elsewhere: `gatekeeperCostLedger`, through `admitGatekeeperSpend`, refuses a paid call before dispatch, against committed caps. A second running total would be a second answer to what was spent. ADR-T1 §8 and the code now say an envelope budget is a per-call ceiling and the ledger is the cumulative cap, and a test pins the behaviour. Nothing yet connects a `broker-call` envelope to the ledger; both sit on the same path once PRINCIPAL1A wires it |
-| The brand meant minted, not admitted: a run refused under R4 still linked an admitted `credential-release`, and `recordExecution` recorded forged and expired envelopes | Fixed. Admission is tracked apart from the brand and set only after the door writes its line. `mintCrossing` and `recordExecution` require it. A readmitted run must pass the door again |
+| **Rated CRITICAL by the skill:** `budget <= run.budget` is per call and nothing draws the run down | **Not changed in code, by decision.** The observation is correct. `gatekeeperCostLedger`, through `admitGatekeeperSpend`, refuses a paid call before dispatch, against committed caps, so no second total is added here. **The recheck narrowed this:** that cap is per project root, and it is not account-wide. See "gstack recheck". A second running total would be a second answer to what was spent. ADR-T1 §8 and the code now say an envelope budget is a per-call ceiling and the ledger is the cumulative cap, and a test pins the behaviour. Nothing yet connects a `broker-call` envelope to the ledger; both sit on the same path once PRINCIPAL1A wires it |
+| The brand meant minted, not admitted: a run refused under R4 still linked an admitted `credential-release`, and `recordExecution` recorded forged and expired envelopes | Fixed. Admission is tracked apart from the brand and set only after the door writes its line. `mintCrossing` and `recordExecution` require it, and after the recheck so does `mintEnvelope` for a parent. A readmitted run must pass the door again. "Expired" here means refused as expired at the door: an envelope admitted in time can still record a late outcome |
 | `EnvelopeGrantPort` could not see `via`, though ADR-T1 says worktree identity alone must never release a secret | Fixed. The port receives the frozen provenance as a second argument: `via`, `registered`, `runLinked`. A test has a port refuse a worktree binding and grant the registered root |
 | TC-T matched raw text, so a comment satisfied it, proven with the whole review test file commented out | Fixed. TC-T reads comment-stripped source. Mutations `a-whole-file-commented-out` and `a-proof-commented-out` |
 | The RLS validator's `LIVE_APPLIED` omitted `0003`, and its evidence said it was not applied | Fixed. Pinned at `094d74db…17bf`, mutation `applied-0003-edited`, evidence corrected. The bytes on disk match the pin |
+
+## gstack recheck
+
+As relayed by the lead at `cc0bff46`; this file does not hold the recheck's own report.
+
+**Closed:**
+
+| Item | Disposition |
+|---|---|
+| `mintEnvelope` asked for a brand, so a child of a refused run was admitted | Fixed. The parent must be admitted. Mutation `parent-needs-only-a-brand` |
+| ADR-T1 said an expired envelope gets no execution line | Corrected, and `recordExecution` deliberately unchanged. A forged envelope gets no line. An expired one still can if it was admitted before expiry, because an operation admitted in time that finishes late must record its outcome. Test added; mutation `execution-refuses-a-late-outcome` |
+| ADR-T1 overstated the ledger | Corrected in §8. The ledger is per project root, so it is not an account-wide cap. The installation record counts calls, not money. Workers and `codex exec` do not pass through it |
+| A lying P3 port provenance was caught only by TC-35's text pin | A behavioural test now kills `port-not-handed-the-provenance-at-p3` |
+| D11, agency client data | Recorded in the delta after D10: "No for now". Revisit before Stage 5 |
+
+**Binding on later phases:**
+
+- **PRINCIPAL1A must provide the idempotency-key store.** The key is derived and nothing stores or consumes it,
+  so until that store exists a duplicate is not stopped.
+- **PROJECTOS-TENANT-CREDENTIALS1A needs its own check at the broker.** A crossing is an in-process value and
+  cannot reach the broker process, so the door's run link proves nothing on the far side of that boundary.
+- **A command with no run mints a `run-start`.** `mintCrossing` needs an admitted run, so a command acting
+  outside a run must mint and admit one first.
+- **An account-wide spend cap is carried to Stage 4,** with the per-tenant spend limits already there.
 
 ## Final round
 
