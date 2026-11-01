@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-e41423a713cbde0ec1dcd0cc",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "0b7deddf287d0097fa38317cee1a1c46fade7390",
+  "draftId": "f9c57f79f0bed553",
+  "planDigest": "sha256:f1e5660fd0127bf1669a01ef7db064e25066bf1e818ced7efe5b8179f614e81d",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-01T23:40:17.838Z",
+  "note": "Owner, 2026-11-01: \"You have full authority\". This amendment adds four write paths named by independent reviews to two Stage 2 phases. No phase, criterion or review changes.",
+  "recordedBy": "projectos plan decide"
+}
