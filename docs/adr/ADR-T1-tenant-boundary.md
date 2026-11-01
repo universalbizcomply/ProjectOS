@@ -103,7 +103,8 @@ directory borrow another repository's history. Copying that refusal would make e
    listed. The registry refuses a root inside another for the same reason.
 4. **It grants tenant identity and nothing else.** The installation allowlist guards gatekeeper spend
    only, not session release, so it does not cover this. **Worktree tenant identity alone must never
-   release a secret.** PROJECTOS-TENANT-CREDENTIALS1A decides what else a release from a worktree needs.
+   release a secret.** The door's grant port is handed `via`, so a port can refuse a worktree binding.
+   PROJECTOS-TENANT-CREDENTIALS1A decides what else a release from a worktree needs.
    The registry is always read from the installation, never from the worktree.
 
 **Limit.** Anything running as the owner's Windows user can run `git worktree add` from the registered
@@ -150,8 +151,17 @@ for it must be decided there. This ADR does not invent one.
 
 - **Provenance is not shape.** The door admits only an envelope this module branded. A persisted envelope
   comes back through `readmitEnvelope`, which derives `tenant`, `domain`, `project`, `environment` and
-  `actionClass` again, requires `principal` and `actor` to equal what the kernel states, holds `budget` and
-  `expiry` to limits the caller must supply, and refuses a record already expired.
+  `actionClass` again, requires `principal`, `actor`, `subjectHash`, `idempotencyKey` and `parentEnvelopeId`
+  to equal what the kernel states, holds `budget` and
+  `expiry` to limits the caller must supply, holds `scope` inside the allowed scope, and refuses a record
+  already expired.
+- **Minted is not admitted.** The brand says the kernel built an envelope; a separate mark, set only after
+  the door has written its line, says it was admitted. `mintCrossing` and `recordExecution` require the mark,
+  so a run refused under R4 links nothing, and a forged or expired envelope gets no execution line.
+- **An envelope budget is a per-call ceiling, and the ledger is the cumulative cap.** A crossing is held to
+  its run's budget, and nothing draws the run down, so several crossings may together pass it. There is
+  deliberately no second ledger: `gatekeeperCostLedger` already refuses a paid call before dispatch, against
+  committed caps.
 - **The door gates the class.** P6 is refused always. An unregistered action mints at P5 (R5) and is
   refused by name, and the attempt is recorded. P4 has no grant to give (ADR-K1 §4). P3 and P5 are refused
   unless the grant port confirms a grant, each by its own named rule, so nothing is admitted silently.

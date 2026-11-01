@@ -421,8 +421,10 @@ describe('R4: recorded at admission, or it does not run', () => {
 
   it('execution is recorded with its outcome and rule, and reports a failed write', () => {
     const { record, lines } = recorder();
-    expect(recordExecution(root(), 'refused', 'R7', NOW, record)).toBe(true);
+    const admitted = admitEnvelope(mintEnvelope(context(), REQUEST), NOW, () => true, NO_GRANT);
+    if (!admitted.admitted) throw new Error('the envelope was not admitted');
+    expect(recordExecution(admitted.envelope, 'refused', 'R7', NOW, record)).toBe(true);
     expect(lines[0]).toMatchObject({ stage: 'execution', outcome: 'refused', rule: 'R7' });
-    expect(recordExecution(root(), 'allowed', null, NOW, () => false)).toBe(false);
+    expect(recordExecution(admitted.envelope, 'allowed', null, NOW, () => false)).toBe(false);
   });
 });

@@ -16,6 +16,7 @@ import {
   parseEnvelope,
   readmitEnvelope,
   recordExecution,
+  type EnvelopeProvenance,
   type EnvelopeRecord,
   type EnvelopeRequest,
   type EnvelopeResult,
@@ -102,6 +103,22 @@ const READMIT = {
 };
 
 const run = (): TaskEnvelope => ok(mintEnvelope(context(), RUN));
+
+/** A run through the door: only an admitted run can be crossed from. */
+function openRun(): TaskEnvelope {
+  const admission = admitEnvelope(mintEnvelope(context(), RUN), NOW, () => true, () => false);
+  if (!admission.admitted) throw new Error('the run was not admitted');
+  return admission.envelope;
+}
+
+/** What the kernel would state for this envelope, from its own records rather than the disk's. */
+const readmitLimits = (envelope: TaskEnvelope = run()) => ({
+  ...READMIT,
+  scope: envelope.scope,
+  subjectHash: envelope.subjectHash,
+  idempotencyKey: envelope.idempotencyKey,
+  parentEnvelopeId: envelope.parentEnvelopeId,
+});
 const yes = (): boolean => true;
 const no = (): boolean => false;
 
@@ -132,7 +149,7 @@ describe('HIGH 1: envelope provenance', () => {
 
   it('a persisted envelope is re-admitted through its derived binding and the registry', () => {
     const persisted = JSON.parse(JSON.stringify(run())) as unknown;
-    const result = readmitEnvelope(persisted, polygo(), actions(), READMIT);
+    const result = readmitEnvelope(persisted, polygo(), actions(), readmitLimits());
     expect(result).toMatchObject({ ok: true });
     expect(admitEnvelope(result, NOW, () => true, no)).toMatchObject({ admitted: true });
   });
@@ -145,28 +162,28 @@ describe('HIGH 1: envelope provenance', () => {
     ['actionClass', 'P1'],
   ])('a persisted envelope with a different %s is refused, naming it', (field, value) => {
     const tampered = { ...run(), [field]: value };
-    const result = readmitEnvelope(tampered, polygo(), actions(), READMIT);
+    const result = readmitEnvelope(tampered, polygo(), actions(), readmitLimits());
     expect(result).toMatchObject({ ok: false, rule: 'R2' });
     expect(result.ok ? [] : result.reasons).toHaveLength(1);
     expect((result.ok ? [] : result.reasons)[0]).toContain(field);
   });
 
   it('a persisted envelope is refused under another tenant binding', () => {
-    expect(readmitEnvelope(run(), agency(), actions(), READMIT)).toMatchObject({ ok: false, rule: 'R2' });
+    expect(readmitEnvelope(run(), agency(), actions(), readmitLimits())).toMatchObject({ ok: false, rule: 'R2' });
   });
 
   it('re-admission needs a derived binding: a copy is a claim', () => {
-    expect(readmitEnvelope(run(), { ...polygo() }, actions(), READMIT)).toMatchObject({ ok: false, rule: 'R2' });
+    expect(readmitEnvelope(run(), { ...polygo() }, actions(), readmitLimits())).toMatchObject({ ok: false, rule: 'R2' });
   });
 
   it('a malformed persisted envelope is an R1 refusal', () => {
-    expect(readmitEnvelope({ tenant: 'owner-personal' }, polygo(), actions(), READMIT)).toMatchObject({ ok: false, rule: 'R1' });
+    expect(readmitEnvelope({ tenant: 'owner-personal' }, polygo(), actions(), readmitLimits())).toMatchObject({ ok: false, rule: 'R1' });
   });
 
   it('the registry is asked at re-admission: an action since unregistered is refused at the door', () => {
     const raw = json('action-registry.json');
     const envelope = ok(mintEnvelope(context({ registry: actionsWith('old-action', 'P2') }), { ...RUN, action: 'old-action' }));
-    const result = readmitEnvelope(envelope, polygo(), actionsFrom(raw), READMIT);
+    const result = readmitEnvelope(envelope, polygo(), actionsFrom(raw), readmitLimits(envelope));
     expect(result).toMatchObject({ ok: false, rule: 'R2' });
   });
 
@@ -300,16 +317,16 @@ describe('HIGH 2: admission gates the class', () => {
     admitEnvelope(envelope, NOW, first.record, no);
     expect(first.lines[0]).toMatchObject({ via: 'linked-worktree' });
     const second = recorder();
-    admitEnvelope(readmitEnvelope(ok(envelope), worktree, actions(), READMIT), NOW, second.record, no);
+    admitEnvelope(readmitEnvelope(ok(envelope), worktree, actions(), readmitLimits()), NOW, second.record, no);
     expect(second.lines[0]).toMatchObject({ via: 'linked-worktree' });
   });
 
-  it('the execution line carries them too, and an envelope nobody branded carries neither', () => {
+  it('the execution line carries them too, and an envelope nobody admitted gets no line', () => {
     const { record, lines } = recorder();
-    recordExecution(run(), 'allowed', null, NOW, record);
+    recordExecution(openRun(), 'allowed', null, NOW, record);
     expect(lines[0]).toMatchObject({ stage: 'execution', registered: true, via: 'governed-root' });
-    recordExecution({ ...run() }, 'failed', 'R7', NOW, record);
-    expect(lines[1]).toMatchObject({ stage: 'execution', registered: null, via: null });
+    expect(recordExecution({ ...openRun() }, 'failed', 'R7', NOW, record)).toBe(false);
+    expect(lines).toHaveLength(1);
   });
 
   it('neither fact became an envelope field: ADR-K1 is accepted, and action is the one addition', () => {
@@ -333,7 +350,7 @@ describe('HIGH 3: boundary crossings are roots, linked to their run', () => {
   });
 
   it('the link does not need R3: a crossing may be in another environment than its run', () => {
-    const link = ok(mintCrossing(context({ envelopeId: CHILD_ID }), { subjectHash: 'b'.repeat(40), action: 'broker-call', budget: 100, expiry: SOONER, intentScope: 'RUN-1/1' }, run(), NOW));
+    const link = ok(mintCrossing(context({ envelopeId: CHILD_ID }), { subjectHash: 'b'.repeat(40), action: 'broker-call', budget: 100, expiry: SOONER, intentScope: 'RUN-1/1' }, openRun(), NOW));
     expect([run().environment, link.environment]).toEqual(['local', 'production']);
   });
 
@@ -348,7 +365,7 @@ describe('HIGH 3: boundary crossings are roots, linked to their run', () => {
     const result = mintEnvelope(context({ envelopeId: CHILD_ID }), { ...RUN, action: 'push' }, parent);
     expect(result).toMatchObject({ ok: false, rule: 'R3' });
     const push = { subjectHash: 'b'.repeat(40), action: 'push', budget: 100, expiry: SOONER, intentScope: 'RUN-1/1' };
-    expect(mintCrossing(context({ envelopeId: CHILD_ID }), push, run(), NOW)).toMatchObject({ ok: true });
+    expect(mintCrossing(context({ envelopeId: CHILD_ID }), push, openRun(), NOW)).toMatchObject({ ok: true });
   });
 });
 
@@ -517,7 +534,7 @@ describe('LOW', () => {
 
 describe('final round', () => {
   const ACTOR = READMIT.actor;
-  const LIMITS = READMIT;
+  const LIMITS = readmitLimits();
   const CROSSING = { subjectHash: 'b'.repeat(40), budget: 100, expiry: SOONER, intentScope: 'RUN-1/1' };
   const crossingContext = (overrides: Partial<KernelEnvelopeContext> = {}): KernelEnvelopeContext => context({ envelopeId: CHILD_ID, ...overrides });
 
@@ -559,14 +576,14 @@ describe('final round', () => {
 
     it('an unregistered action stays unregistered through readmission, and the door refuses it', () => {
       const envelope = ok(mintEnvelope(context(), { ...RUN, action: 'delete-everything' }));
-      const readmitted = readmitEnvelope(JSON.parse(JSON.stringify(envelope)), polygo(), actions(), LIMITS);
+      const readmitted = readmitEnvelope(JSON.parse(JSON.stringify(envelope)), polygo(), actions(), readmitLimits(envelope));
       expect(admitEnvelope(readmitted, NOW, () => true, yes)).toMatchObject({ admitted: false, rule: 'UNREGISTERED_ACTION' });
     });
   });
 
   describe('M2: mintCrossing is the only way to a run-linked action', () => {
     it.each(['credential-release', 'broker-call', 'commit', 'push'])('%s minted through mintCrossing passes the door', (action) => {
-      const result = mintCrossing(crossingContext(), { ...CROSSING, action }, run(), NOW);
+      const result = mintCrossing(crossingContext(), { ...CROSSING, action }, openRun(), NOW);
       expect(result.ok && result.envelope.parentEnvelopeId).toBeNull();
       expect(admitEnvelope(result, NOW, () => true, yes)).toMatchObject({ admitted: true });
     });
@@ -587,7 +604,7 @@ describe('final round', () => {
 
     it('the scope is derived: exactly the run, whatever the request says', () => {
       const smuggled = { ...CROSSING, action: 'broker-call', scope: ['projectos/security/', 'run:ENV-999999999999999999999999'] };
-      const result = mintCrossing(crossingContext(), smuggled, run(), NOW);
+      const result = mintCrossing(crossingContext(), smuggled, openRun(), NOW);
       expect(result.ok && result.envelope.scope).toEqual([`run:${RUN_ID}`]);
     });
 
@@ -597,7 +614,7 @@ describe('final round', () => {
     });
 
     it('a crossing is never built from an expired run', () => {
-      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'push', expiry: SOONER }, run(), LATER)).toMatchObject({ ok: false, rule: 'RUN_LINK' });
+      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'push', expiry: SOONER }, openRun(), LATER)).toMatchObject({ ok: false, rule: 'RUN_LINK' });
     });
 
     it('only a run can be crossed from', () => {
@@ -606,45 +623,46 @@ describe('final round', () => {
     });
 
     it('an action that needs no run link cannot take this route', () => {
-      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'implement' }, run(), NOW)).toMatchObject({ ok: false, rule: 'RUN_LINK' });
+      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'implement' }, openRun(), NOW)).toMatchObject({ ok: false, rule: 'RUN_LINK' });
     });
 
     it.each([
       ['expiry', { expiry: '2026-11-01T13:00:00.001Z' }],
       ['budget', { budget: 5001 }],
     ])('a crossing above the run in %s is refused, and at the run it passes', (field, change) => {
-      const over = mintCrossing(crossingContext(), { ...CROSSING, action: 'broker-call', ...change }, run(), NOW);
+      const over = mintCrossing(crossingContext(), { ...CROSSING, action: 'broker-call', ...change }, openRun(), NOW);
       expect(over).toMatchObject({ ok: false, rule: 'RUN_LINK' });
       expect((over.ok ? [] : over.reasons).join(' ')).toContain(field);
-      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'broker-call', expiry: LATER, budget: 5000 }, run(), NOW)).toMatchObject({ ok: true });
+      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'broker-call', expiry: LATER, budget: 5000 }, openRun(), NOW)).toMatchObject({ ok: true });
     });
 
     it('a crossing under another tenant binding is refused, naming the tenant and domain and project', () => {
-      const result = mintCrossing(crossingContext({ binding: agency() }), { ...CROSSING, action: 'push' }, run(), NOW);
+      const result = mintCrossing(crossingContext({ binding: agency() }), { ...CROSSING, action: 'push' }, openRun(), NOW);
       expect(result).toMatchObject({ ok: false, rule: 'RUN_LINK' });
       expect(result.ok ? [] : result.reasons).toHaveLength(3);
     });
 
     it('a crossing for another project in the SAME tenant is refused for project alone', () => {
       const other = binding({ projectId: 'projectos', repository: 'github.com/universalbizcomply/ProjectOS', root: 'C:/dev/ProjectOS', worktrees: null });
-      const result = mintCrossing(crossingContext({ binding: other }), { ...CROSSING, action: 'push' }, run(), NOW);
+      const result = mintCrossing(crossingContext({ binding: other }), { ...CROSSING, action: 'push' }, openRun(), NOW);
       expect(result.ok ? [] : result.reasons).toHaveLength(1);
       expect((result.ok ? [] : result.reasons)[0]).toContain('project');
     });
 
     it('a crossing by another principal is refused', () => {
-      const result = mintCrossing(crossingContext({ principal: 'owner' }), { ...CROSSING, action: 'push' }, run(), NOW);
+      const result = mintCrossing(crossingContext({ principal: 'owner' }), { ...CROSSING, action: 'push' }, openRun(), NOW);
       expect(result).toMatchObject({ ok: false, rule: 'RUN_LINK' });
       expect((result.ok ? [] : result.reasons).join(' ')).toContain('principal');
     });
 
     it('a copied binding is still a claim', () => {
-      expect(mintCrossing(crossingContext({ binding: { ...polygo() } }), { ...CROSSING, action: 'push' }, run(), NOW)).toMatchObject({ ok: false, rule: 'R2' });
+      expect(mintCrossing(crossingContext({ binding: { ...polygo() } }), { ...CROSSING, action: 'push' }, openRun(), NOW)).toMatchObject({ ok: false, rule: 'R2' });
     });
 
     it('a persisted crossing loses its run link: it is minted again, not trusted', () => {
-      const crossing = mintCrossing(crossingContext(), { ...CROSSING, action: 'commit' }, run(), NOW);
-      const readmitted = readmitEnvelope(JSON.parse(JSON.stringify(crossing.ok ? crossing.envelope : null)), polygo(), actions(), LIMITS);
+      const crossing = mintCrossing(crossingContext(), { ...CROSSING, action: 'commit' }, openRun(), NOW);
+      const persisted = ok(crossing);
+      const readmitted = readmitEnvelope(JSON.parse(JSON.stringify(persisted)), polygo(), actions(), readmitLimits(persisted));
       expect(admitEnvelope(readmitted, NOW, () => true, yes)).toMatchObject({ admitted: false, rule: 'RUN_LINK_REQUIRED' });
     });
 
@@ -654,13 +672,13 @@ describe('final round', () => {
 
     it('the allowed line shows the run link', () => {
       const { record, lines } = recorder();
-      admitEnvelope(mintCrossing(crossingContext(), { ...CROSSING, action: 'commit' }, run(), NOW), NOW, record, yes);
+      admitEnvelope(mintCrossing(crossingContext(), { ...CROSSING, action: 'commit' }, openRun(), NOW), NOW, record, yes);
       expect(lines[0]).toMatchObject({ outcome: 'allowed', runLinked: true });
     });
   });
 
   describe('M3: P3 asks the port too', () => {
-    const commit = (): EnvelopeResult => mintCrossing(crossingContext(), { ...CROSSING, action: 'commit' }, run(), NOW);
+    const commit = (): EnvelopeResult => mintCrossing(crossingContext(), { ...CROSSING, action: 'commit' }, openRun(), NOW);
 
     it('no grant is a named refusal, recorded; a grant admits', () => {
       const { record, lines } = recorder();
@@ -681,6 +699,135 @@ describe('final round', () => {
       ['P2', 'run-start'],
     ])('%s still needs no grant', (_cls, action) => {
       expect(admitEnvelope(mintEnvelope(context(), { ...RUN, action }), NOW, () => true, no)).toMatchObject({ admitted: true });
+    });
+  });
+});
+
+describe('gstack round', () => {
+  const CROSSING = { subjectHash: 'b'.repeat(40), budget: 100, expiry: SOONER, intentScope: 'RUN-1/1' };
+  const crossingContext = (overrides: Partial<KernelEnvelopeContext> = {}): KernelEnvelopeContext => context({ envelopeId: CHILD_ID, ...overrides });
+
+  describe('1: readmission checks everything a child or a retry would inherit', () => {
+    it('a faithful record passes, and a scope narrower than the allowed one is fine', () => {
+      expect(readmitEnvelope(run(), polygo(), actions(), readmitLimits())).toMatchObject({ ok: true });
+      expect(readmitEnvelope(run(), polygo(), actions(), { ...readmitLimits(), scope: ['docs/', 'projectos/'] })).toMatchObject({ ok: true });
+    });
+
+    it.each([
+      ['scope', { scope: ['docs/', 'secrets/**'] }],
+      ['subjectHash', { subjectHash: 'c'.repeat(40) }],
+      ['idempotencyKey', { idempotencyKey: `sha256:${'d'.repeat(64)}` }],
+      ['parentEnvelopeId', { parentEnvelopeId: `ENV-${'7'.repeat(24)}` }],
+    ])('a record with a tampered %s is refused, naming it', (field, change) => {
+      const result = readmitEnvelope({ ...run(), ...change }, polygo(), actions(), readmitLimits());
+      expect(result).toMatchObject({ ok: false, rule: 'R2' });
+      expect(result.ok ? [] : result.reasons).toHaveLength(1);
+      expect((result.ok ? [] : result.reasons)[0]).toContain(field);
+    });
+
+    it('the reported attack: a tampered scope no longer lets a parent grant what it was refused', () => {
+      const tampered = { ...run(), scope: ['docs/', 'secrets/**'] };
+      const parent = readmitEnvelope(tampered, polygo(), actions(), readmitLimits());
+      expect(parent.ok).toBe(false);
+      const honest = ok(readmitEnvelope(run(), polygo(), actions(), readmitLimits()));
+      const child = mintEnvelope(context({ envelopeId: CHILD_ID }), { ...RUN, action: 'implement', scope: ['secrets/**'] }, honest);
+      expect(child).toMatchObject({ ok: false, rule: 'R3' });
+    });
+  });
+
+  describe('2: an envelope budget is a per-call ceiling', () => {
+    it('two crossings may together pass the run budget: the cumulative cap is the ledger, not this', () => {
+      const open = openRun();
+      const first = mintCrossing(crossingContext(), { ...CROSSING, action: 'broker-call', budget: 4000 }, open, NOW);
+      const second = mintCrossing(crossingContext(), { ...CROSSING, action: 'broker-call', budget: 4000, intentScope: 'RUN-1/2' }, open, NOW);
+      expect([first.ok, second.ok]).toEqual([true, true]);
+    });
+  });
+
+  describe('3: minted is not admitted', () => {
+    it('an admitted run can be crossed from: the positive control', () => {
+      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'push' }, openRun(), NOW)).toMatchObject({ ok: true });
+    });
+
+    it('a run minted but never admitted links nothing', () => {
+      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'push' }, run(), NOW)).toMatchObject({ ok: false, rule: 'RUN_LINK' });
+    });
+
+    it('the reported attack: a run refused under R4 cannot link a credential release', () => {
+      const minted = mintEnvelope(context(), RUN);
+      expect(admitEnvelope(minted, NOW, () => false, no)).toMatchObject({ admitted: false, rule: 'R4' });
+      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'credential-release' }, ok(minted), NOW)).toMatchObject({ ok: false, rule: 'RUN_LINK' });
+    });
+
+    it('a run refused as expired cannot link either', () => {
+      const minted = mintEnvelope(context(), RUN);
+      admitEnvelope(minted, LATER, () => true, no);
+      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'push' }, ok(minted), NOW)).toMatchObject({ ok: false, rule: 'RUN_LINK' });
+    });
+
+    it('a readmitted run must pass the door again before it can link', () => {
+      const readmitted = readmitEnvelope(JSON.parse(JSON.stringify(run())), polygo(), actions(), readmitLimits());
+      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'push' }, ok(readmitted), NOW)).toMatchObject({ ok: false, rule: 'RUN_LINK' });
+      admitEnvelope(readmitted, NOW, () => true, no);
+      expect(mintCrossing(crossingContext(), { ...CROSSING, action: 'push' }, ok(readmitted), NOW)).toMatchObject({ ok: true });
+    });
+
+    it('execution is recorded for an admitted envelope: the positive control', () => {
+      const { record, lines } = recorder();
+      expect(recordExecution(openRun(), 'allowed', null, NOW, record)).toBe(true);
+      expect(lines).toHaveLength(1);
+    });
+
+    it('execution is not recorded for a forged envelope, and the caller is told to stop', () => {
+      const { record, lines } = recorder();
+      expect(recordExecution({ ...openRun() }, 'allowed', null, NOW, record)).toBe(false);
+      expect(lines).toHaveLength(0);
+    });
+
+    it('execution is not recorded for an envelope refused as expired', () => {
+      const { record, lines } = recorder();
+      const minted = mintEnvelope(context(), RUN);
+      admitEnvelope(minted, LATER, () => true, no);
+      expect(recordExecution(ok(minted), 'allowed', null, LATER, record)).toBe(false);
+      expect(lines).toHaveLength(0);
+    });
+
+    it('execution is not recorded for an envelope never taken to the door', () => {
+      const { record, lines } = recorder();
+      expect(recordExecution(run(), 'allowed', null, NOW, record)).toBe(false);
+      expect(lines).toHaveLength(0);
+    });
+  });
+
+  describe('4: the grant port sees how the checkout was bound', () => {
+    const release = (bindingUsed: TenantBinding): EnvelopeResult => {
+      const open = admitEnvelope(mintEnvelope(context({ binding: bindingUsed }), RUN), NOW, () => true, () => false);
+      if (!open.admitted) throw new Error('the run was not admitted');
+      return mintCrossing(crossingContext({ binding: bindingUsed }), { ...CROSSING, action: 'credential-release' }, open.envelope, NOW);
+    };
+    const LINKED = 'C:/dev/Polygo-worktrees/feature';
+    const worktree = (): TenantBinding => binding({ ...(FACTS['polygo'] as CheckoutFacts), root: LINKED, worktrees: { takenAtRoot: 'C:/dev/Polygo/polygo', paths: [LINKED] } });
+    const refuseWorktrees = (_envelope: TaskEnvelope, provenance: EnvelopeProvenance): boolean => provenance.via !== 'linked-worktree';
+
+    it('a port can refuse a worktree binding, and the same port grants the registered root', () => {
+      expect(admitEnvelope(release(worktree()), NOW, () => true, refuseWorktrees)).toMatchObject({ admitted: false, rule: 'P5_NO_GRANT' });
+      expect(admitEnvelope(release(polygo()), NOW, () => true, refuseWorktrees)).toMatchObject({ admitted: true });
+    });
+
+    it('the port is handed via, registered and runLinked', () => {
+      const seen: EnvelopeProvenance[] = [];
+      admitEnvelope(release(polygo()), NOW, () => true, (_envelope, provenance) => seen.push(provenance) > 0);
+      expect(seen[0]).toEqual({ via: 'governed-root', registered: true, runLinked: true });
+    });
+
+    it('a port cannot change what the door then records', () => {
+      const { record, lines } = recorder();
+      const meddling = (_envelope: TaskEnvelope, provenance: EnvelopeProvenance): boolean => {
+        (provenance as { via: string }).via = 'governed-root';
+        return true;
+      };
+      expect(admitEnvelope(release(worktree()), NOW, record, meddling)).toMatchObject({ admitted: false, rule: 'P5_NO_GRANT' });
+      expect(lines[0]).toMatchObject({ via: 'linked-worktree' });
     });
   });
 });

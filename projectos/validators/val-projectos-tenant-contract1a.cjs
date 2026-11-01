@@ -181,6 +181,15 @@ const TESTS = {
     "the listing drops the record equal to the root, wherever it sits, and not the first record",
     "a registry root under another entry root refuses the whole file; a shared prefix does not",
     "action-registry-change is registered as P5: ADR-T1 §3 \"same terms\" rests on this",
+    "a record with a tampered %s is refused, naming it",
+    "the reported attack: a tampered scope no longer lets a parent grant what it was refused",
+    "two crossings may together pass the run budget: the cumulative cap is the ledger, not this",
+    "the reported attack: a run refused under R4 cannot link a credential release",
+    "a readmitted run must pass the door again before it can link",
+    "execution is not recorded for a forged envelope, and the caller is told to stop",
+    "execution is not recorded for an envelope refused as expired",
+    "a port can refuse a worktree binding, and the same port grants the registered root",
+    "a port cannot change what the door then records",
     "a sparse scope is refused: every() skips holes",
     "a paid action with no budget is refused (ADR-K1 §2); with one it mints",
   ],
@@ -229,6 +238,12 @@ const RULINGS = {
   linkRequired: "the door refuses them unless `mintCrossing` minted them",
   p3Source: "P3's grant source stays the technical gate, wired by later phases.",
   readmitLimits: "holds `budget` and `expiry` to limits the caller must supply",
+  readmitFacts: "requires `principal`, `actor`, `subjectHash`, `idempotencyKey` and `parentEnvelopeId` to equal what the kernel states",
+  readmitScope: "holds `scope` inside the allowed scope",
+  mintedNotAdmitted: "Minted is not admitted.",
+  perCallBudget: "An envelope budget is a per-call ceiling, and the ledger is the cumulative cap.",
+  noSecondLedger: "There is deliberately no second ledger: `gatekeeperCostLedger` already refuses a paid call before dispatch, against committed caps.",
+  portSeesVia: "The door's grant port is handed `via`, so a port can refuse a worktree binding.",
   worktreeProof: "git -C <governedRoot> worktree list --porcelain",
   worktreeLimit: "It grants tenant identity and nothing else.",
   classProject: "Inherits its project's tenant",
@@ -426,6 +441,7 @@ const RULES = [
       E_("admitEnvelope", "if (envelopeExpired(envelope, now)) return refuse('EXPIRED',"),
       E_("admitEnvelope", "const refusal = classRefusal(envelope, provenance, grant);"),
       E_("admitEnvelope", "if (!recorded(recorder, { ...at, outcome: 'allowed',"),
+      E_("admitEnvelope", "ADMITTED_ENVELOPES.add(envelope);"),
       E_("admitEnvelope", "return { admitted: true, envelope };"),
     ],
   },
@@ -491,7 +507,12 @@ const RULES = [
     says: "something other than a minted or re-derived envelope can reach the door",
     pins: [
       E_(null, "const LIVE_ENVELOPES = new WeakMap<TaskEnvelope, EnvelopeProvenance>();"),
-      E_("branded", "if (result.ok) LIVE_ENVELOPES.set(result.envelope, provenance);"),
+      E_("branded", "if (result.ok) LIVE_ENVELOPES.set(result.envelope, Object.freeze(provenance));"),
+      E_(null, "const ADMITTED_ENVELOPES = new WeakSet<TaskEnvelope>();"),
+      E_("admitEnvelope", "ADMITTED_ENVELOPES.add(envelope);\n  return { admitted: true, envelope };"),
+      E_("recordExecution", "if (provenance === undefined || !ADMITTED_ENVELOPES.has(envelope)) return false;"),
+      E_("limitProblems", "...envelope.scope.filter((item) => !limits.scope.includes(item)).map("),
+      E_("limitProblems", "...(['subjectHash', 'idempotencyKey', 'parentEnvelopeId'] as const).flatMap((field) =>\n      envelope[field] === limits[field] ? [] :"),
       E_("admitEnvelope", "const provenance = LIVE_ENVELOPES.get(envelope);\n  if (provenance === undefined) return refuse('R2',"),
       E_("mintEnvelope", "if (parent !== null && !LIVE_ENVELOPES.has(parent)) {\n    return refused('R2',"),
       E_("mintEnvelope", "return branded(result, { registered: resolved.registered, via: binding.via, runLinked: false });"),
@@ -524,20 +545,20 @@ const RULES = [
       E_("classRefusal", "if (!provenance.registered) return { rule: 'UNREGISTERED_ACTION',"),
       E_("classRefusal", "if (actionClass === 'P4') return { rule: 'P4_NO_GRANT',"),
       E_("classRefusal", "if (isRunLinkedAction(action) && !provenance.runLinked) return { rule: 'RUN_LINK_REQUIRED',"),
-      E_("classRefusal", "if (actionClass === 'P5' && !granted(grant, envelope)) return { rule: 'P5_NO_GRANT',"),
-      E_("classRefusal", "if (actionClass === 'P3' && !granted(grant, envelope)) return { rule: 'P3_NO_GRANT',"),
-      E_("granted", "return grant(envelope) === true;\n  } catch {\n    return false;\n  }"),
+      E_("classRefusal", "if (actionClass === 'P5' && !granted(grant, envelope, provenance)) return { rule: 'P5_NO_GRANT',"),
+      E_("classRefusal", "if (actionClass === 'P3' && !granted(grant, envelope, provenance)) return { rule: 'P3_NO_GRANT',"),
+      E_("granted", "return grant(envelope, provenance) === true;\n  } catch {\n    return false;\n  }"),
       E_("admitEnvelope", "const refusal = classRefusal(envelope, provenance, grant);\n  if (refusal !== null) return refuse(refusal.rule, refusal.reasons, envelope, provenance);"),
       E_("admitEnvelope", "registered: provenance?.registered ?? null, via: provenance?.via ?? null, reasons });"),
       E_("admitEnvelope", "outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })"),
-      E_("recordExecution", "registered: provenance?.registered ?? null, via: provenance?.via ?? null, reasons: [], at: now });"),
+      E_("recordExecution", "registered: provenance.registered, via: provenance.via, reasons: [], at: now });"),
     ],
     order: [
       E_("classRefusal", "if (actionClass === 'P6') return { rule: 'P6_PROHIBITED',"),
       E_("classRefusal", "if (!provenance.registered) return { rule: 'UNREGISTERED_ACTION',"),
       E_("classRefusal", "if (isRunLinkedAction(action) && !provenance.runLinked) return { rule: 'RUN_LINK_REQUIRED',"),
-      E_("classRefusal", "if (actionClass === 'P5' && !granted(grant, envelope)) return { rule: 'P5_NO_GRANT',"),
-      E_("classRefusal", "if (actionClass === 'P3' && !granted(grant, envelope)) return { rule: 'P3_NO_GRANT',"),
+      E_("classRefusal", "if (actionClass === 'P5' && !granted(grant, envelope, provenance)) return { rule: 'P5_NO_GRANT',"),
+      E_("classRefusal", "if (actionClass === 'P3' && !granted(grant, envelope, provenance)) return { rule: 'P3_NO_GRANT',"),
     ],
   },
   {
@@ -551,7 +572,7 @@ const RULES = [
       E_("runLinkScope", "return `run:${runEnvelopeId}`;"),
       A(null, "export const RUN_LINKED_ACTIONS = ['credential-release', 'broker-call', 'commit', 'push'] as const;"),
       A("isRunLinkedAction", "return (RUN_LINKED_ACTIONS as readonly string[]).includes(action);"),
-      E_("mintCrossing", "if (!LIVE_ENVELOPES.has(run)) return refused('RUN_LINK',"),
+      E_("mintCrossing", "if (!ADMITTED_ENVELOPES.has(run)) return refused('RUN_LINK',"),
       E_("mintCrossing", "const { action, subjectHash, budget, expiry, intentScope } = request;"),
       E_("mintCrossing", "const bound = { tenant: binding.tenant, domain: binding.domain, project: binding.projectId, principal } as const;"),
       E_("mintCrossing", "...(run.action === RUN_ACTION ? [] :"),
@@ -652,6 +673,14 @@ const MUTATIONS = [
   { name: "adr-drops-roots-ruling", rule: "TC-3", rel: ADR_T_REL, from: "- **Boundary crossings are roots.**", to: "- **Boundaries.**" },
   { name: "adr-drops-run-link", rule: "TC-3", rel: ADR_T_REL, from: "`run:<envelopeId>` in its scope", to: "a note" },
   { name: "adr-keeps-broker-call-local", rule: "TC-3", rel: ADR_T_REL, from: "`broker-call` and `push` are `production`", to: "`broker-call` and `push` are `local`" },
+  { name: "adr-readmission-trusts-the-subject", rule: "TC-3", rel: ADR_T_REL, from: "requires `principal`, `actor`, `subjectHash`, `idempotencyKey` and `parentEnvelopeId`", to: "requires `principal` and `actor`" },
+  { name: "adr-readmission-trusts-the-scope", rule: "TC-3", rel: ADR_T_REL, from: "holds `scope` inside the allowed scope", to: "reads `scope`" },
+  { name: "adr-drops-minted-not-admitted", rule: "TC-3", rel: ADR_T_REL, from: "- **Minted is not admitted.**", to: "- **Admission.**" },
+  { name: "adr-calls-the-budget-cumulative", rule: "TC-3", rel: ADR_T_REL, from: "**An envelope budget is a per-call ceiling, and the ledger is the cumulative cap.**", to: "**An envelope budget is the run's cumulative cap.**" },
+  { name: "adr-adds-a-second-ledger", rule: "TC-3", rel: ADR_T_REL, from: "There is\n  deliberately no second ledger:", to: "A second ledger\n  is planned, and" },
+  { name: "adr-hides-that-the-port-sees-via", rule: "TC-3", rel: ADR_T_REL, from: "The door's grant port is handed `via`, so a port can refuse a worktree binding.", to: "The door decides." },
+  { name: "code-hides-the-per-call-budget", rule: "TC-3", rel: ENVELOPE_REL, from: "THE BUDGET CHECK IS PER CALL.", to: "THE BUDGET IS CHECKED." },
+  { name: "code-calls-the-field-a-total", rule: "TC-3", rel: ENVELOPE_REL, from: "not a running total", to: "a running total" },
   { name: "adr-makes-the-link-optional", rule: "TC-3", rel: ADR_T_REL, from: "the door refuses them unless `mintCrossing` minted them", to: "they should use `mintCrossing`" },
   { name: "adr-hides-the-p3-grant-source", rule: "TC-3", rel: ADR_T_REL, from: "**P3's grant source stays the technical gate, wired by later phases.**", to: "**P3 is handled.**" },
   { name: "adr-drops-readmission-limits", rule: "TC-3", rel: ADR_T_REL, from: "holds `budget` and\n  `expiry` to limits the caller must supply", to: "reads `budget` and\n  `expiry`" },
@@ -824,12 +853,13 @@ const MUTATIONS = [
   { name: "recorder-falsy-accepted", rule: "TC-27", rel: ENVELOPE_REL, from: "return recorder(record) === true;", to: "return recorder(record) !== false;" },
   { name: "recorder-throw-reads-as-written", rule: "TC-27", rel: ENVELOPE_REL, from: "  } catch {\n    return false;\n  }", to: "  } catch {\n    return true;\n  }" },
   { name: "minted-refusal-not-carried-to-the-door", rule: "TC-27", rel: ENVELOPE_REL, from: "  if (!minted.ok) return refuse(minted.rule, minted.reasons, null, null);\n", to: "  if (!minted.ok) return { admitted: false, rule: minted.rule, reasons: minted.reasons, recorded: false };\n" },
+  { name: "admitted-marked-before-the-line", rule: "TC-27", rel: ENVELOPE_REL, from: "  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {", to: "  ADMITTED_ENVELOPES.add(envelope);\n  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {" },
   { name: "unrecorded-admission-proceeds", rule: "TC-27", rel: ENVELOPE_REL, from: "if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {\n    return { admitted: false, rule: 'R4',", to: "recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] });\n  if (false) {\n    return { admitted: false, rule: 'R4'," },
   { name: "admitted-before-recorded", rule: "TC-27", rel: ENVELOPE_REL, from: "  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {", to: "  if (minted.ok) return { admitted: true, envelope };\n  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {" },
   { name: "refusal-not-recorded", rule: "TC-27", rel: ENVELOPE_REL, from: "const wrote = recorded(recorder, { ...at, outcome: 'refused', rule, envelope, registered: provenance?.registered ?? null, via: provenance?.via ?? null, reasons });", to: "const wrote = true;" },
   { name: "expiry-not-asked-at-admission", rule: "TC-27", rel: ENVELOPE_REL, from: "if (envelopeExpired(envelope, now)) return refuse('EXPIRED',", to: "if (false) return refuse('EXPIRED'," },
   { name: "class-asked-after-the-line-is-written", rule: "TC-27", rel: ENVELOPE_REL, from: "  const refusal = classRefusal(envelope, provenance, grant);\n  if (refusal !== null) return refuse(refusal.rule, refusal.reasons, envelope, provenance);\n  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {\n    return { admitted: false, rule: 'R4', reasons: ['the admission could not be recorded, so the operation does not run'], recorded: false };\n  }\n", to: "  if (!recorded(recorder, { ...at, outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })) {\n    return { admitted: false, rule: 'R4', reasons: ['the admission could not be recorded, so the operation does not run'], recorded: false };\n  }\n  const refusal = classRefusal(envelope, provenance, grant);\n  if (refusal !== null) return refuse(refusal.rule, refusal.reasons, envelope, provenance);\n" },
-  { name: "execution-record-reports-success", rule: "TC-27", rel: ENVELOPE_REL, from: "return recorded(recorder, { stage: 'execution', outcome, rule, envelope,", to: "void recorder;\n  return true || recorded(recorder, { stage: 'execution', outcome, rule, envelope," },
+  { name: "execution-record-reports-success", rule: "TC-27", rel: ENVELOPE_REL, from: "  return recorded(recorder, { stage: 'execution', outcome, rule, envelope,", to: "  void recorder;\n  return true || recorded(recorder, { stage: 'execution', outcome, rule, envelope," },
   // TC-28
   { name: "unregistered-action-is-p1", rule: "TC-28", rel: ACTION_REL, from: "export const UNREGISTERED_ACTION_CLASS: ActionClass = 'P5';", to: "export const UNREGISTERED_ACTION_CLASS: ActionClass = 'P1';" },
   { name: "unregistered-action-is-local", rule: "TC-28", rel: ACTION_REL, from: "export const UNREGISTERED_ACTION_ENVIRONMENT: KernelEnvironment = 'production';", to: "export const UNREGISTERED_ACTION_ENVIRONMENT: KernelEnvironment = 'local';" },
@@ -878,7 +908,16 @@ const MUTATIONS = [
   { name: "schema-doc-loses-action-registry", rule: "TC-33", rel: SCHEMADOC_REL, from: "| `projectos/security/action-registry.json` (installation record, not `.projectops/`) |", to: "| (removed) |" },
   // TC-34
   { name: "door-takes-unbranded", rule: "TC-34", rel: ENVELOPE_REL, from: "if (provenance === undefined) return refuse('R2', ['this envelope was not minted or re-admitted by the kernel'], null, null);", to: "if (provenance === undefined) return { admitted: true, envelope };" },
-  { name: "brand-never-set", rule: "TC-34", rel: ENVELOPE_REL, from: "  if (result.ok) LIVE_ENVELOPES.set(result.envelope, provenance);\n", to: "" },
+  { name: "brand-never-set", rule: "TC-34", rel: ENVELOPE_REL, from: "  if (result.ok) LIVE_ENVELOPES.set(result.envelope, Object.freeze(provenance));\n", to: "" },
+  { name: "provenance-left-mutable", rule: "TC-34", rel: ENVELOPE_REL, from: "LIVE_ENVELOPES.set(result.envelope, Object.freeze(provenance));", to: "LIVE_ENVELOPES.set(result.envelope, provenance);" },
+  { name: "readmit-ignores-the-scope", rule: "TC-34", rel: ENVELOPE_REL, from: "...envelope.scope.filter((item) => !limits.scope.includes(item)).map(", to: "...envelope.scope.filter(() => false).map(" },
+  { name: "readmit-trusts-its-subject", rule: "TC-34", rel: ENVELOPE_REL, from: "...(['subjectHash', 'idempotencyKey', 'parentEnvelopeId'] as const)", to: "...(['idempotencyKey', 'parentEnvelopeId'] as const)" },
+  { name: "readmit-trusts-its-idempotency-key", rule: "TC-34", rel: ENVELOPE_REL, from: "...(['subjectHash', 'idempotencyKey', 'parentEnvelopeId'] as const)", to: "...(['subjectHash', 'parentEnvelopeId'] as const)" },
+  { name: "readmit-trusts-its-parent", rule: "TC-34", rel: ENVELOPE_REL, from: "...(['subjectHash', 'idempotencyKey', 'parentEnvelopeId'] as const)", to: "...(['subjectHash', 'idempotencyKey'] as const)" },
+  { name: "readmit-fact-compare-always-holds", rule: "TC-34", rel: ENVELOPE_REL, from: "envelope[field] === limits[field] ? [] :", to: "true ? [] :" },
+  { name: "door-never-marks-admitted", rule: "TC-34", rel: ENVELOPE_REL, from: "  ADMITTED_ENVELOPES.add(envelope);\n", to: "" },
+  { name: "mint-marks-admitted", rule: "TC-34", rel: ENVELOPE_REL, from: "  if (result.ok) LIVE_ENVELOPES.set(result.envelope, Object.freeze(provenance));\n", to: "  if (result.ok) LIVE_ENVELOPES.set(result.envelope, Object.freeze(provenance));\n  if (result.ok) ADMITTED_ENVELOPES.add(result.envelope);\n" },
+  { name: "execution-records-the-unadmitted", rule: "TC-34", rel: ENVELOPE_REL, from: "if (provenance === undefined || !ADMITTED_ENVELOPES.has(envelope)) return false;", to: "if (provenance === undefined) return false;" },
   { name: "mint-does-not-brand", rule: "TC-34", rel: ENVELOPE_REL, from: "  return branded(result, { registered: resolved.registered, via: binding.via, runLinked: false });\n}\n\n/** What the kernel states", to: "  return result;\n}\n\n/** What the kernel states" },
   { name: "parse-brands-its-output", rule: "TC-34", rel: ENVELOPE_REL, from: "  return { ok: true, envelope: Object.freeze({ ...(record as unknown as TaskEnvelope), scope, actor }) };", to: "  return branded({ ok: true, envelope: Object.freeze({ ...(record as unknown as TaskEnvelope), scope, actor }) }, { registered: true, via: 'governed-root', runLinked: false });" },
   { name: "readmit-marks-everything-registered", rule: "TC-34", rel: ENVELOPE_REL, from: "refused('R2', reasons) : branded(parsed, { registered: resolved.registered,", to: "refused('R2', reasons) : branded(parsed, { registered: true," },
@@ -905,19 +944,21 @@ const MUTATIONS = [
   { name: "child-derives-from-itself", rule: "TC-34", rel: ENVELOPE_REL, from: "const resolved = resolveAction(registry, down.action);", to: "const resolved = { actionClass: down.actionClass, environment: down.environment };" },
   // TC-35
   { name: "p6-reaches-the-port", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (actionClass === 'P6') return { rule: 'P6_PROHIBITED', reasons: [`'${action}' is P6: nobody may authorise it, ever`] };\n", to: "" },
-  { name: "port-asked-before-p6", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (actionClass === 'P6') return { rule: 'P6_PROHIBITED',", to: "  if (actionClass === 'P5' && !granted(grant, envelope)) return { rule: 'P5_NO_GRANT', reasons: [] };\n  if (actionClass === 'P6') return { rule: 'P6_PROHIBITED'," },
+  { name: "port-asked-before-p6", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (actionClass === 'P6') return { rule: 'P6_PROHIBITED',", to: "  if (actionClass === 'P5' && !granted(grant, envelope, provenance)) return { rule: 'P5_NO_GRANT', reasons: [] };\n  if (actionClass === 'P6') return { rule: 'P6_PROHIBITED'," },
   { name: "unregistered-reaches-the-port", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (!provenance.registered) return { rule: 'UNREGISTERED_ACTION', reasons: [`'${action}' is not in the action registry`] };\n", to: "" },
   { name: "p4-reaches-the-door", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (actionClass === 'P4') return { rule: 'P4_NO_GRANT', reasons: [`'${action}' is P4, and no P4 grant exists yet (ADR-K1 §4)`] };\n", to: "" },
-  { name: "p5-needs-no-grant", rule: "TC-35", rel: ENVELOPE_REL, from: "if (actionClass === 'P5' && !granted(grant, envelope)) return", to: "if (false) return" },
-  { name: "p3-needs-no-grant", rule: "TC-35", rel: ENVELOPE_REL, from: "if (actionClass === 'P3' && !granted(grant, envelope)) return", to: "if (false) return" },
+  { name: "p5-needs-no-grant", rule: "TC-35", rel: ENVELOPE_REL, from: "if (actionClass === 'P5' && !granted(grant, envelope, provenance)) return", to: "if (false) return" },
+  { name: "p3-needs-no-grant", rule: "TC-35", rel: ENVELOPE_REL, from: "if (actionClass === 'P3' && !granted(grant, envelope, provenance)) return", to: "if (false) return" },
+  { name: "port-not-told-the-provenance", rule: "TC-35", rel: ENVELOPE_REL, from: "return grant(envelope, provenance) === true;", to: "return (grant as unknown as (e: TaskEnvelope) => boolean)(envelope) === true;" },
+  { name: "port-not-handed-the-provenance-at-p5", rule: "TC-35", rel: ENVELOPE_REL, from: "if (actionClass === 'P5' && !granted(grant, envelope, provenance)) return", to: "if (actionClass === 'P5' && !granted(grant, envelope, { ...provenance, via: 'governed-root' })) return" },
   { name: "run-link-not-asked-at-the-door", rule: "TC-35", rel: ENVELOPE_REL, from: "if (isRunLinkedAction(action) && !provenance.runLinked) return", to: "if (false) return" },
-  { name: "run-link-asked-after-the-port", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (isRunLinkedAction(action) && !provenance.runLinked) return { rule: 'RUN_LINK_REQUIRED', reasons: [`'${action}' must be minted by mintCrossing, tied to its run`] };\n  if (actionClass === 'P5' && !granted(grant, envelope)) return { rule: 'P5_NO_GRANT', reasons: [`'${action}' is P5, and no grant confirms it`] };\n  if (actionClass === 'P3' && !granted(grant, envelope)) return { rule: 'P3_NO_GRANT', reasons: [`'${action}' is P3, and no grant confirms it`] };\n", to: "  if (actionClass === 'P5' && !granted(grant, envelope)) return { rule: 'P5_NO_GRANT', reasons: [`'${action}' is P5, and no grant confirms it`] };\n  if (actionClass === 'P3' && !granted(grant, envelope)) return { rule: 'P3_NO_GRANT', reasons: [`'${action}' is P3, and no grant confirms it`] };\n  if (isRunLinkedAction(action) && !provenance.runLinked) return { rule: 'RUN_LINK_REQUIRED', reasons: [`'${action}' must be minted by mintCrossing, tied to its run`] };\n" },
-  { name: "grant-truthy-accepted", rule: "TC-35", rel: ENVELOPE_REL, from: "return grant(envelope) === true;", to: "return grant(envelope) !== false;" },
-  { name: "grant-throw-reads-as-granted", rule: "TC-35", rel: ENVELOPE_REL, from: "return grant(envelope) === true;\n  } catch {\n    return false;", to: "return grant(envelope) === true;\n  } catch {\n    return true;" },
+  { name: "run-link-asked-after-the-port", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (isRunLinkedAction(action) && !provenance.runLinked) return { rule: 'RUN_LINK_REQUIRED', reasons: [`'${action}' must be minted by mintCrossing, tied to its run`] };\n  if (actionClass === 'P5' && !granted(grant, envelope, provenance)) return { rule: 'P5_NO_GRANT', reasons: [`'${action}' is P5, and no grant confirms it`] };\n  if (actionClass === 'P3' && !granted(grant, envelope, provenance)) return { rule: 'P3_NO_GRANT', reasons: [`'${action}' is P3, and no grant confirms it`] };\n", to: "  if (actionClass === 'P5' && !granted(grant, envelope, provenance)) return { rule: 'P5_NO_GRANT', reasons: [`'${action}' is P5, and no grant confirms it`] };\n  if (actionClass === 'P3' && !granted(grant, envelope, provenance)) return { rule: 'P3_NO_GRANT', reasons: [`'${action}' is P3, and no grant confirms it`] };\n  if (isRunLinkedAction(action) && !provenance.runLinked) return { rule: 'RUN_LINK_REQUIRED', reasons: [`'${action}' must be minted by mintCrossing, tied to its run`] };\n" },
+  { name: "grant-truthy-accepted", rule: "TC-35", rel: ENVELOPE_REL, from: "return grant(envelope, provenance) === true;", to: "return grant(envelope, provenance) !== false;" },
+  { name: "grant-throw-reads-as-granted", rule: "TC-35", rel: ENVELOPE_REL, from: "return grant(envelope, provenance) === true;\n  } catch {\n    return false;", to: "return grant(envelope, provenance) === true;\n  } catch {\n    return true;" },
   { name: "class-refusal-ignored", rule: "TC-35", rel: ENVELOPE_REL, from: "  if (refusal !== null) return refuse(refusal.rule, refusal.reasons, envelope, provenance);\n", to: "" },
   { name: "allowed-line-omits-provenance", rule: "TC-35", rel: ENVELOPE_REL, from: "outcome: 'allowed', rule: null, envelope, ...provenance, reasons: [] })", to: "outcome: 'allowed', rule: null, envelope, registered: null, via: null, reasons: [] })" },
   { name: "refusal-line-omits-provenance", rule: "TC-35", rel: ENVELOPE_REL, from: "registered: provenance?.registered ?? null, via: provenance?.via ?? null, reasons });", to: "registered: null, via: null, reasons });" },
-  { name: "execution-line-omits-provenance", rule: "TC-35", rel: ENVELOPE_REL, from: "registered: provenance?.registered ?? null, via: provenance?.via ?? null, reasons: [], at: now });", to: "registered: null, via: null, reasons: [], at: now });" },
+  { name: "execution-line-omits-provenance", rule: "TC-35", rel: ENVELOPE_REL, from: "registered: provenance.registered, via: provenance.via, reasons: [], at: now });", to: "registered: null, via: null, reasons: [], at: now });" },
   { name: "envelope-gains-a-registered-field", rule: "TC-35", rel: ENVELOPE_REL, from: "  readonly idempotencyKey: string;\n}", to: "  readonly idempotencyKey: string;\n  readonly registered: boolean;\n}" },
   { name: "envelope-gains-a-via-field", rule: "TC-35", rel: ENVELOPE_REL, from: "  readonly idempotencyKey: string;\n}", to: "  readonly idempotencyKey: string;\n  readonly via: string;\n}" },
   // TC-36
@@ -928,7 +969,8 @@ const MUTATIONS = [
   { name: "crossing-omits-project", rule: "TC-36", rel: ENVELOPE_REL, from: "const bound = { tenant: binding.tenant, domain: binding.domain, project: binding.projectId, principal } as const;", to: "const bound = { tenant: binding.tenant, domain: binding.domain, principal } as const;" },
   { name: "crossing-omits-principal", rule: "TC-36", rel: ENVELOPE_REL, from: "const bound = { tenant: binding.tenant, domain: binding.domain, project: binding.projectId, principal } as const;", to: "const bound = { tenant: binding.tenant, domain: binding.domain, project: binding.projectId } as const;" },
   { name: "crossing-compare-always-holds", rule: "TC-36", rel: ENVELOPE_REL, from: "bound[field] === run[field] ? [] :", to: "true ? [] :" },
-  { name: "crossing-takes-an-unbranded-run", rule: "TC-36", rel: ENVELOPE_REL, from: "  if (!LIVE_ENVELOPES.has(run)) return refused('RUN_LINK', ['the run was not minted or re-admitted here, so it links nothing']);\n", to: "" },
+  { name: "crossing-takes-an-unbranded-run", rule: "TC-36", rel: ENVELOPE_REL, from: "  if (!ADMITTED_ENVELOPES.has(run)) return refused('RUN_LINK', ['the run was not admitted at the door, so it links nothing']);\n", to: "" },
+  { name: "crossing-takes-a-merely-minted-run", rule: "TC-36", rel: ENVELOPE_REL, from: "if (!ADMITTED_ENVELOPES.has(run)) return refused('RUN_LINK',", to: "if (!LIVE_ENVELOPES.has(run)) return refused('RUN_LINK'," },
   { name: "crossing-from-anything", rule: "TC-36", rel: ENVELOPE_REL, from: "...(run.action === RUN_ACTION ? [] :", to: "...(true ? [] :" },
   { name: "crossing-for-any-action", rule: "TC-36", rel: ENVELOPE_REL, from: "...(isRunLinkedAction(action) ? [] :", to: "...(true ? [] :" },
   { name: "crossing-from-an-expired-run", rule: "TC-36", rel: ENVELOPE_REL, from: "...(envelopeExpired(run, now) ? [", to: "...(false ? [" },
@@ -976,6 +1018,8 @@ const MUTATIONS = [
   { name: "a-proof-isolated", rule: "TC-T", rel: "projectos/core/test/tenant.test.ts", from: "  it('refuses an unlisted project by name, and never defaults to the owner', () => {", to: "  it.only('refuses an unlisted project by name, and never defaults to the owner', () => {" },
   { name: "a-table-skipped", rule: "TC-T", rel: "projectos/core/test/action-registry.test.ts", from: "  it.each(['cross-tenant-access', 'tenant-registry-change', 'action-registry-change'])('%s is registered as P5', (action) => {", to: "  it.skip.each(['cross-tenant-access', 'tenant-registry-change', 'action-registry-change'])('%s is registered as P5', (action) => {" },
   { name: "a-suite-skipped", rule: "TC-T", rel: "projectos/core/test/tenant-contract-review.test.ts", from: "describe('HIGH 1: envelope provenance', () => {", to: "describe.skip('HIGH 1: envelope provenance', () => {" },
+  { name: "a-proof-commented-out", rule: "TC-T", rel: "projectos/core/test/tenant-contract-review.test.ts", from: "  it('the forged full-shape envelope the reviewer built is refused at the door, and recorded', () => {", to: "  // it('the forged full-shape envelope the reviewer built is refused at the door, and recorded', () => {\n  it('nothing', () => {" },
+  { name: "a-whole-file-commented-out", rule: "TC-T", rel: "projectos/core/test/tenant-contract-review.test.ts", from: "describe('HIGH 1: envelope provenance', () => {", to: "/*\ndescribe('HIGH 1: envelope provenance', () => {" },
   { name: "a-proof-deleted", rule: "TC-T", rel: "projectos/core/test/tenant-contract-review.test.ts", from: "the forged full-shape envelope the reviewer built is refused at the door, and recorded", to: "a nice test" },
 ];
 
@@ -1215,6 +1259,10 @@ function check(raw) {
   if ((src[ENVELOPE_REL].match(/LIVE_ENVELOPES\.set\(/g) || []).length !== 1 || fnSpan(src[ENVELOPE_REL], "parseEnvelope").includes("branded(")) {
     E("TC-34", "something other than a mint or a re-admission can brand an envelope");
   }
+  // TC-34 (one way to be admitted): only the door marks an envelope, and only once its line is written.
+  if ((src[ENVELOPE_REL].match(/ADMITTED_ENVELOPES\.add\(/g) || []).length !== 1) E("TC-34", "something other than the door can mark an envelope admitted");
+  // TC-3 (the code says it too): the budget comment is the reader's only warning at the call site.
+  if (!raw[ENVELOPE_REL].includes("not a running total") || !raw[ENVELOPE_REL].includes("THE BUDGET CHECK IS PER CALL.")) E("TC-3", "the code no longer says an envelope budget is a per-call ceiling");
   // TC-36 (no weaker path): the after-the-fact check is gone, so the door's route is the only one.
   if (/\bcheckRunLink\b/.test(src[ENVELOPE_REL]) || /\bexport function runLinkScope\b/.test(src[ENVELOPE_REL])) E("TC-36", "a weaker public run-link path exists");
   // TC-35 (no new field): `registered` and `via` stay on the record line. ADR-K1 was accepted by the owner.
@@ -1259,7 +1307,8 @@ function check(raw) {
 
   // TC-T: every proof exists, and every proof runs.
   for (const [rel, needles] of Object.entries(TESTS)) {
-    for (const n of needles) if (!raw[rel].includes(n)) E("TC-T", `${rel} no longer proves "${n}"`);
+    // Comments stripped: a proof that is commented out still contains its own name.
+    for (const n of needles) if (!src[rel].includes(n)) E("TC-T", `${rel} no longer proves "${n}"`);
     if (NOT_RUN.test(src[rel])) E("TC-T", `${rel} skips or isolates a test: ${NOT_RUN.exec(src[rel])[0]}`);
   }
   return errors;
