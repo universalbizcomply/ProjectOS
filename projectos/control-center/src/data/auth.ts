@@ -1,8 +1,9 @@
 /**
  * Auth helpers over Supabase Auth (email + password). The dashboard is gated: without a
- * session the app shows the login screen. A session reaches the cloud tables only, and only the
- * rows of tenants the user belongs to (see supabase/migrations/0002_tenant_boundary.sql). It
- * carries no kernel authority. Uses the public anon key only.
+ * session the app shows the login screen. A session carries no kernel authority. What it may
+ * reach in the cloud tables is decided in the database, not here: supabase/migrations/ holds the
+ * intended schema, and the live project changes only at the owner's apply. Uses the public anon
+ * key only.
  */
 import type { Session } from '@supabase/supabase-js';
 import { getClient } from './supabase';

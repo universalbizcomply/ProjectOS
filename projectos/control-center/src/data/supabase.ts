@@ -5,8 +5,8 @@
  *   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
  * When those are absent `getClient` returns null. No service_role key or PAT is ever used here.
  * Today only Supabase Auth is used, as the desktop sign-in gate: no screen reads the cloud tables.
- * Those tables are not public. They are tenant-bound by row level security, see
- * supabase/migrations/0002_tenant_boundary.sql.
+ * Access to those tables is decided in the database: supabase/migrations/ holds the intended
+ * schema, and the live project changes only at the owner's apply.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
