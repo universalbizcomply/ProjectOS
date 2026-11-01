@@ -312,4 +312,5 @@ Forge, the signed installer, and the Host unattended-review route.
 - 2026-11-01: **tenant boundary LIVE.** Owner: "Yes, apply it now (Recommended)", "Yes, lock by default (Recommended)", "Accept it
   (Recommended)" for ADR-T1. Plan v1.29 (`89b5f0f`, PLANDEC-f39515528b11588f3afdd66d) added `0003_default_privileges.sql`. All three
   migrations and the owner's membership applied; preflight and post-check passed; ECC DATABASE APPROVE on 0003. The personal
-  access token must be revoked by the owner: it was pasted in chat and it reaches the whole account.
+  access token was pasted in chat and reaches the whole account. Owner decision, 2026-11-01: it stays until the project is
+  completed, then the owner revokes it. It is not stored in the repo or in memory.
