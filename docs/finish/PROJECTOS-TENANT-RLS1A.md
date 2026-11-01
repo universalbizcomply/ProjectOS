@@ -17,9 +17,34 @@ raised which item, because the builder did not receive the two reports separatel
 |---|---|---|
 | ECC DATABASE | APPROVE WITH CHANGES, no CRITICAL or HIGH | All fixed, see the table below |
 | ECC SECURITY | APPROVE WITH CHANGES, no CRITICAL or HIGH | All fixed, see the table below |
-| Agency `ai-generated-code-security-auditor` | **OPEN** | It ran, but its report could not be delivered, because the guard blocks the wrapper's handback tool. **It does NOT count as completed and stays open.** |
+| Agency `ai-generated-code-security-auditor` | APPROVE WITH CHANGES, no exploitable hole | Test gaps closed, see the Agency table below. Its first run could not deliver a report, because the guard blocked the wrapper's handback tool. The report arrived by handback after the owner changed the guard |
 
 The two ECC reviews reviewed `ed88661`. The fixes below have not themselves been reviewed.
+
+### Agency review findings
+
+The builder received these five findings from the lead, not the report itself. Each was checked against the code
+first, and none was rejected. The new checks have not themselves been reviewed.
+
+| Finding | Checked | Disposition |
+|---|---|---|
+| **F1.** No user owns tenant A and is a plain member of tenant B | Confirmed: `owner-anywhere-owns-all` survived with 0 assertions and 0 gate findings | Fixture added, with `A-MIXED-*` assertions: reads B, cannot write B. The mutation now fails 7 assertions. TR-15 pins both helper bodies, with mutations |
+| **N1.** The gate and post-apply never compare `polcmd` | Confirmed: a `for all` policy named "projects member read" passed post-apply and the gate. Only behaviour assertions noticed | `COMMAND_DIFFERS` in the gate, `polcmd` in both `open_policy` checks. Mutation `read-policy-for-all`, refusal `pa-read-policy-for-all`. The byte-equal gate body changed in `live-postapply.sql` and `live-preflight-0003.sql` |
+| **F2.** Post-apply does not check helper bodies or `auth.uid()` | Confirmed | Three checked rows: exact helper bodies (TR-42 holds them equal to `0002`); the `auth.uid()` definition; EXECUTE on it for `authenticated`. Refusals `pa-helper-body`, `pa-auth-uid-definer`, `pa-auth-uid-hardcoded`, `pa-auth-uid-no-execute` |
+| **R3.** Missing cases | Confirmed for the assertions. The gate already reported a public view, but no assertion named it | Mutation `public-view-over-tenant-table` and `A-NO-PUBLIC-VIEW`; `A-STRANGER-*` and `A-NULLCLAIMS-*` writes; `A-MEMBER-UPSERT-projects`, refused by `WITH CHECK`, with control `A-OWNWRITE-upsert-projects` |
+| **F5.** `set_config` can change the claims `auth.uid()` reads | Accepted as described | Carried, not pinned, see "Carried, not done" |
+
+**`auth.uid()` is checked by what matters, not by exact text.** No copy of the live body is saved locally, and Supabase
+owns its spelling, so an exact comparison could fail on a harmless change. The check requires: SQL language, stable,
+not security definer, returns uuid, reads exactly the two `current_setting` sources, takes `sub`, casts to uuid, holds no
+literal id and no `set_config`. The harness stub keeps the body it already had, which follows Supabase's form but has
+not been compared with live.
+
+**The new `live-postapply.sql` has not been run on live.** Its sha256 is
+`821f681584f3cf1a71afe9fd3653f3c88e8d5561df465f07fadd49ee63caeed9`, and `live-preflight-0003.sql` also changed, to
+`3fe85148cdf24248c82b4b55838de567e3e59cab589af2bdc378d8a18a1fca9c`. The migrations and `live-owner-membership.sql` did
+not change, and TR-36 holds them. Run the new check after this commit. Its first run may show that live's
+`auth.uid()` differs from what the check expects.
 
 | # | Fix | Proof it failed before and passes now |
 |---|---|---|
@@ -161,12 +186,12 @@ are not covered.
 
 | Command | Result |
 |---|---|
-| `node projectos/validators/val-projectos-tenant-rls1a.cjs` | PASS on **PostgreSQL 17.10**, the default: 185 text and 40 database mutations killed by their own rules, 23 source scenarios, 12 preflight, 8 0003 preflight and 12 post-apply refusals, failed start and killed run cleaned up, 133 assertions on 2 starts |
+| `node projectos/validators/val-projectos-tenant-rls1a.cjs` | PASS on **PostgreSQL 17.10**, the default: 204 text and 43 database mutations killed by their own rules, 23 source scenarios, 12 preflight, 8 0003 preflight and 17 post-apply refusals, failed start and killed run cleaned up, 159 assertions on 2 starts |
 | same, `TENANT_RLS_PG_BIN=<scoop bin>` | PASS on PostgreSQL 18.4, same counts, with the printed `FALLBACK` note |
 | same, `TENANT_RLS_PG_BIN` pointing at nothing | FAIL, `TR-PG: POSTGRES_MISSING`. The harness alone exits 3 |
-| `node projectos/control-center/supabase/test/pg-harness.cjs` | ALL PASS: 188 checks, about a minute |
-| `validate-no-secrets`, `val-projectos-tenant-contract1a`, scratch lifecycle, speed cache: the other validators reading a touched file for `0003` | 4 PASS |
-| `npm run typecheck`, `npx vitest run` in `projectos/control-center` | clean, 890 tests passed, at `ed88661` plus the review round. Not re-run for `0003`, which touches no control-center code |
+| `node projectos/control-center/supabase/test/pg-harness.cjs` | ALL PASS: 196 checks, about a minute |
+| `validate-no-secrets`, `val-projectos-tenant-contract1a`, scratch lifecycle, speed cache: the other validators reading a touched file, re-run for the Agency round | 4 PASS |
+| `npm run typecheck`, `npx vitest run` in `projectos/control-center` | clean, 890 tests passed, at `ed88661` plus the review round. Not re-run since, because `0003` and the Agency round touch no control-center code |
 
 Full `validate-all` was not run, by instruction: the lead runs it after stacking. One validator run takes about 60 to
 70 s, because it also proves the lifecycle. It is not in `speed/input-map.cjs`, which is outside this phase's
@@ -225,7 +250,8 @@ Both are real runs, driven by the validator through a test seam.
 `test/live-postapply.sql` is one SELECT, and the gate's body is byte-equal to `privilege-gate.sql` (TR-34). It passes on
 both starts as `supabase_read_only_user` in a read-only session. It refuses a `true or <helper>` policy, a `to public`
 policy, an anon grant, a new table with no row level security, a table in realtime, a client able to create in
-`public`, and a database that was never migrated. It lists `pg_default_acl` and the `public` schema ACL.
+`public`, a read policy widened to `for all`, a changed helper body, a changed `auth.uid()`, and a database that was
+never migrated. It lists `pg_default_acl` and the `public` schema ACL.
 
 ### Findings the harness changed
 
@@ -268,8 +294,13 @@ policy, an anon grant, a new table with no row level security, a table in realti
 - **LOWs from the 0003 review, carried:** `live-preflight-0003.sql` does not mirror two of `0003`'s checks, so such a state
   stops at the migration's own check instead; no listing of functions `postgres` owns outside public; the `0003` comment on
   who can call a new function is loose about schemas with per-schema rows.
-- **Agency `ai-generated-code-security-auditor`: OPEN.** It ran; its report could not be delivered because the Agency guard
-  refuses the wrapper's handback tool. It does not count as a completed review until the report arrives.
+- **F5, carried.** `auth.uid()` reads `request.jwt.claims`, a setting that any SQL session can change with `set_config`. The
+  harness's own login helper does exactly that. This is not pinned, because a user's claims cannot change the verified JWT
+  outside SQL they are allowed to run. What bounds it: clients reach the database through PostgREST, which sets the claims
+  from the verified JWT; they cannot log in directly, and the gate reports a client role that can; and they can call no function in
+  `public`, which the gate and post-apply check also report. So no client statement reaches `set_config`. The bound would
+  break with a client-callable function that runs caller-supplied SQL, a schema containing `set_config` exposed through
+  PostgREST, or a leaked `authenticator` login. The exposed-schema list is a Supabase setting that this phase's checks do not read.
 
 ## Not modelled, and what the owner's apply should expect
 
