@@ -4,7 +4,7 @@
 // Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
-// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: translated from Python to TypeScript; text past the scan limit is refused instead of dropped; every Unicode format character counts as invisible; patterns for the upstream home directory renamed, one added for .projectops
+// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: translated from Python to TypeScript; text past the scan limit is refused instead of dropped; control, format and default-ignorable characters and the line and paragraph separators count as invisible; comments refused with or without a keyword; patterns for the upstream home directory renamed, one added for .projectops
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * The threat scan: injection, promptware and exfiltration patterns, as data, with no I/O.
@@ -48,6 +48,9 @@ const PATTERNS: readonly (readonly [source: string, id: string, scope: ThreatSco
   [String.raw`act\s+as\s+(if|though)\s+${FILLER}you\s+${FILLER}(have\s+no|don't\s+have)\s+${FILLER}(restrictions|limits|rules)`, 'bypass_restrictions', 'all'],
   [String.raw`<!--[^>]{0,512}(?:ignore|override|system|secret|hidden)[^>]{0,512}-->`, 'html_comment_injection', 'all'],
   [String.raw`<\s*div\s+style\s*=\s*["'][^>]{0,2048}display\s*:\s*none`, 'hidden_div', 'all'],
+  // A comment holds text a rendered view does not show, so a reviewer can approve what they never read.
+  [String.raw`<!--`, 'html_comment', 'strict'],
+  [String.raw`\[//\]:`, 'markdown_comment', 'strict'],
   [String.raw`translate\s+[^\n]{0,512}\s+into\s+${WORD}+(?:[\s-]+${WORD}+){0,2}\s+and\s+(execute|run|eval)\b`, 'translate_execute', 'all'],
   [String.raw`do\s+not\s+${FILLER}tell\s+${FILLER}the\s+user`, 'deception_hide', 'all'],
 
@@ -123,8 +126,14 @@ function compileFor(scope: ThreatScope): readonly (readonly [RegExp, string])[] 
 
 export const THREAT_PATTERN_IDS: readonly string[] = PATTERNS.map(([, id]) => id);
 
-/** Every Unicode format character: zero-width, bidirectional, soft hyphen and the tag block. */
-const INVISIBLE = /\p{Cf}/gu;
+/**
+ * Everything a reviewer would not see, except the newline and the tab.
+ *
+ * An approval covers the bytes, so what the owner cannot read must not be admitted at all. `Cc` is here
+ * because an escape sequence can erase a line from a terminal, `Cf` holds the zero-width, bidirectional
+ * and tag characters, and default-ignorable adds variation selectors and fillers. Upstream lists 15.
+ */
+const INVISIBLE = /(?![\n\t])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\p{Zl}\p{Zp}]/gu;
 
 function invisibleFindings(content: string): readonly string[] {
   const found = new Set(content.match(INVISIBLE) ?? []);

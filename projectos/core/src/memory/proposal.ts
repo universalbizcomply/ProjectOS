@@ -35,11 +35,13 @@
 import { createHash } from 'node:crypto';
 import { ROLES, type Role } from '../types.js';
 import { admitMemoryContent, normalizedEntryKey, relativeTimePhrase } from './admission.js';
-import type { HashPinnedDecision, HashPinnedOutcome, HashPinnedProposal } from './hashPinned.js';
-import { memoryOk, memoryRefused, type MemoryResult } from './refusal.js';
+import type { HashPinnedOutcome, HashPinnedProposal } from './hashPinned.js';
+import { memoryOk, memoryRefused, type MemoryRefused, type MemoryResult } from './refusal.js';
 import {
   MEMORY_TARGETS,
   findMemoryEntry,
+  foldMemoryLines,
+  memoryCharCount,
   memoryCharLimit,
   memoryEntriesRoundTrip,
   memoryEntryHash,
@@ -65,6 +67,7 @@ const ENTRY_HASH = /^sha256:[0-9a-f]{64}$/;
 const ACTOR_LABEL = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 /** A commit, or a path inside the repository, with an optional anchor. Never a climb out of it. */
+const MAX_LEDGER_REF_CHARS = 256;
 const LEDGER_REF = /^(?:[0-9a-f]{7,40}|\.?[A-Za-z0-9_][A-Za-z0-9._-]*(?:\/\.?[A-Za-z0-9_][A-Za-z0-9._-]*)*(?:#[A-Za-z0-9._-]+)?)$/;
 
 /** Who proposed this, in which session, when, and over which text. Upstream records none of it. */
@@ -76,8 +79,6 @@ export interface MemoryProvenance {
   /** The hash of the content; for a remove, of the entry being removed. */
   readonly contentHash: string;
 }
-
-export type MemoryDecision = HashPinnedDecision;
 
 interface MemoryProposalBody {
   readonly target: MemoryTarget;
@@ -185,7 +186,15 @@ function provenanceProblem(fields: {
 
 function ledgerRefProblem(kind: MemoryEntryKind, ledgerRef: string | null): boolean {
   if (kind === 'decision' && ledgerRef === null) return true;
-  return ledgerRef !== null && !LEDGER_REF.test(ledgerRef);
+  return ledgerRef !== null && (ledgerRef.length > MAX_LEDGER_REF_CHARS || !LEDGER_REF.test(ledgerRef));
+}
+
+/** Asked before anything reads the text, so the scan's cost is bounded by the cap and not by the input. */
+function oversizeProblem(target: MemoryTarget, content: string): MemoryRefused | null {
+  const limit = memoryCharLimit(target);
+  const total = memoryCharCount(content);
+  if (total <= limit) return null;
+  return memoryRefused('MEMORY_OVER_LIMIT', `That text is ${total} chars and ${target} holds ${limit}. It was not read.`);
 }
 
 /** The entry a replace or remove acts on. An add has none. */
@@ -210,7 +219,7 @@ function locateTarget(input: MemoryWriteInput, entries: readonly string[]): Memo
  * its target. Only the owner's own writing may replace or remove one, and that writing may not be a
  * summary. An entry with no provenance is treated as a decision: unknown is not safe to overwrite.
  */
-function decisionProblem(proposal: MemoryProposal, targetKind: MemoryEntryKind | null): MemoryResult<null> | null {
+function decisionProblem(proposal: MemoryProposal, targetKind: MemoryEntryKind | null): MemoryRefused | null {
   if (targetKind !== 'decision' && targetKind !== null) return null;
   if (proposal.provenance.authorRole === 'owner' && proposal.kind !== 'summary') return null;
   return memoryRefused(
@@ -219,7 +228,7 @@ function decisionProblem(proposal: MemoryProposal, targetKind: MemoryEntryKind |
   );
 }
 
-function duplicateProblem(content: string, others: readonly string[]): MemoryResult<null> | null {
+function duplicateProblem(content: string, others: readonly string[]): MemoryRefused | null {
   const key = normalizedEntryKey(content);
   const held = others.find((entry) => normalizedEntryKey(entry) === key);
   if (held === undefined) return null;
@@ -231,7 +240,7 @@ function nextEntries(proposal: MemoryProposal, entries: readonly string[], index
   const content = proposal.content;
   if (content !== null) {
     const duplicate = duplicateProblem(content, others);
-    if (duplicate !== null) return duplicate as MemoryResult<never>;
+    if (duplicate !== null) return duplicate;
   }
   const next =
     proposal.op === 'add'
@@ -263,7 +272,9 @@ export function checkMemoryProposal(proposal: MemoryProposal, state: MemoryStore
   const intact = proposalIntegrityProblem(proposal);
   if (intact !== null) return memoryRefused('MEMORY_TAMPERED', intact);
   if (proposal.content !== null) {
-    const admitted = admitMemoryContent(proposal.content, proposal.provenance.authorRole);
+    const oversize = oversizeProblem(proposal.target, proposal.content);
+    if (oversize !== null) return oversize;
+    const admitted = admitMemoryContent(proposal.content);
     if (!admitted.ok) return admitted;
   }
   const index = state.entries.findIndex((entry) => memoryEntryHash(entry) === proposal.targetEntryHash);
@@ -273,7 +284,7 @@ export function checkMemoryProposal(proposal: MemoryProposal, state: MemoryStore
     }
     const held = state.provenance.get(proposal.targetEntryHash ?? '');
     const protectedEntry = decisionProblem(proposal, held?.kind ?? null);
-    if (protectedEntry !== null) return protectedEntry as MemoryResult<never>;
+    if (protectedEntry !== null) return protectedEntry;
   }
   return nextEntries(proposal, state.entries, index);
 }
@@ -292,8 +303,10 @@ export function buildMemoryProposal(input: MemoryWriteInput, state: MemoryStoreS
   const located = locateTarget(input, state.entries);
   if (!located.ok) return located;
   const targetEntry = located.value;
-  const content = input.op === 'remove' ? null : (input.content ?? '').trim();
+  const content = input.op === 'remove' ? null : foldMemoryLines(input.content ?? '').trim();
   if (content === '') return memoryRefused('MEMORY_EMPTY', 'Content cannot be empty. Use remove to delete an entry.');
+  const oversize = content === null ? null : oversizeProblem(input.target, content);
+  if (oversize !== null) return oversize;
   const targetEntryHash = targetEntry === null ? null : memoryEntryHash(targetEntry);
   const proposal = sealProposal({
     target: input.target,
@@ -329,22 +342,42 @@ function proposalIntegrityProblem(proposal: MemoryProposal): string | null {
     return 'its provenance hash is not the hash of its content';
   }
   if (proposal.proposalHash !== hashBody(proposal)) return 'its hash does not match what it says';
-  if (!proposal.id.startsWith(`mem-${proposal.proposalHash.slice('sha256:'.length, 'sha256:'.length + 24)}`)) {
+  if (proposal.id !== `mem-${proposal.proposalHash.slice('sha256:'.length, 'sha256:'.length + 24)}`) {
     return 'its id does not match its hash';
   }
+  if (ledgerRefProblem(proposal.kind, proposal.ledgerRef)) return 'its ledger reference is not valid';
   return null;
 }
 
-function decisionFrom(raw: unknown): MemoryDecision | null | undefined {
-  if (raw === null) return null;
-  if (typeof raw !== 'object') return undefined;
-  const { outcome, by, at, proposalHash } = raw as Record<string, unknown>;
-  const valid =
-    (outcome === 'approved' || outcome === 'rejected') &&
-    isOneOf(by, ROLES) &&
-    typeof at === 'string' &&
-    typeof proposalHash === 'string';
-  return valid ? { outcome, by, at, proposalHash } : undefined;
+/**
+ * Whether this is a whole provenance record for this entry, every field.
+ *
+ * Its fields reach a prompt and a decision, and the file that holds it is only a file, so a record that
+ * fails any field is treated as no record: the entry is withheld, and it stays protected.
+ */
+export function isMemoryEntryProvenance(hash: string, value: unknown): value is MemoryEntryProvenance {
+  if (value === null || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  const { kind, ledgerRef } = record;
+  return (
+    record['entryHash'] === hash &&
+    isOneOf(kind, MEMORY_ENTRY_KINDS) &&
+    provenanceProblem({
+      author: record['author'],
+      authorRole: record['authorRole'],
+      session: record['session'],
+      proposedAt: record['proposedAt'],
+    }) === null &&
+    typeof record['proposalId'] === 'string' &&
+    PROPOSAL_ID.test(record['proposalId']) &&
+    typeof record['proposalHash'] === 'string' &&
+    ENTRY_HASH.test(record['proposalHash']) &&
+    record['approvedBy'] === 'owner' &&
+    typeof record['approvedAt'] === 'string' &&
+    ISO_INSTANT.test(record['approvedAt']) &&
+    (ledgerRef === null || typeof ledgerRef === 'string') &&
+    !ledgerRefProblem(kind, ledgerRef)
+  );
 }
 
 const nullableText = (value: unknown): value is string | null => value === null || typeof value === 'string';
@@ -354,6 +387,10 @@ const nullableText = (value: unknown): value is string | null => value === null 
  *
  * A file is only a file. Every field is checked and the hash is recomputed, so a proposal edited on
  * disk is refused rather than approved under the text the reviewer read.
+ *
+ * ONLY A PENDING PROPOSAL IS READ. The hash covers what was proposed and not what became of it, so a
+ * file's state and decision prove nothing. A file marked approved is refused as tampered, because that
+ * state is never written. A decided one says so, and stays on disk as the record.
  */
 export function readMemoryProposal(raw: unknown): MemoryResult<MemoryProposal> {
   const refuse = (why: string): MemoryResult<MemoryProposal> => memoryRefused('MEMORY_TAMPERED', `That proposal is not valid: ${why}.`);
@@ -367,9 +404,7 @@ export function readMemoryProposal(raw: unknown): MemoryResult<MemoryProposal> {
     proposedAt: provenance['proposedAt'],
   });
   if (missing !== null) return refuse(`it does not name ${missing}`);
-  const decision = decisionFrom(r['decision'] ?? null);
   if (
-    decision === undefined ||
     r['schema'] !== MEMORY_PROPOSAL_SCHEMA ||
     typeof r['id'] !== 'string' ||
     !PROPOSAL_ID.test(r['id']) ||
@@ -392,8 +427,8 @@ export function readMemoryProposal(raw: unknown): MemoryResult<MemoryProposal> {
     schema: MEMORY_PROPOSAL_SCHEMA,
     id: r['id'],
     proposalHash: r['proposalHash'],
-    state: r['state'],
-    decision,
+    state: 'pending',
+    decision: null,
     target: r['target'],
     op: r['op'],
     kind: r['kind'],
@@ -411,8 +446,19 @@ export function readMemoryProposal(raw: unknown): MemoryResult<MemoryProposal> {
     },
   };
   const problem = proposalIntegrityProblem(proposal);
-  return problem === null ? memoryOk(proposal) : refuse(problem);
+  if (problem !== null) return refuse(problem);
+  if (r['state'] === 'approved') return refuse('it is marked approved, and that state is never written');
+  if (r['state'] !== 'pending') return memoryRefused('MEMORY_ALREADY_DECIDED', `Proposal ${proposal.id} is already ${r['state']}.`);
+  return (r['decision'] ?? null) === null ? memoryOk(proposal) : refuse('it is pending and carries a decision');
 }
+
+/**
+ * The proposals `decideMemoryProposal` approved, by identity.
+ *
+ * APPROVAL IS NOT DATA. A state field can be written by anyone who can write the object, so the proof is
+ * that this module produced this exact object: a copy, or a file, is not in here and lands nothing.
+ */
+const APPROVED_HERE = new WeakSet<MemoryProposal>();
 
 /**
  * The owner's decision on one proposal.
@@ -437,11 +483,13 @@ export function decideMemoryProposal(
   if (reviewedHash !== proposal.proposalHash) {
     return memoryRefused('MEMORY_STALE', 'The proposal is not the one that was reviewed. Read it again and decide again.');
   }
-  return memoryOk({
+  const decided: MemoryProposal = {
     ...proposal,
     state: outcome,
     decision: { outcome, by, at, proposalHash: proposal.proposalHash },
-  });
+  };
+  if (outcome === 'approved') APPROVED_HERE.add(decided);
+  return memoryOk(decided);
 }
 
 export interface AppliedMemoryProposal {
@@ -454,12 +502,8 @@ export interface AppliedMemoryProposal {
 /** What an approved proposal does to this store. The only function that yields entries to persist. */
 export function applyMemoryProposal(proposal: MemoryProposal, state: MemoryStoreState): MemoryResult<AppliedMemoryProposal> {
   const decision = proposal.decision;
-  if (proposal.state !== 'approved' || decision === null || decision.outcome !== 'approved') {
+  if (!APPROVED_HERE.has(proposal) || decision === null) {
     return memoryRefused('MEMORY_NOT_APPROVED', `Proposal ${proposal.id} has not been approved, so nothing lands.`);
-  }
-  if (decision.by !== 'owner') return memoryRefused('MEMORY_NOT_OWNER', 'Only the owner can approve a memory write.');
-  if (decision.proposalHash !== proposal.proposalHash) {
-    return memoryRefused('MEMORY_STALE', 'The approval was given to a different text.');
   }
   const next = checkMemoryProposal(proposal, state);
   if (!next.ok) return next;

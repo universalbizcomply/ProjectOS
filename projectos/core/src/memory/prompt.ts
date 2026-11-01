@@ -4,7 +4,7 @@
 // Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
-// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: the block is fenced as untrusted and states it is not authority; an entry with no approval is withheld; the scan has no skip for text that looks already blocked; an over-limit store is refused rather than sent
+// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: the block is fenced as untrusted and states it is not authority; an entry with no whole approved record is withheld; the scan has no skip for text that looks already blocked, and the instruction screen runs here too; every line carries its kind and continuation lines are indented; an over-limit store is refused rather than sent
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * The one way memory reaches a prompt.
@@ -13,10 +13,15 @@
  * remove it. Dropping it silently would hide the attack. That much is upstream.
  *
  * WHAT CHANGED. Upstream skips the scan for an entry that starts with `[BLOCKED:`, so a poisoned entry
- * only has to start with that text. There is no skip here: every entry is scanned, every time.
- * Upstream also lets an over-limit store ride into the prompt with a warning. Here it is refused,
- * because a cap that does not hold at the prompt is not a cap, and silent truncation would drop text
- * nobody chose to drop.
+ * only has to start with that text. There is no skip here: every entry is scanned, every time, and the
+ * instruction screen runs here as well as at proposal, because a store is a file and a clone can bring
+ * one that never saw the queue. Upstream also lets an over-limit store ride into the prompt with a
+ * warning. Here it is refused, before anything in it is read, because a cap that does not hold at the
+ * prompt is not a cap, and silent truncation would drop text nobody chose to drop.
+ *
+ * AN ENTRY CANNOT PASS AS A LINE IT IS NOT. Every entry opens with its real kind and its later lines are
+ * indented, so text cannot put `[decision, ledger: ...]`, a delimiter or a placeholder at the start of a
+ * line. The kind and the reference come from the record, which is checked field by field.
  *
  * WHAT A READER OF THE BLOCK IS TOLD. The fence says the text is recollection, data and not
  * instructions, and that git records are the ledger. The fence name is a hash of the block, so an entry
@@ -25,9 +30,10 @@
  * takes authority from a prompt.
  */
 import { createHash } from 'node:crypto';
+import { instructionShapedCue } from './admission.js';
+import { isMemoryEntryProvenance, type MemoryEntryProvenance, type MemoryStoreState } from './proposal.js';
 import { memoryOk, memoryRefused, type MemoryResult } from './refusal.js';
-import type { MemoryEntryProvenance, MemoryStoreState } from './proposal.js';
-import { ENTRY_DELIMITER, memoryCharCount, memoryCharLimit, memoryEntryHash, type MemoryTarget } from './store.js';
+import { ENTRY_DELIMITER, memoryCharLimit, memoryEntryHash, memoryStoreChars, type MemoryTarget } from './store.js';
 import { scanForThreats } from './threatScan.js';
 
 const NOT_AUTHORITY =
@@ -41,9 +47,9 @@ export interface MemoryPromptBlock {
   /** Memory never carries authority. A closed field, so no caller can read one into it. */
   readonly authority: 'none';
   readonly shown: number;
-  /** Entries replaced because the scan fired. */
+  /** Entries replaced because the scan or the instruction screen fired. */
   readonly blocked: readonly string[];
-  /** Entries left out because no approved provenance holds them. */
+  /** Entries left out because no whole approved record holds them. */
   readonly withheld: readonly string[];
 }
 
@@ -51,37 +57,43 @@ function shortHash(entryHash: string): string {
   return entryHash.slice('sha256:'.length, 'sha256:'.length + 12);
 }
 
-function lineFor(entry: string, record: MemoryEntryProvenance): string {
-  return record.kind === 'decision' ? `[decision, ledger: ${record.ledgerRef ?? 'none'}] ${entry}` : entry;
+function labelFor(record: MemoryEntryProvenance): string {
+  return record.kind === 'decision' ? `[decision, ledger: ${record.ledgerRef ?? 'none'}]` : `[${record.kind}]`;
+}
+
+/** Why this entry may not be shown, or nothing. */
+function reasonsAgainst(entry: string): readonly string[] {
+  const cue = instructionShapedCue(entry);
+  return [...scanForThreats(entry, 'strict'), ...(cue === '' ? [] : [`instruction: ${cue}`])];
 }
 
 /** The fenced block for one store, or why it must not be sent. */
 export function renderMemoryBlock(target: MemoryTarget, state: MemoryStoreState): MemoryResult<MemoryPromptBlock> {
-  const blocked: string[] = [];
-  const withheld: string[] = [];
-  const lines = state.entries.flatMap((entry) => {
+  const recordOf = (entry: string): MemoryEntryProvenance | null => {
     const hash = memoryEntryHash(entry);
     const record = state.provenance.get(hash);
-    if (record === undefined) {
-      withheld.push(hash);
-      return [];
+    return isMemoryEntryProvenance(hash, record) ? record : null;
+  };
+  const approved = state.entries.filter((entry) => recordOf(entry) !== null);
+  const withheld = state.entries.filter((entry) => recordOf(entry) === null).map(memoryEntryHash);
+  const limit = memoryCharLimit(target);
+  const total = memoryStoreChars(approved);
+  if (total > limit) {
+    return memoryRefused('MEMORY_OVER_LIMIT', `The ${target} store holds ${total}/${limit} chars, so it was not read or sent. Remove entries first.`);
+  }
+  const judged = approved.map((entry) => ({ entry, reasons: reasonsAgainst(entry) }));
+  const blocked = judged.filter(({ reasons }) => reasons.length > 0).map(({ entry }) => memoryEntryHash(entry));
+  const lines = judged.map(({ entry, reasons }) => {
+    const record = recordOf(entry);
+    if (reasons.length > 0 || record === null) {
+      return `[BLOCKED: entry ${shortHash(memoryEntryHash(entry))} matched ${reasons.join(', ')}. It is not shown here.]`;
     }
-    const findings = scanForThreats(entry, 'strict');
-    if (findings.length > 0) {
-      blocked.push(hash);
-      return [`[BLOCKED: entry ${shortHash(hash)} matched ${findings.join(', ')}. It is not shown here.]`];
-    }
-    return [lineFor(entry, record)];
+    return `${labelFor(record)} ${entry.split('\n').join('\n  ')}`;
   });
   if (lines.length === 0) {
     return memoryOk({ target, text: '', authority: 'none', shown: 0, blocked, withheld });
   }
   const body = lines.join(ENTRY_DELIMITER);
-  const limit = memoryCharLimit(target);
-  const total = memoryCharCount(body);
-  if (total > limit) {
-    return memoryRefused('MEMORY_OVER_LIMIT', `The ${target} store holds ${total}/${limit} chars, so it was not sent. Remove entries first.`);
-  }
   const fence = createHash('sha256').update(body, 'utf8').digest('hex').slice(0, 16);
   const text = [
     `<untrusted-memory fence="${fence}" target="${target}" chars="${total}/${limit}">`,

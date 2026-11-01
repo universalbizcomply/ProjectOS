@@ -36,6 +36,11 @@ export function memoryCharCount(text: string): number {
   return [...text].length;
 }
 
+/** One line ending, as a store holds them. */
+export function foldMemoryLines(text: string): string {
+  return text.replace(/\r\n?/g, '\n');
+}
+
 export function joinMemoryEntries(entries: readonly string[]): string {
   return entries.join(ENTRY_DELIMITER);
 }
@@ -53,8 +58,7 @@ export function memoryStoreChars(entries: readonly string[]): number {
  * one long entry. `trim` also removes a leading byte-order mark, which JavaScript counts as whitespace.
  */
 export function parseMemoryEntries(raw: string): readonly string[] {
-  const text = raw.replace(/\r\n?/g, '\n');
-  return [...new Set(text.split(ENTRY_DELIMITER).map((entry) => entry.trim()))].filter((entry) => entry !== '');
+  return [...new Set(foldMemoryLines(raw).split(ENTRY_DELIMITER).map((entry) => entry.trim()))].filter((entry) => entry !== '');
 }
 
 /**

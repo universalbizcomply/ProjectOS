@@ -4,7 +4,7 @@
 // Source-Commit: 612a1cd9c44a19ecddcd263865e40e8c3910a514
 // Source-Copyright: Copyright (c) 2026 oh-my-hermes contributors
 // Port-Strategy: TRANSLATE
-// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: translated from Python to TypeScript; the instruction screen covers every non-owner author and has no record-type exemption; auto-approval removed, so a relative-time phrase is shown to the reviewer rather than used to hold a capture
+// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: translated from Python to TypeScript; the instruction screen covers every author and has no record-type exemption; auto-approval removed, so a relative-time phrase is shown to the reviewer rather than used to hold a capture
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * What may be admitted to memory at all, before anyone reviews it.
@@ -19,10 +19,11 @@
  *
  * WHERE THIS DEPARTS FROM UPSTREAM, BECAUSE OF THE OWNER'S RULE. Upstream defaults to auto-approving a
  * safe capture and screens only the model's own path. Here nothing auto-approves, and the screen covers
- * every author who is not the owner. Upstream exempts the `procedure` record type from the screen; that
- * label is the proposer's own, so an exemption would be a bypass anyone could ask for, and it is gone.
+ * every author. It takes no role on purpose: a role is only what a caller says it is until owner proof
+ * exists, so a role that skipped the screen would be a bypass anyone could claim. Upstream exempts the
+ * `procedure` record type too; that label is the proposer's own, and the exemption is gone for the same
+ * reason. An owner who wants an instruction remembered states it as what holds.
  */
-import type { Role } from '../types.js';
 import { memoryOk, memoryRefused, type MemoryResult } from './refusal.js';
 import { firstThreat } from './threatScan.js';
 
@@ -116,17 +117,16 @@ const LOSSY = '\ufffd';
  * Whether this content may be proposed at all.
  *
  * Run at proposal AND again at approval, because the rules can change between the two and a proposal
- * file is only a file. The threat scan covers every author, the owner included; the owner's own words
- * are spared only the instruction screen, since an owner may record an instruction on purpose.
+ * file is only a file. Nothing here depends on who wrote the text.
  */
-export function admitMemoryContent(content: string, authorRole: Role): MemoryResult<string> {
+export function admitMemoryContent(content: string): MemoryResult<string> {
   if (content.trim() === '') return memoryRefused('MEMORY_EMPTY', 'Content cannot be empty.');
   if (content.includes(LOSSY)) {
     return memoryRefused('MEMORY_LOSSY_TEXT', 'Content holds a replacement character, so it was not read intact.');
   }
   const threat = firstThreat(content, 'strict');
   if (threat !== null) return memoryRefused('MEMORY_THREAT', threat.message, threat.pattern);
-  const cue = authorRole === 'owner' ? '' : instructionShapedCue(content);
+  const cue = instructionShapedCue(content);
   if (cue !== '') {
     return memoryRefused(
       'MEMORY_INSTRUCTION_SHAPED',
