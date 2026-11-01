@@ -1451,6 +1451,323 @@
         "ECC DATABASE review",
         "ECC SECURITY review"
       ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-PORT-FOUNDATION1A",
+      "title": "Port foundation: credit, ownership and pinned sources",
+      "description": "First phase of docs/changes/delta_spec_V4_PORTS.md, approved by the owner on 2026-11-01 (\"Approved\"). Owner's rule: \"i want to claim it's mine with giving credits to the due\". ProjectOS is the owner's product and upstream code keeps its credit. This phase builds what makes that enforceable: the notices file, a per-file header, and a validator that refuses a ported file with no recorded source, or any file taken from a non-commercial source. It also brings the older records into line with the owner's ADOPT decision of 2026-10-29.",
+      "scope": "Add THIRD_PARTY_NOTICES, ADR-P1 and the credit validator; re-pin sources in the port map; correct the Hermes and OpenClaw ADRs and the capability recon; expand Stages 3 and 4 in the plan document.",
+      "writePaths": [
+        "THIRD_PARTY_NOTICES",
+        "docs/adr/ADR-P1-port-ownership-and-credit.md",
+        "docs/adr/ADR-S1-hermes-agent.md",
+        "docs/adr/ADR-S2-openclaw.md",
+        "docs/recon/V4_Capability_Recon.md",
+        "docs/recon/V4_Port_Map.md",
+        "projectos/validators/val-projectos-port-credit1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody or any existing authority record.",
+        "Vendor folders stay read-only: nothing is installed or run from them, and nightly-labs/openbot is never opened or used as a source.",
+        "No upstream code is ported in this phase."
+      ],
+      "dependsOn": [
+        "PROJECTOS-KERNEL-EXIT-PROOF1A"
+      ],
+      "acceptanceCriteria": [
+        "ADR-P1 states the owner's rule in the owner's words, what the owner may claim and what must be credited, the Apache-2.0 duties, and that a credit does not license non-commercial code.",
+        "A ported file with no header, no notices entry, an unknown source, or a source outside the approved list is refused by name, tested.",
+        "nightly-labs/openbot and any PolyForm source are refused by name, tested.",
+        "ADR-S1, ADR-S2 and the capability recon no longer say code is never copied, and they cite the owner's decision.",
+        "Validator pin and named mutations, each killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-port-credit1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "Agency software-architect review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-PORT-SEARCH1A",
+      "title": "Cited search over documents and sessions",
+      "description": "Port the OpenClaw hybrid retrieval core (C8, C10), about 1.1k lines of TypeScript, MIT. This gives the Grok-like \"chat over your documents\": every answer names its file and line, and an uncited answer is refused. It uses the SQLite and FTS5 bundled with Node 24.14.1, checked on 2026-11-01, so it adds no dependency. Keyword search ships here; the vector seam is left unfilled because embeddings would need a paid provider and sqlite-vec is added only when that phase is approved.",
+      "scope": "Port the tokenizer, keyword query, hybrid merge, MMR, temporal decay and markdown chunker as pure core; add a local index on node:sqlite in the agent; refuse uncited results.",
+      "writePaths": [
+        "projectos/core/src/search/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/search/",
+        "projectos/agent/test/",
+        "THIRD_PARTY_NOTICES",
+        "projectos/validators/val-projectos-port-search1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody or any existing authority record.",
+        "Vendor folders stay read-only: nothing is installed or run from them, and nightly-labs/openbot is never opened or used as a source.",
+        "No provider call, no embeddings, no new dependency and no autonomous memory consolidation.",
+        "Core stays pure: all I/O stays in the agent."
+      ],
+      "dependsOn": [
+        "PROJECTOS-PORT-FOUNDATION1A"
+      ],
+      "acceptanceCriteria": [
+        "Search returns the file and line range for every hit, and a result with no source is refused, tested.",
+        "The index is rebuildable from source files and records its project, so a later tenant scope can bind it.",
+        "Indexed content is untrusted data: it never becomes an instruction, tested with an injection fixture.",
+        "Every ported file carries its credit header and a THIRD_PARTY_NOTICES entry; the credit validator passes.",
+        "Validator pin and named mutations, each killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-port-search1a",
+        "val-projectos-port-credit1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "ECC CODE review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-PORT-MEMORY1A",
+      "title": "Capped memory with proposals and a threat scan",
+      "description": "Translate the Hermes curated memory store and threat patterns (C8), about 0.9k lines, MIT, with oh-my-hermes admission rules (MIT). Writes never land directly: each is a proposal pinned to the entry hash, with provenance, for the owner to see. Over-limit writes are refused, and content is scanned before it can reach a prompt. Upstream writes freely by default; that behaviour is replaced.",
+      "scope": "Translate the capped store and threat scan; add a proposal queue pinned by hash; record author, session, time and hash.",
+      "writePaths": [
+        "projectos/core/src/memory/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/memory/",
+        "projectos/agent/test/",
+        "THIRD_PARTY_NOTICES",
+        "projectos/validators/val-projectos-port-memory1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody or any existing authority record.",
+        "Vendor folders stay read-only: nothing is installed or run from them, and nightly-labs/openbot is never opened or used as a source.",
+        "Memory is never authority: git records stay the ledger.",
+        "No autonomous memory write, consolidation or background self-review."
+      ],
+      "dependsOn": [
+        "PROJECTOS-PORT-FOUNDATION1A"
+      ],
+      "acceptanceCriteria": [
+        "A memory write is a proposal; nothing lands without approval, and approval goes stale when the entry changes, tested.",
+        "An over-limit write is refused, and a threat-pattern hit is refused by name, tested with a positive control.",
+        "A summary can never overwrite an approved decision, tested.",
+        "Every ported file carries its credit header and a THIRD_PARTY_NOTICES entry; the credit validator passes.",
+        "Validator pin and named mutations, each killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-port-memory1a",
+        "val-projectos-port-credit1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "ECC CODE review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-PORT-SKILLS1A",
+      "title": "Skill validation and promotion",
+      "description": "Translate the Hermes skill linter, audit and frontmatter parser (C9), about 1.3k lines, MIT. An agent may only propose a skill. Promotion needs a validator pass, an independent review and a hash pin, and any change makes it stale. SKILL.md is the exchange format. Internet skill auto-install is refused.",
+      "scope": "Translate the linter, audit and frontmatter parsing; add the promotion rule; refuse auto-install.",
+      "writePaths": [
+        "projectos/core/src/skills/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/skills/",
+        "projectos/agent/test/",
+        "THIRD_PARTY_NOTICES",
+        "projectos/validators/val-projectos-port-skills1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody or any existing authority record.",
+        "Vendor folders stay read-only: nothing is installed or run from them, and nightly-labs/openbot is never opened or used as a source.",
+        "No agent may create or patch an active skill directly.",
+        "No download or install from a skill hub."
+      ],
+      "dependsOn": [
+        "PROJECTOS-PORT-MEMORY1A"
+      ],
+      "acceptanceCriteria": [
+        "A skill failing the linter or audit cannot be promoted, by a named rule, tested with a passing control.",
+        "A promoted skill changed by one byte is stale, tested.",
+        "Skill text is data: an instruction inside a skill grants nothing, tested.",
+        "Every ported file carries its credit header and a THIRD_PARTY_NOTICES entry; the credit validator passes.",
+        "Validator pin and named mutations, each killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-port-skills1a",
+        "val-projectos-port-credit1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "ECC CODE review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-PORT-CONTEXT1A",
+      "title": "Context monitoring and compaction",
+      "description": "Per-agent context monitoring with automatic compaction before a long thread exhausts its window, built from Hermes context code (MIT) and our own. This is one of the feature-parity items in the port delta: built from MIT sources, never from nightly-labs/openbot. Current source and approved decisions outrank any summary.",
+      "scope": "Add pure context accounting and a compaction rule that protects decisions and records its provenance.",
+      "writePaths": [
+        "projectos/core/src/context/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "THIRD_PARTY_NOTICES",
+        "projectos/validators/val-projectos-port-context1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody or any existing authority record.",
+        "Vendor folders stay read-only: nothing is installed or run from them, and nightly-labs/openbot is never opened or used as a source.",
+        "Pure core only: no provider call and no wiring into the run loop in this phase."
+      ],
+      "dependsOn": [
+        "PROJECTOS-PORT-MEMORY1A"
+      ],
+      "acceptanceCriteria": [
+        "Compaction triggers before the limit, tested at the boundary.",
+        "A compacted summary keeps every approved decision and its source, and never replaces one, tested.",
+        "Source text in a compacted thread stays marked untrusted, tested.",
+        "Every ported file carries its credit header and a THIRD_PARTY_NOTICES entry; the credit validator passes.",
+        "Validator pin and named mutations, each killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-port-context1a",
+        "val-projectos-port-credit1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "ECC CODE review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-PORT-APPROVALS1A",
+      "title": "Approval binding, taint tracking and evidence receipts",
+      "description": "Port the Rakazo approval core (Apache-2.0): an approval bound to run, tool and argument hash, with taint tracking once untrusted content enters a run; and oh-my-hermes \"evidence before done\" receipts (MIT). These strengthen the owner gates and are pure rules. Rakazo's name and logo are not used, its notices are carried, and changed files are marked, as the owner approved on 2026-10-29.",
+      "scope": "Port the effect-key approval binding, taint tracking and evidence receipts as pure core, beside the kernel gates rather than replacing them.",
+      "writePaths": [
+        "projectos/core/src/approvals/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "THIRD_PARTY_NOTICES",
+        "projectos/validators/val-projectos-port-approvals1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody or any existing authority record.",
+        "Vendor folders stay read-only: nothing is installed or run from them, and nightly-labs/openbot is never opened or used as a source.",
+        "Pure core only: nothing is wired into the run loop, and no gate is loosened or replaced.",
+        "No model-judged approval and no yolo mode."
+      ],
+      "dependsOn": [
+        "PROJECTOS-PORT-FOUNDATION1A"
+      ],
+      "acceptanceCriteria": [
+        "An approval is refused when the run, tool or argument hash changes by one byte, tested.",
+        "After untrusted content enters a run, an action it could steer is refused without a fresh approval, tested with an untainted control.",
+        "A phase claiming done without its evidence receipt is refused, tested.",
+        "Every ported file carries its credit header and a THIRD_PARTY_NOTICES entry; the credit validator passes.",
+        "Validator pin and named mutations, each killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-port-approvals1a",
+        "val-projectos-port-credit1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "Agency application-security-engineer review"
+      ]
     }
   ]
 }

@@ -1,8 +1,8 @@
 # Delta Specification — V4 ports: Hermes, OpenClaw and OpenBot capabilities in ProjectOS
 
-**Status:** PROPOSED, 2026-11-01. The owner asked for this plan: "Yes, write the port plan". **No code is ported
-until this delta is approved and a plan carrying these phases is decided and activated.** It sits beside
-`docs/changes/delta_spec.md`, which stays the active delta for Stage 2.
+**Status:** APPROVED by the owner, 2026-11-01: "Approved". Phases 1 to 6 are carried by plan v1.30; phases 7 to 12 enter a later plan once
+Stage 2 has settled what they build on. It sits beside `docs/changes/delta_spec.md`, which stays the active delta for Stage 2.
+Open owner items: the legal name on original ProjectOS code, and the product name.
 
 **Goal:** ProjectOS gains the capabilities of these projects as its own features, on the kernel's gates, in the
 stage order of `docs/06_Plan.md`. The detailed file map is `docs/recon/V4_Port_Map.md`, which this plan builds on.
