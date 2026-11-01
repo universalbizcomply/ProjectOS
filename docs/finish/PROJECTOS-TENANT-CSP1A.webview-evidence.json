@@ -3,6 +3,56 @@
   "policySha256": "1a5a2358cf6ff7b22c6342db0e43ebb2096e43165853a82118b37cc2ed73cbf6",
   "devPolicySha256": "1cf6d6b88a8c9c32dc66f9dea87f97aa1743f1d7dbdc221ff8f2350bd56f29d1",
   "capabilityPermissionsSha256": "293f9341aff78321a985e2339dfd05d1fa9d22485be41a40a9e803d87c1d7892",
+  "buildSources": {
+    "projectos/control-center/vite.config.ts": "89ba5129aace0f9958c80ad2708d4531c6b86c8888cb7c66a0f9727e0a1b8660",
+    "projectos/control-center/src/shims/nodeCryptoStub.ts": "96d2ad14d7a777a28dec0ead4b2a63e3031090cfe0ab8de39c81fa8e45ef75ab",
+    "projectos/control-center/src/shims/nodeBufferStub.ts": "df31e27e8d194341620977d4182925e742b4d0ab7a2839308f747bc9cc45a371",
+    "projectos/core/src/hostReviewWire.ts": "619299b495059f21415bcf459f0815c1fcfacad90bd02afbd0517d78b4312ec8"
+  },
+  "build": {
+    "checkout": "fresh git clone with its own npm ci",
+    "commit": "0c3e6ad883e6cb702c459d310188f51e1c2a1f07",
+    "script": "npm run build",
+    "extraConfig": false,
+    "status": 0,
+    "bundle": {
+      "chunks": 3,
+      "bytes": 557020,
+      "guardedNodeGlobalUses": {
+        "setImmediate": 1,
+        "Buffer.from": 1,
+        "process.version": 1,
+        "process.platform": 1
+      },
+      "bareNodeGlobalUses": {},
+      "runIdInBundle": false,
+      "wireMagicInBundle": false
+    },
+    "noBufferAlias": {
+      "status": 1,
+      "namesIsUtf8": true
+    },
+    "desktopE2e": {
+      "withoutBundle": [
+        "check 5: no production bundle at projectos/control-center/dist/assets — build the Control Centre before validating"
+      ],
+      "withRealBundle": []
+    }
+  },
+  "earlierLiveSignIn": {
+    "attempted": true,
+    "method": "POST",
+    "host": "vzbzkziksxvyfqrdrwqx.supabase.co",
+    "path": "/auth/v1/token",
+    "query": "?grant_type=password",
+    "status": 400,
+    "shownError": "Invalid login credentials",
+    "requests": 1,
+    "preflights": 1,
+    "blockedByPolicy": 0,
+    "otherOnHost": 0,
+    "builtOn": "the proof-only Vite config, since removed; recorded at 29aa2bee"
+  },
   "runs": [
     {
       "variant": "strict-shell",
@@ -13,6 +63,7 @@
       "passed": [
         "served-policy",
         "app-loaded",
+        "no-node-globals",
         "bundled-fonts",
         "no-violation",
         "sidecar-reached",
@@ -58,7 +109,15 @@
           "/fonts/BarlowCondensed-600.woff2"
         ]
       },
-      "ipcNative": 23,
+      "nodeGlobals": {
+        "Buffer": "undefined",
+        "process": "undefined",
+        "global": "undefined",
+        "require": "undefined",
+        "setImmediate": "undefined"
+      },
+      "loadError": null,
+      "ipcNative": 18,
       "abortedByReload": 0,
       "violationsInUse": 0,
       "consoleRefusalsInUse": 0,
@@ -81,7 +140,7 @@
       "signIn": null
     },
     {
-      "variant": "strict-login",
+      "variant": "strict-login-no-request",
       "expect": "pass",
       "mustFailAt": null,
       "proved": true,
@@ -89,10 +148,10 @@
       "passed": [
         "served-policy",
         "app-loaded",
+        "no-node-globals",
         "bundled-fonts",
         "no-violation",
-        "supabase-reached",
-        "exactly-one-request"
+        "nothing-sent"
       ],
       "failed": [],
       "scriptHashesServed": 3,
@@ -108,6 +167,14 @@
           "/fonts/BarlowCondensed-600.woff2"
         ]
       },
+      "nodeGlobals": {
+        "Buffer": "undefined",
+        "process": "undefined",
+        "global": "undefined",
+        "require": "undefined",
+        "setImmediate": "undefined"
+      },
+      "loadError": null,
       "ipcNative": 0,
       "abortedByReload": 0,
       "violationsInUse": 0,
@@ -116,15 +183,15 @@
       "arrivedAtListener": {},
       "capability": null,
       "signIn": {
-        "attempted": true,
-        "method": "POST",
-        "host": "vzbzkziksxvyfqrdrwqx.supabase.co",
-        "path": "/auth/v1/token",
-        "query": "?grant_type=password",
-        "status": 400,
-        "shownError": "Invalid login credentials",
-        "requests": 1,
-        "preflights": 1,
+        "attempted": false,
+        "method": null,
+        "host": null,
+        "path": null,
+        "query": null,
+        "status": null,
+        "shownError": null,
+        "requests": 0,
+        "preflights": 0,
         "blockedByPolicy": 0,
         "otherOnHost": 0
       }
@@ -138,6 +205,7 @@
       "passed": [
         "served-policy",
         "app-loaded",
+        "no-node-globals",
         "bundled-fonts",
         "no-violation",
         "sidecar-reached",
@@ -161,9 +229,9 @@
       "elements": 74,
       "sidecar": {
         "state": "RUNNING_READ_ONLY",
-        "messages": 8,
+        "messages": 4,
         "kinds": {
-          "untyped": 8
+          "untyped": 4
         }
       },
       "walked": [
@@ -183,7 +251,15 @@
           "/fonts/BarlowCondensed-600.woff2"
         ]
       },
-      "ipcNative": 22,
+      "nodeGlobals": {
+        "Buffer": "undefined",
+        "process": "undefined",
+        "global": "undefined",
+        "require": "undefined",
+        "setImmediate": "undefined"
+      },
+      "loadError": null,
+      "ipcNative": 17,
       "abortedByReload": 0,
       "violationsInUse": 0,
       "consoleRefusalsInUse": 0,
@@ -204,6 +280,58 @@
       "signIn": null
     },
     {
+      "variant": "control-eager-node-global",
+      "expect": "fail",
+      "mustFailAt": "app-loaded",
+      "proved": true,
+      "browser": "Edg/156.0.4314.58",
+      "passed": [
+        "served-policy",
+        "no-node-globals"
+      ],
+      "failed": [
+        "app-loaded",
+        "bundled-fonts",
+        "no-violation",
+        "sidecar-reached",
+        "ipc-native",
+        "screens-walked",
+        "capability-narrow",
+        "inline-script-blocked",
+        "eval-blocked",
+        "foreign-fetch-blocked",
+        "sibling-project-blocked",
+        "foreign-image-blocked",
+        "inline-style-blocked",
+        "style-attribute-blocked",
+        "cssom-style-works",
+        "base-uri-blocked",
+        "object-blocked",
+        "form-action-blocked"
+      ],
+      "scriptHashesServed": 3,
+      "elements": 0,
+      "sidecar": null,
+      "walked": null,
+      "fonts": null,
+      "nodeGlobals": {
+        "Buffer": "undefined",
+        "process": "undefined",
+        "global": "undefined",
+        "require": "undefined",
+        "setImmediate": "undefined"
+      },
+      "loadError": "ReferenceError: Buffer is not defined",
+      "ipcNative": 0,
+      "abortedByReload": 0,
+      "violationsInUse": 0,
+      "consoleRefusalsInUse": 0,
+      "blockedDirectives": [],
+      "arrivedAtListener": {},
+      "capability": null,
+      "signIn": null
+    },
+    {
       "variant": "control-no-policy",
       "expect": "fail",
       "mustFailAt": "served-policy",
@@ -211,6 +339,7 @@
       "browser": "Edg/156.0.4314.58",
       "passed": [
         "app-loaded",
+        "no-node-globals",
         "bundled-fonts",
         "no-violation",
         "sidecar-reached",
@@ -236,9 +365,9 @@
       "elements": 74,
       "sidecar": {
         "state": "RUNNING_READ_ONLY",
-        "messages": 8,
+        "messages": 4,
         "kinds": {
-          "untyped": 8
+          "untyped": 4
         }
       },
       "walked": [
@@ -258,7 +387,15 @@
           "/fonts/BarlowCondensed-600.woff2"
         ]
       },
-      "ipcNative": 23,
+      "nodeGlobals": {
+        "Buffer": "undefined",
+        "process": "undefined",
+        "global": "undefined",
+        "require": "undefined",
+        "setImmediate": "undefined"
+      },
+      "loadError": null,
+      "ipcNative": 14,
       "abortedByReload": 0,
       "violationsInUse": 0,
       "consoleRefusalsInUse": 0,
@@ -285,6 +422,7 @@
       "passed": [
         "served-policy",
         "app-loaded",
+        "no-node-globals",
         "bundled-fonts",
         "no-violation",
         "sidecar-reached",
@@ -331,8 +469,16 @@
           "/fonts/BarlowCondensed-600.woff2"
         ]
       },
-      "ipcNative": 21,
-      "abortedByReload": 0,
+      "nodeGlobals": {
+        "Buffer": "undefined",
+        "process": "undefined",
+        "global": "undefined",
+        "require": "undefined",
+        "setImmediate": "undefined"
+      },
+      "loadError": null,
+      "ipcNative": 18,
+      "abortedByReload": 1,
       "violationsInUse": 0,
       "consoleRefusalsInUse": 0,
       "blockedDirectives": [
@@ -359,6 +505,7 @@
       "passed": [
         "served-policy",
         "app-loaded",
+        "no-node-globals",
         "bundled-fonts",
         "sidecar-reached",
         "screens-walked",
@@ -405,10 +552,18 @@
           "/fonts/BarlowCondensed-600.woff2"
         ]
       },
+      "nodeGlobals": {
+        "Buffer": "undefined",
+        "process": "undefined",
+        "global": "undefined",
+        "require": "undefined",
+        "setImmediate": "undefined"
+      },
+      "loadError": null,
       "ipcNative": 0,
-      "abortedByReload": 1,
+      "abortedByReload": 0,
       "violationsInUse": 1,
-      "consoleRefusalsInUse": 5,
+      "consoleRefusalsInUse": 3,
       "blockedDirectives": [
         "base-uri",
         "connect-src",
@@ -436,6 +591,7 @@
       "passed": [
         "served-policy",
         "app-loaded",
+        "no-node-globals",
         "sidecar-reached",
         "ipc-native",
         "screens-walked",
@@ -477,7 +633,15 @@
         "widthDiffers": true,
         "fetched": []
       },
-      "ipcNative": 21,
+      "nodeGlobals": {
+        "Buffer": "undefined",
+        "process": "undefined",
+        "global": "undefined",
+        "require": "undefined",
+        "setImmediate": "undefined"
+      },
+      "loadError": null,
+      "ipcNative": 22,
       "abortedByReload": 0,
       "violationsInUse": 5,
       "consoleRefusalsInUse": 10,
@@ -507,7 +671,8 @@
       "proved": true,
       "browser": "Edg/156.0.4314.58",
       "passed": [
-        "served-policy"
+        "served-policy",
+        "no-node-globals"
       ],
       "failed": [
         "app-loaded",
@@ -534,6 +699,14 @@
       "sidecar": null,
       "walked": null,
       "fonts": null,
+      "nodeGlobals": {
+        "Buffer": "undefined",
+        "process": "undefined",
+        "global": "undefined",
+        "require": "undefined",
+        "setImmediate": "undefined"
+      },
+      "loadError": null,
       "ipcNative": 0,
       "abortedByReload": 0,
       "violationsInUse": 0,
@@ -552,6 +725,7 @@
       "passed": [
         "served-policy",
         "app-loaded",
+        "no-node-globals",
         "bundled-fonts"
       ],
       "failed": [
@@ -572,6 +746,14 @@
           "/fonts/BarlowCondensed-600.woff2"
         ]
       },
+      "nodeGlobals": {
+        "Buffer": "undefined",
+        "process": "undefined",
+        "global": "undefined",
+        "require": "undefined",
+        "setImmediate": "undefined"
+      },
+      "loadError": null,
       "ipcNative": 0,
       "abortedByReload": 0,
       "violationsInUse": 1,
@@ -602,6 +784,7 @@
       "passed": [
         "served-policy",
         "app-loaded",
+        "no-node-globals",
         "bundled-fonts",
         "no-violation",
         "sidecar-reached",
@@ -648,8 +831,16 @@
           "/fonts/BarlowCondensed-600.woff2"
         ]
       },
-      "ipcNative": 19,
-      "abortedByReload": 0,
+      "nodeGlobals": {
+        "Buffer": "undefined",
+        "process": "undefined",
+        "global": "undefined",
+        "require": "undefined",
+        "setImmediate": "undefined"
+      },
+      "loadError": null,
+      "ipcNative": 18,
+      "abortedByReload": 1,
       "violationsInUse": 0,
       "consoleRefusalsInUse": 0,
       "blockedDirectives": [

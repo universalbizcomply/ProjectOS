@@ -27,6 +27,9 @@
  *   CSP-18 "signing in was proved"                  — and a failed sign-in is reported as a successful one
  *   CSP-19 "the installed app is protected now"     — and it is not, until the MSI is rebuilt
  *   CSP-20 "register it later"                      — and nothing ever runs this file
+ *   CSP-21 "the proof has its own little shim"      — and the build that ships is one nobody proved
+ *   CSP-22 "one constant at the top is harmless"    — and every core module is bound into the webview
+ *   CSP-23 "it built on my checkout"                — and a linked package hid what a clean clone would do
  *   CSP-T  "the tests exist"                        — and `.skip` keeps the proof while dropping the run
  *
  * `selfTest` applies each named mutation in memory and counts it killed only when ITS OWN rule fires.
@@ -48,12 +51,28 @@ const RUN_REL = `${CC}/test/csp-webview/run-proof.mjs`;
 const VARIANTS_REL = `${CC}/test/csp-webview/variants.mjs`;
 const BUILD_REL = `${CC}/test/csp-webview/build-variant.mjs`;
 const TEST_REL = `${CC}/test/cspPolicy.test.ts`;
+const BOOT_TEST_REL = `${CC}/test/coreBrowserLoad.test.ts`;
+const WIRE_TEST_REL = "projectos/core/test/host-wire-constants.test.ts";
+const VITE_REL = `${CC}/vite.config.ts`;
+const CRYPTO_STUB_REL = `${CC}/src/shims/nodeCryptoStub.ts`;
+const BUFFER_STUB_REL = `${CC}/src/shims/nodeBufferStub.ts`;
+const WIRE_REL = "projectos/core/src/hostReviewWire.ts";
+const CORE_ROOT = "projectos/core/src";
+/** Fewer files than this means the walk went wrong, not that core shrank. */
+const CORE_MODULE_FLOOR = 38;
+const HARNESS_DIR = `${CC}/test/csp-webview`;
+/** A pseudo-file: the harness directory's listing, so a shim that comes back is a mutation like any other. */
+const LISTING = "<listing of test/csp-webview>";
 const EVIDENCE_REL = "docs/finish/PROJECTOS-TENANT-CSP1A.webview-evidence.json";
 const FINISH_REL = "docs/finish/PROJECTOS-TENANT-CSP1A.md";
 const VA_REL = "projectos/validators/validate-all.cjs";
 const CR_REL = "projectos/speed/cached-runner.cjs";
 const SRC_ROOT = `${CC}/src`;
-const SOURCES = [CONF_REL, CAP_REL, VERDICT_REL, RUN_REL, VARIANTS_REL, BUILD_REL, TEST_REL, EVIDENCE_REL, FINISH_REL, VA_REL, CR_REL];
+const SOURCES = [
+  CONF_REL, CAP_REL, VERDICT_REL, RUN_REL, VARIANTS_REL, BUILD_REL, TEST_REL, BOOT_TEST_REL, WIRE_TEST_REL,
+  VITE_REL, CRYPTO_STUB_REL, BUFFER_STUB_REL, WIRE_REL, EVIDENCE_REL, FINISH_REL, VA_REL, CR_REL,
+];
+const BUILD_SOURCES = [VITE_REL, CRYPTO_STUB_REL, BUFFER_STUB_REL, WIRE_REL];
 
 const HOST = "vzbzkziksxvyfqrdrwqx.supabase.co";
 /** The policy the owner approved, with style-src tightened as the delta allows. */
@@ -90,17 +109,18 @@ const CONTROLS = {
   "control-no-ipc": { at: "no-violation", stillPass: ["served-policy", "app-loaded", "sidecar-reached"], alsoFails: ["ipc-native"] },
   "control-no-fonts": { at: "bundled-fonts", stillPass: ["served-policy", "app-loaded", "sidecar-reached"] },
   "control-no-script": { at: "app-loaded", stillPass: ["served-policy"] },
+  "control-eager-node-global": { at: "app-loaded", stillPass: ["served-policy", "no-node-globals"] },
   "control-no-supabase": { at: "supabase-reached", stillPass: ["served-policy", "app-loaded", "bundled-fonts"] },
   "control-wide-capability": { at: "capability-narrow", stillPass: ["served-policy", "app-loaded", "sidecar-reached", "inline-script-blocked"] },
 };
 const MUST_PASS = {
   "strict-shell": [
-    "served-policy", "app-loaded", "bundled-fonts", "no-violation", "sidecar-reached", "ipc-native", "screens-walked", "capability-narrow",
+    "served-policy", "app-loaded", "no-node-globals", "bundled-fonts", "no-violation", "sidecar-reached", "ipc-native", "screens-walked", "capability-narrow",
     "inline-script-blocked", "eval-blocked", "foreign-fetch-blocked", "sibling-project-blocked", "foreign-image-blocked",
     "inline-style-blocked", "style-attribute-blocked", "cssom-style-works", "base-uri-blocked", "object-blocked", "form-action-blocked",
   ],
-  "strict-login": ["served-policy", "app-loaded", "bundled-fonts", "no-violation", "supabase-reached", "exactly-one-request"],
-  "dev-policy-shell": ["served-policy", "app-loaded", "bundled-fonts", "no-violation", "sidecar-reached", "ipc-native", "screens-walked"],
+  "strict-login-no-request": ["served-policy", "app-loaded", "no-node-globals", "bundled-fonts", "no-violation", "nothing-sent"],
+  "dev-policy-shell": ["served-policy", "app-loaded", "no-node-globals", "bundled-fonts", "no-violation", "sidecar-reached", "ipc-native", "screens-walked"],
 };
 
 /** A pin: this text, in this file. */
@@ -113,6 +133,7 @@ const JUDGE_PINS = [
   ["only script-src may carry a bundle hash", "directives['script-src'] = directives['script-src'].filter((source) => !BUNDLE_HASH.test(source));"],
   ["the sidecar answers", "obs.sidecar?.state === 'RUNNING_READ_ONLY' && (obs.sidecar?.messages ?? 0) > 0"],
   ["the IPC really used the custom protocol", "['ipc-native', (obs.ipcNative ?? 0) > 0,"],
+  ["the page reports its own Node globals", "['Buffer', 'process', 'global', 'require', 'setImmediate'].every((name) => obs.nodeGlobals?.[name] === 'undefined')"],
   ["a foreign request must not arrive", "blocked(p.foreignFetch, 'connect-src', obs) && p.foreignFetch?.hits === 0"],
   ["a control fails where it says", "return verdict.pass === false && named !== undefined && named.ok === false && leftAlone;"],
   ["a control names what it leaves alone", "const leftAlone = untouched.length > 0 &&"],
@@ -122,7 +143,8 @@ const RUN_PINS = [
   ["the page is reloaded, so boot is seen", "await cdp.send('Page.reload', { ignoreCache: true });"],
   ["the listener is in before the document", "await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: LISTENER });"],
   ["the reload waits for the first load", "location.href.startsWith('http://tauri.localhost') && document.readyState === 'complete'"],
-  ["only a line from before the new document is excused", "if (!reloaded && /IPC custom protocol failed/.test(line)) {"],
+  ["only a line from a discarded document is excused", "const stale = fallbacks.filter((entry) => entry.contextId !== undefined && current !== undefined && entry.contextId !== current);"],
+  ["every other fallback line counts", "obs.consoleViolations.push(...fallbacks.filter((entry) => !stale.includes(entry)).map((entry) => entry.line));"],
   ["no run shares the fixed debug port", "await requirePortClosed(DEBUG_PORT);"],
   ["a surviving helper is stopped and checked", "await stopProfile(profile);"],
   ["eval is judged under the page's policy", "allowUnsafeEvalBlockedByCSP: false,"],
@@ -139,17 +161,56 @@ const SIGN_IN_PINS = [
 /** Where the MSI line and the owner check must be stated. */
 const FINISH_CLAIMS = {
   msi: "The installed app gets this policy only when the MSI is next rebuilt.",
-  bundleBroken: "`npm run build` fails at `b0768486`",
+  bundleBroken: "`npm run build` failed from 2026-09-25 until this phase",
+  freshWorktree: "`validate-desktop-e2e` cannot pass in a fresh worktree until a bundle is built.",
+  runId: "`INSTALLED_HOST_RUN_ID` is not lazy.",
+  noSecondRequest: "The live sign-in was not repeated on the production build.",
   ownerCheck: "A successful sign-in remains an owner check.",
   realtime: "The `wss://` source is allowed by the policy and was not exercised.",
   devCsp: "`tauri dev` serves pages from Vite, so `devCsp` is not applied there.",
 };
 
+/** A Node global used while a module loads: at brace depth zero, not behind `typeof`. */
+const NODE_GLOBAL_USE = /(?<![.\w$])(Buffer|process|require|__dirname|__filename|setImmediate|global)\s*[.([]/g;
+
+/** Code with strings emptied, so only real code can match. */
+function withoutStrings(text) {
+  return text.replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\[\s\S])*`/g, "''");
+}
+
+/** The Node globals a module touches while it loads. */
+function loadTimeUses(text) {
+  const source = withoutStrings(code(text));
+  let depth = 0;
+  let top = "";
+  for (const c of source) {
+    if (c === "{") depth += 1;
+    else if (c === "}") depth -= 1;
+    else if (depth === 0) top += c;
+  }
+  return [...top.matchAll(NODE_GLOBAL_USE)].map((m) => m[1]);
+}
+
 const FORBIDDEN_IN_EVIDENCE = /apikey|authorization|bearer|eyJ[A-Za-z0-9_-]{10,}|VITE_SUPABASE_ANON_KEY/i;
 
 /** A proof that does not run proves nothing, and its name still satisfies a needle. */
 const NOT_RUN = /\b(?:it|test|describe|suite|bench)\.(?:skip|only|todo|fails|skipIf|runIf)\b|\.(?:skip|only)\(|\b(?:xit|fit|xdescribe|fdescribe)\(/;
+const BOOT_TESTS = [
+  "the whole barrel evaluates, with tree-shaking off",
+  "the positive control: one top-level %s beside the barrel fails, so the pass above means something",
+];
+const WIRE_TESTS = [
+  "the frame magic is the four bytes it always was",
+  "the installed run identifier is the eight bytes it always was, and a real Buffer in Node",
+  "Rust spells the magic, the run identifier and the digest domain the same way",
+  "the binding digest is the hash over the literal domain, computed here without the module",
+  "the positive control: a top-level Buffer.from fails this way, so the pass below means something",
+  "importing it with no Buffer global does not throw, and the run identifier keeps its bytes",
+];
 const TESTS = [
+  "the production build is the only frontend build: the harness carries no Vite config or stand-in of its own",
+  "a webview exposing a Node global fails: a rendered app would then prove nothing about loading without one",
+  "a no-request run fails if anything reached the host",
   "has no wildcard host and no unsafe-eval, in either policy",
   "locks object-src, base-uri, form-action and frame-ancestors, in either policy",
   "names the exact Supabase project and no other remote host",
@@ -383,8 +444,6 @@ function check(raw) {
       if (r === undefined || r.proved !== true || r.failed?.length !== 0 || !checks.every((c) => r.passed?.includes(c))) {
         E("CSP-17", `${name} did not pass every check it must`);
       }
-      // A passing run may not lean on the one console line the harness excuses.
-      if (r?.abortedByReload !== 0) E("CSP-17", `${name} relied on an excused IPC failure`);
     }
     for (const [name, { at, stillPass, alsoFails = [] }] of Object.entries(CONTROLS)) {
       const r = byName[name];
@@ -404,14 +463,85 @@ function check(raw) {
     const noPolicy = byName["control-no-policy"]?.arrivedAtListener;
     if (!(noPolicy?.["/fetch"] > 0)) E("CSP-17", "the no-policy control does not show the probe getting through, so the probe proves nothing");
     // CSP-18: the sign-in is reported as what it was.
-    const signIn = byName["strict-login"]?.signIn;
+    const signIn = byName["strict-login"]?.signIn ?? evidence.earlierLiveSignIn;
     if (signIn?.host !== HOST || signIn?.method !== "POST" || signIn?.path !== "/auth/v1/token" || signIn?.status !== 400 || signIn?.requests !== 1 || signIn?.otherOnHost !== 0) {
       E("CSP-18", "the evidence does not show exactly one failed sign-in at the exact host");
+    }
+    // A record from the shim build must say so, and must never be read as a run on this build.
+    if (byName["strict-login"] === undefined && !String(evidence.earlierLiveSignIn?.builtOn).includes("proof-only Vite config")) {
+      E("CSP-18", "the earlier sign-in does not say which build it ran on");
+    }
+    const quiet = byName["strict-login-no-request"]?.signIn;
+    if (quiet?.attempted !== false || quiet?.requests !== 0 || quiet?.preflights !== 0 || quiet?.otherOnHost !== 0) {
+      E("CSP-18", "the no-request run shows something reaching the host");
     }
     const blocked = byName["control-no-supabase"]?.signIn;
     if (blocked?.status !== null || blocked?.requests !== 0) E("CSP-18", "the no-Supabase control shows a response, so something left the machine");
     if (FORBIDDEN_IN_EVIDENCE.test(raw[EVIDENCE_REL])) E("CSP-18", "the evidence carries a key or a header");
   }
+  // CSP-21: the build that ships is the build that was proved, with nothing beside it.
+  const vite = code(raw[VITE_REL]);
+  const aliases = [...((/alias:\s*\{([\s\S]*?)\n\s{4}\}/.exec(vite) || [, ""])[1]).matchAll(/^\s*'([^']+)':/gm)].map((m) => m[1]);
+  if (JSON.stringify(aliases) !== JSON.stringify(["node:crypto", "node:buffer"])) {
+    E("CSP-21", `the production build needs a shim: vite.config.ts aliases ${aliases.join(", ") || "nothing"}, not exactly node:crypto and node:buffer`);
+  }
+  if (!vite.includes("plugins: [react()],") || /\bdefine\s*:|rollupOptions|transform\s*\(|esbuild\s*:/.test(vite)) {
+    E("CSP-21", "the production build needs a shim: vite.config.ts does more than the two aliases");
+  }
+  for (const [rel, name] of [[CRYPTO_STUB_REL, "createHash"], [BUFFER_STUB_REL, "isUtf8"]]) {
+    const stub = code(raw[rel]);
+    if (!stub.includes(`export function ${name}(): never {`) || !/\{\s*throw new Error\(/.test(stub) || (stub.match(/\bexport\b/g) || []).length !== 1) {
+      E("CSP-21", `${rel} no longer only throws: a stub that answers would hide a real call`);
+    }
+  }
+  const stray = String(raw[LISTING]).split("\n").filter((name) => /vite|stub|shim/i.test(name));
+  if (stray.length > 0) E("CSP-21", `the production build needs a shim: ${stray.join(", ")} sits beside the proof`);
+  const buildScript = code(raw[BUILD_REL]);
+  if (!buildScript.includes("npm('build', CONTROL_CENTER, viteEnv);") || /vite\.js|vite\.proof/.test(buildScript)) {
+    E("CSP-21", "the production build needs a shim: the proof no longer builds with npm run build alone");
+  }
+
+  // CSP-22: no core module touches a Node global while it loads.
+  const coreModules = Object.keys(raw).filter((rel) => rel.startsWith(`${CORE_ROOT}/`));
+  if (coreModules.length < CORE_MODULE_FLOOR) E("CSP-22", "the core source was not read");
+  for (const rel of coreModules) {
+    const uses = loadTimeUses(raw[rel]);
+    if (uses.length > 0) E("CSP-22", `${rel} touches ${[...new Set(uses)].join(", ")} while it loads, and the webview has none of them`);
+  }
+  const wire = raw[WIRE_REL];
+  for (const pin of [
+    "export function hostFrameMagic(): Buffer {",
+    "function bindingDigestDomain(): Buffer {",
+    "return (typeof Buffer === 'undefined' ? view : Buffer.from(view)) as Buffer;",
+    "export const INSTALLED_HOST_RUN_ID = /*#__PURE__*/ bufferWhereAvailable(",
+  ]) {
+    if (!wire.includes(pin)) E("CSP-22", `hostReviewWire.ts lost: ${pin}`);
+  }
+  if ((code(wire).match(/bufferWhereAvailable\(/g) || []).length !== 2) E("CSP-22", "bufferWhereAvailable has a second caller: the exception was for one constant");
+
+  // CSP-23: proved from a clean checkout, and able to fail.
+  const build = evidence?.build;
+  if (build?.checkout !== "fresh git clone with its own npm ci" || build?.script !== "npm run build" || build?.status !== 0 || build?.extraConfig !== false || !(build?.bundle?.chunks > 0)) {
+    E("CSP-23", "the evidence does not show the production build passing from a clean checkout with nothing extra");
+  }
+  if (!(build?.noBufferAlias?.status > 0) || build?.noBufferAlias?.namesIsUtf8 !== true) {
+    E("CSP-23", "the evidence does not show the build failing without the node:buffer alias, so the pass proves nothing");
+  }
+  if (build?.bundle?.runIdInBundle !== false || build?.bundle?.wireMagicInBundle !== false) {
+    E("CSP-23", "the host wire constants are in the renderer bundle");
+  }
+  if (JSON.stringify(build?.bundle?.bareNodeGlobalUses) !== "{}") {
+    E("CSP-23", `the renderer bundle uses a Node global with no guard: ${JSON.stringify(build?.bundle?.bareNodeGlobalUses)}`);
+  }
+  if (!String(build?.desktopE2e?.withoutBundle).includes("check 5") || JSON.stringify(build?.desktopE2e?.withRealBundle) !== "[]") {
+    E("CSP-23", "the evidence does not show validate-desktop-e2e failing with no bundle and passing on the real one");
+  }
+  for (const rel of BUILD_SOURCES) {
+    if (evidence?.buildSources?.[rel] !== sha256(raw[rel])) E("CSP-23", `the build evidence was taken with a different ${rel}`);
+  }
+  const eager = evidence?.runs?.find((r) => r.variant === "control-eager-node-global");
+  if (!String(eager?.loadError).includes("Buffer is not defined")) E("CSP-23", "the restored bug did not blank the app with its own error, so the control proves nothing");
+
   // CSP-19: what this does not do, stated.
   const finish = raw[FINISH_REL].replace(/\s+/g, " ");
   for (const [key, claim] of Object.entries(FINISH_CLAIMS)) {
@@ -426,6 +556,11 @@ function check(raw) {
   const test = code(raw[TEST_REL]);
   for (const needle of TESTS) if (!test.includes(needle)) E("CSP-T", `cspPolicy.test.ts no longer proves "${needle}"`);
   if (NOT_RUN.test(test)) E("CSP-T", `cspPolicy.test.ts skips or isolates a test: ${NOT_RUN.exec(test)[0]}`);
+  for (const [rel, needles] of [[BOOT_TEST_REL, BOOT_TESTS], [WIRE_TEST_REL, WIRE_TESTS]]) {
+    const proof = code(raw[rel]);
+    for (const needle of needles) if (!proof.includes(needle)) E("CSP-T", `${rel} no longer proves "${needle}"`);
+    if (NOT_RUN.test(proof)) E("CSP-T", `${rel} skips or isolates a test: ${NOT_RUN.exec(proof)[0]}`);
+  }
   return errors;
 }
 
@@ -461,7 +596,8 @@ const MUTATIONS = [
   { name: "a font fallback counts as bundled", rule: "CSP-13", rel: VERDICT_REL, from: "obs.fonts?.bundledLoaded === true && obs.fonts?.widthDiffers === true", to: "obs.fonts?.widthDiffers === true" },
   { name: "no reload, so boot goes unwatched", rule: "CSP-13", rel: RUN_REL, from: "await cdp.send('Page.reload', { ignoreCache: true });", to: "" },
   { name: "the reload no longer waits for the first load", rule: "CSP-13", rel: RUN_REL, from: "location.href.startsWith('http://tauri.localhost') && document.readyState === 'complete'", to: "true" },
-  { name: "every IPC fallback is excused", rule: "CSP-13", rel: RUN_REL, from: "if (!reloaded && /IPC custom protocol failed/.test(line)) {", to: "if (/IPC custom protocol failed/.test(line)) {" },
+  { name: "every IPC fallback is excused", rule: "CSP-13", rel: RUN_REL, from: "obs.consoleViolations.push(...fallbacks.filter((entry) => !stale.includes(entry)).map((entry) => entry.line));", to: "" },
+  { name: "the excuse ignores the execution context", rule: "CSP-13", rel: RUN_REL, from: "entry.contextId !== undefined && current !== undefined && entry.contextId !== current", to: "true" },
   { name: "IPC fallback passes unnoticed", rule: "CSP-13", rel: VERDICT_REL, from: "['ipc-native', (obs.ipcNative ?? 0) > 0,", to: "['ipc-native', true," },
   { name: "eval waved through by the debugger", rule: "CSP-13", rel: RUN_REL, from: "allowUnsafeEvalBlockedByCSP: false,", to: "allowUnsafeEvalBlockedByCSP: true," },
   { name: "the app killed by name", rule: "CSP-13", rel: RUN_REL, from: "spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });", to: "spawnSync('taskkill', ['/IM', 'projectos-control-center.exe', '/F'], { stdio: 'ignore' });" },
@@ -477,13 +613,37 @@ const MUTATIONS = [
   { name: "evidence from another capability", rule: "CSP-16", rel: EVIDENCE_REL, from: "\"capabilityPermissionsSha256\": \"", to: "\"capabilityPermissionsSha256\": \"0" },
   { name: "the strict run is recorded as unproved", rule: "CSP-17", rel: EVIDENCE_REL, from: "\"variant\": \"strict-shell\",\n      \"expect\": \"pass\",\n      \"mustFailAt\": null,\n      \"proved\": true", to: "\"variant\": \"strict-shell\",\n      \"expect\": \"pass\",\n      \"mustFailAt\": null,\n      \"proved\": false" },
   { name: "a control is recorded as failing elsewhere", rule: "CSP-17", rel: EVIDENCE_REL, from: "\"mustFailAt\": \"bundled-fonts\"", to: "\"mustFailAt\": \"app-loaded\"" },
-  { name: "a passing run leans on the excuse", rule: "CSP-17", rel: EVIDENCE_REL, from: "\"abortedByReload\": 0,", to: "\"abortedByReload\": 1," },
   { name: "a deliberate violation arrived", rule: "CSP-17", rel: EVIDENCE_REL, from: "\"arrivedAtListener\": {},", to: "\"arrivedAtListener\": { \"/fetch\": 1 }," },
   { name: "the sign-in is recorded as a success", rule: "CSP-18", rel: EVIDENCE_REL, from: "\"status\": 400", to: "\"status\": 200" },
   { name: "a second sign-in on record", rule: "CSP-18", rel: EVIDENCE_REL, from: "\"requests\": 1,", to: "\"requests\": 2," },
+  { name: "the no-request run sent something", rule: "CSP-18", rel: EVIDENCE_REL, from: "\"attempted\": false,", to: "\"attempted\": true," },
   { name: "a key in the evidence", rule: "CSP-18", rel: EVIDENCE_REL, from: "\"phase\":", to: "\"apikey\": \"x\",\n  \"phase\":" },
   { name: "the MSI line is dropped", rule: "CSP-19", rel: FINISH_REL, from: "The installed app gets this policy only when the MSI is next rebuilt.", to: "The installed app has this policy." },
   { name: "the owner check is dropped", rule: "CSP-19", rel: FINISH_REL, from: "A successful sign-in remains an owner check.", to: "Sign-in works." },
+  { name: "the node:buffer alias removed", rule: "CSP-21", rel: VITE_REL, from: "'node:buffer': fileURLToPath(new URL('./src/shims/nodeBufferStub.ts', import.meta.url)),", to: "" },
+  { name: "a third alias slips in", rule: "CSP-21", rel: VITE_REL, from: "      'node:buffer':", to: "      'node:fs': 'x',\n      'node:buffer':" },
+  { name: "a transform in the production config", rule: "CSP-21", rel: VITE_REL, from: "plugins: [react()],", to: "plugins: [react(), { name: 'x', transform(c) { return c; } }]," },
+  { name: "a define in the production config", rule: "CSP-21", rel: VITE_REL, from: "clearScreen: false,", to: "clearScreen: false,\n  define: { Buffer: 'x' }," },
+  { name: "the buffer stub answers", rule: "CSP-21", rel: BUFFER_STUB_REL, from: "throw new Error('node:buffer is not available in the browser build; this call path should be unreachable here.');", to: "return true as never;" },
+  { name: "the crypto stub gains an export", rule: "CSP-21", rel: CRYPTO_STUB_REL, from: "export function createHash(): never {", to: "export const extra = 1;\nexport function createHash(): never {" },
+  { name: "the proof config comes back", rule: "CSP-21", rel: LISTING, from: "verdict.mjs", to: "verdict.mjs\nvite.proof.config.ts" },
+  { name: "the harness builds with a config of its own", rule: "CSP-21", rel: BUILD_REL, from: "npm('build', CONTROL_CENTER, viteEnv);", to: "run(process.execPath, ['vite.js', 'build', '--config', 'x'], viteEnv);" },
+  { name: "the magic is a load-time constant again", rule: "CSP-22", rel: WIRE_REL, from: "export function hostFrameMagic(): Buffer {\n  return Buffer.from('POS1', 'ascii');\n}", to: "export const HOST_FRAME_MAGIC = Buffer.from('POS1', 'ascii');" },
+  { name: "the domain is a load-time constant again", rule: "CSP-22", rel: WIRE_REL, from: "function bindingDigestDomain(): Buffer {\n  return Buffer.from('projectos.host-request-binding.v1', 'ascii');\n}", to: "const DOMAIN = Buffer.from('projectos.host-request-binding.v1', 'ascii');" },
+  { name: "the run identifier loses its guard", rule: "CSP-22", rel: WIRE_REL, from: "return (typeof Buffer === 'undefined' ? view : Buffer.from(view)) as Buffer;", to: "return Buffer.from(view);" },
+  { name: "the run identifier loses its purity mark", rule: "CSP-22", rel: WIRE_REL, from: "/*#__PURE__*/ bufferWhereAvailable(", to: "bufferWhereAvailable(" },
+  { name: "a second constant takes the exception", rule: "CSP-22", rel: WIRE_REL, from: "export const HOST_WIRE_PROTOCOL_VERSION = 1;", to: "export const OTHER = bufferWhereAvailable([1]);\nexport const HOST_WIRE_PROTOCOL_VERSION = 1;" },
+  { name: "another core module touches Buffer at load", rule: "CSP-22", rel: "projectos/core/src/hostIdentityDigests.ts", from: "import { createHash } from 'node:crypto';", to: "import { createHash } from 'node:crypto';\nexport const PROBE = Buffer.from('x');" },
+  { name: "another core module touches process at load", rule: "CSP-22", rel: "projectos/core/src/tenant.ts", from: "export const TENANT_CREDENTIAL_PREFIX = 'tenant.';", to: "export const TENANT_CREDENTIAL_PREFIX = 'tenant.';\nexport const PROBE = process.env.X;" },
+  { name: "the build evidence is not from a clean checkout", rule: "CSP-23", rel: EVIDENCE_REL, from: "\"checkout\": \"fresh git clone with its own npm ci\"", to: "\"checkout\": \"the linked worktree\"" },
+  { name: "the build evidence needed extra config", rule: "CSP-23", rel: EVIDENCE_REL, from: "\"extraConfig\": false", to: "\"extraConfig\": true" },
+  { name: "the build passed without the alias", rule: "CSP-23", rel: EVIDENCE_REL, from: "\"namesIsUtf8\": true", to: "\"namesIsUtf8\": false" },
+  { name: "the desktop check never failed without a bundle", rule: "CSP-23", rel: EVIDENCE_REL, from: "check 5", to: "no complaint" },
+  { name: "a bare Node global in the bundle", rule: "CSP-23", rel: EVIDENCE_REL, from: "\"bareNodeGlobalUses\": {}", to: "\"bareNodeGlobalUses\": { \"Buffer.from\": 1 }" },
+  { name: "the evidence predates the wire file", rule: "CSP-23", rel: EVIDENCE_REL, from: "\"projectos/core/src/hostReviewWire.ts\": \"", to: "\"projectos/core/src/hostReviewWire.ts\": \"0" },
+  { name: "the fresh worktree answer is dropped", rule: "CSP-19", rel: FINISH_REL, from: "`validate-desktop-e2e` cannot pass in a fresh worktree until a bundle is built.", to: "It passes." },
+  { name: "the sign-in loses its build label", rule: "CSP-18", rel: EVIDENCE_REL, from: "proof-only Vite config", to: "production build" },
+  { name: "the boot proof is skipped", rule: "CSP-T", rel: BOOT_TEST_REL, from: "it('the whole barrel evaluates, with tree-shaking off'", to: "it.skip('the whole barrel evaluates, with tree-shaking off'" },
   { name: "the runner drops it", rule: "CSP-20", rel: VA_REL, from: `"${THIS_VALIDATOR}"`, to: `"${THIS_VALIDATOR}-retired"` },
   { name: "the cached runner drops it", rule: "CSP-20", rel: CR_REL, from: `"${THIS_VALIDATOR}"`, to: `"${THIS_VALIDATOR}-retired"` },
   { name: "a test is skipped", rule: "CSP-T", rel: TEST_REL, from: "it('a blank window fails, though it reports no violation at all'", to: "it.skip('a blank window fails, though it reports no violation at all'" },
@@ -505,15 +665,16 @@ function selfTest(raw) {
   const names = MUTATIONS.map((m) => m.name);
   if (new Set(names).size !== names.length) errors.push("CSP-M: two mutations share a name");
   const rules = new Set(MUTATIONS.map((m) => m.rule));
-  for (const rule of [...Array.from({ length: 20 }, (_, i) => `CSP-${i + 1}`), "CSP-T"]) {
+  for (const rule of [...Array.from({ length: 23 }, (_, i) => `CSP-${i + 1}`), "CSP-T"]) {
     if (!rules.has(rule)) errors.push(`CSP-M: rule ${rule} has no named mutation`);
   }
   return errors;
 }
 
 function run() {
-  const raw = { ...sourceTree(SRC_ROOT) };
+  const raw = { ...sourceTree(SRC_ROOT), ...sourceTree(CORE_ROOT) };
   for (const rel of SOURCES) raw[rel] = read(rel);
+  raw[LISTING] = fs.readdirSync(path.join(ROOT, HARNESS_DIR)).join("\n");
   const errors = check(raw).map(([, msg]) => msg);
   if (errors.length === 0) errors.push(...selfTest(raw));
   return errors;
