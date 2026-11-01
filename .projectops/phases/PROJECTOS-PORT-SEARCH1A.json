@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-PORT-SEARCH1A",
+  "project": "ProjectOS",
+  "objective": "Port the OpenClaw hybrid retrieval core (C8, C10), about 1.1k lines of TypeScript, MIT. This gives the Grok-like \"chat over your documents\": every answer names its file and line, and an uncited answer is refused. It uses the SQLite and FTS5 bundled with Node 24.14.1, checked on 2026-11-01, so it adds no dependency. Keyword search ships here; the vector seam is left unfilled because embeddings would need a paid provider and sqlite-vec is added only when that phase is approved.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:09.999Z",
+      "note": "Owner-approved plans v1.30 to v1.32. Implemented by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:10.549Z",
+      "note": "cited search over documents and sessions, keyword only, on node:sqlite FTS5"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:11.085Z",
+      "note": "core 1856/1856, agent 3056/3056, control-center 890/890 at cf5a316d with normal package resolution. validate-all 159/161 at cf5a316d, the 2 failures being validate-desktop-e2e (needs a built bundle; the build itself was broken since 2026-09-25 and is repaired in TENANT-CSP1A) and val-cd-b4-sealed-expected-window-facts1a."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:11.657Z",
+      "note": "Evidence: docs/finish/PROJECTOS-PORT-SEARCH1A.md (cf5a316d)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:12.220Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC CODE review (BLOCK for the uncommitted file; recheck APPROVE, proved on a clean archive); ECC SECURITY review (CONDITIONAL, all items fixed and confirmed in that recheck)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-01T23:38:12.806Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
