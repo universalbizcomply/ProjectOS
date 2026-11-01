@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-TENANT-CONTRACT1A",
+  "evidenceSubjectHead": "7f52f8386dbf3f074be85e7fc4d8b53f1f11bb0a",
+  "baselineCommit": "89b5f0f40ee6acf4b2b9a6e9eededbca1acbfa26",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-01T20:17:56.130Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-TENANT-CONTRACT1A, phase 23 of 29 of plan v1.29, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 7f52f838 on 89b5f0f4 (plan v1.29 activation): the two phases stacked with their reviews and fixes.",
+    "validatorsPass: val-projectos-tenant-contract1a (346 named mutations) and validate-no-secrets PASS. validate-all 155/157 at 7f52f838, the 2 known baseline failures: validate-desktop-e2e needs a Control Centre bundle, val-cd-b4-sealed-expected-window-facts1a.",
+    "checksPass: core 1186/1186, agent 2921/2921, control-center 890/890 at 7f52f838.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review (two HIGH fixed; recheck: no CRITICAL or HIGH open); Agency software-architect review (APPROVE WITH CHANGES; 10 of 11 closed, F4 open by design: the credential-release grant is the owner's decision at CREDENTIALS1A; first delivery was recovered from task output, then delivered by the reviewer after the owner changed the guard); additional gstack-review pass (9 findings, 2 rated CRITICAL: one fixed, one disposed as a per-call ceiling with the ledger as the cap; its record says incomplete because its specialist and QA steps were not run). The last bounded round was read by the lead and the gstack recheck covered the round before it.",
+    "unresolved: zero CRITICAL/HIGH. Carried and binding on PRINCIPAL1A: realpath canonicalisation before resolveTenant; WorktreeListing wrapped by its reader; a store for idempotency keys; the owner-last-commit check must become a signature or a receipt. On CREDENTIALS1A: the credential-release grant source, and its own check because a crossing cannot reach the broker process. Carried to Stage 4: an account-wide spend cap. N2: principal in R3 tightens accepted ADR-K1, shown to the owner.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit in this phase.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
