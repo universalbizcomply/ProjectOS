@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-25f09a6edce2d4833b602095",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "3c8096ed3270b95f4dd749948d3c1bd8beb828fe",
+  "draftId": "4de16599e4604e47",
+  "planDigest": "sha256:8d59ad7393c1a1fd2f20609f4139f5cc256add5c11ae9853255fff0fd2b84238",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-01T14:18:23.095Z",
+  "note": "Owner, 2026-11-01: I approve plan v1.28, draft 4de16599e4604e47, including the three credential validators. Record the decision, activate it, and start phases 1 and 2.",
+  "recordedBy": "projectos plan decide"
+}
