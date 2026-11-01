@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PORT-FOUNDATION1A",
   "project": "ProjectOS",
   "objective": "First phase of docs/changes/delta_spec_V4_PORTS.md, approved by the owner on 2026-11-01 (\"Approved\"). Owner's rule: \"i want to claim it's mine with giving credits to the due\". ProjectOS is the owner's product and upstream code keeps its credit. This phase builds what makes that enforceable: the notices file, a per-file header, and a validator that refuses a ported file with no recorded source, or any file taken from a non-commercial source. It also brings the older records into line with the owner's ADOPT decision of 2026-10-29.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-01T23:38:06.794Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-01T23:38:08.449Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PORT-FOUNDATION1A:owner-closure:cf5a316d"
     }
   ]
 }
