@@ -170,6 +170,20 @@ describe('rankCitedResults holds rows to the door before ranking', () => {
     expect(withRefused.hits[0]?.score).toBe(alone.hits[0]?.score);
   });
 
+  it('a refused vector row changes no score and takes no slot', () => {
+    const alone = rankCitedResults({ project: PROJECT, keyword: [keyword('good', { textScore: 0.4 })], maxResults: 1, nowMs: NOW });
+    const withRefused = rankCitedResults({
+      project: PROJECT,
+      keyword: [keyword('good', { textScore: 0.4 })],
+      vectorCandidates: [vector('bad', { path: '', vectorScore: 0.99 })],
+      maxResults: 1,
+      nowMs: NOW,
+    });
+
+    expect(withRefused.hits).toEqual(alone.hits);
+    expect(withRefused.refused).toEqual([{ reason: 'no-path' }]);
+  });
+
   it('a vector row with a citation merges; the keyword row decides that citation when both name a chunk', () => {
     const outcome = rankCitedResults({
       project: PROJECT,

@@ -106,6 +106,7 @@ const TESTS = {
     "refuses an uncited row and keeps the cited one",
     "a row from another project is refused, however well it scores",
     "a refused row does not set the keyword scale",
+    "a refused vector row changes no score and takes no slot",
     "a vector row with a citation merges; the keyword row decides that citation when both name a chunk",
     "an answer citing what was retrieved passes: the positive control",
     "the fence id follows the text, so text cannot carry its own closing line",
