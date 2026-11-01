@@ -205,7 +205,7 @@ async function observeSidecar(cdp) {
     if (status.state === 'RUNNING_READ_ONLY') await tauri.invoke('daemon_request_snapshot');
     for (let i = 0; i < 40 && messages === 0; i += 1) await new Promise((done) => setTimeout(done, 250));
     await tauri.invoke('plugin:event|unlisten', { event: 'daemon://message', eventId });
-    return JSON.stringify({ state: status.state, readOnly: status.readOnlyAvailable, messages, kinds });
+    return JSON.stringify({ state: status.state, readOnly: status.readOnlyAvailable, failure: status.failure ?? null, messages, kinds });
   })()`);
   return JSON.parse(raw);
 }
