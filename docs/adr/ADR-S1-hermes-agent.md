@@ -6,8 +6,14 @@
 > this ADR said must never run unattended still never does: every port goes through the kernel gates
 > (ADR-K1), and the behaviours in the recon's "Do not copy" table are replaced, not carried over. The
 > analysis below stands as the record of why those replacements are needed.
+>
+> **Superseding record, 2026-11-01 (PROJECTOS-PORT-FOUNDATION1A).** Owner's decision, in the owner's words: "I asked you to adopt the capabilites, clone the code then adopt to our project. That's not copy is it?"
+> This ADOPT decision supersedes the REFERENCE decision below.
+> The text of 2026-10-28 stays as written, as the record of what was decided then and why. The current pin is
+> `d3e586881eacb132595edcbe4c170be8381e40c5` (`docs/recon/V4_Port_Map.md` §1), and the credit rule is
+> `docs/adr/ADR-P1-port-ownership-and-credit.md`.
 
-**Status:** Decided by the spike, 2026-10-28 (V4 plan Stage 1, spike S1). It is research only. Nothing
+**Status at the time:** Decided by the spike, 2026-10-28 (V4 plan Stage 1, spike S1). It is research only. Nothing
 was installed, cloned or run. A research subagent drafted it from primary sources and the lead
 recorded it. The cited claims were not re-verified one by one, and anything marked UNVERIFIED is
 still open.
@@ -38,7 +44,7 @@ without becoming a second orchestrator?
   auxiliary LLM auto-approve. Secrets sit in `~/.hermes/.env`. Its own docs say the denylists are
   "not a sandbox". ([security](https://hermes-agent.nousresearch.com/docs/user-guide/security))
 
-## Decision: REFERENCE
+## Decision of 2026-10-28: REFERENCE (SUPERSEDED)
 Its memory and skill writes come from its own loop and its own approve command, and the entries
 carry no provenance. An adapter would either import a second orchestrator or need a rewrite.
 

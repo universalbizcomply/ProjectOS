@@ -1,6 +1,11 @@
 # V4 capability recon — Hermes, OpenClaw, OpenBot / Grok Bot
 
 > **AMENDED 2026-10-29.** Owner direction, 2026-10-29: "I asked you to adopt the capabilites, clone the code then adopt to our project. That's not copy is it?" and "I want no API from GROK, what I need is GROK like capabilities". Hermes, OpenClaw and OpenBot are all MIT; their code is now ADOPTED (cloned and ported, notices kept), per `docs/recon/V4_Port_Map.md`. There is no xAI/Grok provider: Grok-like capabilities are built on ProjectOS's own stack. The "Do not copy" table below now means "adapt, do not keep": those behaviours are replaced by kernel gates when the surrounding code is ported.
+>
+> **Superseding record, 2026-11-01 (PROJECTOS-PORT-FOUNDATION1A).** Owner's decision, in the owner's words: "I asked you to adopt the capabilites, clone the code then adopt to our project. That's not copy is it?"
+> This ADOPT decision supersedes the rebuild-only method described below.
+> Those sentences stay as the record of how this recon was done. The sources and pins are in
+> `docs/recon/V4_Port_Map.md` §1, and the credit rule is `docs/adr/ADR-P1-port-ownership-and-credit.md`.
 
 **Date:** 2026-10-28.
 
@@ -52,7 +57,7 @@ Claims are those of the cited docs. Anything marked UNVERIFIED in the subagent r
 | C21 | Teach by demonstration | Grok Bot | could. A recorded routine becomes a *proposed* skill (C9) | 7 |
 | C22 | Rich component replies | OpenBot | could. Components are reviewed like code before publication | 6 |
 
-## Do not copy (a security finding in every case)
+## Do not copy these behaviours (a security finding in every case)
 
 | Pattern | Why it's refused |
 |---|---|

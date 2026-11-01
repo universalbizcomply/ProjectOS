@@ -186,6 +186,21 @@ Goal: the continuity problem is solved. Six logical classes map onto existing st
       summary never overwrites a decision. Retention and deletion apply per class.
 - [ ] 3.4 Context manager: authorised retrieval per task envelope (from 1.4). Uses the S1 and S3
       ADRs.
+
+**Port phases** (`docs/changes/delta_spec_V4_PORTS.md`, owner "Approved" 2026-11-01; in plan v1.31). Each goes through
+the `docs/recon/V4_Port_Map.md` §4 gates and carries the credit in `docs/adr/ADR-P1-port-ownership-and-credit.md`.
+
+- [ ] 3.5 PROJECTOS-PORT-FOUNDATION1A: notices file, file header, credit validator, ADR-P1; older records
+      lined up with ADOPT. Ports no upstream code.
+- [ ] 3.6 PROJECTOS-PORT-SEARCH1A: hybrid search and chunker for cited document and session search (C8, C10).
+      OpenClaw. Serves 3.4.
+- [ ] 3.7 PROJECTOS-PORT-MEMORY1A: capped memory store and threat scan; every write is a proposal (C8). Hermes,
+      with oh-my-hermes rules. Serves 3.3.
+- [ ] 3.8 PROJECTOS-PORT-SKILLS1A: skill linter, audit and frontmatter; promotion through a validator (C9). Hermes.
+      Serves 3.2.
+- [ ] 3.9 PROJECTOS-PORT-CONTEXT1A: per-agent context monitoring and compaction. Hermes. Serves 3.3 and 3.4.
+- [ ] 3.10 PROJECTOS-PORT-APPROVALS1A: approval core, taint tracking and "evidence before done" receipts. Rakazo,
+      oh-my-hermes.
 - **Exit proof:** a fresh session resumes a half-done phase with zero manual context relay.
 
 ## Stage 4 — Runtime and provider independence (in parallel with Stage 3)
@@ -195,6 +210,20 @@ Goal: the continuity problem is solved. Six logical classes map onto existing st
       truthful state, never an auto-approval.
 - [ ] 4.3 Isolated execution: worktree → container or VM sandbox per task. Idempotency keys for every
       non-git side effect.
+
+**Port phases** (same delta). These enter a later plan once Stage 2 has settled what they build on. Anything
+per-tenant, or that releases a credential or spends, waits for PRINCIPAL1A and CREDENTIALS1A.
+
+- [ ] 4.4 PORT-ROUTINES1A: routine floors of a 15-minute minimum, 20 enabled and auto-disable after 10 failures (C13).
+      CopilotKit OpenBot.
+- [ ] 4.5 PORT-PROVIDERS1A: provider broker, retries, pricing, custom endpoints and local models (C11). OpenClaw,
+      Hermes. Serves 4.2.
+- [ ] 4.6 PORT-AGENTS1A: persistent agents, queues, delegation and same-tenant messages (C7, C12). OpenClaw, Hermes,
+      our code. After 4.5.
+- [ ] 4.7 PORT-COMPUTER1A: per-agent browser, computer use, exec approval binding and action policy (C14). OpenClaw,
+      CopilotKit OpenBot. Serves 4.3, after 4.6.
+- [ ] 4.8 PORT-RESEARCH1A: web search and cited research (C16). OpenClaw, Hermes. After 4.5.
+- [ ] 4.9 PORT-MCP1A: governed connectors on the connector contract (C15). OpenClaw, Hermes.
 - **Exit proof:** the same phase runs with the implementer and reviewer providers swapped, and no
   code change.
 

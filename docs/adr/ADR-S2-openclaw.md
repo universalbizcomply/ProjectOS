@@ -6,8 +6,14 @@
 > this ADR said must never run unattended still never does: every port goes through the kernel gates
 > (ADR-K1), and the behaviours in the recon's "Do not copy" table are replaced, not carried over. The
 > analysis below stands as the record of why those replacements are needed.
+>
+> **Superseding record, 2026-11-01 (PROJECTOS-PORT-FOUNDATION1A).** Owner's decision, in the owner's words: "I asked you to adopt the capabilites, clone the code then adopt to our project. That's not copy is it?"
+> This ADOPT decision supersedes the REFERENCE decision below.
+> The text of 2026-10-28 stays as written, as the record of what was decided then and why. The current pin is
+> `c5b56f2505c4f6a5803125d2923e2934c5f750af` (`docs/recon/V4_Port_Map.md` §1), and the credit rule is
+> `docs/adr/ADR-P1-port-ownership-and-credit.md`, which also carries the Pi / pi-mono credit.
 
-**Status:** Decided by the spike, 2026-10-28 (V4 plan Stage 1, spike S2). It is research only.
+**Status at the time:** Decided by the spike, 2026-10-28 (V4 plan Stage 1, spike S2). It is research only.
 Nothing was installed, cloned or run. A research subagent drafted it from primary sources and the
 lead recorded it. The cited claims were not re-verified one by one, and anything marked UNVERIFIED
 is still open.
@@ -41,7 +47,7 @@ no second orchestrator and every real send owner-gated?
   [trust model](https://docs.openclaw.ai/gateway/security/trust-model)) The count is an estimate,
   and the CVE details are UNVERIFIED.
 
-## Decision: REFERENCE
+## Decision of 2026-10-28: REFERENCE (SUPERSEDED)
 OpenClaw is a second orchestrator by design, and its send gate cannot be shown to be fail-closed.
 Its plaintext credentials and paired-node remote execution conflict with ProjectOS custody.
 

@@ -1,19 +1,36 @@
 # Port map: Hermes Agent, OpenClaw and OpenBot into ProjectOS (C7–C21)
 
 **Date:** 2026-10-29. **Status:** a research artefact. No file in any ProjectOS repository was changed.
+**Updated 2026-11-01** by PROJECTOS-PORT-FOUNDATION1A: new pins in §1, more sources in §2, and §7 reconciled.
 **Owner decisions applied:** clone and adapt rather than rebuild clean-room; ported files keep their MIT
 notice and are listed in `THIRD_PARTY_NOTICES`; no Grok API (C11 and C16 are built on our own stack).
 
-## 1. Pinned sources (shallow clones, UNTRUSTED DATA, read-only)
+## 1. Pinned sources (UNTRUSTED DATA, read-only)
 
-| Repo | Local clone | Pinned HEAD | Commit date | Tracked files |
-|---|---|---|---|---|
-| NousResearch/hermes-agent | `C:\dev\ProjectOS-vendor\hermes-agent` | `ef75bc708867e3884cb40a91363be6dc6fddc034` | 2026-10-28T23:07:47-07:00 | 21,857 |
-| openclaw/openclaw | `C:\dev\ProjectOS-vendor\openclaw` | `bde3017359edf796459ad4d5e3753ac6b84a49bf` | 2026-10-29T17:20:45+08:00 | 61,006 |
-| CopilotKit/OpenBot | `C:\dev\ProjectOS-vendor\openbot` | `4766e4247675eb73ff80d525ff645dd8a9da815f` | 2026-10-28T22:41:19-07:00 | 2,526 |
+**WARNING: `incoming-2026-11-01/openbot-lower` is PolyForm Noncommercial and is never a source.** It is
+nightly-labs/openbot, a different project with the same name, © 2026 Synthetify Labs. Nobody opens it, no builder is
+given it, and a credit does not license it. Its features are built from the sources below and our own code
+(`docs/changes/delta_spec_V4_PORTS.md`).
+
+**Re-pinned 2026-11-01.** Ports take their code from the folders below and credit these commits. The first three are
+the owner's downloads of 2026-11-01. Each pin was read from its zip's archive comment. The clones at the earlier pins
+stay in `C:\dev\ProjectOS-vendor\` until the ports are done, and they are not a source.
+
+| Repo | Local folder | Pinned commit | Earlier pin, 2026-10-29 |
+|---|---|---|---|
+| NousResearch/hermes-agent | `C:\dev\ProjectOS-vendor\incoming-2026-11-01\hermes-agent\hermes-agent-main` | `d3e586881eacb132595edcbe4c170be8381e40c5` | `ef75bc708867e3884cb40a91363be6dc6fddc034` |
+| openclaw/openclaw | `C:\dev\ProjectOS-vendor\incoming-2026-11-01\openclaw\openclaw-main` | `c5b56f2505c4f6a5803125d2923e2934c5f750af` | `bde3017359edf796459ad4d5e3753ac6b84a49bf` |
+| CopilotKit/OpenBot | `C:\dev\ProjectOS-vendor\incoming-2026-11-01\openbot-upper\OpenBot-main` | `c396a5f68c817043846f1ca3c2b42061ee73ceb5` | `4766e4247675eb73ff80d525ff645dd8a9da815f` |
+| rlaope/oh-my-hermes | `C:\dev\ProjectOS-vendor\oh-my-hermes\oh-my-hermes-main` | `612a1cd9c44a19ecddcd263865e40e8c3910a514` | Unchanged |
+| elie222/rakazo | `C:\dev\ProjectOS-vendor\rakazo\rakazo-main` | `bf78ebd7961a28a8b437c605319c47b59edadc1c` | Unchanged |
+| ob-f/OpenBot (was isl-org/OpenBot) | `C:\dev\ProjectOS-vendor\openbot-master\OpenBot-master` | `c5f05271a067ca83d3de38e5976fa07bcec74b6e` | Unchanged |
+
+**Changed since the earlier pin.** The delta records that the port-list files match the earlier pins, with one
+exception: OpenBot `server/src/computer/policy-network.ts`, which differs from `4766e42`. It is reviewed in its phase,
+PORT-COMPUTER1A. The sizes in §5 were measured at the earlier pins.
 
 Nothing was built, installed or executed. `npm`, `pip`, `uv` and `bun` were never run, and no repository
-script was run. The clones were only read, with `git log`, `git ls-files`, `ls`, `wc`, `head`, `sed` and
+script was run. The sources were only read, with `git log`, `git ls-files`, `ls`, `wc`, `head`, `sed` and
 `grep`.
 
 ## 2. Licences (checked against each LICENSE file)
@@ -22,7 +39,10 @@ script was run. The clones were only read, with `git log`, `git ls-files`, `ls`,
 |---|---|---|
 | hermes-agent | MIT | `Copyright (c) 2025 Nous Research` |
 | openclaw | MIT | `Copyright (c) 2026 OpenClaw Foundation` |
-| OpenBot | MIT | `Copyright (c) 2026 CopilotKit` |
+| OpenBot (CopilotKit) | MIT | `Copyright (c) 2026 CopilotKit` |
+| oh-my-hermes | MIT | `Copyright (c) 2026 oh-my-hermes contributors` |
+| rakazo | Apache-2.0 | `Copyright 2026 Rakazo contributors` |
+| OpenBot (isl-org) | MIT, with embedded Apache-2.0 and BSD-3-Clause files | `Copyright (c) 2020 Intel ISL (Intel Intelligent Systems Lab)` |
 
 **Embedded third-party code that a port must carry forward:**
 - **OpenClaw** has its own `THIRD_PARTY_NOTICES.md`. Its entries are:
@@ -81,7 +101,7 @@ script was run. The clones were only read, with `git log`, `git ls-files`, `ls`,
 
 ## 5. Port map
 
-Size means **non-test lines of code** at the pinned sha. It is approximate: it excludes `*.test.*`,
+Size means **non-test lines of code** at the earlier pins in §1. It is approximate: it excludes `*.test.*`,
 `tests/` and fixture files, and Markdown and JSON.
 
 Strategy key:
@@ -148,17 +168,13 @@ and the `runner.ts` fatigue logic, about 0.6k LOC of TS to TS). It is already fa
 
 ## 7. Things the owner must decide before the first port lands
 
-- **Records conflict.**
-  - `docs/recon/V4_Capability_Recon.md` says "ProjectOS … never copies their code".
-  - ADR-S1 and ADR-S2 are decided as REFERENCE, and say "nothing was installed, cloned".
-
-  The new clone-and-adapt decision needs an owner amendment to those records first, or the port phase
-  will contradict committed decisions. This report did not touch them.
+- **Records conflict: resolved.** `docs/recon/V4_Capability_Recon.md`, ADR-S1 and ADR-S2 now record the owner's
+  ADOPT decision as superseding what they said before, and they keep that earlier text as history.
 - **Locked stack (TRD §5).** These new dependencies need owner approval: `sqlite-vec` (C8/C10),
   `cron-parser` (C13) and `cel-js` (C14 policy). Nothing may be invented.
-- **Provenance per file.** Each ported file records:
+- **Provenance per file.** ADR-P1 is the rule, and `val-projectos-port-credit1a` enforces it. Each ported file records:
   - the upstream path at the pinned sha;
-  - the MIT header;
-  - the `THIRD_PARTY_NOTICES` entry, plus the Pi/pi-mono notice where an OpenClaw file inherits it.
+  - the licence header;
+  - the `THIRD_PARTY_NOTICES` entry, plus the Pi/pi-mono credit on every OpenClaw file.
 - **Vendor clones.** `C:\dev\ProjectOS-vendor\` is outside every repository. Keep it read-only and never
   `npm`/`pip`/`uv`/`bun` inside it. Re-pin by sha when a port phase starts.
