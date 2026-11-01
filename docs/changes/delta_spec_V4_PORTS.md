@@ -63,10 +63,33 @@ prompts, skills, UI and assets are not copied, translated or closely paraphrased
 its `src`, and `DO-NOT-PORT.txt` stays in its folder. Its name and branding are not used.
 
 **Not taken from any source:** a mode that runs agents with full access and no approvals, which breaks the owner
-floor. Grok remains out, by the owner's standing "no Grok API" decision.
+floor. Only the Grok *API* stays out, by the owner's standing decision. Grok-like capabilities are in, below.
 
 **If the owner wants its actual code,** the only route is a commercial licence from Synthetify Labs,
 `licenses@openbot.run`.
+
+## Grok-like capabilities
+
+Owner: "I want no API from GROK, what I need is GROK like capabilities". So no xAI provider, adapter or key. Each
+capability runs on ProjectOS's own models and the MIT sources. Grok Bot itself is closed software and is not copied.
+
+| Grok capability | ProjectOS version | Port ID | Source | Phase | Stage |
+|---|---|---|---|---|---|
+| Deep research with citations | Step-capped research loop; every answer cites its source | C16 | OpenClaw, Hermes | 11 | 4 |
+| Real-time web search | Search provider we run or choose, such as SearXNG or Brave | C16 | OpenClaw | 11 | 4 |
+| Real-time X search | **Only** through the official X API, as a paid connector, if the owner chooses it | C16 | Our connector | Later | 5 |
+| Chat over your documents | Local index; every answer names file and line; an uncited answer is refused | C10 | OpenClaw | 2 | 3 |
+| Memory across conversations | Capped memory; every write is a proposal the owner can see | C8 | Hermes | 3 | 3 |
+| Chief-of-staff running a team of agents | Coordinator with child agents, each held to the parent's limits | C12 | Hermes, CopilotKit | 9 | 4 |
+| Scheduled tasks | Routines with floors and auto-disable | C13 | CopilotKit | 7 | 4 |
+| A computer per agent | Sandboxed browser, shell and workspace for each agent | C14 | OpenClaw, CopilotKit | 10 | 4.3 |
+| Check-ins before consequential actions | Existing owner gates; thresholds never loosen by learning | C3 | Already built | — | 1 |
+| Mobile approvals and desktop continuity | Approve a real gate from the phone | C18 | OpenClaw | Later | 6 |
+| Teach by demonstration | A recorded routine becomes a *proposed* skill | C21 | CopilotKit | Later | 7 |
+| Voice | Speech in and out; a spoken "approve" is never an approval | C20 | OpenClaw, Hermes | Later | 8 |
+
+**Left out on purpose, as already recorded in `V4_Capability_Recon.md`:** companions and personalities, approval thresholds
+that drift by learning, and always-on autonomy with no gates.
 
 ## Phases
 
