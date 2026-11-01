@@ -18,10 +18,20 @@
  * fixed-width by construction and this file adds nothing to it.
  *
  * PURE. No I/O, no clock, no environment. Created in PROJECTOS-HOST-REVIEW-PATH1A.
+ *
+ * NOTHING HERE MAY TOUCH A NODE GLOBAL WHILE THE MODULE LOADS. The `@projectos/core` barrel binds this file
+ * into the Control Centre's browser bundle, and `Buffer` does not exist in a webview, so one `Buffer.from`
+ * at the top level blanks the whole app with "Buffer is not defined". That is what happened from
+ * 2026-09-25 until PROJECTOS-TENANT-CSP1A. The functions below use `Buffer` freely, because they only run
+ * in Node. Constants are the danger.
  */
 import { createHash } from 'node:crypto';
 
-export const HOST_FRAME_MAGIC = Buffer.from('POS1', 'ascii');
+/** The frame magic. A function, not a constant: see the note above. */
+export function hostFrameMagic(): Buffer {
+  return Buffer.from('POS1', 'ascii');
+}
+
 export const HOST_WIRE_PROTOCOL_VERSION = 1;
 export const HOST_NONCE_LEN = 32;
 /** magic(4) + version(2) + kind(1) + nonce(32) + payload length(2). */
@@ -55,10 +65,23 @@ export const HOST_RESPONSE_FRAME_LEN = HOST_HEADER_LEN + HOST_RESPONSE_PAYLOAD_L
 export const HOST_OPERATION_INDEPENDENT_GATEKEEPER_REVIEW = 3;
 
 /**
+ * The bytes as a real `Buffer` wherever one exists. This one reaches `Buffer` at load time, so it is the
+ * single exception to the note at the top of this file, and `typeof` is what makes it safe: a bare
+ * `Buffer.from` here would throw in a webview. It stays a value because the agent imports the constant
+ * below as a value and hands it on as a `Buffer`.
+ */
+function bufferWhereAvailable(bytes: readonly number[]): Buffer {
+  const view = Uint8Array.from(bytes);
+  return (typeof Buffer === 'undefined' ? view : Buffer.from(view)) as Buffer;
+}
+
+/**
  * The ONE frozen run identifier of the installed-host endpoint (`INSTALLED_HOST_STATUS_RUN_ID`). Both
  * ends derive the single-use exchange nonce from it; it names an endpoint and grants nothing.
+ *
+ * `#__PURE__` lets a bundler drop it where nothing reads it, which is the whole browser build.
  */
-export const INSTALLED_HOST_RUN_ID = Buffer.from([0x50, 0x4f, 0x53, 0x48, 0x53, 0x54, 0x41, 0x54]);
+export const INSTALLED_HOST_RUN_ID = /*#__PURE__*/ bufferWhereAvailable([0x50, 0x4f, 0x53, 0x48, 0x53, 0x54, 0x41, 0x54]);
 
 /** The exchange nonce for a run identifier: its eight bytes repeated to thirty-two. Mirrors Rust. */
 export function hostNonceForRunId(runId: Buffer): Buffer {
@@ -119,7 +142,7 @@ function requiredPayloadLen(kind: number): number | null {
  */
 function parseFrame(buf: Buffer, expectedKind: number, nonce: Buffer): Parsed<Buffer> {
   if (buf.length < HOST_HEADER_LEN) return refuse('TruncatedHeader');
-  if (!buf.subarray(0, 4).equals(HOST_FRAME_MAGIC)) return refuse('BadMagic');
+  if (!buf.subarray(0, 4).equals(hostFrameMagic())) return refuse('BadMagic');
   if (buf.readUInt16BE(4) !== HOST_WIRE_PROTOCOL_VERSION) return refuse('UnknownVersion');
   const kind = buf[6]!;
   if (kind < 1 || kind > 10) return refuse('UnknownMessageKind');
@@ -138,7 +161,7 @@ function parseFrame(buf: Buffer, expectedKind: number, nonce: Buffer): Parsed<Bu
 function header(kind: number, nonce: Buffer, payloadLen: number): Buffer {
   if (nonce.length !== HOST_NONCE_LEN) throw new Error('a Host exchange nonce is exactly 32 bytes');
   const out = Buffer.alloc(HOST_HEADER_LEN + payloadLen);
-  HOST_FRAME_MAGIC.copy(out, 0);
+  hostFrameMagic().copy(out, 0);
   out.writeUInt16BE(HOST_WIRE_PROTOCOL_VERSION, 4);
   out[6] = kind;
   nonce.copy(out, 7);
@@ -302,7 +325,9 @@ export function decodeProtectedOperationResponse(buf: Buffer, nonce: Buffer): Pa
 // -------------------------------------------------------------------------------------------------
 
 /** `BINDING_DIGEST_DOMAIN` and `BINDING_DIGEST_SCHEMA_VERSION`, as Rust spells them. */
-const BINDING_DIGEST_DOMAIN = Buffer.from('projectos.host-request-binding.v1', 'ascii');
+function bindingDigestDomain(): Buffer {
+  return Buffer.from('projectos.host-request-binding.v1', 'ascii');
+}
 const BINDING_DIGEST_SCHEMA_VERSION = 1;
 
 /** The nine facts a binding digest covers — each a 32-byte digest as lower-case hex. */
@@ -329,7 +354,7 @@ export function hostBindingDigest(subject: HostBindingSubject): string | null {
   if (![...fields, ...tail].every((f) => HEX64.test(f))) return null;
   const version = Buffer.alloc(4);
   version.writeUInt32BE(BINDING_DIGEST_SCHEMA_VERSION, 0);
-  const h = createHash('sha256').update(BINDING_DIGEST_DOMAIN).update(version);
+  const h = createHash('sha256').update(bindingDigestDomain()).update(version);
   for (const f of fields) h.update(Buffer.from(f, 'hex'));
   h.update(Buffer.from([HOST_OPERATION_INDEPENDENT_GATEKEEPER_REVIEW]));
   for (const f of tail) h.update(Buffer.from(f, 'hex'));

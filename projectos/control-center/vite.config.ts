@@ -11,6 +11,8 @@ export default defineConfig({
       // See src/shims/nodeCryptoStub.ts: @projectos/core's barrel export forces Rollup to bind
       // node:crypto even though nothing in this browser bundle calls it.
       'node:crypto': fileURLToPath(new URL('./src/shims/nodeCryptoStub.ts', import.meta.url)),
+      // See src/shims/nodeBufferStub.ts: the same bind, for node:buffer.
+      'node:buffer': fileURLToPath(new URL('./src/shims/nodeBufferStub.ts', import.meta.url)),
     },
   },
 });
