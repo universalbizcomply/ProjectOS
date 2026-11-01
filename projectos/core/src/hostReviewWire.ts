@@ -79,7 +79,8 @@ function bufferWhereAvailable(bytes: readonly number[]): Buffer {
  * The ONE frozen run identifier of the installed-host endpoint (`INSTALLED_HOST_STATUS_RUN_ID`). Both
  * ends derive the single-use exchange nonce from it; it names an endpoint and grants nothing.
  *
- * `#__PURE__` lets a bundler drop it where nothing reads it, which is the whole browser build.
+ * The purity mark lets a bundler drop it where nothing reads it, which is the whole browser build. Do not
+ * spell that mark out in a comment: Rollup warns about any comment holding it.
  */
 export const INSTALLED_HOST_RUN_ID = /*#__PURE__*/ bufferWhereAvailable([0x50, 0x4f, 0x53, 0x48, 0x53, 0x54, 0x41, 0x54]);
 
