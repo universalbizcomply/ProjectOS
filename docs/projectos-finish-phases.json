@@ -1204,6 +1204,8 @@
       "scope": "Add the committed-bytes registry reader with whole-file validation and the owner-last-commit check; derive tenant in the governed context; mint and record envelopes at the crossing points; add TENANT_UNKNOWN and TENANT_MISMATCH and a read-only tenant show.",
       "writePaths": [
         "projectos/agent/src/installation/tenantRegistry.ts",
+        "projectos/core/test/tenant.test.ts",
+        "projectos/core/test/tenant-contract-review.test.ts",
         "projectos/agent/src/installation/projectAllowlist.ts",
         "projectos/security/tenant-registry.json",
         "docs/adr/ADR-T1-tenant-boundary.md",
