@@ -25,11 +25,13 @@
  *
  *   WHAT THE HANDLE IS NOT. It names a record and it is not a secret: any process of this Windows user can
  *   read the line, and can write one. That is ADR-T1 §10's first limit, one Windows user, and it is why no
- *   second party's credentials go on this machine. This stops the kernel's routes being told who asks.
+ *   second party's credentials go on this machine. This prevents accidents on the kernel's routes.
  *
  *   A CONSOLE IS A RUN TOO. A command with no run mints one first, as the contract requires. Only the
- *   credential router's terminal check reaches `issueConsoleRun`, and what it shows is what a tenant
- *   receipt shows: a person or a process at a console, nothing more.
+ *   credential router's terminal check reaches `issueConsoleRun`, and the authority it gives lives in this
+ *   process only: read back by id, in any process, a console line is refused. `via: console` IS A LABEL:
+ *   under F7 a process can drive a console or write the line, so it shows what a tenant receipt shows, a
+ *   person or a process at a console, nothing more.
  *
  *   THE CORE CANNOT BE LOADED HERE. It is TypeScript, and this is plain synchronous CommonJS that must run
  *   with no build, so the few rules below repeat core's on purpose: the record's shape, whole-file refusal,
@@ -60,6 +62,10 @@ const TENANT_CHANGE_RECORDS_FILENAME = "tenant-registry-changes.jsonl";
 /** A run-start envelope's id, which is all a handle is. A JWT is not this shape, and nothing else is read. */
 const RUN_HANDLE_RE = /^ENV-[0-9a-f]{24}$/;
 const PHASE_ID_RE = /^[A-Za-z0-9_-]{4,128}$/;
+/** Where a credential-release grant lives: the installation, because a project's own work can write its own repository (F8). */
+const CREDENTIAL_GRANTS_REL = "projectos/security/credential-grants/";
+const CREDENTIAL_GRANT_KIND = "credential-release-grant";
+const CREDENTIAL_GRANT_FIELDS = Object.freeze(["schemaVersion", "kind", "phaseId", "projectId", "references", "action", "expiresAt", "grantedBy"]);
 const GIT_OBJECT_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const WILDCARD_RE = /[*?]/;
 const DOMAINS = Object.freeze(["develop", "business", "personal", "phone"]);
@@ -148,13 +154,10 @@ function createMetadataStore(opts) {
     }
   }
 
-  /** The reach to keep: a newly stated one replaces the old whole, or the old one stands. */
-  function reachFields(record, previous) {
+  /** Only what this call states. A new value says nothing about what it reaches, so nothing is inherited. */
+  function statedReach(record) {
     const stated = typeof record.reach === "string";
-    return {
-      reach: stated ? record.reach : (previous && previous.reach) || null,
-      reachTenants: stated ? record.reachTenants || null : (previous && previous.reachTenants) || null,
-    };
+    return { reach: stated ? record.reach : null, reachTenants: stated ? record.reachTenants || null : null };
   }
 
   /**
@@ -225,7 +228,7 @@ function createMetadataStore(opts) {
       rotatedAt: stamp,
       expiresAt: typeof record.expiresAt === "string" ? record.expiresAt : (previous ? previous.expiresAt : null) || null,
       note: typeof record.note === "string" ? record.note : null,
-      ...reachFields(record, previous),
+      ...statedReach(record),
     };
     writeAll(all);
     return { ...all[reference], reference };
@@ -245,7 +248,7 @@ function createMetadataStore(opts) {
         ...existing,
         expiresAt: typeof record.expiresAt === "string" ? record.expiresAt : existing.expiresAt || null,
         note: typeof record.note === "string" ? record.note : existing.note || null,
-        ...reachFields(record, existing),
+        ...(typeof record.reach === "string" ? statedReach(record) : {}),
       };
       writeAll(all);
       return { ...all[reference], reference };
@@ -535,8 +538,21 @@ function createRequesterAuthority(opts) {
     return "ENV-" + crypto.randomBytes(12).toString("hex");
   }
 
-  /** The requester this run's line and the committed registry agree on. Nothing else is asked. */
+  /**
+   * The requester for a kernel run's handle. A console line is refused here: its authority is the
+   * terminal of the process that minted it, and a handle carried anywhere else has no terminal behind it.
+   */
   function fromRun(handle) {
+    const requester = bindRun(handle, false);
+    if (requester.via === "console") {
+      LIVE_REQUESTERS.delete(requester);
+      throw refusal("RUN_HANDLE_CONSOLE_ONLY", "a console run's authority ends with the process that minted it, so its handle is nobody's elsewhere");
+    }
+    return requester;
+  }
+
+  /** The requester this run's line and the committed registry agree on. Nothing else is asked. */
+  function bindRun(handle, atConsole) {
     if (typeof handle !== "string" || !RUN_HANDLE_RE.test(handle)) {
       throw refusal("REQUESTER_REQUIRED", "a requester is a kernel-issued run handle, and this is not one");
     }
@@ -568,7 +584,7 @@ function createRequesterAuthority(opts) {
       principal: envelope.principal,
       expiry: envelope.expiry,
     });
-    LIVE_REQUESTERS.set(requester, { authority, expiresAtMs, entries: registry.entries });
+    LIVE_REQUESTERS.set(requester, { authority, expiresAtMs, entries: registry.entries, atConsole });
     return requester;
   }
 
@@ -606,27 +622,42 @@ function createRequesterAuthority(opts) {
     };
     const written = appendRecord({ stage: "admission", at: at.toISOString(), outcome: "allowed", rule: null, envelope, registered: true, via: "console", runLinked: false, reasons: [] });
     if (!written) throw refusal("ENVELOPE_NOT_RECORDED", "the console run could not be recorded, so it did not happen. " + RECORD_LOCK_HINT);
-    return fromRun(envelopeId);
+    return bindRun(envelopeId, true);
   }
 
   /**
-   * The operation grant (the lead's decision, for the owner to overrule): the phase's committed
-   * `secrets-handling` owner record, the route the broker already uses, read at the project's REGISTERED
-   * root, so a linked worktree cannot commit its own. A tenant receipt is not this and answers nothing.
-   * `null` when the record approves; otherwise why not.
+   * The P5 grant for one release: a committed `credential-release` record, and nothing else.
+   *
+   * IT NAMES WHAT IT RELEASES. An owner's record for a phase says the phase may proceed, and the gatekeeper's
+   * `secrets-handling` gates are scoped to the gatekeeper key, so reading one here let any caller who named a
+   * phase holding one release a production credential. That decision was withdrawn at review. This record
+   * names the project, the exact references, the action and an expiry, and any difference releases nothing.
+   *
+   * IT LIVES IN THE INSTALLATION, read from committed bytes at HEAD: a project's work can write its own
+   * repository (F8), and a linked worktree can commit there. A tenant receipt and a `secrets-handling` gate
+   * are not this and answer nothing. `null` when the record grants this release; otherwise why not.
    */
-  function operationGrantRefusal(requester, phaseId) {
-    const state = requesterState(requester);
-    if (state === null) return "no kernel requester";
-    if (typeof phaseId !== "string" || !PHASE_ID_RE.test(phaseId)) return "the permit names no phase whose owner record could approve this";
-    const rel = ".projectops/gates/" + phaseId + ".secrets-handling.json";
-    const bytes = readCommitted(state.entries.get(requester.project).governedRoot, rel);
-    if (bytes === null) return "no committed secrets-handling record approves credential use for this phase";
-    let record;
-    try { record = JSON.parse(bytes.text); } catch (e) { return "the committed secrets-handling record is not readable JSON"; }
-    if (!record || record.ownerChoice !== "APPROVE" || record.gateName !== "secrets-handling" || record.phaseId !== phaseId) {
-      return "the committed secrets-handling record does not approve this phase";
+  function operationGrantRefusal(requester, ref, permit) {
+    const phaseId = permit.phaseId;
+    if (typeof phaseId !== "string" || !PHASE_ID_RE.test(phaseId)) return "the permit names no phase, so no grant can answer for it";
+    const bytes = readCommitted(installRoot, CREDENTIAL_GRANTS_REL + phaseId + ".credential-release.json");
+    if (bytes === null) return "no committed credential-release grant exists for this phase in the installation";
+    let grant;
+    try { grant = JSON.parse(bytes.text); } catch (e) { return "the committed credential-release grant is not readable JSON"; }
+    if (grant === null || typeof grant !== "object" || Array.isArray(grant)) return "the committed credential-release grant is not a record";
+    const keys = Object.keys(grant);
+    if (keys.length !== CREDENTIAL_GRANT_FIELDS.length || !CREDENTIAL_GRANT_FIELDS.every((field) => keys.includes(field))) {
+      return "the committed credential-release grant does not have exactly the fields a grant has";
     }
+    if (grant.schemaVersion !== "1.0.0" || grant.kind !== CREDENTIAL_GRANT_KIND) return "the committed record is not a credential-release grant";
+    if (typeof grant.grantedBy !== "string" || grant.grantedBy.trim() === "") return "the committed credential-release grant names nobody who granted it";
+    if (grant.phaseId !== phaseId) return "the committed credential-release grant is for another phase";
+    if (grant.projectId !== requester.project) return "the committed credential-release grant is for another project";
+    if (!Array.isArray(grant.references) || !grant.references.includes(ref.reference)) return "the committed credential-release grant does not name this exact reference";
+    if (typeof permit.action !== "string" || grant.action !== permit.action) return "the committed credential-release grant is for another action";
+    const expiresAtMs = typeof grant.expiresAt === "string" ? Date.parse(grant.expiresAt) : Number.NaN;
+    if (!Number.isFinite(expiresAtMs) || new Date(expiresAtMs).toISOString() !== grant.expiresAt) return "the committed credential-release grant has no readable expiry";
+    if (expiresAtMs <= nowMs()) return "the committed credential-release grant has expired";
     return null;
   }
 
@@ -664,4 +695,4 @@ function createRequesterAuthority(opts) {
   return authority;
 }
 
-module.exports = { createMetadataStore, defaultStateDir, FILE_NAME, MAX_NOTE, createRequesterAuthority, requesterState, installationStateDir, refusal, RUN_HANDLE_RE, ENVELOPE_RECORDS_FILENAME, RECORD_LOCK_HINT };
+module.exports = { createMetadataStore, defaultStateDir, FILE_NAME, MAX_NOTE, CREDENTIAL_GRANTS_REL, createRequesterAuthority, requesterState, installationStateDir, refusal, RUN_HANDLE_RE, ENVELOPE_RECORDS_FILENAME, RECORD_LOCK_HINT };

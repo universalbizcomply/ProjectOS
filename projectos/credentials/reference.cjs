@@ -48,7 +48,6 @@ const ENVIRONMENTS = Object.freeze(["development", "staging", "production"]);
  */
 const SESSION_CREDENTIALS = Object.freeze([
   "gh-token",
-  "supabase-access-token",
   "vercel-token",
 ]);
 
@@ -57,12 +56,20 @@ const SESSION_CREDENTIALS = Object.freeze([
  * reporting; classification does NOT depend on this list being complete (the default is `operation`).
  */
 const OPERATION_CREDENTIALS = Object.freeze([
+  "supabase-access-token",
   "db-password",
   "service-role-key",
   "production-deploy-token",
   "real-send-credential",
   "payment-credential",
 ]);
+
+/**
+ * Tokens that reach a whole provider account whatever they declare. A Supabase personal access token has
+ * no project scope to declare: it can act on every project on the account and it bypasses RLS. So it is
+ * never a session credential, and the vault reads its reach as `account` even if a record says otherwise.
+ */
+const ACCOUNT_WIDE_CREDENTIALS = Object.freeze(["supabase-access-token"]);
 
 const SESSION_SET = new Set(SESSION_CREDENTIALS);
 
@@ -176,6 +183,7 @@ module.exports = {
   ENVIRONMENTS,
   SESSION_CREDENTIALS,
   OPERATION_CREDENTIALS,
+  ACCOUNT_WIDE_CREDENTIALS,
   PLATFORM_REFERENCES,
   REACHES,
   parseReference,

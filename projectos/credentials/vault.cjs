@@ -2,9 +2,10 @@
 /**
  * Credential vault — PROJECTOS-MULTI-PROJECT-CREDENTIAL-ROUTER1A (L2 policy layer).
  *
- * The single chokepoint between a backing secret store (Windows Credential Manager, or the in-process
- * store used by validators) and everything else in ProjectOS. Nothing outside this module reads a
- * credential value.
+ * The chokepoint on ProjectOS's own routes between a backing secret store (Windows Credential Manager, or
+ * the in-process store used by validators) and the rest of ProjectOS. The broker reads the platform key by
+ * its own committed adapter, and any process of this Windows user can read the store directly (F7), so this
+ * prevents accidents on the kernel's routes. It is not a boundary against a process that goes round them.
  *
  * Policy enforced here, all fail-closed:
  *  - A KERNEL REQUESTER. Every release and every mutation takes a requester the kernel minted from a run
@@ -18,13 +19,14 @@
  *  - CLASS. A platform credential is released to nobody. A tenant-class credential is never auto-loaded
  *    into a session. Session auto-load has no owner step, so it stays for a project's own credential, in
  *    its own tenant, recorded through an envelope, from a run that is more than a linked worktree.
- *  - REACH. Each credential declares what it can reach. Undeclared is refused, and an account-wide token
- *    is projected only into a session of the one tenant that account holds.
+ *  - REACH AND EXPIRY, ON BOTH PATHS. Each credential declares what it can reach, and a new value clears
+ *    the declaration. Undeclared or expired is refused. Auto-load takes project reach only, so a wider token
+ *    cannot sidestep the class rule. An operation refuses a reach into another tenant.
  *  - RISK SEPARATION. `session`-class credentials may be authorised for projection into a session's child
  *    environment. `operation`-class credentials (database passwords, service-role keys, production deploy
- *    tokens, real-send and payment credentials) can ONLY be authorised against a valid owner-confirmed
- *    permit bound to the same project, environment, reference and run, and the phase's committed
- *    `secrets-handling` owner record. Risk class is fail-closed: an unknown credential name is `operation`.
+ *    tokens, real-send and payment credentials) can ONLY be authorised against a permit bound to the same
+ *    project, environment, reference and run, and a committed `credential-release` grant naming the project,
+ *    the exact reference, the action and an expiry. Risk class is fail-closed: an unknown name is `operation`.
  *  - GRANTS, NOT VALUES. Authorisation returns an opaque grant, not a secret. A grant is single-use, is
  *    recognised only by the vault instance that minted it (identity membership in a private WeakSet — a
  *    hand-built look-alike object is refused), and carries no value itself.
@@ -47,16 +49,13 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { createRedactor } = require("../security/redaction.cjs");
-const { parseReference, fingerprint, belongsToProject } = require("./reference.cjs");
+const { parseReference, fingerprint, belongsToProject, REACHES, ACCOUNT_WIDE_CREDENTIALS } = require("./reference.cjs");
 const { createMetadataStore, requesterState, refusal, RECORD_LOCK_HINT } = require("./credential-metadata.cjs");
 
 const GRANT_TTL_MS = 5 * 60 * 1000;
 /** Beside the metadata sidecar, outside every repository. */
 const AUDIT_FILE_NAME = "credential-audit.jsonl";
 const AUDIT_ROTATE_BYTES = 1048576;
-
-/** Only a console may change what a credential says it reaches, or touch a platform credential at all. */
-const CONSOLE_ROUTE = "console";
 
 function requireStore(store) {
   const needed = ["set", "get", "exists", "del", "list"];
@@ -109,6 +108,12 @@ function createCredentialVault(opts) {
       grantId: event.grantId || null,
       requester: event.requester || null,
       tenant: event.tenant || null,
+      sessionId: event.sessionId || null,
+      command: event.command || null,
+      args: event.args || null,
+      exitCode: Number.isInteger(event.exitCode) ? event.exitCode : null,
+      reachBefore: event.reachBefore || null,
+      reachAfter: event.reachAfter || null,
       actor,
       ok: !!event.ok,
       reason: event.reason || null,
@@ -132,6 +137,11 @@ function createCredentialVault(opts) {
     return { reference: ref.reference, project: ref.project, environment: ref.environment, provider: ref.provider, risk: ref.risk };
   }
 
+  function declaredReach(ref) {
+    const record = metadata.get(ref.reference);
+    return record ? record.reach || null : null;
+  }
+
   /** Who is asking, by the brand and nothing else: a string, a copy and a stale run are all no one. */
   function liveRequester(requester) {
     const state = requesterState(requester);
@@ -145,6 +155,12 @@ function createCredentialVault(opts) {
       throw refusal("REQUESTER_REQUIRED", "credential-vault: REQUESTER REQUIRED — only a live kernel-issued run handle may ask");
     }
     return state;
+  }
+
+  /** The terminal in front of this process, and nothing a line says: `via` is a label, and a handle travels. */
+  function atConsole(requester) {
+    const state = liveRequester(requester);
+    return state !== null && state.atConsole === true;
   }
 
   function requesterFields(requester) {
@@ -181,7 +197,7 @@ function createCredentialVault(opts) {
     const ref = requireRef((input || {}).reference, action);
     const state = requireRequester(requester, ref, action);
     if (ref.credentialClass === "platform") {
-      if (requester.via !== CONSOLE_ROUTE) {
+      if (!atConsole(requester)) {
         log({ action, ...refFields(ref), ...requesterFields(requester), ok: false, reason: "platform-credential-console-only" });
         throw refusal("PLATFORM_CONSOLE_ONLY", "credential-vault: a platform credential is changed only from a console");
       }
@@ -198,7 +214,7 @@ function createCredentialVault(opts) {
   /** A run must not lower what its own credential says it reaches, or the reach rule is its own to lift. */
   function requireConsoleForReach(input, ref, action) {
     if (input.reach === undefined && input.reachTenants === undefined) return;
-    if (input.requester.via !== CONSOLE_ROUTE) {
+    if (!atConsole(input.requester)) {
       log({ action, ...refFields(ref), ...requesterFields(input.requester), ok: false, reason: "reach-declared-from-a-run" });
       throw refusal("REACH_CONSOLE_ONLY", "credential-vault: a credential's reach is declared only from a console");
     }
@@ -231,9 +247,10 @@ function createCredentialVault(opts) {
     redactor.register(value, "cred_" + fingerprint(value));
     // THE INTENT IS ON DISK BEFORE THE STORE CHANGES. An effect with no line is the one thing R4 forbids.
     log({ action: "provision-intent", ...refFields(ref), ...requesterFields(input.requester), ok: true });
+    const reachBefore = declaredReach(ref);
     store.set(ref.reference, value);
     const record = metadata.recordProvision(ref.reference, value, { note: input.note, expiresAt: input.expiresAt, reach: input.reach, reachTenants: input.reachTenants });
-    log({ action: replace ? "replace" : "provision", ...refFields(ref), ...requesterFields(input.requester), fingerprint: record.fingerprint, ok: true });
+    log({ action: replace ? "replace" : "provision", ...refFields(ref), ...requesterFields(input.requester), fingerprint: record.fingerprint, reachBefore, reachAfter: record.reach, ok: true });
     return { reference: ref.reference, fingerprint: record.fingerprint, risk: ref.risk, replaced: already };
   }
 
@@ -299,8 +316,9 @@ function createCredentialVault(opts) {
   function rotateMetadata(input) {
     const ref = requireMutator(input, "rotate-metadata");
     requireConsoleForReach(input, ref, "rotate-metadata");
+    const reachBefore = declaredReach(ref);
     const record = metadata.recordRotationMetadata(ref.reference, { expiresAt: input.expiresAt, note: input.note, reach: input.reach, reachTenants: input.reachTenants });
-    log({ action: "rotate-metadata", ...refFields(ref), ...requesterFields(input.requester), fingerprint: record.fingerprint, ok: true });
+    log({ action: "rotate-metadata", ...refFields(ref), ...requesterFields(input.requester), fingerprint: record.fingerprint, reachBefore, reachAfter: record.reach, ok: true });
     return record;
   }
 
@@ -332,17 +350,27 @@ function createCredentialVault(opts) {
   }
 
   /**
-   * AN UNDECLARED REACH IS REFUSED. Supabase token scope was never confirmed live, and "probably one
-   * project" is how an account-wide token reaches another tenant's data. An account reach passes only when
-   * the one tenant it names is the requester's, so a token copied under another tenant's project stops.
-   * Asked of a credential that exists: a missing one is CREDENTIAL MISSING, not an undeclared one.
+   * Is this credential fit to go out at all, on either path? Asked of a credential that exists: a missing
+   * one is CREDENTIAL MISSING, not an undeclared one.
+   *
+   * EXPIRED OR UNDECLARED IS REFUSED. Supabase token scope was never confirmed live, and "probably one
+   * project" is how a wide token reaches another tenant's data. A name known to be account-wide is account
+   * reach whatever its record says. AUTO-LOAD TAKES PROJECT REACH ONLY, because it has no owner step: a
+   * tenant-reach token under a project's name would be a tenant credential sidestepping the class rule. An
+   * operation has a grant, and may take a wider reach while it stays inside the requester's tenant.
    */
-  function reachRefusal(ref, requester) {
+  function fitnessRefusal(ref, requester, path) {
     const record = metadata.get(ref.reference);
-    const reach = record ? record.reach : null;
-    if (reach !== "project" && reach !== "tenant" && reach !== "account") return { code: "REACH_UNDECLARED", reason: "reach-undeclared", message: "credential-vault: this credential declares no reach, so it is not loaded into a session" };
-    if (reach === "account" && (!Array.isArray(record.reachTenants) || record.reachTenants.length === 0 || record.reachTenants.some((tenant) => tenant !== requester.tenant))) {
-      return { code: "REACH_CROSSES_TENANTS", reason: "account-wide-reach-crosses-tenants", message: "credential-vault: this token reaches another tenant, so it is not projected into this session" };
+    if (record && metadata.isExpired(record, new Date(nowMs()).toISOString())) return { code: "CREDENTIAL_EXPIRED", reason: "credential-expired", message: "credential-vault: this credential has passed its recorded expiry" };
+    const declared = record ? record.reach : null;
+    if (!REACHES.includes(declared)) return { code: "REACH_UNDECLARED", reason: "reach-undeclared", message: "credential-vault: this credential declares no reach, so it is not released" };
+    const accountWide = ACCOUNT_WIDE_CREDENTIALS.includes(ref.credential) || declared === "account";
+    if (path === "session") {
+      return declared === "project" && !accountWide ? null : { code: "REACH_WIDER_THAN_PROJECT", reason: "reach-wider-than-project", message: "credential-vault: this credential reaches beyond its project, so it is not projected into a session" };
+    }
+    const tenants = declared === "account" ? record.reachTenants : null;
+    if (accountWide && (!Array.isArray(tenants) || tenants.length === 0 || tenants.some((tenant) => tenant !== requester.tenant))) {
+      return { code: "REACH_CROSSES_TENANTS", reason: "account-wide-reach-crosses-tenants", message: "credential-vault: this credential reaches another tenant, so it is not released" };
     }
     return null;
   }
@@ -352,7 +380,7 @@ function createCredentialVault(opts) {
     const { requester } = input || {};
     const ref = requireRef((input || {}).reference, "authorise-session");
     const state = requireRequester(requester, ref, "authorise-session");
-    const refused = sessionRefusal(ref, requester, state) || reachRefusal(ref, requester);
+    const refused = sessionRefusal(ref, requester, state) || fitnessRefusal(ref, requester, "session");
     if (refused === null) return null;
     refuseRelease(ref, requester, "authorise-session", refused.reason, refused.code);
     return refused.code;
@@ -412,22 +440,22 @@ function createCredentialVault(opts) {
       log({ action: "authorise-session", ...refFields(ref), ...requesterFields(requester), ok: false, reason: "credential-missing" });
       throw refusal("CREDENTIAL MISSING", "CREDENTIAL MISSING");
     }
-    const tooWide = reachRefusal(ref, requester);
-    if (tooWide !== null) {
-      refuseRelease(ref, requester, "authorise-session", tooWide.reason, tooWide.code);
-      throw refusal(tooWide.code, tooWide.message);
+    const unfit = fitnessRefusal(ref, requester, "session");
+    if (unfit !== null) {
+      refuseRelease(ref, requester, "authorise-session", unfit.reason, unfit.code);
+      throw refusal(unfit.code, unfit.message);
     }
     const id = typeof sessionId === "string" ? sessionId : null;
     recordReleaseAdmission(ref, requester, state, "session:" + String(id), "session-auto-load");
     const grant = mintGrant(ref, "session", { sessionId: id });
-    log({ action: "authorise-session", ...refFields(ref), ...requesterFields(requester), grantId: grant.grantId, ok: true });
+    log({ action: "authorise-session", ...refFields(ref), ...requesterFields(requester), grantId: grant.grantId, sessionId: id, ok: true });
     return grant;
   }
 
   /**
-   * Authorise a credential for ONE owner-gated command. Requires an owner-confirmed permit whose project,
-   * environment, reference and run all match, and the phase's committed owner record. ProjectOS cannot
-   * self-confirm: the capability flag must be set by the owner-facing flow above this module.
+   * Authorise a credential for ONE command. Requires a permit whose project, environment, reference and run
+   * all match, and a committed `credential-release` grant. `ownerConfirmation` is a flag the flow above sets
+   * after its terminal check. Any in-process caller could set it, so it prevents accidents and proves no one.
    *
    * THE REQUESTER IS NOT THE REFERENCE. This route used to be handed `projectId: ref.project`, so the check
    * below compared a reference with itself and anything holding a permit passed it. It asks who is asking
@@ -463,19 +491,24 @@ function createCredentialVault(opts) {
       log({ action: "authorise-operation", ...refFields(ref), ok: false, reason: "permit-expired" });
       throw new Error("OWNER PERMIT REQUIRED");
     }
-    // THE P5 GRANT: the phase's committed owner record, whichever route the requester came by. A linked
-    // worktree's binding, or a tenant receipt, is not this and cannot stand in for it.
-    const ungranted = state.authority.operationGrantRefusal(requester, permit.phaseId);
+    // THE P5 GRANT, whichever route the requester came by. A linked worktree's binding, a tenant receipt and
+    // a gatekeeper `secrets-handling` gate are not this and cannot stand in for it.
+    const ungranted = state.authority.operationGrantRefusal(requester, ref, permit);
     if (ungranted !== null) {
-      refuseRelease(ref, requester, "authorise-operation", ungranted, "SECRETS_HANDLING_GRANT_REQUIRED");
-      throw refusal("SECRETS_HANDLING_GRANT_REQUIRED", "credential-vault: " + ungranted);
+      refuseRelease(ref, requester, "authorise-operation", ungranted, "CREDENTIAL_GRANT_REQUIRED");
+      throw refusal("CREDENTIAL_GRANT_REQUIRED", "credential-vault: " + ungranted);
     }
     if (!store.exists(ref.reference)) {
       log({ action: "authorise-operation", ...refFields(ref), ok: false, reason: "credential-missing" });
       throw refusal("CREDENTIAL MISSING", "CREDENTIAL MISSING");
     }
+    const unfit = fitnessRefusal(ref, requester, "operation");
+    if (unfit !== null) {
+      refuseRelease(ref, requester, "authorise-operation", unfit.reason, unfit.code);
+      throw refusal(unfit.code, unfit.message);
+    }
     const permitId = typeof permit.permitId === "string" ? permit.permitId : null;
-    recordReleaseAdmission(ref, requester, state, "operation:" + String(permitId), "secrets-handling:" + permit.phaseId);
+    recordReleaseAdmission(ref, requester, state, "operation:" + String(permitId), "credential-release:" + permit.phaseId);
     const grant = mintGrant(ref, "operation", { permitId });
     log({ action: "authorise-operation", ...refFields(ref), ...requesterFields(requester), grantId: grant.grantId, ok: true });
     return grant;
@@ -502,7 +535,7 @@ function createCredentialVault(opts) {
       throw new Error("CREDENTIAL MISSING");
     }
     redactor.register(value, "cred_" + fingerprint(value));
-    log({ action, reference: grant.reference, project: grant.project, environment: grant.environment, provider: grant.provider, risk: grant.risk, grantId: grant.grantId, fingerprint: fingerprint(value), ok: true });
+    log({ action, reference: grant.reference, project: grant.project, environment: grant.environment, provider: grant.provider, risk: grant.risk, grantId: grant.grantId, sessionId: grant.sessionId, fingerprint: fingerprint(value), ok: true });
     return value;
   }
 
@@ -523,6 +556,11 @@ function createCredentialVault(opts) {
    */
   function releaseIntoChildEnvironment(grant) {
     return redeem(grant, "release-into-child-environment");
+  }
+
+  /** A command's start and end, on the same durable line. A start that cannot be written stops it. */
+  function auditOperation(event) {
+    log(event);
   }
 
   function getAuditLog() {
@@ -555,6 +593,7 @@ function createCredentialVault(opts) {
     authoriseOperationRelease,
     useValue,
     releaseIntoChildEnvironment,
+    auditOperation,
     getAuditLog,
     assertNoValueInAudit,
   };

@@ -39,7 +39,8 @@ const PROFILES = {
     name: "staging-writer",
     description: "Writes code and staging provider state. Holds the checkout's single writer lease.",
     environments: ["development", "staging"],
-    credentials: ["gh-token", "supabase-access-token", "vercel-token"],
+    // No Supabase token: a personal access token is account-wide and bypasses RLS, so no session holds one.
+    credentials: ["gh-token", "vercel-token"],
     capabilities: { repositoryWrite: true, providerWrite: true, deploy: false, migrate: true },
     mcpServers: ["github", "supabase", "vercel"],
     autoLoadable: true,

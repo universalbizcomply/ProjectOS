@@ -19,10 +19,12 @@
  * WHO IS ASKING (PROJECTOS-TENANT-CREDENTIALS1A). `set`, `delete`, `reach`, `session start` and `operation run`
  * need a requester. It comes from `--run <handle>`, the id of a kernel-admitted run, in any directory. A
  * command with no run mints one, and only at a real terminal on both ends, naming `--project`, which the
- * committed registry must list. Nothing here reads a tenant from a flag, the environment or the working
- * directory. `--checkout` and the working directory still say where a session stands; they say nothing
- * about who asked. With no terminal and no handle the command is refused by name, which is what the
- * Control Center's `set_credential` meets until it can pass one.
+ * committed registry must list. A console's own handle is no use to `--run`: console authority is the
+ * terminal in front of this process. `--owner-confirm` needs that terminal too, so a flag alone confirms
+ * nothing. Nothing here reads a tenant from a flag, the environment or the working directory. `--checkout`
+ * and the working directory still say where a session stands; they say nothing about who asked. With no
+ * terminal and no handle the command is refused by name, which is what the Control Center's
+ * `set_credential` meets until it can pass one, and it shows that sentence to the owner.
  *
  * Live provider access is out of scope for this phase: `providers verify` prints the read-only plan each
  * adapter WOULD run and evaluates any observation supplied from a file. It contacts nothing.
@@ -148,6 +150,17 @@ function buildVault(deps) {
 /** This installation, from this file's own location. A governed project cannot move it. */
 const INSTALL_ROOT = path.resolve(__dirname, "..", "..").split(String.fromCharCode(92)).join("/");
 
+/** Both ends, because a redirected stream on either is how a process answers its own prompt. */
+function atRealTerminal(deps) {
+  const terminal = (deps && deps.terminal) || process;
+  return terminal.stdin.isTTY === true && terminal.stdout.isTTY === true;
+}
+
+/** `--owner-confirm` is the owner asserting something at the keyboard, so a keyboard must be there. */
+function requireOwnerConfirm(flags, deps, message) {
+  if (flags["owner-confirm"] !== true || !atRealTerminal(deps)) throw new Error(message);
+}
+
 /**
  * The requester for this command, or a refusal. The authority is the installation's own; `deps` is the
  * programmatic seam validators use, and no flag reaches it.
@@ -155,9 +168,8 @@ const INSTALL_ROOT = path.resolve(__dirname, "..", "..").split(String.fromCharCo
 function requesterFor(flags, deps) {
   const authority = (deps && deps.authority) || createRequesterAuthority({ installRoot: INSTALL_ROOT, stateDir: installationStateDir() });
   if (flags.run !== undefined) return authority.fromRun(flags.run);
-  const terminal = (deps && deps.terminal) || process;
-  if (terminal.stdin.isTTY !== true || terminal.stdout.isTTY !== true) {
-    throw refusal("REQUESTER_REQUIRED", "with no terminal, pass --run <handle>, the id of a kernel-admitted run");
+  if (!atRealTerminal(deps)) {
+    throw refusal("REQUESTER_REQUIRED", "this needs a real terminal: run it in PowerShell or Windows Terminal with --project <id>, or pass --run <handle>, the id of a kernel-admitted run");
   }
   if (typeof flags.project !== "string" || !flags.project) {
     throw refusal("REQUESTER_REQUIRED", "with no run, name the project this command is for with --project <id>");
@@ -322,7 +334,7 @@ async function sessionCommand(sub, flags, passthrough, deps) {
     // project, environment and profile. `--owner-confirm` is the owner asserting it at the keyboard.
     let permit = null;
     if (profile.autoLoadable !== true || profile.requiresOwnerPermit === true) {
-      if (flags["owner-confirm"] !== true) throw new Error("OWNER PERMIT REQUIRED — profile '" + profile.name + "' is never loaded automatically; re-run with --owner-confirm");
+      requireOwnerConfirm(flags, deps, "OWNER PERMIT REQUIRED — profile '" + profile.name + "' is never loaded automatically; re-run at a real terminal with --owner-confirm");
       const loaded = loadConnection(checkoutPath);
       if (!loaded.ok) throw new Error(loaded.reason);
       permit = mintProfilePermit({ projectId: loaded.connection.projectId, environment: flags.environment, profile: profile.name, capability: { ownerConfirmation: true }, phaseId: typeof flags.phase === "string" ? flags.phase : null });
@@ -423,8 +435,8 @@ function operationCommand(sub, flags, passthrough, deps) {
   if (!Array.isArray(passthrough) || !passthrough.length) throw new Error("pass the command after '--', e.g. operation run --ref ... -- <executable> <args>");
   if (typeof flags.action !== "string" || !flags.action) throw new Error("--action is required and names the provider action being performed, e.g. --action read-config");
   if (typeof flags["env-var"] !== "string" || !flags["env-var"]) throw new Error("--env-var is required and names the environment variable the credential is delivered under");
-  if (flags["owner-confirm"] !== true) throw new Error("OWNER PERMIT REQUIRED — re-run with --owner-confirm to record your explicit confirmation");
-  if (typeof flags.phase !== "string" || !flags.phase) throw new Error("--phase is required and names the phase whose committed secrets-handling record approves this");
+  requireOwnerConfirm(flags, deps, "OWNER PERMIT REQUIRED — re-run at a real terminal with --owner-confirm to record your explicit confirmation");
+  if (typeof flags.phase !== "string" || !flags.phase) throw new Error("--phase is required and names the phase whose committed credential-release grant covers this");
   const requester = requesterFor(flags, deps);
 
   const productionFrozen = flags["production-unfrozen"] === true ? false : true;
@@ -460,10 +472,10 @@ function operationCommand(sub, flags, passthrough, deps) {
   return result.ok ? 0 : 1;
 }
 
-function projectsCommand(sub, flags) {
+function projectsCommand(sub, flags, deps) {
   const registry = createProjectRegistry({});
   if (sub === "register") {
-    if (flags["owner-confirm"] !== true) throw new Error("OWNER PERMIT REQUIRED — registering a project pins its identity; re-run with --owner-confirm");
+    requireOwnerConfirm(flags, deps, "OWNER PERMIT REQUIRED — registering a project pins its identity; re-run at a real terminal with --owner-confirm");
     const checkout = flags.checkout || process.cwd();
     const loaded = loadConnection(checkout);
     if (!loaded.ok) throw new Error(loaded.reason);
@@ -483,7 +495,7 @@ function projectsCommand(sub, flags) {
     return 0;
   }
   if (sub === "unregister") {
-    if (flags["owner-confirm"] !== true) throw new Error("OWNER PERMIT REQUIRED — re-run with --owner-confirm");
+    requireOwnerConfirm(flags, deps, "OWNER PERMIT REQUIRED — re-run at a real terminal with --owner-confirm");
     const removed = registry.unregister({ projectId: flags.project, checkoutPath: flags.checkout, capability: { ownerConfirmation: true } });
     console.log(removed ? "unregistered  " + String(flags.project) : "not registered  " + String(flags.project));
     return removed ? 0 : 3;
@@ -517,7 +529,7 @@ async function main(argv, deps) {
   const { positional, flags, passthrough } = parseArgs(argv);
   const [group, sub] = positional;
   if (!group || group === "help" || flags.help === true) { usage(); return 0; }
-  if (group === "projects") return projectsCommand(sub, flags);
+  if (group === "projects") return projectsCommand(sub, flags, deps);
   if (group === "credentials") return credentialsCommand(sub, flags, deps);
   if (group === "session") return sessionCommand(sub, flags, passthrough, deps);
   if (group === "providers") return providersCommand(sub, flags);

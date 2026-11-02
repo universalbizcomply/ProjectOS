@@ -9,10 +9,11 @@
  *   1. PROVIDER INTENT. The action is classified by the EXISTING provider context guards. A prohibited
  *      action is refused here and never reaches a credential; a production-targeting action on a frozen
  *      project is refused; anything else is owner-gated, which enqueues an approval item.
- *   2. OWNER PERMIT. A permit must name this project, this environment, this reference, this action and
- *      this run, must carry an explicit owner confirmation, and must not have expired. ProjectOS cannot mint
- *      one for itself: `grantPermit` requires the owner-confirmation capability that only the owner-facing
- *      flow sets. WHO IS ASKING is the kernel-minted requester this run was handed, never the reference:
+ *   2. PERMIT AND GRANT. A permit must name this project, this environment, this reference, this action and
+ *      this run, and must not have expired. `grantPermit` asks for the owner-confirmation capability, a flag
+ *      the flow above sets after its terminal check: it prevents accidents and proves no one, and any
+ *      in-process caller could set it. What authorises a release is the committed `credential-release` grant
+ *      the vault reads. WHO IS ASKING is the kernel-minted requester this run was handed, never the reference:
  *      the vault refuses a requester outside the reference's project or tenant, and a plain string.
  *   3. ARGUMENT HYGIENE. The command line is refused if it carries a token-shaped argument, so the secret
  *      cannot reach a process listing. The value travels in the CHILD's environment under one named
@@ -31,6 +32,7 @@ const crypto = require("crypto");
 const { evaluateProviderIntent, REFUSED } = require("../guards/provider-context-guards.cjs");
 const { parseReference } = require("./reference.cjs");
 const { requesterState } = require("./credential-metadata.cjs");
+const { matchedShapes } = require("./credential-shapes.cjs");
 const vercel = require("../providers/vercel.provider.cjs");
 
 const DEFAULT_PERMIT_TTL_MS = 10 * 60 * 1000;
@@ -236,6 +238,15 @@ function createOperationGate(opts) {
     } catch (e) {
       return refuse(typeof e.code === "string" ? e.code : "OWNER PERMIT REQUIRED", base);
     }
+
+    // THE COMMAND IS ON DISK BEFORE IT RUNS, or it does not run. A credential-shaped argument is masked: the
+    // vault's redactor knows values it has seen, and this one it has not.
+    const audited = { reference: ref.reference, project: ref.project, environment: ref.environment, provider: ref.provider, risk: ref.risk, requester: req.requester.runHandle, tenant: req.requester.tenant };
+    try {
+      vault.auditOperation({ ...audited, action: "operation-start", command: executable, args: args.map((a) => (matchedShapes(a).length ? "[credential-shaped]" : a)), ok: true });
+    } catch (e) {
+      return refuse("AUDIT_NOT_RECORDED", base);
+    }
     const result = vault.useValue(grant, (value) =>
       spawnSync(executable, args, {
         cwd: typeof req.cwd === "string" && req.cwd ? req.cwd : undefined,
@@ -246,13 +257,21 @@ function createOperationGate(opts) {
       })
     );
 
+    const exitCode = result && Number.isInteger(result.status) ? result.status : null;
+    // AFTER THE FACT A FAILED LINE CANNOT UN-RUN IT, so it is said, in place of a clean result.
+    try {
+      vault.auditOperation({ ...audited, action: "operation-end", exitCode, ok: exitCode === 0, reason: result && result.error ? "spawn-failed" : exitCode === 0 ? null : "non-zero-exit" });
+    } catch (e) {
+      log({ ...base, ok: false, exitCode, reason: "AUDIT_NOT_RECORDED" });
+      return { ok: false, blocker: "AUDIT_NOT_RECORDED", exitCode, stdout: "", stderr: "", outputWithheld: true };
+    }
+
     if (result && result.error) {
       // Distinct from a non-zero exit: the process never ran. Report it as such rather than as "failed".
       log({ ...base, ok: false, exitCode: null, reason: "spawn-failed" });
       return { ok: false, blocker: "COMMAND NOT EXECUTABLE", exitCode: null, stdout: "", stderr: "", outputWithheld: true };
     }
 
-    const exitCode = result && Number.isInteger(result.status) ? result.status : null;
     const includeOutput = req.includeOutput === true;
     const out = includeOutput
       ? { stdout: vault.redactText(String((result && result.stdout) || "")), stderr: vault.redactText(String((result && result.stderr) || "")), outputWithheld: false }
