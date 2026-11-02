@@ -61,14 +61,14 @@ function seedVault(stateDir) {
   const vault = createCredentialVault({ store, redactor, stateDir });
   // The requester is the call's new shape: a kernel run for each project, from a synthetic installation.
   const world = syntheticWorld(path.join(stateDir, "tenant-world"), ["polygo", "jdtesting", "bizcomply"]);
-  world.grant("polygo", PHASE);
+  world.grant("polygo", PHASE, [REF.polygoServiceRole], "read-config");
   const polygo = world.requesterFor("polygo");
   const jdtesting = world.requesterFor("jdtesting");
   const bizcomply = world.requesterFor("bizcomply");
   vault.provision({ reference: REF.polygoGh, requester: polygo, reach: "project", readValue: () => POLYGO_TOKEN });
   vault.provision({ reference: REF.jdGh, requester: jdtesting, reach: "project", readValue: () => JDTESTING_TOKEN });
   vault.provision({ reference: REF.bizGh, requester: bizcomply, reach: "project", readValue: () => BIZCOMPLY_TOKEN });
-  vault.provision({ reference: REF.polygoServiceRole, requester: polygo, readValue: () => SERVICE_ROLE });
+  vault.provision({ reference: REF.polygoServiceRole, requester: polygo, reach: "project", readValue: () => SERVICE_ROLE });
   return { vault, store, redactor, polygo, jdtesting };
 }
 
@@ -106,7 +106,7 @@ function run() {
     expectThrow(errors, "invariant 5", () => vault.authoriseSessionRelease({ reference: REF.absent, requester: polygo }), "CREDENTIAL MISSING");
 
     // 6: operation-class release requires an owner-confirmed permit.
-    const goodPermit = { permitId: "permit_test", projectId: "polygo", environment: "production", reference: REF.polygoServiceRole, runHandle: polygo.runHandle, phaseId: PHASE, expiresAtMs: Date.now() + 60000 };
+    const goodPermit = { permitId: "permit_test", projectId: "polygo", environment: "production", reference: REF.polygoServiceRole, runHandle: polygo.runHandle, phaseId: PHASE, action: "read-config", expiresAtMs: Date.now() + 60000 };
     expectThrow(errors, "invariant 6a", () => vault.authoriseOperationRelease({ reference: REF.polygoServiceRole, requester: polygo, permit: goodPermit, capability: {} }), "OWNER PERMIT REQUIRED");
     expectThrow(errors, "invariant 6b", () => vault.authoriseOperationRelease({ reference: REF.polygoServiceRole, requester: polygo, permit: null, capability: { ownerConfirmation: true } }), "OWNER PERMIT REQUIRED");
 

@@ -21,7 +21,7 @@ import { AGENCY_TENANT, cleanUp, commitAll, FIXTURE_NOW, git, holdRecordLock, li
 import {
   cli,
   credentialWorld,
-  grantPhase,
+  grantRelease,
   memory,
   metadata,
   nowMs,
@@ -312,8 +312,6 @@ describe('the operation path', () => {
     const w = credentialWorld(made, sys);
     const store = memory.createMemoryCredentialStore({ acknowledgedNonPersistent: true });
     const vault = underTest.vault.createCredentialVault({ store, stateDir: join(w.stateDir, 'operation-vault'), nowMs });
-    grantPhase(w.gamma);
-    grantPhase(w.beta);
     store.set(GAMMA_OP, VALUE);
     const { spawn, gate } = gateFor(w, vault);
     const outsider = w.authority.fromRun(kernelRun(w, w.beta.root));
@@ -325,8 +323,8 @@ describe('the operation path', () => {
 
   it('positive control: the same call from the project\'s own run starts the command', () => {
     const w = credentialWorld(made, sys);
-    grantPhase(w.alpha);
-    seed(w, ALPHA_OP, 'alpha');
+    grantRelease(w, {});
+    seed(w, ALPHA_OP, 'alpha', { reach: 'project' });
     const { spawn, gate } = gateFor(w);
     const result = runThrough(w, gate, ALPHA_OP, w.authority.fromRun(kernelRun(w, w.alpha.root)));
     expect(result.ok).toBe(true);
@@ -335,8 +333,8 @@ describe('the operation path', () => {
 
   it('a project in the same tenant is still another project', () => {
     const w = credentialWorld(made, sys);
-    grantPhase(w.beta);
-    seed(w, ALPHA_OP, 'alpha');
+    grantRelease(w, { projectId: 'beta' });
+    seed(w, ALPHA_OP, 'alpha', { reach: 'project' });
     const { spawn, gate } = gateFor(w);
     expect(runThrough(w, gate, ALPHA_OP, w.console('beta')).blocker).toBe('CROSS_PROJECT_REFUSED');
     expect(spawn.calls).toHaveLength(0);
@@ -344,8 +342,8 @@ describe('the operation path', () => {
 
   it('refuses a plain string: no permit is minted for one, and a stolen permit does not make one', () => {
     const w = credentialWorld(made, sys);
-    grantPhase(w.alpha);
-    seed(w, ALPHA_OP, 'alpha');
+    grantRelease(w, {});
+    seed(w, ALPHA_OP, 'alpha', { reach: 'project' });
     const { spawn, gate } = gateFor(w);
     expect(refusalOf(() => gate.grantPermit({ reference: ALPHA_OP, action: 'read-config', requester: 'alpha', capability: { ownerConfirmation: true }, phaseId: PHASE })).message).toContain('REQUESTER REQUIRED');
     const permit = gate.grantPermit({ reference: ALPHA_OP, action: 'read-config', requester: w.console('alpha'), capability: { ownerConfirmation: true }, phaseId: PHASE });
@@ -356,8 +354,8 @@ describe('the operation path', () => {
 
   it('a permit is for one run: another run of the same project cannot spend it', () => {
     const w = credentialWorld(made, sys);
-    grantPhase(w.alpha);
-    seed(w, ALPHA_OP, 'alpha');
+    grantRelease(w, {});
+    seed(w, ALPHA_OP, 'alpha', { reach: 'project' });
     const { spawn, gate } = gateFor(w);
     const permit = gate.grantPermit({ reference: ALPHA_OP, action: 'read-config', requester: w.console('alpha'), capability: { ownerConfirmation: true }, phaseId: PHASE });
     const result = gate.run({ reference: ALPHA_OP, action: 'read-config', requester: w.console('alpha'), permit, capability: { ownerConfirmation: true }, command: NODE, args: [], envVarName: 'SYNTHETIC_VALUE' });
@@ -365,53 +363,23 @@ describe('the operation path', () => {
     expect(spawn.calls).toHaveLength(0);
   });
 
-  it('the grant is the phase\'s committed owner record: a tenant receipt is not one, and an uncommitted record is not one', () => {
+  it('a tenant receipt is not a grant: the registry is confirmed, the permit is good, and nothing is released', () => {
     const w = credentialWorld(made, sys);
-    seed(w, ALPHA_OP, 'alpha');
+    seed(w, ALPHA_OP, 'alpha', { reach: 'project' });
     const { spawn, gate } = gateFor(w);
-    const requester = w.console('alpha');
-    // A RECEIPT EXISTS, the registry is confirmed, the permit is good, and nothing is released.
-    expect(runThrough(w, gate, ALPHA_OP, requester).blocker).toBe('SECRETS_HANDLING_GRANT_REQUIRED');
-    mkdirSync(join(w.alpha.root, '.projectops', 'gates'), { recursive: true });
-    writeFileSync(join(w.alpha.root, '.projectops', 'gates', `${PHASE}.secrets-handling.json`), JSON.stringify({ gateName: 'secrets-handling', phaseId: PHASE, ownerChoice: 'APPROVE' }));
-    expect(runThrough(w, gate, ALPHA_OP, requester).blocker).toBe('SECRETS_HANDLING_GRANT_REQUIRED');
+    expect(runThrough(w, gate, ALPHA_OP, w.console('alpha')).blocker).toBe('CREDENTIAL_GRANT_REQUIRED');
     expect(spawn.calls).toHaveLength(0);
-    grantPhase(w.alpha);
-    expect(runThrough(w, gate, ALPHA_OP, requester).ok).toBe(true);
-  });
-
-  it.each([
-    ['refuses', { gateName: 'secrets-handling', phaseId: PHASE, ownerChoice: 'REJECT' }],
-    ['answers another gate', { gateName: 'commit', phaseId: PHASE, ownerChoice: 'APPROVE' }],
-    ['is for another phase', { gateName: 'secrets-handling', phaseId: 'OTHER-PHASE1A', ownerChoice: 'APPROVE' }],
-  ])('an owner record that %s is not a grant', (_label, record) => {
-    const w = credentialWorld(made, sys);
-    seed(w, ALPHA_OP, 'alpha');
-    mkdirSync(join(w.alpha.root, '.projectops', 'gates'), { recursive: true });
-    writeFileSync(join(w.alpha.root, '.projectops', 'gates', `${PHASE}.secrets-handling.json`), JSON.stringify(record));
-    commitAll(w.alpha.root, 'record');
-    const { gate } = gateFor(w);
-    expect(runThrough(w, gate, ALPHA_OP, w.console('alpha')).blocker).toBe('SECRETS_HANDLING_GRANT_REQUIRED');
-  });
-
-  it('a permit with no phase names no record', () => {
-    const w = credentialWorld(made, sys);
-    seed(w, ALPHA_OP, 'alpha');
-    const { gate } = gateFor(w);
-    const requester = w.console('alpha');
-    const permit = gate.grantPermit({ reference: ALPHA_OP, action: 'read-config', requester, capability: { ownerConfirmation: true } });
-    expect(gate.run({ reference: ALPHA_OP, action: 'read-config', requester, permit, capability: { ownerConfirmation: true }, command: NODE, args: [], envVarName: 'SYNTHETIC_VALUE' }).blocker).toBe('SECRETS_HANDLING_GRANT_REQUIRED');
   });
 
   it('records a release through an envelope tied to its run, and refuses when that line cannot be written', () => {
     const w = credentialWorld(made, sys);
-    grantPhase(w.alpha);
-    seed(w, ALPHA_OP, 'alpha');
+    grantRelease(w, {});
+    seed(w, ALPHA_OP, 'alpha', { reach: 'project' });
     const { spawn, gate } = gateFor(w);
     const requester = w.console('alpha');
     expect(runThrough(w, gate, ALPHA_OP, requester).ok).toBe(true);
     const line = linesOf(w.stateDir, ENVELOPE_RECORDS_FILENAME).at(-1) as { envelope: Record<string, unknown>; outcome: string; runLinked: boolean; grantSource: string };
-    expect(line).toMatchObject({ outcome: 'allowed', runLinked: true, grantSource: `secrets-handling:${PHASE}` });
+    expect(line).toMatchObject({ outcome: 'allowed', runLinked: true, grantSource: `credential-release:${PHASE}` });
     expect(line.envelope).toMatchObject({ action: 'credential-release', actionClass: 'P5', tenant: OWNER_TENANT, project: 'alpha', scope: [`run:${requester.runHandle}`] });
     expect(parseEnvelope(line.envelope).ok).toBe(true);
 
@@ -426,26 +394,24 @@ describe('the tenant class', () => {
   /** THE ACCEPTANCE CRITERION, and only the tenant rule can decide it: this credential has no project. */
   it('releases to a second project in the same tenant, and refuses across tenants', () => {
     const w = credentialWorld(made, sys);
-    grantPhase(w.beta);
-    grantPhase(w.alpha);
-    grantPhase(w.gamma);
-    seed(w, OWNER_SECRET, 'alpha');
+    grantRelease(w, { projectId: 'beta', references: [OWNER_SECRET] });
+    seed(w, OWNER_SECRET, 'alpha', { reach: 'tenant' });
     const spawn = fakeSpawn();
     const gate = underTest.gate.createOperationGate({ vault: w.vault, spawnSync: spawn.spawnSync });
-    expect(runThrough(w, gate, OWNER_SECRET, w.authority.fromRun(kernelRun(w, w.alpha.root))).ok).toBe(true);
     expect(runThrough(w, gate, OWNER_SECRET, w.authority.fromRun(kernelRun(w, w.beta.root))).ok).toBe(true);
-    expect(spawn.calls).toHaveLength(2);
+    expect(spawn.calls).toHaveLength(1);
+    // THE SAME GRANT, NAMING THIS PROJECT, IN THE OTHER TENANT: only the tenant rule is left to refuse.
+    grantRelease(w, { projectId: 'gamma', references: [OWNER_SECRET] });
     expect(runThrough(w, gate, OWNER_SECRET, w.authority.fromRun(kernelRun(w, w.gamma.root))).blocker).toBe('TENANT_MISMATCH');
-    expect(spawn.calls).toHaveLength(2);
+    expect(spawn.calls).toHaveLength(1);
   });
 
   it.each(['Tenant.Owner-Personal', 'TENANT.OWNER-PERSONAL', 'tenant.OWNER-personal'])('matches %s case-insensitively, both ways', (segment) => {
     const w = credentialWorld(made, sys);
-    grantPhase(w.gamma);
-    grantPhase(w.beta);
     const spelled = `ProjectOS/${segment}/staging/supabase/service-role-key`;
     expect(reference.parseReference(spelled).ref).toMatchObject({ credentialClass: 'tenant', tenantId: OWNER_TENANT });
-    seed(w, spelled, 'alpha');
+    seed(w, spelled, 'alpha', { reach: 'tenant' });
+    grantRelease(w, { projectId: 'beta', references: [spelled] });
     const spawn = fakeSpawn();
     const gate = underTest.gate.createOperationGate({ vault: w.vault, spawnSync: spawn.spawnSync });
     expect(runThrough(w, gate, spelled, w.console('beta')).ok).toBe(true);
@@ -485,13 +451,13 @@ describe('the tenant class', () => {
 describe('the platform class', () => {
   it('releases the gatekeeper key to no one, with every other gate open', () => {
     const w = credentialWorld(made, sys);
-    grantPhase(w.projectos);
+    grantRelease(w, { projectId: 'projectos', references: [PLATFORM] });
     w.store.set(PLATFORM, VALUE);
     // ITS OWN PROJECT'S RUN, ITS OWN TENANT, A GOOD PERMIT, A COMMITTED RECORD: only the class rule is left.
     // The provider guard does not know `openai`, so this goes to the vault directly: the rule must hold there.
     expect(reference.parseReference(PLATFORM).ref.credentialClass).toBe('platform');
     const requester = w.authority.fromRun(kernelRun(w, w.projectos.root));
-    const permit = { permitId: 'permit_fixture', reference: PLATFORM, projectId: 'projectos', environment: 'development', runHandle: requester.runHandle, phaseId: PHASE, expiresAtMs: nowMs() + 60_000 };
+    const permit = { permitId: 'permit_fixture', reference: PLATFORM, projectId: 'projectos', environment: 'development', runHandle: requester.runHandle, phaseId: PHASE, action: 'read-config', expiresAtMs: nowMs() + 60_000 };
     expect(refusalOf(() => w.vault.authoriseOperationRelease({ reference: PLATFORM, requester, permit, capability: { ownerConfirmation: true } })).code).toBe('PLATFORM_RELEASED_TO_NONE');
   });
 
@@ -572,14 +538,17 @@ describe('provision, remove and present are bound', () => {
 });
 
 describe('reach', () => {
-  it('is kept, replaced whole, and judged when declared', () => {
+  it('is cleared by a new value, kept by a metadata change, replaced whole, and judged when declared', () => {
     const w = credentialWorld(made, sys);
     const dir = tempDir(made, 'projectos-reach-');
     const store = metadata.createMetadataStore({ stateDir: dir });
     const ref = ALPHA_GH;
     store.recordProvision(ref, VALUE, { reach: 'account', reachTenants: [OWNER_TENANT] });
-    store.recordProvision(ref, VALUE, {});
+    store.recordRotationMetadata(ref, { note: 'a note' });
     expect(store.get(ref)).toMatchObject({ reach: 'account', reachTenants: [OWNER_TENANT] });
+    store.recordProvision(ref, VALUE, {});
+    expect(store.get(ref)).toMatchObject({ reach: null, reachTenants: null });
+    store.recordProvision(ref, VALUE, { reach: 'account', reachTenants: [OWNER_TENANT] });
     store.recordRotationMetadata(ref, { reach: 'project' });
     expect(store.get(ref)).toMatchObject({ reach: 'project', reachTenants: null });
     expect(refusalOf(() => store.recordProvision(ref, VALUE, { reach: 'everything' })).message).toContain('reach must be one of');
@@ -647,14 +616,13 @@ function startSession(w: CredentialWorld, project: Project, projectId: string, r
   return { outcome, spawned: r.spawned };
 }
 
-const SUPABASE = (project: string): string => `ProjectOS/${project}/staging/supabase/supabase-access-token`;
+const VERCEL = (project: string): string => `ProjectOS/${project}/staging/vercel/vercel-token`;
 const GITHUB = (project: string): string => `ProjectOS/${project}/staging/github/gh-token`;
 
 describe('session auto-load', () => {
   it('positive control: a project credential for its own project in its own tenant, recorded through an envelope', () => {
     const w = credentialWorld(made, sys);
     seed(w, GITHUB('alpha'), 'alpha', { reach: 'project' });
-    seed(w, SUPABASE('alpha'), 'alpha', { reach: 'account', reachTenants: [OWNER_TENANT] });
     const requester = w.authority.fromRun(kernelRun(w, w.alpha.root));
     const { outcome, spawned } = startSession(w, w.alpha, 'alpha', requester);
     expect(outcome.ready).toBe(true);
@@ -663,33 +631,31 @@ describe('session auto-load', () => {
     expect(outcome.record).toMatchObject({ tenant: OWNER_TENANT, runHandle: requester.runHandle });
     expect(JSON.stringify(outcome.record)).not.toContain(VALUE);
     const releases = linesOf(w.stateDir, ENVELOPE_RECORDS_FILENAME).filter((line) => (line['envelope'] as { action?: string } | null)?.action === 'credential-release');
-    expect(releases).toHaveLength(2);
+    expect(releases).toHaveLength(1);
     expect(releases[0]).toMatchObject({ outcome: 'allowed', grantSource: 'session-auto-load', via: 'governed-root' });
+    expect(JSON.stringify(spawned[0]?.env)).not.toContain('SUPABASE_ACCESS_TOKEN');
   });
 
   /** THE ACCEPTANCE CRITERION. The project check passes here: only the reach rule stands in the way. */
   it('does not project an account-wide token into another tenant\'s session, and only the reach rule refuses', () => {
     const w = credentialWorld(made, sys);
-    seed(w, GITHUB('gamma'), 'gamma', { reach: 'project' });
     // THE OWNER'S ACCOUNT TOKEN, stored under the agency project's name.
-    seed(w, SUPABASE('gamma'), 'gamma', { reach: 'account', reachTenants: [OWNER_TENANT] });
+    seed(w, GITHUB('gamma'), 'gamma', { reach: 'account', reachTenants: [OWNER_TENANT] });
     const { outcome, spawned } = startSession(w, w.gamma, 'gamma', w.authority.fromRun(kernelRun(w, w.gamma.root)));
     expect(outcome.ready).toBe(false);
-    expect(outcome.blocker).toBe('REACH_CROSSES_TENANTS');
+    expect(outcome.blocker).toBe('REACH_WIDER_THAN_PROJECT');
     expect(spawned).toHaveLength(0);
   });
 
   it('an account spanning both tenants loads into neither', () => {
     const w = credentialWorld(made, sys);
-    seed(w, GITHUB('alpha'), 'alpha', { reach: 'project' });
-    seed(w, SUPABASE('alpha'), 'alpha', { reach: 'account', reachTenants: [OWNER_TENANT, AGENCY_TENANT] });
-    expect(startSession(w, w.alpha, 'alpha', w.console('alpha')).outcome.blocker).toBe('REACH_CROSSES_TENANTS');
+    seed(w, GITHUB('alpha'), 'alpha', { reach: 'account', reachTenants: [OWNER_TENANT, AGENCY_TENANT] });
+    expect(startSession(w, w.alpha, 'alpha', w.console('alpha')).outcome.blocker).toBe('REACH_WIDER_THAN_PROJECT');
   });
 
   it('refuses an undeclared reach, and says what to do', () => {
     const w = credentialWorld(made, sys);
     seed(w, GITHUB('alpha'), 'alpha');
-    seed(w, SUPABASE('alpha'), 'alpha', { reach: 'project' });
     const { outcome, spawned } = startSession(w, w.alpha, 'alpha', w.console('alpha'));
     expect(outcome.blocker).toBe('REACH_UNDECLARED');
     expect(spawned).toHaveLength(0);
@@ -697,10 +663,10 @@ describe('session auto-load', () => {
 
   it('the vault asks reach itself: the router is not the only thing between a token and a child', () => {
     const w = credentialWorld(made, sys);
-    seed(w, SUPABASE('gamma'), 'gamma', { reach: 'account', reachTenants: [OWNER_TENANT] });
-    seed(w, SUPABASE('alpha'), 'alpha');
-    expect(refusalOf(() => w.vault.authoriseSessionRelease({ reference: SUPABASE('gamma'), requester: w.console('gamma') })).code).toBe('REACH_CROSSES_TENANTS');
-    expect(refusalOf(() => w.vault.authoriseSessionRelease({ reference: SUPABASE('alpha'), requester: w.console('alpha') })).code).toBe('REACH_UNDECLARED');
+    seed(w, GITHUB('gamma'), 'gamma', { reach: 'account', reachTenants: [OWNER_TENANT] });
+    seed(w, VERCEL('alpha'), 'alpha');
+    expect(refusalOf(() => w.vault.authoriseSessionRelease({ reference: GITHUB('gamma'), requester: w.console('gamma') })).code).toBe('REACH_WIDER_THAN_PROJECT');
+    expect(refusalOf(() => w.vault.authoriseSessionRelease({ reference: VERCEL('alpha'), requester: w.console('alpha') })).code).toBe('REACH_UNDECLARED');
     expect(refusalOf(() => w.vault.authoriseSessionRelease({ reference: GITHUB('alpha'), requester: w.console('alpha') })).code).toBe('CREDENTIAL MISSING');
   });
 
@@ -720,14 +686,16 @@ describe('session auto-load', () => {
     const w = credentialWorld(made, sys);
     const worktree = join(tempDir(made, 'projectos-cred-wt-'), 'alpha-wt');
     git(w.alpha.root, 'worktree', 'add', '--quiet', worktree, '-b', 'wt');
-    seed(w, ALPHA_OP, 'alpha');
+    seed(w, ALPHA_OP, 'alpha', { reach: 'project' });
     const requester = w.authority.fromRun(kernelRun(w, worktree));
     const spawn = fakeSpawn();
     const gate = underTest.gate.createOperationGate({ vault: w.vault, spawnSync: spawn.spawnSync });
     // ITS OWN COMMIT, IN ITS OWN CHECKOUT, GRANTS NOTHING.
-    grantPhase({ root: worktree, repository: w.alpha.repository });
-    expect(runThrough(w, gate, ALPHA_OP, requester).blocker).toBe('SECRETS_HANDLING_GRANT_REQUIRED');
-    grantPhase(w.alpha);
+    mkdirSync(join(worktree, 'projectos', 'security', 'credential-grants'), { recursive: true });
+    writeFileSync(join(worktree, 'projectos', 'security', 'credential-grants', `${PHASE}.credential-release.json`), '{}');
+    commitAll(worktree, 'the work grants itself');
+    expect(runThrough(w, gate, ALPHA_OP, requester).blocker).toBe('CREDENTIAL_GRANT_REQUIRED');
+    grantRelease(w, {});
     expect(runThrough(w, gate, ALPHA_OP, requester).ok).toBe(true);
   });
 
@@ -834,7 +802,7 @@ describe('the credential router', () => {
     delete process.env['PROJECTOS_CREDENTIAL_VALUE'];
     await expect(cli.main(['credentials', 'delete', '--ref', ALPHA_GH, '--project', 'alpha'], deps)).rejects.toMatchObject({ code: 'REQUESTER_REQUIRED' });
     await expect(cli.main(['credentials', 'reach', '--ref', ALPHA_GH, '--reach', 'project', '--project', 'alpha'], deps)).rejects.toMatchObject({ code: 'REQUESTER_REQUIRED' });
-    await expect(cli.main(['operation', 'run', '--ref', ALPHA_GH, '--action', 'read-config', '--env-var', 'X_VALUE', '--phase', PHASE, '--owner-confirm', '--', NODE], deps)).rejects.toMatchObject({ code: 'REQUESTER_REQUIRED' });
+    await expect(cli.main(['operation', 'run', '--ref', ALPHA_GH, '--action', 'read-config', '--env-var', 'X_VALUE', '--phase', PHASE, '--owner-confirm', '--', NODE], deps)).rejects.toThrow('OWNER PERMIT REQUIRED');
   });
 
   it('one terminal end is not a console', () => {
@@ -874,8 +842,8 @@ describe('the credential router', () => {
 
   it('runs one operation through the real command, naming its phase', async () => {
     const w = credentialWorld(made, sys);
-    grantPhase(w.alpha);
-    seed(w, ALPHA_OP, 'alpha');
+    grantRelease(w, {});
+    seed(w, ALPHA_OP, 'alpha', { reach: 'project' });
     const spawn = fakeSpawn();
     const deps = { store: w.store, stateDir: join(w.stateDir, 'vault'), nowMs, authority: w.authority, terminal: atConsole, gate: { spawnSync: spawn.spawnSync } };
     const logged = vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -1055,7 +1023,6 @@ describe('what the CommonJS side repeats, held to the core', () => {
   it('the idempotency key is the kernel\'s, byte for byte', () => {
     const w = credentialWorld(made, sys);
     const requester = w.console('alpha');
-    grantPhase(w.alpha);
     seed(w, ALPHA_GH, 'alpha', { reach: 'project' });
     w.vault.authoriseSessionRelease({ reference: ALPHA_GH, requester, sessionId: 'sess_x' });
     const line = linesOf(w.stateDir, ENVELOPE_RECORDS_FILENAME).at(-1) as { envelope: { subjectHash: string; idempotencyKey: string } };

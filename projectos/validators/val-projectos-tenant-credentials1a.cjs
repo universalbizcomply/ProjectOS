@@ -28,6 +28,9 @@
  *   TCR-21 "the next phase will know"             — and the lead's decisions and what is unwired are nowhere
  *   TCR-22 "the old pins can go"                  — and a validator loses a rule to a new call shape
  *   TCR-23 "the adapter needs a small change"     — and a protected file moves
+ *   TCR-24 "the run is over when it is over"      — and a handle never ends, and a run cannot spend
+ *   TCR-25 "the record can catch up"              — and the ADR and the action registry keep the withdrawn grant
+ *   TCR-26 "any phase's approval will do"         — and a gate scoped to the gatekeeper key releases a production secret
  *   TCR-T  "the tests exist"                      — and `.skip` keeps the proof while dropping the run
  *
  * THE PINS ARE IN THE BODIES. Each is taken from inside the function that decides, and each mutation is named
@@ -52,6 +55,12 @@ const GATE_REL = "projectos/credentials/operation-gate.cjs";
 const CLI_REL = "projectos/scripts/projectos-credential-router.cjs";
 const ROUTER_REL = "projectos/session-router/router.cjs";
 const BROKER_REL = "projectos/security/gatekeeper-transport-broker.cjs";
+const GC_REL = "projectos/agent/src/governedContext.ts";
+const ADR_REL = "docs/adr/ADR-T1-tenant-boundary.md";
+const AREG_REL = "projectos/security/action-registry.json";
+const SET_CRED_REL = "projectos/control-center/src-tauri/src/set_credential.rs";
+const HOST_TEST_REL = "projectos/host/gatekeeper-review-composition/src/host_ports_tests.rs";
+const PROFILES_REL = "projectos/session-router/session-profiles.cjs";
 const VA_REL = "projectos/validators/validate-all.cjs";
 const CR_REL = "projectos/speed/cached-runner.cjs";
 const EVIDENCE_REL = "docs/finish/PROJECTOS-TENANT-CREDENTIALS1A.md";
@@ -61,7 +70,7 @@ const LEGACY_SESSION_REL = "projectos/validators/val-projectos-session-router1a.
 const STORE_JS_REL = "projectos/credentials/windows-credential-store.cjs";
 const STORE_PS_REL = "projectos/credentials/windows-credential-store.ps1";
 const THIS_VALIDATOR = "val-projectos-tenant-credentials1a";
-const SOURCES = [VAULT_REL, META_REL, REF_REL, GATE_REL, CLI_REL, ROUTER_REL, BROKER_REL, VA_REL, CR_REL];
+const SOURCES = [VAULT_REL, META_REL, REF_REL, GATE_REL, CLI_REL, ROUTER_REL, BROKER_REL, VA_REL, CR_REL, GC_REL, SET_CRED_REL, HOST_TEST_REL, PROFILES_REL];
 
 /** The protected adapter, line endings aside, as this phase found it. */
 const STORE_HASHES = {
@@ -84,7 +93,7 @@ const TESTS = {
     "refuses a plain string and a perfect copy at every door, and a live requester passes",
     "refuses a requester outside the reference\\'s project, and runs nothing",
     "positive control: the same call from the project\\'s own run starts the command",
-    "the grant is the phase\\'s committed owner record: a tenant receipt is not one, and an uncommitted record is not one",
+    "a tenant receipt is not a grant: the registry is confirmed, the permit is good, and nothing is released",
     "releases to a second project in the same tenant, and refuses across tenants",
     "matches %s case-insensitively, both ways",
     "refuses a connection calling itself tenant.<id>, in any case, before anything is read",
@@ -99,23 +108,55 @@ const TESTS = {
     "refuses a project the allowlist admits and the tenant registry does not list",
     "does not read through a replace ref",
   ],
+  "projectos/agent/test/tenantCredentialsReview.test.ts": [
+    "a gatekeeper secrets-handling gate is never a grant, whatever it approves",
+    "positive control: a grant naming the project, the exact reference, the action and a live expiry releases",
+    "a record with %s releases nothing",
+    "an uncommitted grant, and a grant committed only in the project, release nothing",
+    "a replace ref cannot forge the owner\\'s approval",
+    "a replace ref cannot forge the installation allowlist",
+    "a console handle read back elsewhere is not a console, and with no terminal it is nothing",
+    "--owner-confirm needs a real terminal, on every verb that takes it",
+    "a new value clears the old reach",
+    "auto-load takes project reach only",
+    "the operation path refuses an undeclared reach and a reach into another tenant, with a good grant",
+    "an expired credential is refused at the vault on both paths",
+    "a Supabase personal access token is account-wide, whatever it declares",
+    "a real process that exits with %s writes its end line, and the handle stops",
+    "records the command and its exit code on disk, before and after, and no value",
+    "records the session id, and the old and new reach",
+    "a failed audit stops the command before it starts",
+    "is the committed per-phase cap, and a paid crossing within it passes the mint",
+  ],
 };
+/** What ADR-T1 must say about the grant, and how far any of this goes. */
+const ADR_NEEDLES = [
+  "is withdrawn",
+  "projectos/security/credential-grants/<PHASE>.credential-release.json",
+  "None exists yet, so operation release fails closed.",
+  "Only provider-side scope, expiry and revocation are real boundaries.",
+  "`via: console` is a label",
+];
 const NOT_RUN = /\b(?:it|test|describe)\.(?:skip|only|todo|fails)\b|\b(?:xit|xdescribe|fit|fdescribe)\b|\.skipIf\(|\.runIf\(/;
 
 /** What the evidence must keep saying, in plain words, for a later reader. */
 const EVIDENCE_NEEDLES = [
-  "the lead's decision for the owner to overrule",
+  "for the owner to overrule",
+  "The lead's first grant decision is WITHDRAWN",
+  "No grant exists yet, so operation release fails closed",
+  "Creating one is an owner act",
   "`credential-release` stays P5",
   "Session auto-load is kept for PROJECT-class credentials only",
   "A platform credential serves every tenant through the broker and is released to none",
   "the handle names a record and is not a secret",
   "any process of this Windows user",
-  "`run-start` still has a budget of zero",
+  "`via: console` is a label under F7",
   "the Control Center's Add credential is refused",
   "The broker cannot tell which run asked",
-  "`the_real_broker_accepts_the_host_authored_request_up_to_its_credential_stage`",
   "`status` stays unbound",
   "A worker can still reach any tenant's secrets",
+  "Agency `secrets-credential-hygiene-engineer`: BLOCK",
+  "ECC SECURITY: APPROVE WITH CHANGES",
 ];
 
 /**
@@ -126,20 +167,23 @@ const PINS = [
   // TCR-1: the brand, and nothing else, says who is asking.
   ["TCR-1", META_REL, null, "const LIVE_REQUESTERS = new WeakMap();"],
   ["TCR-1", META_REL, "requesterState", 'typeof value === "object" && value !== null && LIVE_REQUESTERS.get(value)'],
-  ["TCR-1", META_REL, "fromRun", "LIVE_REQUESTERS.set(requester, { authority, expiresAtMs, entries: registry.entries });"],
-  ["TCR-1", META_REL, "fromRun", "const requester = Object.freeze({"],
+  ["TCR-1", META_REL, "bindRun", "LIVE_REQUESTERS.set(requester, { authority, expiresAtMs, entries: registry.entries, atConsole });"],
+  ["TCR-1", META_REL, "bindRun", "const requester = Object.freeze({"],
   ["TCR-1", VAULT_REL, "liveRequester", "state !== null && state.expiresAtMs > nowMs()"],
   ["TCR-1", VAULT_REL, "requireRequester", 'throw refusal("REQUESTER_REQUIRED",'],
   ["TCR-1", GATE_REL, "grantPermit", "requesterState(req.requester) === null"],
   // TCR-2: the handle is the run-start line, whatever directory holds it.
-  ["TCR-2", META_REL, "fromRun", 'typeof handle !== "string" || !RUN_HANDLE_RE.test(handle)'],
-  ["TCR-2", META_REL, "fromRun", 'line.stage === "admission" && line.outcome === "allowed" && envelope.envelopeVersion === 2 && envelope.action === "run-start" && envelope.parentEnvelopeId === null'],
-  ["TCR-2", META_REL, "fromRun", "if (admissions.length !== 1) throw refusal("],
-  ["TCR-2", META_REL, "fromRun", 'if (lines.some((line) => line.stage === "execution")) throw refusal("RUN_HANDLE_ENDED"'],
-  ["TCR-2", META_REL, "fromRun", 'expiresAtMs <= nowMs()) throw refusal("RUN_HANDLE_EXPIRED"'],
-  ["TCR-2", META_REL, "fromRun", "if (!REQUESTER_ROUTES.includes(via))"],
-  ["TCR-2", META_REL, "fromRun", "entry.tenant !== envelope.tenant || entry.domain !== envelope.domain"],
-  ["TCR-2", META_REL, "fromRun", "tenant: entry.tenant,"],
+  ["TCR-2", META_REL, "bindRun", 'typeof handle !== "string" || !RUN_HANDLE_RE.test(handle)'],
+  ["TCR-2", META_REL, "bindRun", 'line.stage === "admission" && line.outcome === "allowed" && envelope.envelopeVersion === 2 && envelope.action === "run-start" && envelope.parentEnvelopeId === null'],
+  ["TCR-2", META_REL, "bindRun", "if (admissions.length !== 1) throw refusal("],
+  ["TCR-2", META_REL, "bindRun", 'if (lines.some((line) => line.stage === "execution")) throw refusal("RUN_HANDLE_ENDED"'],
+  ["TCR-2", META_REL, "bindRun", 'expiresAtMs <= nowMs()) throw refusal("RUN_HANDLE_EXPIRED"'],
+  ["TCR-2", META_REL, "bindRun", "if (!REQUESTER_ROUTES.includes(via))"],
+  ["TCR-2", META_REL, "bindRun", "entry.tenant !== envelope.tenant || entry.domain !== envelope.domain"],
+  ["TCR-2", META_REL, "bindRun", "tenant: entry.tenant,"],
+  ["TCR-2", META_REL, "fromRun", 'if (requester.via === "console") {'],
+  ["TCR-2", META_REL, "fromRun", 'throw refusal("RUN_HANDLE_CONSOLE_ONLY"'],
+  ["TCR-2", META_REL, "fromRun", "const requester = bindRun(handle, false);"],
   ["TCR-2", META_REL, "recordLines", 'name.startsWith(ENVELOPE_RECORDS_FILENAME + ".") && !name.endsWith(".lock") && !name.endsWith(".tmp")'],
   // TCR-3: committed bytes, confirmed.
   ["TCR-3", META_REL, "git", '["--no-replace-objects", "-C", root, ...args]'],
@@ -167,12 +211,21 @@ const PINS = [
   ["TCR-5", VAULT_REL, "authoriseOperationRelease", "const outside = boundaryRefusal(ref, requester, state);"],
   ["TCR-5", VAULT_REL, "authoriseOperationRelease", "permit.runHandle !== requester.runHandle"],
   // TCR-6: the P5 grant is the owner's committed record, at the registered root.
-  ["TCR-6", VAULT_REL, "authoriseOperationRelease", "const ungranted = state.authority.operationGrantRefusal(requester, permit.phaseId);"],
-  ["TCR-6", VAULT_REL, "authoriseOperationRelease", 'refuseRelease(ref, requester, "authorise-operation", ungranted, "SECRETS_HANDLING_GRANT_REQUIRED");'],
-  ["TCR-6", META_REL, "operationGrantRefusal", 'const rel = ".projectops/gates/" + phaseId + ".secrets-handling.json";'],
-  ["TCR-6", META_REL, "operationGrantRefusal", "readCommitted(state.entries.get(requester.project).governedRoot, rel)"],
-  ["TCR-6", META_REL, "operationGrantRefusal", 'record.ownerChoice !== "APPROVE" || record.gateName !== "secrets-handling" || record.phaseId !== phaseId'],
-  ["TCR-6", META_REL, "operationGrantRefusal", "!PHASE_ID_RE.test(phaseId)"],
+  ["TCR-6", VAULT_REL, "authoriseOperationRelease", "const ungranted = state.authority.operationGrantRefusal(requester, ref, permit);"],
+  ["TCR-6", VAULT_REL, "authoriseOperationRelease", 'refuseRelease(ref, requester, "authorise-operation", ungranted, "CREDENTIAL_GRANT_REQUIRED");'],
+  // TCR-26: the grant names what it releases.
+  ["TCR-26", META_REL, "operationGrantRefusal", 'readCommitted(installRoot, CREDENTIAL_GRANTS_REL + phaseId + ".credential-release.json")'],
+  ["TCR-26", META_REL, "operationGrantRefusal", "keys.length !== CREDENTIAL_GRANT_FIELDS.length || !CREDENTIAL_GRANT_FIELDS.every((field) => keys.includes(field))"],
+  ["TCR-26", META_REL, "operationGrantRefusal", 'grant.schemaVersion !== "1.0.0" || grant.kind !== CREDENTIAL_GRANT_KIND'],
+  ["TCR-26", META_REL, "operationGrantRefusal", 'typeof grant.grantedBy !== "string" || grant.grantedBy.trim() === ""'],
+  ["TCR-26", META_REL, "operationGrantRefusal", "if (grant.phaseId !== phaseId)"],
+  ["TCR-26", META_REL, "operationGrantRefusal", "if (grant.projectId !== requester.project)"],
+  ["TCR-26", META_REL, "operationGrantRefusal", "!grant.references.includes(ref.reference)"],
+  ["TCR-26", META_REL, "operationGrantRefusal", "grant.action !== permit.action"],
+  ["TCR-26", META_REL, "operationGrantRefusal", "new Date(expiresAtMs).toISOString() !== grant.expiresAt"],
+  ["TCR-26", META_REL, "operationGrantRefusal", "if (expiresAtMs <= nowMs())"],
+  ["TCR-26", META_REL, "operationGrantRefusal", "!PHASE_ID_RE.test(phaseId)"],
+  ["TCR-26", META_REL, null, 'const CREDENTIAL_GRANT_FIELDS = Object.freeze(["schemaVersion", "kind", "phaseId", "projectId", "references", "action", "expiresAt", "grantedBy"]);'],
   // TCR-7: two questions, each able to refuse alone.
   ["TCR-7", VAULT_REL, "boundaryRefusal", 'return ref.tenantId === requester.tenant ? null : { code: "TENANT_MISMATCH", reason: "cross-tenant-refused" };'],
   ["TCR-7", VAULT_REL, "boundaryRefusal", 'if (!belongsToProject(ref, requester.project)) return { code: "CROSS_PROJECT_REFUSED", reason: "cross-project-refused" };'],
@@ -191,7 +244,8 @@ const PINS = [
   ["TCR-9", VAULT_REL, "authoriseOperationRelease", 'if (ref.credentialClass === "platform") {'],
   ["TCR-9", VAULT_REL, "authoriseOperationRelease", 'throw refusal("PLATFORM_RELEASED_TO_NONE"'],
   ["TCR-9", VAULT_REL, "sessionRefusal", 'if (ref.credentialClass === "platform") return { code: "PLATFORM_RELEASED_TO_NONE"'],
-  ["TCR-9", VAULT_REL, "requireMutator", 'if (requester.via !== CONSOLE_ROUTE) {'],
+  ["TCR-9", VAULT_REL, "requireMutator", "if (!atConsole(requester)) {"],
+  ["TCR-9", VAULT_REL, "atConsole", "state !== null && state.atConsole === true"],
   // TCR-10: auto-load is for a project's own credential.
   ["TCR-10", VAULT_REL, "sessionRefusal", 'if (ref.credentialClass === "tenant") return { code: "TENANT_CLASS_NOT_SESSION"'],
   ["TCR-10", VAULT_REL, "sessionRefusal", 'if (requester.via === "linked-worktree") return { code: "LINKED_WORKTREE_ALONE"'],
@@ -199,15 +253,22 @@ const PINS = [
   ["TCR-10", VAULT_REL, "sessionRefusal", "const refused = boundaryRefusal(ref, requester, state);"],
   ["TCR-10", VAULT_REL, "authoriseSessionRelease", "const refused = sessionRefusal(ref, requester, state);"],
   // TCR-11: reach.
-  ["TCR-11", VAULT_REL, "reachRefusal", 'if (reach !== "project" && reach !== "tenant" && reach !== "account") return { code: "REACH_UNDECLARED"'],
-  ["TCR-11", VAULT_REL, "reachRefusal", 'record.reachTenants.some((tenant) => tenant !== requester.tenant)'],
-  ["TCR-11", VAULT_REL, "authoriseSessionRelease", "const tooWide = reachRefusal(ref, requester);"],
-  ["TCR-11", VAULT_REL, "requireConsoleForReach", "if (input.requester.via !== CONSOLE_ROUTE) {"],
+  ["TCR-11", VAULT_REL, "fitnessRefusal", 'if (!REACHES.includes(declared)) return { code: "REACH_UNDECLARED"'],
+  ["TCR-11", VAULT_REL, "fitnessRefusal", 'if (record && metadata.isExpired(record, new Date(nowMs()).toISOString())) return { code: "CREDENTIAL_EXPIRED"'],
+  ["TCR-11", VAULT_REL, "fitnessRefusal", 'return declared === "project" && !accountWide ? null : { code: "REACH_WIDER_THAN_PROJECT"'],
+  ["TCR-11", VAULT_REL, "fitnessRefusal", "const accountWide = ACCOUNT_WIDE_CREDENTIALS.includes(ref.credential) || declared === \"account\";"],
+  ["TCR-11", VAULT_REL, "fitnessRefusal", "tenants.some((tenant) => tenant !== requester.tenant)"],
+  ["TCR-11", VAULT_REL, "authoriseSessionRelease", 'const unfit = fitnessRefusal(ref, requester, "session");'],
+  ["TCR-11", VAULT_REL, "authoriseOperationRelease", 'const unfit = fitnessRefusal(ref, requester, "operation");'],
+  ["TCR-11", VAULT_REL, "requireConsoleForReach", "if (!atConsole(input.requester)) {"],
+  ["TCR-11", REF_REL, null, 'const ACCOUNT_WIDE_CREDENTIALS = Object.freeze(["supabase-access-token"]);'],
+  ["TCR-11", PROFILES_REL, null, 'credentials: ["gh-token", "vercel-token"],'],
   ["TCR-11", VAULT_REL, "provision", 'requireConsoleForReach(input, ref, "provision");'],
   ["TCR-11", VAULT_REL, "rotateMetadata", 'requireConsoleForReach(input, ref, "rotate-metadata");'],
   ["TCR-11", META_REL, "assertNonSecret", "if (!REACHES.includes(record.reach))"],
   ["TCR-11", META_REL, "assertNonSecret", '!Array.isArray(tenants) || tenants.length === 0 || !tenants.every(isTenantId)'],
-  ["TCR-11", META_REL, "reachFields", "reach: stated ? record.reach : (previous && previous.reach) || null,"],
+  ["TCR-11", META_REL, "statedReach", "reach: stated ? record.reach : null"],
+  ["TCR-11", META_REL, "recordProvisionLocked", "...statedReach(record),"],
   // TCR-12: the mutators are bound, and say so before they act.
   ["TCR-12", VAULT_REL, "provision", 'const ref = requireMutator(input, "provision");'],
   ["TCR-12", VAULT_REL, "remove", 'const ref = requireMutator(input, "delete");'],
@@ -221,11 +282,22 @@ const PINS = [
   ["TCR-13", VAULT_REL, "log", 'writeAuditLine({ ...entry, at: new Date(nowMs()).toISOString() });'],
   ["TCR-13", VAULT_REL, "requireRef", "log({ action, ok: false, reason: parsed.reason });"],
   ["TCR-13", VAULT_REL, null, 'const AUDIT_FILE_NAME = "credential-audit.jsonl";'],
+  ["TCR-13", VAULT_REL, "log", "sessionId: event.sessionId || null,"],
+  ["TCR-13", VAULT_REL, "log", "command: event.command || null,"],
+  ["TCR-13", VAULT_REL, "log", "exitCode: Number.isInteger(event.exitCode) ? event.exitCode : null,"],
+  ["TCR-13", VAULT_REL, "log", "reachBefore: event.reachBefore || null,"],
+  ["TCR-13", VAULT_REL, "log", "reachAfter: event.reachAfter || null,"],
+  ["TCR-13", VAULT_REL, "rotateMetadata", "reachBefore, reachAfter: record.reach"],
+  ["TCR-13", GATE_REL, "run", 'vault.auditOperation({ ...audited, action: "operation-start", command: executable'],
+  ["TCR-13", GATE_REL, "run", 'return refuse("AUDIT_NOT_RECORDED", base);'],
+  ["TCR-13", GATE_REL, "run", 'vault.auditOperation({ ...audited, action: "operation-end", exitCode'],
+  ["TCR-13", GATE_REL, "run", 'return { ok: false, blocker: "AUDIT_NOT_RECORDED", exitCode'],
+  ["TCR-13", GATE_REL, "run", 'matchedShapes(a).length ? "[credential-shaped]" : a'],
   // TCR-14: a release goes through an envelope, recorded first.
   ["TCR-14", VAULT_REL, "recordReleaseAdmission", 'if (!state.authority.recordRelease(requester, ref, { outcome: "allowed", rule: null, reasons: [], intent, grantSource })) {'],
   ["TCR-14", VAULT_REL, "recordReleaseAdmission", 'throw refusal("ENVELOPE_NOT_RECORDED"'],
   ["TCR-14", VAULT_REL, "authoriseSessionRelease", 'recordReleaseAdmission(ref, requester, state, "session:" + String(id), "session-auto-load");'],
-  ["TCR-14", VAULT_REL, "authoriseOperationRelease", 'recordReleaseAdmission(ref, requester, state, "operation:" + String(permitId), "secrets-handling:" + permit.phaseId);'],
+  ["TCR-14", VAULT_REL, "authoriseOperationRelease", 'recordReleaseAdmission(ref, requester, state, "operation:" + String(permitId), "credential-release:" + permit.phaseId);'],
   ["TCR-14", VAULT_REL, "refuseRelease", 'throw refusal("REFUSAL_NOT_RECORDED"'],
   ["TCR-14", META_REL, "recordRelease", 'const action = actionEntry("credential-release");'],
   ["TCR-14", META_REL, "recordRelease", 'scope: ["run:" + requester.runHandle],'],
@@ -249,7 +321,7 @@ const PINS = [
   ["TCR-15", VAULT_REL, "requesterRefusalFor", 'return entry.tenant === requester.tenant ? null : "TENANT_MISMATCH";'],
   // TCR-16: a console is both ends, and a project the registry lists.
   ["TCR-16", CLI_REL, "requesterFor", "if (flags.run !== undefined) return authority.fromRun(flags.run);"],
-  ["TCR-16", CLI_REL, "requesterFor", "terminal.stdin.isTTY !== true || terminal.stdout.isTTY !== true"],
+  ["TCR-16", CLI_REL, "requesterFor", "if (!atRealTerminal(deps)) {"],
   ["TCR-16", CLI_REL, "requesterFor", "return authority.issueConsoleRun({ projectId: flags.project });"],
   ["TCR-16", CLI_REL, "credentialsCommand", "const requester = requesterFor(flags, deps);"],
   ["TCR-16", CLI_REL, "credentialsCommand", "requester: requesterFor(flags, deps) });"],
@@ -258,12 +330,16 @@ const PINS = [
   ["TCR-16", CLI_REL, "operationCommand", 'throw new Error("--phase is required'],
   ["TCR-16", META_REL, "issueConsoleRun", "const entry = registry.entries.get(projectId);"],
   ["TCR-16", META_REL, "issueConsoleRun", 'via: "console"'],
-  ["TCR-16", META_REL, "issueConsoleRun", "return fromRun(envelopeId);"],
+  ["TCR-16", META_REL, "issueConsoleRun", "return bindRun(envelopeId, true);"],
+  ["TCR-16", CLI_REL, "requireOwnerConfirm", 'flags["owner-confirm"] !== true || !atRealTerminal(deps)'],
+  ["TCR-16", CLI_REL, "atRealTerminal", "terminal.stdin.isTTY === true && terminal.stdout.isTTY === true"],
   // TCR-17: the broker's own check.
-  ["TCR-17", BROKER_REL, "readCommittedBlob", 'git(root, ["--no-replace-objects", ...args])'],
-  ["TCR-17", BROKER_REL, "readCommittedBlob", 'askGit(["diff", "--name-only", "HEAD", "--", rel])'],
-  ["TCR-17", BROKER_REL, "readCommittedBlob", "return named === blob ? shown.stdout : null;"],
-  ["TCR-17", BROKER_REL, "tenantOfProject", "readCommittedBlob(installRoot, TENANT_REGISTRY_REL)"],
+  ["TCR-17", BROKER_REL, "git", 'spawnSync(exe, ["--no-replace-objects", "-C", root, ...args]'],
+  ["TCR-17", BROKER_REL, "readCommitted", 'git(root, ["diff", "--name-only", "HEAD", "--", rel])'],
+  ["TCR-17", BROKER_REL, "readCommitted", "return named === blob ? shown.stdout : null;"],
+  ["TCR-17", BROKER_REL, "tenantOfProject", "readCommitted(installRoot, TENANT_REGISTRY_REL)"],
+  ["TCR-17", BROKER_REL, "tenantRegistryProblem", '/^[a-z][a-z0-9-]{1,56}$/.test(id)'],
+  ["TCR-17", BROKER_REL, "tenantRegistryProblem", '["develop", "business", "personal", "phone"].indexOf(entry.domain) === -1'],
   ["TCR-17", BROKER_REL, "tenantOfProject", "const wrong = tenantRegistryProblem(registry);"],
   ["TCR-17", BROKER_REL, "tenantOfProject", 'return { problem: "TENANT_UNKNOWN: project '],
   ["TCR-17", BROKER_REL, "tenantOfProject", "repository.toLowerCase() !== entry.repository.toLowerCase()"],
@@ -278,6 +354,17 @@ const PINS = [
   ["TCR-17", BROKER_REL, null, "if (bound.problem !== undefined) return bound.problem;"],
   ["TCR-17", BROKER_REL, null, "const overspend = reserveSpend(projectId, spendKey, requestId, spendLimit, boundTenant);"],
   ["TCR-17", BROKER_REL, null, 'const VAULT_REFERENCE = Object.freeze({\n  OPENAI_GATEKEEPER_KEY: "ProjectOS/projectos/development/openai/gatekeeper-api-key",\n});'],
+  // TCR-24: a run ends on the record, and has a budget.
+  ["TCR-24", GC_REL, "endAdmittedRuns", "exitCode === 0 ? 'allowed' : 'failed', `run-ended:${exitCode}`"],
+  ["TCR-24", GC_REL, "endAdmittedRuns", "LIVE_RUNS.delete(run);"],
+  ["TCR-24", GC_REL, "holdRunUntilExit", "process.once('exit', endAdmittedRuns);"],
+  ["TCR-24", GC_REL, "runStartTenantRefusal", "holdRunUntilExit({ sys, stateDir: source.stateDir, envelope: admission.envelope });"],
+  ["TCR-24", GC_REL, "runStartTenantRefusal", "budget: committedPhaseCap(sys, root),"],
+  ["TCR-24", GC_REL, "admitBoundary", "budget: request.budget ?? 0,"],
+  ["TCR-24", GC_REL, "committedPhaseCap", "'--no-replace-objects', '-C', root, 'show', `HEAD:./${GATEKEEPER_CONFIG_REL}`"],
+  ["TCR-24", GC_REL, "committedPhaseCap", "?.budget?.phaseHardStopAtMicroUsd"],
+  ["TCR-24", GC_REL, "committedPhaseCap", "Number.isSafeInteger(cap) && cap > 0 ? cap : 0"],
+  // TCR-25: what the owner reads says what is true, and the Add credential route explains itself.
   // TCR-19: the state directory and the installation are the kernel's.
   ["TCR-19", META_REL, "installationStateDir", 'key(derived) === key(stated)'],
   ["TCR-19", META_REL, "installationStateDir", "os.userInfo().homedir"],
@@ -291,7 +378,7 @@ const M = (name, rule, rel, from, to) => ({ name, rule, rel, from, to });
 const MUTATIONS = [
   // TCR-1
   M("brand-accepts-any-object", "TCR-1", META_REL, 'return (typeof value === "object" && value !== null && LIVE_REQUESTERS.get(value)) || null;', 'return (typeof value === "object" && value !== null && { expiresAtMs: Infinity }) || null;'),
-  M("requester-never-branded", "TCR-1", META_REL, "LIVE_REQUESTERS.set(requester, { authority, expiresAtMs, entries: registry.entries });", ""),
+  M("requester-never-branded", "TCR-1", META_REL, "LIVE_REQUESTERS.set(requester, { authority, expiresAtMs, entries: registry.entries, atConsole });", ""),
   M("requester-not-frozen", "TCR-1", META_REL, "const requester = Object.freeze({", "const requester = ({"),
   M("stale-requester-passes", "TCR-1", VAULT_REL, "return state !== null && state.expiresAtMs > nowMs() ? state : null;", "return state;"),
   M("string-reads-as-a-requester", "TCR-1", VAULT_REL, 'throw refusal("REQUESTER_REQUIRED", "credential-vault: REQUESTER REQUIRED — only a live kernel-issued run handle may ask");', 'return { entries: new Map() };'),
@@ -308,6 +395,8 @@ const MUTATIONS = [
   M("tenant-taken-from-the-line", "TCR-2", META_REL, "      tenant: entry.tenant,\n      domain: entry.domain,\n      project: entry.projectId,\n      via,", "      tenant: envelope.tenant,\n      domain: entry.domain,\n      project: entry.projectId,\n      via,"),
   M("rotated-record-not-read", "TCR-2", META_REL, '.filter((name) => name === ENVELOPE_RECORDS_FILENAME || (name.startsWith(ENVELOPE_RECORDS_FILENAME + ".") && !name.endsWith(".lock") && !name.endsWith(".tmp")))', ".filter((name) => name === ENVELOPE_RECORDS_FILENAME)"),
   M("handle-reads-cwd", "TCR-2", META_REL, "    const registry = readRegistry();\n    const lines = recordLines()", "    const registry = readRegistry();\n    const here = process.cwd();\n    const lines = recordLines()"),
+  M("console-handle-travels", "TCR-2", META_REL, '    if (requester.via === "console") {\n      LIVE_REQUESTERS.delete(requester);\n      throw refusal("RUN_HANDLE_CONSOLE_ONLY", "a console run\'s authority ends with the process that minted it, so its handle is nobody\'s elsewhere");\n    }\n', ""),
+  M("from-run-claims-the-console", "TCR-2", META_REL, "const requester = bindRun(handle, false);", "const requester = bindRun(handle, true);"),
   M("console-run-reads-cwd", "TCR-2", META_REL, "    const projectId = (input || {}).projectId;\n", "    const projectId = (input || {}).projectId || process.cwd();\n"),
   // TCR-3
   M("replace-refs-allowed", "TCR-3", META_REL, '["--no-replace-objects", "-C", root, ...args]', '["-C", root, ...args]'),
@@ -334,14 +423,22 @@ const MUTATIONS = [
   M("operation-skips-the-boundary", "TCR-5", VAULT_REL, "const outside = boundaryRefusal(ref, requester, state);", "const outside = null;"),
   M("permit-for-any-run", "TCR-5", VAULT_REL, " || permit.runHandle !== requester.runHandle) {", ") {"),
   // TCR-6
-  M("no-grant-asked", "TCR-6", VAULT_REL, "const ungranted = state.authority.operationGrantRefusal(requester, permit.phaseId);", "const ungranted = null;"),
-  M("grant-refusal-not-recorded", "TCR-6", VAULT_REL, 'refuseRelease(ref, requester, "authorise-operation", ungranted, "SECRETS_HANDLING_GRANT_REQUIRED");', ""),
-  M("grant-is-a-receipt", "TCR-6", META_REL, 'const rel = ".projectops/gates/" + phaseId + ".secrets-handling.json";', 'const rel = "tenant-registry-receipt.json";'),
-  M("grant-read-from-a-worktree", "TCR-6", META_REL, "readCommitted(state.entries.get(requester.project).governedRoot, rel)", "readCommitted(process.cwd(), rel)"),
-  M("grant-any-choice", "TCR-6", META_REL, 'record.ownerChoice !== "APPROVE" || record.gateName', "record.gateName"),
-  M("grant-any-gate", "TCR-6", META_REL, ' || record.gateName !== "secrets-handling" || record.phaseId !== phaseId', " || record.phaseId !== phaseId"),
-  M("grant-any-phase", "TCR-6", META_REL, ' || record.phaseId !== phaseId) {', ") {"),
-  M("phase-names-any-path", "TCR-6", META_REL, 'if (typeof phaseId !== "string" || !PHASE_ID_RE.test(phaseId)) return', 'if (typeof phaseId !== "string") return'),
+  M("no-grant-asked", "TCR-6", VAULT_REL, "const ungranted = state.authority.operationGrantRefusal(requester, ref, permit);", "const ungranted = null;"),
+  M("grant-refusal-not-recorded", "TCR-6", VAULT_REL, 'refuseRelease(ref, requester, "authorise-operation", ungranted, "CREDENTIAL_GRANT_REQUIRED");', ""),
+  M("grant-reads-a-receipt", "TCR-6", META_REL, "  function operationGrantRefusal(requester, ref, permit) {\n", "  function operationGrantRefusal(requester, ref, permit) {\n    if (receiptConfirms(ref.reference)) return null;\n"),
+  // TCR-26
+  M("grant-read-from-the-project", "TCR-26", META_REL, 'readCommitted(installRoot, CREDENTIAL_GRANTS_REL + phaseId + ".credential-release.json")', 'readCommitted(requesterState(requester).entries.get(requester.project).governedRoot, CREDENTIAL_GRANTS_REL + phaseId + ".credential-release.json")'),
+  M("grant-any-gate-file", "TCR-26", META_REL, 'CREDENTIAL_GRANTS_REL + phaseId + ".credential-release.json"', '".projectops/gates/" + phaseId + ".secrets-handling.json"'),
+  M("grant-any-fields", "TCR-26", META_REL, 'if (keys.length !== CREDENTIAL_GRANT_FIELDS.length || !CREDENTIAL_GRANT_FIELDS.every((field) => keys.includes(field))) {', "if (false) {"),
+  M("grant-any-kind", "TCR-26", META_REL, 'if (grant.schemaVersion !== "1.0.0" || grant.kind !== CREDENTIAL_GRANT_KIND) return', "if (false) return"),
+  M("grant-names-nobody", "TCR-26", META_REL, 'if (typeof grant.grantedBy !== "string" || grant.grantedBy.trim() === "") return', "if (false) return"),
+  M("grant-any-phase", "TCR-26", META_REL, 'if (grant.phaseId !== phaseId) return "the committed credential-release grant is for another phase";', ""),
+  M("grant-any-project", "TCR-26", META_REL, 'if (grant.projectId !== requester.project) return "the committed credential-release grant is for another project";', ""),
+  M("grant-any-reference", "TCR-26", META_REL, 'if (!Array.isArray(grant.references) || !grant.references.includes(ref.reference)) return "the committed credential-release grant does not name this exact reference";', ""),
+  M("grant-any-action", "TCR-26", META_REL, 'if (typeof permit.action !== "string" || grant.action !== permit.action) return "the committed credential-release grant is for another action";', ""),
+  M("grant-any-date-text", "TCR-26", META_REL, " || new Date(expiresAtMs).toISOString() !== grant.expiresAt) return", ") return"),
+  M("grant-never-expires", "TCR-26", META_REL, 'if (expiresAtMs <= nowMs()) return "the committed credential-release grant has expired";', ""),
+  M("phase-names-any-path", "TCR-26", META_REL, 'if (typeof phaseId !== "string" || !PHASE_ID_RE.test(phaseId)) return', 'if (typeof phaseId !== "string") return'),
   // TCR-7
   M("tenant-class-not-compared", "TCR-7", VAULT_REL, 'return ref.tenantId === requester.tenant ? null : { code: "TENANT_MISMATCH", reason: "cross-tenant-refused" };', "return null;"),
   M("project-check-gone", "TCR-7", VAULT_REL, 'if (!belongsToProject(ref, requester.project)) return { code: "CROSS_PROJECT_REFUSED", reason: "cross-project-refused" };', ""),
@@ -360,7 +457,8 @@ const MUTATIONS = [
   // TCR-9
   M("platform-reaches-an-operation", "TCR-9", VAULT_REL, '    if (ref.credentialClass === "platform") {\n      refuseRelease(ref, requester, "authorise-operation", "platform-credential-released-to-none", "PLATFORM_RELEASED_TO_NONE");\n      throw refusal("PLATFORM_RELEASED_TO_NONE", "credential-vault: a platform credential is released to nobody; it serves every tenant through the broker");\n    }\n', ""),
   M("platform-reaches-a-session", "TCR-9", VAULT_REL, 'if (ref.credentialClass === "platform") return { code: "PLATFORM_RELEASED_TO_NONE", reason: "platform-credential-released-to-none", message: "credential-vault: a platform credential is released to nobody; it serves every tenant through the broker" };', ""),
-  M("run-overwrites-the-platform-key", "TCR-9", VAULT_REL, 'if (requester.via !== CONSOLE_ROUTE) {\n        log({ action, ...refFields(ref), ...requesterFields(requester), ok: false, reason: "platform-credential-console-only" });', 'if (false) {\n        log({ action, ...refFields(ref), ...requesterFields(requester), ok: false, reason: "platform-credential-console-only" });'),
+  M("run-overwrites-the-platform-key", "TCR-9", VAULT_REL, "      if (!atConsole(requester)) {\n        log({ action, ...refFields(ref), ...requesterFields(requester), ok: false, reason: \"platform-credential-console-only\" });", "      if (false) {\n        log({ action, ...refFields(ref), ...requesterFields(requester), ok: false, reason: \"platform-credential-console-only\" });"),
+  M("console-authority-reads-the-label", "TCR-9", VAULT_REL, "return state !== null && state.atConsole === true;", 'return state !== null && requester.via === "console";'),
   // TCR-10
   M("tenant-class-auto-loaded", "TCR-10", VAULT_REL, 'if (ref.credentialClass === "tenant") return { code: "TENANT_CLASS_NOT_SESSION", reason: "tenant-class-not-session-released", message: "credential-vault: a tenant-class credential is never loaded into a session" };', ""),
   M("worktree-alone-releases", "TCR-10", VAULT_REL, 'if (requester.via === "linked-worktree") return { code: "LINKED_WORKTREE_ALONE", reason: "linked-worktree-alone-releases-nothing", message: "credential-vault: a linked worktree\'s binding alone releases nothing, and session auto-load has no owner step" };', ""),
@@ -368,15 +466,21 @@ const MUTATIONS = [
   M("session-skips-the-boundary", "TCR-10", VAULT_REL, "    const refused = boundaryRefusal(ref, requester, state);\n    if (refused !== null) return { ...refused, message: BOUNDARY_MESSAGE[refused.code] };", "    const refused = null;\n    if (refused !== null) return { ...refused, message: BOUNDARY_MESSAGE[refused.code] };"),
   M("session-release-unasked", "TCR-10", VAULT_REL, '    const refused = sessionRefusal(ref, requester, state);\n    if (refused !== null) {\n      refuseRelease(ref, requester, "authorise-session", refused.reason, refused.code);', '    const refused = null;\n    if (refused !== null) {\n      refuseRelease(ref, requester, "authorise-session", refused.reason, refused.code);'),
   // TCR-11
-  M("undeclared-reach-passes", "TCR-11", VAULT_REL, 'if (reach !== "project" && reach !== "tenant" && reach !== "account") return { code: "REACH_UNDECLARED", reason: "reach-undeclared", message: "credential-vault: this credential declares no reach, so it is not loaded into a session" };', ""),
-  M("account-reach-any-tenant", "TCR-11", VAULT_REL, " || record.reachTenants.some((tenant) => tenant !== requester.tenant)", ""),
-  M("reach-not-asked-at-release", "TCR-11", VAULT_REL, "const tooWide = reachRefusal(ref, requester);", "const tooWide = null;"),
-  M("run-declares-its-own-reach", "TCR-11", VAULT_REL, "if (input.requester.via !== CONSOLE_ROUTE) {", "if (false) {"),
   M("provision-skips-the-reach-rule", "TCR-11", VAULT_REL, '    requireConsoleForReach(input, ref, "provision");\n', ""),
   M("rotate-skips-the-reach-rule", "TCR-11", VAULT_REL, '    requireConsoleForReach(input, ref, "rotate-metadata");\n', ""),
   M("reach-any-word", "TCR-11", META_REL, 'if (!REACHES.includes(record.reach)) throw new Error("credential-metadata: reach must be one of " + REACHES.join(", "));', ""),
   M("account-names-no-tenants", "TCR-11", META_REL, '!Array.isArray(tenants) || tenants.length === 0 || !tenants.every(isTenantId)', "false"),
-  M("reach-dropped-on-replace", "TCR-11", META_REL, "reach: stated ? record.reach : (previous && previous.reach) || null,", "reach: stated ? record.reach : null,"),
+  M("run-declares-its-own-reach", "TCR-11", VAULT_REL, "if (!atConsole(input.requester)) {", "if (false) {"),
+  M("undeclared-reach-passes", "TCR-11", VAULT_REL, 'if (!REACHES.includes(declared)) return { code: "REACH_UNDECLARED", reason: "reach-undeclared", message: "credential-vault: this credential declares no reach, so it is not released" };', ""),
+  M("expired-passes", "TCR-11", VAULT_REL, 'if (record && metadata.isExpired(record, new Date(nowMs()).toISOString())) return { code: "CREDENTIAL_EXPIRED", reason: "credential-expired", message: "credential-vault: this credential has passed its recorded expiry" };', ""),
+  M("auto-load-takes-any-reach", "TCR-11", VAULT_REL, 'return declared === "project" && !accountWide ? null : { code: "REACH_WIDER_THAN_PROJECT", reason: "reach-wider-than-project", message: "credential-vault: this credential reaches beyond its project, so it is not projected into a session" };', "return null;"),
+  M("account-reach-any-tenant", "TCR-11", VAULT_REL, " || tenants.some((tenant) => tenant !== requester.tenant)", ""),
+  M("declared-project-believed", "TCR-11", VAULT_REL, 'const accountWide = ACCOUNT_WIDE_CREDENTIALS.includes(ref.credential) || declared === "account";', 'const accountWide = declared === "account";'),
+  M("session-not-asked-fitness", "TCR-11", VAULT_REL, 'const unfit = fitnessRefusal(ref, requester, "session");', "const unfit = null;"),
+  M("operation-not-asked-fitness", "TCR-11", VAULT_REL, 'const unfit = fitnessRefusal(ref, requester, "operation");', "const unfit = null;"),
+  M("pat-reads-as-project-reach", "TCR-11", REF_REL, 'const ACCOUNT_WIDE_CREDENTIALS = Object.freeze(["supabase-access-token"]);', "const ACCOUNT_WIDE_CREDENTIALS = Object.freeze([]);"),
+  M("profile-offers-the-pat", "TCR-11", PROFILES_REL, 'credentials: ["gh-token", "vercel-token"],', 'credentials: ["gh-token", "supabase-access-token", "vercel-token"],'),
+  M("reach-inherited-on-replace", "TCR-11", META_REL, "...statedReach(record),\n    };\n    writeAll(all);", "reach: previous ? previous.reach : null,\n      reachTenants: previous ? previous.reachTenants : null,\n    };\n    writeAll(all);"),
   // TCR-12
   M("provision-unbound", "TCR-12", VAULT_REL, 'const ref = requireMutator(input, "provision");', 'const ref = requireRef((input || {}).reference, "provision");'),
   M("remove-unbound", "TCR-12", VAULT_REL, 'const ref = requireMutator(input, "delete");', 'const ref = requireRef((input || {}).reference, "delete");'),
@@ -389,12 +493,23 @@ const MUTATIONS = [
   M("audit-never-rotates", "TCR-13", VAULT_REL, "fs.statSync(auditPath).size >= AUDIT_ROTATE_BYTES", "false"),
   M("audit-stays-in-memory", "TCR-13", VAULT_REL, "    writeAuditLine({ ...entry, at: new Date(nowMs()).toISOString() });\n", ""),
   M("audit-file-renamed", "TCR-13", VAULT_REL, 'const AUDIT_FILE_NAME = "credential-audit.jsonl";', 'const AUDIT_FILE_NAME = "audit.log";'),
-  M("store-changes-before-its-line", "TCR-13", VAULT_REL, '    log({ action: "provision-intent", ...refFields(ref), ...requesterFields(input.requester), ok: true });\n    store.set(ref.reference, value);', '    store.set(ref.reference, value);\n    log({ action: "provision-intent", ...refFields(ref), ...requesterFields(input.requester), ok: true });'),
   M("delete-before-its-line", "TCR-13", VAULT_REL, '    log({ action: "delete-intent", ...refFields(ref), ...requesterFields(input.requester), ok: true });\n    const deleted = store.del(ref.reference);', '    const deleted = store.del(ref.reference);\n    log({ action: "delete-intent", ...refFields(ref), ...requesterFields(input.requester), ok: true });'),
+  M("audit-loses-the-session", "TCR-13", VAULT_REL, "      sessionId: event.sessionId || null,\n", ""),
+  M("audit-loses-the-command", "TCR-13", VAULT_REL, "      command: event.command || null,\n", ""),
+  M("audit-loses-the-exit", "TCR-13", VAULT_REL, "      exitCode: Number.isInteger(event.exitCode) ? event.exitCode : null,\n", ""),
+  M("audit-loses-the-old-reach", "TCR-13", VAULT_REL, "      reachBefore: event.reachBefore || null,\n", ""),
+  M("audit-loses-the-new-reach", "TCR-13", VAULT_REL, "      reachAfter: event.reachAfter || null,\n", ""),
+  M("rotate-hides-the-reach-change", "TCR-13", VAULT_REL, 'fingerprint: record.fingerprint, reachBefore, reachAfter: record.reach, ok: true });\n    return record;', "fingerprint: record.fingerprint, ok: true });\n    return record;"),
+  M("command-not-on-the-record", "TCR-13", GATE_REL, '      vault.auditOperation({ ...audited, action: "operation-start", command: executable, args: args.map((a) => (matchedShapes(a).length ? "[credential-shaped]" : a)), ok: true });\n', ""),
+  M("failed-audit-still-starts", "TCR-13", GATE_REL, 'return refuse("AUDIT_NOT_RECORDED", base);', ""),
+  M("exit-not-on-the-record", "TCR-13", GATE_REL, 'vault.auditOperation({ ...audited, action: "operation-end", exitCode, ok: exitCode === 0, reason: result && result.error ? "spawn-failed" : exitCode === 0 ? null : "non-zero-exit" });', ""),
+  M("failed-end-line-unsaid", "TCR-13", GATE_REL, 'return { ok: false, blocker: "AUDIT_NOT_RECORDED", exitCode, stdout: "", stderr: "", outputWithheld: true };', ""),
+  M("argument-not-masked", "TCR-13", GATE_REL, 'args.map((a) => (matchedShapes(a).length ? "[credential-shaped]" : a))', "args"),
+  M("store-changes-before-its-line", "TCR-13", VAULT_REL, '    log({ action: "provision-intent", ...refFields(ref), ...requesterFields(input.requester), ok: true });\n    const reachBefore = declaredReach(ref);\n    store.set(ref.reference, value);', '    const reachBefore = declaredReach(ref);\n    store.set(ref.reference, value);\n    log({ action: "provision-intent", ...refFields(ref), ...requesterFields(input.requester), ok: true });'),
   // TCR-14
   M("unrecorded-release-proceeds", "TCR-14", VAULT_REL, 'throw refusal("ENVELOPE_NOT_RECORDED", "credential-vault: the release could not be recorded, so it did not happen. " + RECORD_LOCK_HINT);', ""),
+  M("operation-release-unrecorded", "TCR-14", VAULT_REL, '    recordReleaseAdmission(ref, requester, state, "operation:" + String(permitId), "credential-release:" + permit.phaseId);\n', ""),
   M("session-release-unrecorded", "TCR-14", VAULT_REL, '    recordReleaseAdmission(ref, requester, state, "session:" + String(id), "session-auto-load");\n', ""),
-  M("operation-release-unrecorded", "TCR-14", VAULT_REL, '    recordReleaseAdmission(ref, requester, state, "operation:" + String(permitId), "secrets-handling:" + permit.phaseId);\n', ""),
   M("grant-before-the-line", "TCR-14", VAULT_REL, '    recordReleaseAdmission(ref, requester, state, "session:" + String(id), "session-auto-load");\n    const grant = mintGrant(ref, "session", { sessionId: id });', '    const grant = mintGrant(ref, "session", { sessionId: id });\n    recordReleaseAdmission(ref, requester, state, "session:" + String(id), "session-auto-load");'),
   M("unrecorded-refusal-reads-as-recorded", "TCR-14", VAULT_REL, 'throw refusal("REFUSAL_NOT_RECORDED", "credential-vault: this refusal has no envelope line, and the operation is stopped. " + RECORD_LOCK_HINT);', ""),
   M("unparsed-text-reaches-the-audit", "TCR-13", VAULT_REL, '      log({ action, ok: false, reason: parsed.reason });', '      log({ action, reference: String(reference), ok: false, reason: parsed.reason });'),
@@ -418,22 +533,26 @@ const MUTATIONS = [
   M("requester-check-ignores-the-tenant", "TCR-15", VAULT_REL, 'return entry.tenant === requester.tenant ? null : "TENANT_MISMATCH";', "return null;"),
   // TCR-16
   M("run-handle-only-if-a-string", "TCR-16", CLI_REL, "if (flags.run !== undefined) return authority.fromRun(flags.run);", 'if (typeof flags.run === "string") return authority.fromRun(flags.run);'),
-  M("one-tty-is-enough", "TCR-16", CLI_REL, "terminal.stdin.isTTY !== true || terminal.stdout.isTTY !== true", "terminal.stdin.isTTY !== true"),
-  M("no-terminal-needed", "TCR-16", CLI_REL, "if (terminal.stdin.isTTY !== true || terminal.stdout.isTTY !== true) {", "if (false) {"),
   M("console-run-trusts-the-reference", "TCR-16", CLI_REL, "return authority.issueConsoleRun({ projectId: flags.project });", 'return authority.issueConsoleRun({ projectId: parseReference(flags.ref).ref.project });'),
+  M("one-tty-is-enough", "TCR-16", CLI_REL, "return terminal.stdin.isTTY === true && terminal.stdout.isTTY === true;", "return terminal.stdin.isTTY === true;"),
+  M("no-terminal-needed", "TCR-16", CLI_REL, "if (!atRealTerminal(deps)) {", "if (false) {"),
+  M("flag-alone-confirms", "TCR-16", CLI_REL, 'if (flags["owner-confirm"] !== true || !atRealTerminal(deps)) throw new Error(message);', 'if (flags["owner-confirm"] !== true) throw new Error(message);'),
+  M("phase-optional-at-the-cli", "TCR-16", CLI_REL, '  if (typeof flags.phase !== "string" || !flags.phase) throw new Error("--phase is required and names the phase whose committed credential-release grant covers this");\n', ""),
   M("set-unbound-at-the-cli", "TCR-16", CLI_REL, "    const requester = requesterFor(flags, deps);\n    const fromEnv", "    const requester = null;\n    const fromEnv"),
   M("delete-unbound-at-the-cli", "TCR-16", CLI_REL, "const removed = vault.remove({ reference: ref.reference, requester: requesterFor(flags, deps) });", "const removed = vault.remove({ reference: ref.reference, requester: null });"),
   M("session-unbound-at-the-cli", "TCR-16", CLI_REL, "      requester: requesterFor(flags, deps),\n      slot: flags.slot,", "      requester: null,\n      slot: flags.slot,"),
   M("operation-unbound-at-the-cli", "TCR-16", CLI_REL, "  const requester = requesterFor(flags, deps);\n\n  const productionFrozen", "  const requester = null;\n\n  const productionFrozen"),
-  M("phase-optional-at-the-cli", "TCR-16", CLI_REL, '  if (typeof flags.phase !== "string" || !flags.phase) throw new Error("--phase is required and names the phase whose committed secrets-handling record approves this");\n', ""),
   M("console-run-for-any-project", "TCR-16", META_REL, "    const entry = registry.entries.get(projectId);\n    if (entry === undefined) throw refusal(\"TENANT_UNKNOWN\", \"project '\" + String(projectId) + \"' is not in the tenant registry\");\n    const action = actionEntry(\"run-start\");", "    const entry = [...registry.entries.values()][0];\n    const action = actionEntry(\"run-start\");"),
+  M("console-run-bypasses-the-one-route", "TCR-16", META_REL, "    return bindRun(envelopeId, true);\n", "    return Object.freeze({ runHandle: envelopeId, tenant: entry.tenant, project: entry.projectId });\n"),
   M("console-run-claims-a-checkout", "TCR-16", META_REL, 'envelope, registered: true, via: "console", runLinked: false, reasons: [] });', 'envelope, registered: true, via: "governed-root", runLinked: false, reasons: [] });'),
-  M("console-run-bypasses-the-one-route", "TCR-16", META_REL, "    return fromRun(envelopeId);\n", "    return Object.freeze({ runHandle: envelopeId, tenant: entry.tenant, project: entry.projectId });\n"),
   // TCR-17
-  M("broker-reads-through-replace-refs", "TCR-17", BROKER_REL, 'const askGit = (args) => git(root, ["--no-replace-objects", ...args]);', "const askGit = (args) => git(root, args);"),
-  M("broker-accepts-a-dirty-registry", "TCR-17", BROKER_REL, '  const dirty = askGit(["diff", "--name-only", "HEAD", "--", rel]);\n  if (dirty.code !== 0 || dirty.stdout.trim()) return null;\n', ""),
+  M("broker-reads-through-replace-refs", "TCR-17", BROKER_REL, 'spawnSync(exe, ["--no-replace-objects", "-C", root, ...args]', 'spawnSync(exe, ["-C", root, ...args]'),
+  M("broker-accepts-a-dirty-record", "TCR-17", BROKER_REL, '  const dirty = git(root, ["diff", "--name-only", "HEAD", "--", rel]);\n  if (dirty.code !== 0 || dirty.stdout.trim()) return null;\n', ""),
   M("broker-bytes-not-hashed", "TCR-17", BROKER_REL, "return named === blob ? shown.stdout : null;", "return shown.stdout;"),
-  M("broker-reads-the-working-tree", "TCR-17", BROKER_REL, "const raw = readCommittedBlob(installRoot, TENANT_REGISTRY_REL);", 'const raw = fs.readFileSync(path.join(installRoot, TENANT_REGISTRY_REL), "utf8");'),
+  M("broker-reads-the-working-tree", "TCR-17", BROKER_REL, "const raw = readCommitted(installRoot, TENANT_REGISTRY_REL);", 'const raw = fs.readFileSync(path.join(installRoot, TENANT_REGISTRY_REL), "utf8");'),
+  M("broker-reads-a-receipt-as-a-grant", "TCR-17", BROKER_REL, "const raw = readCommitted(installRoot, TENANT_REGISTRY_REL);", 'const raw = readCommitted(installRoot, TENANT_REGISTRY_REL); fs.existsSync(path.join(TRUSTED_STATE_DIR, "tenant-registry-receipt.json"));'),
+  M("broker-tenant-id-any-shape", "TCR-17", BROKER_REL, '  if (tenants.some((id) => typeof id !== "string" || !/^[a-z][a-z0-9-]{1,56}$/.test(id))) {\n    return "TENANT_REGISTRY_INVALID: a tenant line has no valid tenantId";\n  }\n', ""),
+  M("broker-domain-any-word", "TCR-17", BROKER_REL, '    if (["develop", "business", "personal", "phone"].indexOf(entry.domain) === -1) return "TENANT_REGISTRY_INVALID: a project line names an unknown domain";\n', ""),
   M("broker-not-judged-whole", "TCR-17", BROKER_REL, "const wrong = tenantRegistryProblem(registry);", "const wrong = null;"),
   M("broker-unlisted-passes", "TCR-17", BROKER_REL, `if (entry === undefined) return { problem: "TENANT_UNKNOWN: project '" + projectId + "' is not in the tenant registry" };`, 'if (entry === undefined) return { tenant: "owner-personal" };'),
   M("broker-ignores-the-repository", "TCR-17", BROKER_REL, "if (repository === null || repository.toLowerCase() !== entry.repository.toLowerCase()) {", "if (repository === null) {"),
@@ -449,7 +568,32 @@ const MUTATIONS = [
   M("broker-tenant-from-the-request", "TCR-17", BROKER_REL, "    boundTenant = bound.tenant;\n", "    boundTenant = String(req.tenant || bound.tenant);\n"),
   M("broker-spends-before-the-tenant", "TCR-17", BROKER_REL, "const overspend = reserveSpend(projectId, spendKey, requestId, spendLimit, boundTenant);", 'const overspend = reserveSpend(projectId, spendKey, requestId, spendLimit, "owner-personal");'),
   M("broker-holds-another-credential", "TCR-17", BROKER_REL, '  OPENAI_GATEKEEPER_KEY: "ProjectOS/projectos/development/openai/gatekeeper-api-key",\n', '  OPENAI_GATEKEEPER_KEY: "ProjectOS/projectos/development/openai/gatekeeper-api-key",\n  TENANT_KEY: "ProjectOS/tenant.agency-business/staging/x/y",\n'),
-  M("broker-reads-a-receipt-as-a-grant", "TCR-17", BROKER_REL, "const raw = readCommittedBlob(installRoot, TENANT_REGISTRY_REL);", 'const raw = readCommittedBlob(installRoot, TENANT_REGISTRY_REL); fs.existsSync(path.join(TRUSTED_STATE_DIR, "tenant-registry-receipt.json"));'),
+  // TCR-24
+  M("run-end-reads-as-a-success", "TCR-24", GC_REL, "exitCode === 0 ? 'allowed' : 'failed',", "'allowed',"),
+  M("run-ends-twice", "TCR-24", GC_REL, "    LIVE_RUNS.delete(run);\n", ""),
+  M("exit-hook-not-armed", "TCR-24", GC_REL, "  process.once('exit', endAdmittedRuns);\n", ""),
+  M("run-not-held-to-its-end", "TCR-24", GC_REL, "  holdRunUntilExit({ sys, stateDir: source.stateDir, envelope: admission.envelope });\n", ""),
+  M("run-has-no-budget", "TCR-24", GC_REL, "    budget: committedPhaseCap(sys, root),\n", ""),
+  M("boundary-drops-the-budget", "TCR-24", GC_REL, "budget: request.budget ?? 0,", "budget: 0,"),
+  M("cap-read-through-replace-refs", "TCR-24", GC_REL, "'--no-replace-objects', '-C', root, 'show',", "'-C', root, 'show',"),
+  M("cap-from-another-limit", "TCR-24", GC_REL, "?.budget?.phaseHardStopAtMicroUsd", "?.budget?.hardStopAtMicroUsd"),
+  M("cap-any-number", "TCR-24", GC_REL, "Number.isSafeInteger(cap) && cap > 0 ? cap : 0", "cap"),
+  // TCR-25
+  M("adr-hides-the-withdrawal", "TCR-25", ADR_REL, "is **withdrawn**", "stands"),
+  M("adr-hides-the-format", "TCR-25", ADR_REL, "projectos/security/credential-grants/<PHASE>.credential-release.json", "a record"),
+  M("adr-says-a-grant-exists", "TCR-25", ADR_REL, "None exists yet, so operation release fails closed.", "One exists."),
+  M("adr-overclaims-the-boundary", "TCR-25", ADR_REL, "Only provider-side scope, expiry and revocation are real boundaries.", "The kernel's routes are a boundary."),
+  M("adr-hides-the-console-label", "TCR-25", ADR_REL, "is a label. Stage 4", "is proof. Stage 4"),
+  M("registry-keeps-the-open-grant", "TCR-25", AREG_REL, "a gatekeeper secrets-handling gate is not one", "a gatekeeper secrets-handling gate is one"),
+  M("registry-overclaims-the-boundary", "TCR-25", AREG_REL, "only provider-side scope, expiry and revocation are real boundaries until Stage 4", "these are boundaries"),
+  M("refusal-goes-unseen", "TCR-25", SET_CRED_REL, "Some(_) => Err(refusal_sentence(&String::from_utf8_lossy(&output.stderr), &value)),", 'Some(_) => Err("ProjectOS did not store that credential.".to_string()),'),
+  M("stderr-discarded", "TCR-25", SET_CRED_REL, ".stderr(Stdio::piped());", ".stderr(Stdio::null());"),
+  M("refusal-may-repeat-the-value", "TCR-25", SET_CRED_REL, "if !value.is_empty() && line.contains(value) {", "if false {"),
+  M("refusal-unbounded", "TCR-25", SET_CRED_REL, ".take(REFUSAL_MAX_CHARS)", ".take(usize::MAX)"),
+  M("vault-overclaims-the-chokepoint", "TCR-25", VAULT_REL, "so this\n * prevents accidents on the kernel's routes", "so this\n * is the boundary"),
+  M("vault-overclaims-the-confirmation", "TCR-25", VAULT_REL, "so it prevents accidents and proves no one", "so ProjectOS cannot self-confirm"),
+  M("gate-overclaims-the-confirmation", "TCR-25", GATE_REL, "it prevents accidents and proves no one", "ProjectOS cannot mint one for itself"),
+  M("host-fixture-loses-its-line", "TCR-25", HOST_TEST_REL, '"projectos/security/tenant-registry.json",', '"projectos/security/other.json",'),
   // TCR-18
   M("jwt-reaches-the-requester", "TCR-18", META_REL, "  function fromRun(handle) {\n", '  function fromRun(handle) {\n    if (String(handle).startsWith("eyJ")) return decodeJwt(handle);\n'),
   M("oauth-reaches-the-cli", "TCR-18", CLI_REL, "function requesterFor(flags, deps) {\n", "function requesterFor(flags, deps) {\n  if (flags.oauth) return flags.oauth;\n"),
@@ -465,16 +609,20 @@ const MUTATIONS = [
   M("validate-all-omits-this-validator", "TCR-20", VA_REL, `"${THIS_VALIDATOR}"`, '"val-projectos-tenant-removed"'),
   M("cached-runner-omits-this-validator", "TCR-20", CR_REL, `"${THIS_VALIDATOR}"`, '"val-projectos-tenant-removed"'),
   // TCR-21
-  M("evidence-hides-the-decision", "TCR-21", EVIDENCE_REL, "the lead's decision for the owner to overrule", "the decision"),
+  M("evidence-hides-whose-decision", "TCR-21", EVIDENCE_REL, "for the owner to overrule", "decided"),
+  M("evidence-keeps-the-withdrawn-grant", "TCR-21", EVIDENCE_REL, "The lead's first grant decision is WITHDRAWN", "The grant decision stands"),
+  M("evidence-says-a-grant-exists", "TCR-21", EVIDENCE_REL, "No grant exists yet, so operation release fails closed", "A grant exists"),
+  M("evidence-lets-an-agent-grant", "TCR-21", EVIDENCE_REL, "Creating one is an owner act", "Creating one is routine"),
+  M("evidence-calls-the-console-proof", "TCR-21", EVIDENCE_REL, "`via: console` is a label under F7", "`via: console` proves the owner"),
+  M("evidence-hides-the-block", "TCR-21", EVIDENCE_REL, "Agency `secrets-credential-hygiene-engineer`: BLOCK", "Agency reviewed it"),
+  M("evidence-hides-ecc", "TCR-21", EVIDENCE_REL, "ECC SECURITY: APPROVE WITH CHANGES", "ECC SECURITY reviewed it"),
   M("evidence-hides-the-p5-source", "TCR-21", EVIDENCE_REL, "`credential-release` stays P5", "`credential-release` is decided"),
   M("evidence-hides-auto-load", "TCR-21", EVIDENCE_REL, "Session auto-load is kept for PROJECT-class credentials only", "Session auto-load is kept"),
   M("evidence-hides-the-platform-rule", "TCR-21", EVIDENCE_REL, "A platform credential serves every tenant through the broker and is released to none", "A platform credential is special"),
   M("evidence-calls-the-handle-a-secret", "TCR-21", EVIDENCE_REL, "the handle names a record and is not a secret", "the handle is a secret"),
   M("evidence-hides-the-one-user-limit", "TCR-21", EVIDENCE_REL, "any process of this Windows user", "a hostile process"),
-  M("evidence-hides-the-budget", "TCR-21", EVIDENCE_REL, "`run-start` still has a budget of zero", "`run-start` has a budget"),
   M("evidence-hides-add-credential", "TCR-21", EVIDENCE_REL, "the Control Center's Add credential is refused", "the Control Center is unchanged"),
   M("evidence-hides-the-broker-limit", "TCR-21", EVIDENCE_REL, "The broker cannot tell which run asked", "The broker checks the run"),
-  M("evidence-hides-the-rust-fixture", "TCR-21", EVIDENCE_REL, "`the_real_broker_accepts_the_host_authored_request_up_to_its_credential_stage`", "one host test"),
   M("evidence-hides-status", "TCR-21", EVIDENCE_REL, "`status` stays unbound", "`status` is fine"),
   M("evidence-hides-worker-reach", "TCR-21", EVIDENCE_REL, "A worker can still reach any tenant's secrets", "A worker cannot reach another tenant's secrets"),
   // TCR-22
@@ -492,7 +640,7 @@ const MUTATIONS = [
   M("a-proof-commented-out", "TCR-T", "projectos/agent/test/tenantCredentials.test.ts", "  it('stops before the store changes when a line cannot be written'", "  // it('stops before the store changes when a line cannot be written'"),
 ];
 
-const ALL_SOURCES = [...new Set([...SOURCES, EVIDENCE_REL, LEGACY_VAULT_REL, LEGACY_ADV_REL, LEGACY_SESSION_REL, STORE_JS_REL, STORE_PS_REL, ...Object.keys(TESTS)])];
+const ALL_SOURCES = [...new Set([...SOURCES, EVIDENCE_REL, ADR_REL, AREG_REL, LEGACY_VAULT_REL, LEGACY_ADV_REL, LEGACY_SESSION_REL, STORE_JS_REL, STORE_PS_REL, ...Object.keys(TESTS)])];
 
 function read(rel) {
   const abs = path.join(ROOT, ...rel.split("/"));
@@ -536,7 +684,7 @@ function code(text) {
 
 /** A function's text, to the closing brace at its own indent. Nested functions work the same way. */
 function fnSpan(text, name) {
-  const found = new RegExp(`(^|\\n)( *)(?:async )?function ${name}\\(`).exec(text);
+  const found = new RegExp(`(^|\\n)( *)(?:export )?(?:async )?function ${name}\\(`).exec(text);
   if (found === null) return "";
   const indent = found[2];
   const end = text.indexOf(`\n${indent}}`, found.index + found[0].length);
@@ -563,7 +711,7 @@ function check(raw) {
       E("TCR-0", `${rel} is missing`);
       return errors;
     }
-    src[rel] = rel.endsWith(".md") ? raw[rel] : code(raw[rel]);
+    src[rel] = rel.endsWith(".md") || rel.endsWith(".json") ? raw[rel] : code(raw[rel]);
   }
 
   for (const [rule, rel, fn, needle] of PINS) {
@@ -572,7 +720,7 @@ function check(raw) {
   }
 
   // TCR-2: no route to a requester reads where the process stands.
-  for (const fn of ["fromRun", "issueConsoleRun", "readRegistry", "recordLines"]) {
+  for (const fn of ["fromRun", "bindRun", "issueConsoleRun", "readRegistry", "recordLines"]) {
     if (/process\.cwd\(/.test(fnSpan(src[META_REL], fn))) E("TCR-2", `${fn} reads the working directory, and cwd is never the requester`);
   }
 
@@ -637,6 +785,20 @@ function check(raw) {
   // TCR-23: the protected adapter is untouched.
   for (const [rel, hash] of Object.entries(STORE_HASHES)) if (sha256(raw[rel]) !== hash) E("TCR-23", `${rel} changed, and this phase may not change it`);
 
+  // TCR-25: what the owner reads says what is true.
+  const adr = prose(raw[ADR_REL]);
+  for (const needle of ADR_NEEDLES) if (!adr.includes(needle)) E("TCR-25", `ADR-T1 no longer says: ${needle}`);
+  for (const needle of ["a gatekeeper secrets-handling gate is not one", "only provider-side scope, expiry and revocation are real boundaries until Stage 4"]) {
+    if (!raw[AREG_REL].includes(needle)) E("TCR-25", `the action registry no longer says: ${needle}`);
+  }
+  for (const [rel, needle] of [[VAULT_REL, "prevents accidents on the kernel's routes"], [VAULT_REL, "so it prevents accidents and proves no one"], [GATE_REL, "it prevents accidents and proves no one"]]) {
+    if (!prose(raw[rel].replace(/\n *\* ?/g, " ")).includes(needle)) E("TCR-25", `${rel} overclaims again: ${needle}`);
+  }
+  for (const needle of ["Some(_) => Err(refusal_sentence(&String::from_utf8_lossy(&output.stderr), &value)),", ".stderr(Stdio::piped());", "if !value.is_empty() && line.contains(value) {", ".take(REFUSAL_MAX_CHARS)"]) {
+    if (!raw[SET_CRED_REL].includes(needle)) E("TCR-25", `set_credential.rs no longer holds: ${needle}`);
+  }
+  if (!raw[HOST_TEST_REL].includes('"projectos/security/tenant-registry.json",')) E("TCR-25", "the host's real-broker fixture has no tenant registry");
+
   // TCR-T: every proof exists, and every proof runs.
   for (const [rel, needles] of Object.entries(TESTS)) {
     for (const n of needles) if (!src[rel].includes(n)) E("TCR-T", `${rel} no longer proves "${n}"`);
@@ -660,7 +822,7 @@ function selfTest(raw) {
   const names = MUTATIONS.map((m) => m.name);
   if (new Set(names).size !== names.length) errors.push("TCR-M: two mutations share a name");
   const rules = new Set(MUTATIONS.map((m) => m.rule));
-  for (const rule of [...Array.from({ length: 23 }, (_, i) => `TCR-${i + 1}`), "TCR-T"]) {
+  for (const rule of [...Array.from({ length: 26 }, (_, i) => `TCR-${i + 1}`), "TCR-T"]) {
     if (!rules.has(rule)) errors.push(`TCR-M: rule ${rule} has no named mutation`);
   }
   return errors;
@@ -720,13 +882,13 @@ function syntheticWorld(dir, projectIds, agencyProjects = []) {
       if (!requesters.has(projectId)) requesters.set(projectId, authority.issueConsoleRun({ projectId }));
       return requesters.get(projectId);
     },
-    /** Commit the owner record that grants this phase, at the project's registered root. */
-    grant(projectId, phaseId) {
-      const root = roots.get(projectId);
-      fs.mkdirSync(`${root}/.projectops/gates`, { recursive: true });
-      fs.writeFileSync(`${root}/.projectops/gates/${phaseId}.secrets-handling.json`, JSON.stringify({ gateName: "secrets-handling", phaseId, ownerChoice: "APPROVE" }));
-      gitIn(root, "add", "--all");
-      gitIn(root, "commit", "--quiet", "-m", "owner record");
+    /** Commit a synthetic credential-release grant in this synthetic installation. Never a real one. */
+    grant(projectId, phaseId, references, action) {
+      const grants = `${installRoot}/projectos/security/credential-grants`;
+      fs.mkdirSync(grants, { recursive: true });
+      fs.writeFileSync(`${grants}/${phaseId}.credential-release.json`, JSON.stringify({ schemaVersion: "1.0.0", kind: "credential-release-grant", phaseId, projectId, references, action, expiresAt: "2099-01-01T00:00:00.000Z", grantedBy: "Synthetic" }));
+      gitIn(installRoot, "add", "--all");
+      gitIn(installRoot, "commit", "--quiet", "-m", "synthetic grant");
     },
   };
 }
@@ -756,7 +918,6 @@ function behaviour() {
     const spawned = [];
     const gate = createOperationGate({ vault, spawnSync: (...args) => { spawned.push(args); return { status: 0, stdout: "", stderr: "" }; } });
     const [alpha, beta, gamma] = ["alpha", "beta", "gamma"].map((id) => world.requesterFor(id));
-    for (const id of ["alpha", "beta", "gamma"]) world.grant(id, PHASE);
 
     const run = (reference, requester) => {
       const permit = gate.grantPermit({ reference, action: "read-config", requester, phaseId: PHASE, capability: { ownerConfirmation: true } });
@@ -765,15 +926,19 @@ function behaviour() {
 
     // The operation path refuses a requester outside the reference's project, and a plain string.
     const alphaOp = "ProjectOS/alpha/staging/supabase/service-role-key";
-    vault.provision({ reference: alphaOp, requester: alpha, readValue: () => VALUE });
+    vault.provision({ reference: alphaOp, requester: alpha, reach: "project", readValue: () => VALUE });
+    if (run(alphaOp, alpha).blocker !== "CREDENTIAL_GRANT_REQUIRED" || spawned.length !== 0) fail("a release went out with no credential-release grant");
+    world.grant("alpha", PHASE, [alphaOp], "read-config");
     if (run(alphaOp, beta).blocker !== "CROSS_PROJECT_REFUSED" || spawned.length !== 0) fail("the operation path let a requester outside the reference's project through");
     if (!run(alphaOp, alpha).ok || spawned.length !== 1) fail("the operation path refused the project's own run");
     if (codeOf(() => vault.authoriseSessionRelease({ reference: alphaOp, requester: "alpha" })) !== "REQUESTER_REQUIRED") fail("a plain string passed as a requester");
 
     // A tenant secret: a second project in the tenant, then another tenant, and only the tenant rule decides.
     const ownerSecret = "ProjectOS/tenant.owner-personal/staging/supabase/service-role-key";
-    vault.provision({ reference: ownerSecret, requester: alpha, readValue: () => VALUE });
+    vault.provision({ reference: ownerSecret, requester: alpha, reach: "tenant", readValue: () => VALUE });
+    world.grant("beta", PHASE, [ownerSecret], "read-config");
     if (!run(ownerSecret, beta).ok) fail("a tenant secret was refused to a second project in the same tenant");
+    world.grant("gamma", PHASE, [ownerSecret], "read-config");
     if (run(ownerSecret, gamma).blocker !== "TENANT_MISMATCH") fail("a tenant secret crossed tenants");
 
     // A project id starting with tenant., in any case; and the mutators.
@@ -789,12 +954,12 @@ function behaviour() {
     if (codeOf(() => vault.authoriseSessionRelease({ reference: platform, requester: world.requesterFor("projectos") })) !== "PLATFORM_RELEASED_TO_NONE") fail("the platform credential reached a session");
 
     // An account-wide token stored under another tenant's project: only the reach rule can refuse this.
-    const gammaToken = "ProjectOS/gamma/staging/supabase/supabase-access-token";
+    const gammaToken = "ProjectOS/gamma/staging/vercel/vercel-token";
     vault.provision({ reference: gammaToken, requester: gamma, reach: "account", reachTenants: ["owner-personal"], readValue: () => VALUE });
-    if (codeOf(() => vault.authoriseSessionRelease({ reference: gammaToken, requester: gamma })) !== "REACH_CROSSES_TENANTS") fail("an account-wide token was projected into another tenant's session");
-    const alphaToken = "ProjectOS/alpha/staging/supabase/supabase-access-token";
-    vault.provision({ reference: alphaToken, requester: alpha, reach: "account", reachTenants: ["owner-personal"], readValue: () => VALUE });
-    if (codeOf(() => vault.authoriseSessionRelease({ reference: alphaToken, requester: alpha })) !== null) fail("an account token was refused in the one tenant it reaches");
+    if (codeOf(() => vault.authoriseSessionRelease({ reference: gammaToken, requester: gamma })) !== "REACH_WIDER_THAN_PROJECT") fail("an account-wide token was projected into a session");
+    const alphaToken = "ProjectOS/alpha/staging/vercel/vercel-token";
+    vault.provision({ reference: alphaToken, requester: alpha, reach: "project", readValue: () => VALUE });
+    if (codeOf(() => vault.authoriseSessionRelease({ reference: alphaToken, requester: alpha })) !== null) fail("a project-reach token was refused in its own project");
 
     // Durable: a new vault finds what the old one wrote, and no value is in it.
     const audit = fs.readFileSync(vault.auditPath, "utf8");

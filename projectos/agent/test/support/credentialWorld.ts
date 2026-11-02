@@ -60,10 +60,29 @@ export interface CredentialWorld {
   readonly console: (projectId: string) => any;
 }
 
-export function grantPhase(project: Project, phaseId: string = PHASE): void {
-  mkdirSync(join(project.root, '.projectops', 'gates'), { recursive: true });
-  writeFileSync(join(project.root, '.projectops', 'gates', `${phaseId}.secrets-handling.json`), JSON.stringify({ gateName: 'secrets-handling', phaseId, ownerChoice: 'APPROVE' }));
-  commitAll(project.root, 'owner record');
+/** Where a credential-release grant lives in an installation. */
+export const GRANT_REL = (phaseId: string): string => `projectos/security/credential-grants/${phaseId}.credential-release.json`;
+
+/**
+ * A synthetic `credential-release` grant, committed in this world's own installation. A field set to
+ * `undefined` is left out. Creating a real one is an owner act, and nothing here can reach a real installation.
+ */
+export function grantRelease(w: CredentialWorld, over: Readonly<Record<string, unknown>>, phaseId: string = PHASE): void {
+  const record = {
+    schemaVersion: '1.0.0',
+    kind: 'credential-release-grant',
+    phaseId,
+    projectId: 'alpha',
+    references: ['ProjectOS/alpha/staging/supabase/service-role-key'],
+    action: 'read-config',
+    expiresAt: '2027-01-01T00:00:00.000Z',
+    grantedBy: 'Synthetic',
+    ...over,
+  };
+  const path = join(w.installation.root, ...GRANT_REL(phaseId).split('/'));
+  mkdirSync(join(path, '..'), { recursive: true });
+  writeFileSync(path, JSON.stringify(record));
+  commitAll(w.installation.root, 'synthetic grant');
 }
 
 /** A real installation with its registry confirmed, as a receipt would leave it. */
