@@ -386,7 +386,7 @@ describe('MEDIUM 7: alias closure', () => {
 
   it('the plain entry is accepted, as is a path with a space: the positive controls', () => {
     expect(parseWith({}).ok).toBe(true);
-    expect(parseWith({ governedRoot: 'C:/dev/BizComply V2' }).ok).toBe(true);
+    expect(parseWith({ governedRoot: 'C:/dev/A Spaced Project' }).ok).toBe(true);
   });
 
   it.each([

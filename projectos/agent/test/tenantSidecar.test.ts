@@ -192,6 +192,18 @@ describe('the real sidecar, over its real channel', () => {
     expect((await sidecar.send('run.stop')).lines.join('\n')).not.toContain('TENANT_');
   }, 60_000);
 
+  it('a verb refused under a stale lock prints the lock hint on the real channel', async () => {
+    const w = world();
+    const sidecar = start(w, [['alpha', w.alpha.root], ['gamma', w.gamma.root]]);
+    expect((await sidecar.send('project.select', { projectId: 'alpha' })).code).toBe(0);
+    w.installation.commitLines(w.lines.slice(1));
+    writeFileSync(join(w.stateDir, `${ENVELOPE_RECORDS_FILENAME}.lock`), '{}\n');
+    const refused = await sidecar.send('run.start', { phaseId: 'SOME-PHASE1A' });
+    expect(refused.code).toBe(2);
+    expect(refused.lines.join('\n')).toContain('REFUSAL_NOT_RECORDED');
+    expect(refused.lines.join('\n')).toContain('.jsonl.lock');
+  }, 60_000);
+
   it('a remembered selection goes through the envelope at start, and one with no tenant is not restored', async () => {
     const w = world();
     writeFileSync(join(w.installation.root, 'selected-project.json'), JSON.stringify({ schemaVersion: 1, projectId: 'alpha' }));

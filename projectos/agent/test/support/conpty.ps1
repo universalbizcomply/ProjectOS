@@ -1,4 +1,6 @@
 <#
+  TEST ONLY. Nothing in production may call this, and val-projectos-tenant-principal1a pins that.
+
   Runs one command inside a real Windows pseudo console and types into it, as a person at a terminal would.
 
   WHY THIS EXISTS. `tenant receipt` is the only way out of TENANT_REGISTRY_NO_RECEIPT, and it reads the

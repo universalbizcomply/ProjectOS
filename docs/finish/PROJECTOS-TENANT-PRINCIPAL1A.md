@@ -2,10 +2,10 @@
 
 **Phase:** PROJECTOS-TENANT-PRINCIPAL1A, plan v1.31, under `docs/changes/delta_spec.md`.
 **Branch:** `projectos-tenant-principal1a`, worktree `C:/dev/ProjectOS-worktrees/tenant-principal1a`, rebased onto
-`374f9eaf` (plan v1.33). Not pushed, not merged, phase not closed, no phase record created.
-**State:** implementation complete, one review round answered. ECC SECURITY and Agency `identity-access-engineer`
-both gave APPROVE WITH CHANGES at `aac21426`, and every finding is dispositioned below. This round has not been
-re-reviewed. Nothing here touched a live service, a provider, PolyGo or an agency repository, and nothing was spent.
+`cb3979f5` (plan v1.34). Not pushed, not merged, phase not closed, no phase record created.
+**State:** implementation complete. ECC SECURITY and Agency `identity-access-engineer` both gave APPROVE WITH CHANGES at
+`aac21426`, and every finding is dispositioned below. The ECC recheck APPROVED, and its LOWs are answered under "ECC
+recheck"; that last round was not re-reviewed. Nothing here touched a live service, a provider, PolyGo or an agency repository, and nothing was spent.
 
 ## The one act this phase needs: run it BEFORE merging
 
@@ -64,7 +64,10 @@ receipt.
 | **Another console.** PowerShell or Windows Terminal, not Git Bash, not an IDE's output pane | The owner | A minute |
 | **A held record.** If it refuses `ENVELOPE_NOT_RECORDED`, and no ProjectOS process is running, remove the `.jsonl.lock` in the installation state | The owner | A minute |
 | **Revert the merge.** `git revert` the merge commit on `main`. That removes the entry refusal, the bridge rule and the sidecar rule together, and the owner's gates apply to it as to any merge | The owner | One revert, and the phase reopens |
-| **By hand.** As with the emergency stop's `BY_HAND_RECOVERY`, a person at this account can write the receipt and its line. Nothing in ProjectOS does that for them, and no refusal prints how. It is exactly the forgery the limit below describes, so it is the last route | The owner | Accepts that the receipt then shows nothing |
+
+**There is no by-hand route.** An earlier version of this table named one and gave no format, so nobody could follow it.
+A format would be a published recipe for the forgery described below, so the route is removed instead. If the three
+routes above fail, the way out is the revert.
 
 The prompt itself has now been exercised on a real console (below). The pre-merge order above is what makes a failure
 cheap: if `tenant receipt` fails in the worktree, nothing is locked.
@@ -132,6 +135,18 @@ unlock failure. It was the harness: a child of a redirected parent inherits the 
 set. The real prompt was then read correctly. That does not prove every console: Git Bash's mintty gives no TTY and is
 refused by name.
 
+## ECC recheck
+
+ECC APPROVED at the rebased head, with these for the lead to close:
+
+| Item | Disposition |
+|---|---|
+| Four core tests pinned the three-project registry | **Fixed under plan v1.34.** The list, the origins, and the two fixtures whose root is now a real project's parent |
+| The "owner decided" test claimed the eight new domains | **Split, not renamed.** `val-projectos-tenant-contract1a` pins that title and is outside the grant. It now covers only the three the owner decided, and a new test says the eight are the implementer's reading |
+| The by-hand route named no format | **Removed,** above |
+| `conpty.ps1` makes a genuine-looking pair in one command | **Said plainly,** under "What the receipt shows", and pinned test-only by TP-29 |
+| A verb refused under a stale lock gave no way out | **Fixed.** Every unrecorded refusal now carries the lock hint. Both new tests failed first, one through the real sidecar |
+
 ## What decides which work is bound
 
 **cwd selects the checkout.** The tenant value is derived and cannot be supplied, but "the work this is bound to" means
@@ -164,10 +179,14 @@ owner's signature, and nothing here calls it that.
 - **It does not stop:** a process that drives a console. And any process of this user can write the receipt and its line directly,
   as it can rewrite the emergency stop record. Both are ADR-T1 §10's first limit, one Windows user.
 
-**The console limit is not theoretical.** `support/conpty.ps1` is about 130 lines, needs no dependency, and answers the
-prompt. It is in this repository as a test, so an agent could run it, against the real state, and write a real
-receipt. I ran it against the real state once, with a wrong answer, which writes nothing; every correct answer in
-these tests went to a throwaway profile. The TTY check stops an agent that follows the route. It does not stop one that
+**The console limit is not theoretical. `conpty.ps1`, committed in this repository,
+makes a genuine-looking receipt and admission pair in one command.** It is about 130 lines, needs no dependency, and answers the prompt.
+So an agent could run it against the real state, and the result would be indistinguishable from an owner's, because
+the admission line is real: the door wrote it. Keeping the script is a trade: it is the only proof the sole way out reads a real keyboard.
+It stays test-only, under `agent/test/support`, labelled, and TP-29 refuses any reference to it from source, the CLI
+and bridge binaries, the agent's `package.json`, the sidecar or the release packaging. That stops production calling
+it. It does not stop anyone running it by hand. I ran it against the real state once, with a wrong answer, which
+writes nothing; every correct answer in these tests went to a throwaway profile. The TTY check stops an agent that follows the route. It does not stop one that
 is trying.
 
 **The lesson of the replace ref.** My first version pinned the commit and named the blob, and I called that committed
@@ -207,7 +226,6 @@ points `@projectos/agent` at this worktree's build for the same reason. After a 
   no key: they have no effect to repeat.
 - **`readmitEnvelope` has no caller, and `mintCrossing` none in production.** No persisted envelope is read back, and
   `mintRunCrossing` is proved by a test, until CREDENTIALS1A calls it.
-- **Four core tests fail, and they are outside this phase's writePaths.** See "Needs the lead".
 - **`action-registry-change` has no receipt.** ADR-T1 says the same limit applies to it. The action registry is read
   from committed bytes and hashed, and its floors are in code, but a commit can still change it.
 - **The P5 grant for `tenant-registry-change` is the typed confirmation, and nothing else has a grant.** `NO_GRANT`
@@ -309,18 +327,9 @@ Every mutation below was killed by the rule it names, in `selfTest`, on the fina
 
 ## Needs the lead
 
-**Four tests in `projectos/core/test` now fail, because they pin the old registry, and those two files are outside the
-v1.33 grant.** `core/src` is untouched. The fix is a grant of `projectos/core/test/tenant.test.ts` and
-`projectos/core/test/tenant-contract-review.test.ts`, then:
-
-- `tenant.test.ts:73` `binds exactly the projects`: add the eight `[id, 'owner-personal', 'develop']` rows.
-- `tenant.test.ts:83` `canonicalises each repository`: add the eight origins to `origins`.
-- `tenant.test.ts:190` and `tenant-contract-review.test.ts:389`: the fixture root `C:/dev/BizComply V2` now holds the
-  real `C:/dev/BizComply V2/Source`, so it is a nested root and is rightly refused. Use `C:/dev/A Spaced Project`.
-
 **`val-projectos-tenant-contract1a` pins ADR-T1 §10's "rests on a git name" and §3's "until an owner-only signature or an
-owner-gate receipt" lines,** so they stay, each followed by what replaced it. They read as history now. The fix, when
-that validator is next granted, is to pin the new wording and drop the old.
+owner-gate receipt" lines, and the core test's old title,** so they stay. The two ADR lines are each followed by what
+replaced them, and read as history now. The fix, when that validator is next granted, is to pin the new wording.
 
 ## Carried forward
 

@@ -735,6 +735,17 @@ describe('Control Center project selection', () => {
     expect(textOf(refused)).toContain('REFUSED (ENVELOPE_NOT_RECORDED)');
   });
 
+  it('a verb refused under a stale lock prints the lock hint, so a person can clear it', () => {
+    const w = world();
+    const stray = makeProject(made, 'stray');
+    expect(textOf(controlCenterTenantRefusal(w.ctxAt(stray.root), 'run.start'))).not.toContain('.jsonl.lock');
+    holdRecordLock(w.installation.stateDir, ENVELOPE_RECORDS_FILENAME);
+    const refused = textOf(controlCenterTenantRefusal(w.ctxAt(stray.root), 'run.start'));
+    expect(refused).toContain('REFUSED (TENANT_UNKNOWN)');
+    expect(refused).toContain('REFUSAL_NOT_RECORDED');
+    expect(refused).toContain('.jsonl.lock');
+  });
+
   it('other verbs need a tenant too; only refresh, project.select and run.stop do not', () => {
     const w = world();
     const stray = makeProject(made, 'stray');

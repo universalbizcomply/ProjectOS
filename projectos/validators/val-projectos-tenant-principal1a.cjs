@@ -33,6 +33,7 @@
  *   TP-26 "records are small, locks are brief"      — and a busy bridge fails a run
  *   TP-27 "the next phase will know"                — and what binds it, and who is locked out, is nowhere written
  *   TP-28 "the records can catch up later"          — and the registry and ADR-T1 still say what the code stopped doing
+ *   TP-29 "the console script is handy"             — and production gains a way to answer its own prompt
  *   TP-T  "the tests exist"                         — and `.skip` keeps the proof while dropping the run
  *
  * THE PINS ARE IN THE BODIES. A pin on a call site survives a gutted function, so each pin is taken from
@@ -121,6 +122,7 @@ const TESTS = {
     "a run an earlier run already completed returns the earlier outcome rather than running again",
     "a selection that cannot be recorded did not happen",
     "a selection whose outcome cannot be recorded did not happen either",
+    "a verb refused under a stale lock prints the lock hint, so a person can clear it",
     "a working-tree edit hidden from `git diff` still has no authority: the bytes judged are the committed ones",
     "other verbs need a tenant too; only refresh, project.select and run.stop do not",
     "never replaces a file it cannot read, which would erase what it holds",
@@ -165,12 +167,27 @@ const TESTS = {
     "a verb on a project that has lost its tenant is refused, while refresh and run.stop still answer",
     "a remembered selection goes through the envelope at start, and one with no tenant is not restored",
     "a default selection of the only project goes through the rule too",
+    "a verb refused under a stale lock prints the lock hint on the real channel",
     "a selection that falls back to the default on a refresh goes through the rule too",
     "the prompt reads what is typed, a wrong answer is refused, and no receipt is written",
     "a correct answer at a real console makes the receipt, through the door, and the bindings were on the screen",
   ],
 };
-const ALL_SOURCES = [...SOURCES, EVIDENCE_REL, TREG_REL, ADR_REL, ...Object.keys(TESTS)];
+/** What ships, or starts what ships. A console script reachable from any of these answers its own prompt. */
+const PRODUCTION_REL = [
+  REG_REL, ALLOWLIST_REL, GC_REL, CMD_REL, RUN_REL, CLI_REL, BRIDGE_REL, HOST_REL,
+  "projectos/agent/src/index.ts",
+  "projectos/agent/bin/projectos.js",
+  "projectos/agent/bin/projectos-bridge.js",
+  "projectos/agent/package.json",
+  "projectos/control-center/sidecar/governedWorker.mjs",
+  "projectos/control-center/packaging/build-daemon-bundle.mjs",
+  "projectos/control-center/packaging/build-release-payload.mjs",
+];
+const CONSOLE_REL = "projectos/agent/test/support/conpty.ps1";
+const DRIVER_REL = "projectos/agent/test/support/receiptDriver.mjs";
+const TEST_ONLY_NAMES = /conpty|receiptDriver|sidecarPreload/i;
+const ALL_SOURCES = [...new Set([...SOURCES, ...PRODUCTION_REL, CONSOLE_REL, DRIVER_REL, EVIDENCE_REL, TREG_REL, ADR_REL, ...Object.keys(TESTS)])];
 
 /**
  * `[rule, rel, function or null, the text that must be there]`. Judged on comment-stripped source, so a
@@ -263,7 +280,7 @@ const PINS = [
   ["TP-10", BRIDGE_REL, "refusalResult", "REFUSAL_NOT_RECORDED"],
   ["TP-10", BRIDGE_REL, "handleBridgeRpc", "refusalResult(['REFUSED', ...verdict.reasons.map((r) => `- ${r}`)], recorded)"],
   ["TP-10", BRIDGE_REL, "handleBridgeRpc", "],\n        recorded,\n      ),"],
-  ["TP-10", GC_REL, "recordedRefusalLines", "recorded ? tenantRefusalLines(r) : [...tenantRefusalLines(r), REFUSAL_NOT_RECORDED_LINE]"],
+  ["TP-10", GC_REL, "recordedRefusalLines", "recorded ? tenantRefusalLines(r) : [...tenantRefusalLines(r), REFUSAL_NOT_RECORDED_LINE, RECORD_LOCK_HINT]"],
   ["TP-10", GC_REL, "recordTenantRefusal", "return !door.admitted && door.recorded;"],
   // TP-11: the tenant rule stands alone.
   ["TP-11", REG_REL, "crossTenantRefusal", "wanted === undefined"],
@@ -434,7 +451,7 @@ const MUTATIONS = [
   { name: "unrecorded-refusal-not-said", rule: "TP-10", rel: BRIDGE_REL, from: "return toolResult(recorded ? lines : [...lines, `- ${unrecorded}`], true);", to: "return toolResult(lines, true);" },
   { name: "contract-refusal-outcome-ignored", rule: "TP-10", rel: BRIDGE_REL, from: "return ok(request, refusalResult(['REFUSED', ...verdict.reasons.map((r) => `- ${r}`)], recorded));", to: "return ok(request, refusalResult(['REFUSED', ...verdict.reasons.map((r) => `- ${r}`)], true));" },
   { name: "unimplemented-refusal-outcome-ignored", rule: "TP-10", rel: BRIDGE_REL, from: "`- '${verdict.operation}' is part of the bridge contract but this revision does not implement it`,\n        ],\n        recorded,", to: "`- '${verdict.operation}' is part of the bridge contract but this revision does not implement it`,\n        ],\n        true," },
-  { name: "cli-refusal-outcome-ignored", rule: "TP-10", rel: GC_REL, from: "recorded ? tenantRefusalLines(r) : [...tenantRefusalLines(r), REFUSAL_NOT_RECORDED_LINE]", to: "tenantRefusalLines(r)" },
+  { name: "cli-refusal-outcome-ignored", rule: "TP-10", rel: GC_REL, from: "recorded ? tenantRefusalLines(r) : [...tenantRefusalLines(r), REFUSAL_NOT_RECORDED_LINE, RECORD_LOCK_HINT]", to: "tenantRefusalLines(r)" },
   { name: "refusal-record-always-claims-written", rule: "TP-10", rel: GC_REL, from: "return !door.admitted && door.recorded;", to: "return true;" },
   // TP-11
   { name: "tenant-rule-compares-nothing", rule: "TP-11", rel: REG_REL, from: "return wanted.tenant === boundTenant\n    ? null", to: "return wanted.tenant !== ''\n    ? null" },
@@ -580,6 +597,18 @@ const MUTATIONS = [
   { name: "evidence-hides-bizcomply", rule: "TP-27", rel: EVIDENCE_REL, from: "`brik`, `trading-bot`, `bizcomply-v2`", to: "`brik`, `trading-bot`" },
   { name: "evidence-hides-who-stays-refused", rule: "TP-27", rel: EVIDENCE_REL, from: "`tkn`, `erp-system`, `wizard-probe`.\n", to: "a few.\n" },
   { name: "evidence-hides-the-console-script", rule: "TP-27", rel: EVIDENCE_REL, from: "an agent could run it", to: "it is only a test" },
+  // TP-10, review
+  { name: "stale-lock-hint-dropped", rule: "TP-10", rel: GC_REL, from: "recorded ? tenantRefusalLines(r) : [...tenantRefusalLines(r), REFUSAL_NOT_RECORDED_LINE, RECORD_LOCK_HINT]", to: "recorded ? tenantRefusalLines(r) : [...tenantRefusalLines(r), REFUSAL_NOT_RECORDED_LINE]" },
+  // TP-29
+  { name: "cli-reaches-the-console-script", rule: "TP-29", rel: CLI_REL, from: "import { tenant } from './commands/tenant.js';", to: "import { tenant } from './commands/tenant.js';\nconst CONSOLE = 'test/support/conpty.ps1';" },
+  { name: "tenant-command-reaches-the-console-script", rule: "TP-29", rel: CMD_REL, from: "const CONFIRMATION_LENGTH = 12;", to: "const CONFIRMATION_LENGTH = 12;\nconst DRIVER = 'receiptDriver.mjs';" },
+  { name: "sidecar-reaches-the-console-script", rule: "TP-29", rel: HOST_REL, from: "import { gitBoundSystem } from './gitBoundSystem.mjs';", to: "import { gitBoundSystem } from './gitBoundSystem.mjs';\nconst CONSOLE = 'conpty.ps1';" },
+  { name: "cli-binary-reaches-the-console-script", rule: "TP-29", rel: "projectos/agent/bin/projectos.js", from: "setProcessRoot(process.cwd());", to: "setProcessRoot(process.cwd());\nconst CONSOLE = 'conpty.ps1';" },
+  { name: "package-script-reaches-the-console-script", rule: "TP-29", rel: "projectos/agent/package.json", from: "\"test\": \"vitest run\",", to: "\"test\": \"vitest run\",\n    \"confirm\": \"powershell -File test/support/conpty.ps1\"," },
+  { name: "payload-carries-the-console-script", rule: "TP-29", rel: "projectos/control-center/packaging/build-release-payload.mjs", from: "// THE BUNDLE IS ONLY AS CURRENT AS THE `dist` IT LINKS.", to: "const CONSOLE = 'conpty.ps1';\n// THE BUNDLE IS ONLY AS CURRENT AS THE `dist` IT LINKS." },
+  { name: "console-script-loses-its-label", rule: "TP-29", rel: CONSOLE_REL, from: "TEST ONLY. Nothing in production may call this", to: "A helper" },
+  { name: "driver-loses-its-label", rule: "TP-29", rel: DRIVER_REL, from: "TEST ONLY. Nothing in production may call this", to: "A helper" },
+  { name: "evidence-softens-the-console-script", rule: "TP-29", rel: EVIDENCE_REL, from: "makes a genuine-looking receipt and admission pair in one command", to: "is a test helper" },
   // TP-T
   { name: "a-proof-skipped", rule: "TP-T", rel: "projectos/agent/test/tenantBridgeRule.test.ts", from: "  it('still refuses a read across tenants", to: "  it.skip('still refuses a read across tenants" },
   { name: "a-proof-isolated", rule: "TP-T", rel: "projectos/agent/test/tenantPrincipal.test.ts", from: "  it('a run whose admission cannot be recorded does not start'", to: "  it.only('a run whose admission cannot be recorded does not start'" },
@@ -840,6 +869,11 @@ function check(raw) {
   const adr = prose(src[ADR_REL]);
   for (const needle of ADR_NEEDLES) if (!adr.includes(needle)) E("TP-28", `ADR-T1 no longer says: ${needle}`);
 
+  // TP-29: the console script stays a test's. Raw text, so a comment that names it counts as well.
+  for (const rel of PRODUCTION_REL) if (TEST_ONLY_NAMES.test(raw[rel])) E("TP-29", `${rel} reaches a test-only console script`);
+  for (const rel of [CONSOLE_REL, DRIVER_REL]) if (!raw[rel].includes("TEST ONLY. Nothing in production may call this")) E("TP-29", `${rel} no longer says it is test-only`);
+  if (!prose(raw[EVIDENCE_REL]).includes("makes a genuine-looking receipt and admission pair in one command")) E("TP-29", "the evidence no longer says what the console script can do");
+
   // TP-T: every proof exists, and every proof runs.
   for (const [rel, needles] of Object.entries(TESTS)) {
     for (const n of needles) if (!src[rel].includes(n)) E("TP-T", `${rel} no longer proves "${n}"`);
@@ -863,7 +897,7 @@ function selfTest(raw) {
   const names = MUTATIONS.map((m) => m.name);
   if (new Set(names).size !== names.length) errors.push("TP-M: two mutations share a name");
   const rules = new Set(MUTATIONS.map((m) => m.rule));
-  for (const rule of [...Array.from({ length: 28 }, (_, i) => `TP-${i + 1}`), "TP-T"]) {
+  for (const rule of [...Array.from({ length: 29 }, (_, i) => `TP-${i + 1}`), "TP-T"]) {
     if (!rules.has(rule)) errors.push(`TP-M: rule ${rule} has no named mutation`);
   }
   return errors;

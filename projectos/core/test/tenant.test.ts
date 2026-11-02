@@ -71,7 +71,7 @@ describe('the committed tenant registry', () => {
   });
 
   it('binds exactly the projects the owner decided, to the tenants the owner decided (D2)', () => {
-    const bindings = registry().projects.map(({ projectId, tenant, domain }) => [projectId, tenant, domain]);
+    const bindings = registry().projects.slice(0, 3).map(({ projectId, tenant, domain }) => [projectId, tenant, domain]);
     expect(bindings).toEqual([
       ['projectos', 'owner-personal', 'develop'],
       ['polygo', 'owner-personal', 'develop'],
@@ -79,11 +79,26 @@ describe('the committed tenant registry', () => {
     ]);
   });
 
+  it('lists eight more in owner-personal under D2, and their domain is the implementer\'s reading of each project, not an owner decision', () => {
+    const bindings = registry().projects.slice(3).map(({ projectId, tenant, domain }) => [projectId, tenant, domain]);
+    expect(bindings).toEqual(
+      ['dead-aisle', 'jd-testing', 'criclocal', 'coverdrive', 'boithok-khana', 'brik', 'trading-bot', 'bizcomply-v2'].map((id) => [id, 'owner-personal', 'develop']),
+    );
+  });
+
   it('canonicalises each repository with the rule the allowlist uses, parseRemoteUrl', () => {
     const origins: Readonly<Record<string, string>> = {
       projectos: 'https://github.com/universalbizcomply/ProjectOS.git',
       polygo: 'https://github.com/polygonia-apres/polygo.git',
       'seo-agency': 'http://127.0.0.1:47900/SEOAgency-remote/seo-agency.git',
+      'dead-aisle': 'https://github.com/universalbizcomply/deadaisle.git',
+      'jd-testing': 'https://github.com/jdonlinetesting/JDtesting.git',
+      criclocal: 'https://github.com/muraddevbuild-maker/criclocal',
+      coverdrive: 'https://github.com/coverdrivemanchester-art/Coverdrive.git',
+      'boithok-khana': 'https://github.com/universalbizcomply/bothokkhana.git',
+      brik: 'https://github.com/universalbizcomply/brik.git',
+      'trading-bot': 'https://github.com/universalbizcomply/tbot.git',
+      'bizcomply-v2': 'https://github.com/universalbizcomply/opsoft-ios-lab.git',
     };
     for (const entry of registry().projects) {
       const ref = parseRemoteUrl(origins[entry.projectId] as string);
@@ -187,7 +202,7 @@ describe('whole-file validation', () => {
   });
 
   it('a path with a space is legal: real project folders have them', () => {
-    expect(codes(parseTenantRegistry(withExtraProject({ ...NEW_PROJECT, governedRoot: 'C:/dev/BizComply V2' })))).toEqual([]);
+    expect(codes(parseTenantRegistry(withExtraProject({ ...NEW_PROJECT, governedRoot: 'C:/dev/A Spaced Project' })))).toEqual([]);
   });
 
   it.each([

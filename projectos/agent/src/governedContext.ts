@@ -538,7 +538,7 @@ const RECORD_LOCK_HINT = '  if no other ProjectOS process is running, a .jsonl.l
 
 function recordedRefusalLines(sys: System, source: TenantSource, r: TenantRefusal): readonly string[] {
   const recorded = recordTenantRefusal(sys, source.stateDir, r);
-  return recorded ? tenantRefusalLines(r) : [...tenantRefusalLines(r), REFUSAL_NOT_RECORDED_LINE];
+  return recorded ? tenantRefusalLines(r) : [...tenantRefusalLines(r), REFUSAL_NOT_RECORDED_LINE, RECORD_LOCK_HINT];
 }
 
 /** What the door refused, in the CLI's words. An admission that could not be written has its own name. */
@@ -650,7 +650,7 @@ export function runStartTenantRefusal(ctx: CommandContext, execute: boolean): re
     const rule = claim.kind === 'duplicate' ? 'ENVELOPE_DUPLICATE' : 'IDEMPOTENCY_UNAVAILABLE';
     const why = claim.kind === 'duplicate' ? `this run already ended as '${claim.earlier.outcome}' at this commit` : claim.why;
     const stopped = recordExecution(admission.envelope, 'refused', rule, sys.now(), envelopeRecorder(sys, source.stateDir));
-    return [`REFUSED (${rule}): ${why}`, ...(stopped ? [] : [REFUSAL_NOT_RECORDED_LINE])];
+    return [`REFUSED (${rule}): ${why}`, ...(stopped ? [] : [REFUSAL_NOT_RECORDED_LINE, RECORD_LOCK_HINT])];
   }
   ADMITTED_RUNS.set(ctx, { envelope: admission.envelope, derived });
   return null;

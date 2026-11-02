@@ -1,4 +1,6 @@
 /**
+ * TEST ONLY. Nothing in production may call this, and val-projectos-tenant-principal1a pins that.
+ *
  * The real `tenant receipt`, with its real terminal confirmation, against a throwaway installation.
  *
  * Started inside a real console by `conpty.ps1`. It names the fixture's installation and state directory on
