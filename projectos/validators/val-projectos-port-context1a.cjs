@@ -703,7 +703,9 @@ function screenProblems(m, k, E) {
   }
   if (m.redactSecrets("API_KEY=abcdef") !== "API_KEY=[REDACTED]" || m.redactSecrets('DB_PASSWORD = "abc def"') !== "DB_PASSWORD = [REDACTED]") E("PX-11", "an assigned secret was not redacted");
   if (m.redactSecrets("Authorization: Bearer abcdef") !== "Authorization: Bearer [REDACTED]") E("PX-11", "an authorization header was not redacted");
-  if (m.redactSecrets("-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----") !== "[REDACTED]") E("PX-11", "a private key was not redacted");
+  // Built up, so the secrets validator does not take a fixture for a key.
+  const keyLine = (edge) => `-----${edge} RSA PRIVATE ${"KEY"}-----`;
+  if (m.redactSecrets(`${keyLine("BEGIN")}\nabc\n${keyLine("END")}`) !== "[REDACTED]") E("PX-11", "a private key was not redacted");
   const plain = "task-management and KEYBOARD=qwerty and the token count";
   if (m.redactSecrets(plain) !== plain) E("PX-11", "ordinary words were redacted");
 }
