@@ -216,7 +216,8 @@ describe('a refusal that cannot be recorded stops the operation', () => {
       createExclusive: (path, content) => {
         if (path.endsWith(`${ENVELOPE_RECORDS_FILENAME}.lock`)) {
           appends += 1;
-          if (appends === 2) return false;
+          // From the second record on: a lone failure is retried, so one would prove nothing.
+          if (appends >= 2) return false;
         }
         return sys.createExclusive(path, content);
       },

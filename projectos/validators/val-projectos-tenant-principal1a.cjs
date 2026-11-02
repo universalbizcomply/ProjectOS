@@ -27,6 +27,12 @@
  *   TP-20 "it stops an agent, say that"             — and the limit disappears from the page
  *   TP-21 "mock it for the suite"                   — and the rule itself is never run
  *   TP-22 "register it later"                       — and nothing ever runs this file
+ *   TP-23 "the crossing can mint its own run"       — and the next phase has nothing to link to
+ *   TP-24 "the owner confirmed it"                  — and a console is promoted to a person
+ *   TP-25 "a receipt is a receipt"                  — and a moved tenant is confirmed unseen, or a file is copied
+ *   TP-26 "records are small, locks are brief"      — and a busy bridge fails a run
+ *   TP-27 "the next phase will know"                — and what binds it, and who is locked out, is nowhere written
+ *   TP-28 "the records can catch up later"          — and the registry and ADR-T1 still say what the code stopped doing
  *   TP-T  "the tests exist"                         — and `.skip` keeps the proof while dropping the run
  *
  * THE PINS ARE IN THE BODIES. A pin on a call site survives a gutted function, so each pin is taken from
@@ -41,6 +47,9 @@ const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const REG_REL = "projectos/agent/src/installation/tenantRegistry.ts";
+const ALLOWLIST_REL = "projectos/agent/src/installation/projectAllowlist.ts";
+const TREG_REL = "projectos/security/tenant-registry.json";
+const ADR_REL = "docs/adr/ADR-T1-tenant-boundary.md";
 const GC_REL = "projectos/agent/src/governedContext.ts";
 const CMD_REL = "projectos/agent/src/commands/tenant.ts";
 const RUN_REL = "projectos/agent/src/commands/run.ts";
@@ -51,9 +60,26 @@ const SETUP_REL = "projectos/agent/test/setup.ts";
 const EVIDENCE_REL = "docs/finish/PROJECTOS-TENANT-PRINCIPAL1A.md";
 const VA_REL = "projectos/validators/validate-all.cjs";
 const CR_REL = "projectos/speed/cached-runner.cjs";
-const SOURCES = [REG_REL, GC_REL, CMD_REL, RUN_REL, CLI_REL, BRIDGE_REL, HOST_REL, SETUP_REL, VA_REL, CR_REL];
+const SOURCES = [REG_REL, ALLOWLIST_REL, GC_REL, CMD_REL, RUN_REL, CLI_REL, BRIDGE_REL, HOST_REL, SETUP_REL, VA_REL, CR_REL];
 const THIS_VALIDATOR = "val-projectos-tenant-principal1a";
-const OWNER_RECEIPT_LIMIT = "It does not stop a process that drives a console or writes the receipt file directly";
+const RECEIPT_LIMIT = "It does not stop a process that drives a console or writes the receipt and its line directly";
+const RECEIPT_CLAIM = "a person or a process confirmed this registry blob at a console, nothing more";
+/** What the evidence must keep saying, in plain words, for a later reader. */
+const EVIDENCE_NEEDLES = [
+  "any process of this user can write the receipt and its line directly",
+  "It does not stop: a process that drives a console",
+  "`run-start` has no execution line",
+  "a repeat `run-start` is counted, not stopped",
+  "cwd selects the checkout. The tenant value is derived",
+  "the requester is a kernel-issued run handle that survives process boundaries, never cwd",
+  "worktree binding alone releases nothing",
+  "a receipt is never a credential-release grant",
+  "no JWT or OAuth requester",
+  "`run-start` has a budget",
+  "dead-aisle",
+  "bizcomply-v2",
+  "an agent could run it",
+];
 
 const TESTS = {
   "projectos/agent/test/tenantPrincipal.test.ts": [
@@ -111,8 +137,39 @@ const TESTS = {
     "a read whose admission cannot be written is not answered",
     "a read whose outcome cannot be written is not answered either",
   ],
+  "projectos/agent/test/tenantReviewRound.test.ts": [
+    "a replace ref cannot change the bytes judged under a receipted blob name",
+    "`refs/replace` is shared across linked worktrees, and an installation in one is not fooled either",
+    "bytes that do not hash to the named blob are refused, whatever produced them",
+    "every git call on the registry refuses replacement objects",
+    "a crossing can be minted from the run this context admitted, and it passes the door tied to that run",
+    "a dry run, another context and a refused run hold nothing to link",
+    "cwd does: a second `run --execute` from another tenant\\'s root gets that tenant, and nothing ties the two",
+    "records the confirmation method, and does not claim the owner",
+    "no answer says the owner did it",
+    "shows the change against the last receipted blob at the prompt",
+    "a receipt with no admission line carries no authority: a copied file is not a confirmation",
+    "waits for a lock another process lets go of, and the line lands",
+    "a busy bridge does not fail `run --execute`",
+    "the wait is bounded: a lock nobody releases refuses, and no unwritable directory waits at all",
+    "rotates past its size, losing nothing",
+    "the real default refuses `C:/PROGRA~1`, which exists and which plain realpathSync leaves unexpanded",
+    "a real short name of a registered root is refused by name, and its long name binds",
+    "the real CLI, `run` and `continue` all reach the real rule",
+    "quotes the printed command, so a path with spaces works",
+    "a corrupt idempotency file names its fix",
+  ],
+  "projectos/agent/test/tenantSidecar.test.ts": [
+    "selects a listed project through the envelope, and refuses an unlisted one before it takes effect",
+    "a verb on a project that has lost its tenant is refused, while refresh and run.stop still answer",
+    "a remembered selection goes through the envelope at start, and one with no tenant is not restored",
+    "a default selection of the only project goes through the rule too",
+    "a selection that falls back to the default on a refresh goes through the rule too",
+    "the prompt reads what is typed, a wrong answer is refused, and no receipt is written",
+    "a correct answer at a real console makes the receipt, through the door, and the bindings were on the screen",
+  ],
 };
-const ALL_SOURCES = [...SOURCES, EVIDENCE_REL, ...Object.keys(TESTS)];
+const ALL_SOURCES = [...SOURCES, EVIDENCE_REL, TREG_REL, ADR_REL, ...Object.keys(TESTS)];
 
 /**
  * `[rule, rel, function or null, the text that must be there]`. Judged on comment-stripped source, so a
@@ -125,6 +182,12 @@ const PINS = [
   ["TP-1", REG_REL, "committedBytes", "dirty.stdout.trim().length > 0"],
   ["TP-1", REG_REL, "committedBytes", "'show', `${commit}:./${rel}`"],
   ["TP-1", REG_REL, "committedBytes", "'rev-parse', `${commit}:./${rel}`"],
+  ["TP-1", REG_REL, "gitAt", "sys.exec('git', ['--no-replace-objects', '-C', install, ...args])"],
+  ["TP-1", REG_REL, "committedBytes", "if (blobNameOf(shown.stdout, blob) !== blob) return refusal(code,"],
+  ["TP-1", ALLOWLIST_REL, "blobNameOf", "createHash(blob.length === 64 ? 'sha256' : 'sha1').update(`blob ${bytes.length}\\0`).update(bytes)"],
+  ["TP-1", ALLOWLIST_REL, "installationAllowsProject", "sys.exec('git', ['--no-replace-objects', '-C', install, ...args])"],
+  ["TP-1", ALLOWLIST_REL, "installationAllowsProject", "if (named.code !== 0 || blobNameOf(shown.stdout, blob) !== blob) {"],
+  ["TP-1", REG_REL, "registryAtBlob", "blobNameOf(shown.stdout, blob) !== blob"],
   ["TP-1", REG_REL, "readCommittedTenantRegistry", "committedBytes(sys, installRoot, TENANT_REGISTRY_REL, 'TENANT_REGISTRY_UNREADABLE')"],
   ["TP-1", REG_REL, "readCommittedActionRegistry", "committedBytes(sys, installRoot, ACTION_REGISTRY_REL, 'ACTION_REGISTRY_UNREADABLE')"],
   // TP-2: the whole file, then the owner, then the match.
@@ -134,11 +197,12 @@ const PINS = [
   ["TP-2", REG_REL, "readCommittedActionRegistry", "if (!parsed.ok) return refusal('ACTION_REGISTRY_UNREADABLE'"],
   ["TP-2", GC_REL, "deriveTenant", "if (!registries.ok) return registries;"],
   // TP-3: the owner receipt.
-  ["TP-3", GC_REL, "deriveTenant", "const unconfirmed = ownerReceiptRefusal(sys, source, registries.blob);"],
+  ["TP-3", GC_REL, "deriveTenant", "const unconfirmed = receiptRefusal(sys, source, registries.blob);"],
   ["TP-3", GC_REL, "deriveTenant", "if (unconfirmed !== null) return unconfirmed;"],
-  ["TP-3", REG_REL, "ownerReceiptRefusal", "read.kind === 'ok' && read.receipt.registryBlob === blob"],
-  ["TP-3", REG_REL, "ownerReceiptRefusal", "refusal('TENANT_REGISTRY_NO_OWNER_RECEIPT'"],
-  ["TP-3", REG_REL, "ownerReceiptRefusal", "tenantReceiptCommand(source.installRoot, blob)"],
+  ["TP-3", REG_REL, "receiptRefusal", "read.kind === 'ok' && read.receipt.registryBlob === blob"],
+  ["TP-3", REG_REL, "receiptRefusal", "refusal('TENANT_REGISTRY_NO_RECEIPT'"],
+  ["TP-3", REG_REL, "receiptRefusal", "tenantReceiptCommand(source.installRoot, blob)"],
+  ["TP-3", REG_REL, "tenantReceiptCommand", "`node \"${"],
   ["TP-3", REG_REL, "parseReceipt", "Object.keys(record).length === TENANT_RECEIPT_FIELDS.length"],
   ["TP-3", REG_REL, "parseReceipt", "record['kind'] === TENANT_RECEIPT_KIND"],
   ["TP-3", REG_REL, "parseReceipt", "record['schemaVersion'] === TENANT_RECEIPT_SCHEMA_VERSION"],
@@ -150,7 +214,7 @@ const PINS = [
   ["TP-4", CMD_REL, "terminalTenantReceiptConfirm", "return { kind: 'no-terminal' }"],
   ["TP-4", CMD_REL, "terminalTenantReceiptConfirm", "typed === null ? { kind: 'no-terminal' }"],
   ["TP-4", CMD_REL, "tenant", "confirm: TenantReceiptConfirm = terminalTenantReceiptConfirm()"],
-  ["TP-4", CMD_REL, "receipt", "const confirmation = confirm(blob, registrySummary(derived));"],
+  ["TP-4", CMD_REL, "receipt", "const confirmation = confirm(blob, [...changesSinceLastReceipt("],
   ["TP-4", CMD_REL, "receipt", "if (confirmation.kind !== 'typed') {"],
   ["TP-4", CMD_REL, "receipt", "TENANT_RECEIPT_NEEDS_A_TERMINAL"],
   ["TP-4", CMD_REL, "receipt", "if (confirmation.text !== blob.slice(0, CONFIRMATION_LENGTH)) {"],
@@ -172,7 +236,8 @@ const PINS = [
   ["TP-6", REG_REL, "pointsIntoRegisteredRoot", ".startsWith(`${pathKey(registeredRoot)}/.git/worktrees/`)"],
   // TP-8: through the core's door.
   ["TP-8", GC_REL, "admitBoundary", "binding: derived.binding, registry: derived.actions"],
-  ["TP-8", GC_REL, "admitBoundary", "return admitEnvelope(minted, now, envelopeRecorder(sys, stateDir), grant);"],
+  ["TP-8", GC_REL, "admitBoundary", "return admitEnvelope(minted, now, recorder, grant);"],
+  ["TP-8", GC_REL, "admitBoundary", "recorder: EnvelopeRecorder = envelopeRecorder(sys, stateDir)"],
   ["TP-8", GC_REL, "runStartTenantRefusal", "action: 'run-start',"],
   ["TP-8", GC_REL, "runStartTenantRefusal", "principal: 'implementer',"],
   ["TP-8", GC_REL, "projectSelectionRefusal", "action: 'project-selection',"],
@@ -180,9 +245,8 @@ const PINS = [
   ["TP-8", BRIDGE_REL, "admitBridgeRead", "principal: 'advisor',"],
   ["TP-8", GC_REL, "checkoutSubject", "'rev-parse', '--verify', 'HEAD'"],
   // TP-9: R4 on the disk.
-  ["TP-9", REG_REL, "appendDurableLine", "if (!sys.createExclusive(lock,"],
-  ["TP-9", REG_REL, "appendDurableLine", "\\n`)) return false;\n  try {"],
-  ["TP-9", REG_REL, "appendDurableLine", "if (existing === null && sys.exists(path)) return false;"],
+  ["TP-9", REG_REL, "appendDurableLine", "if (!takeRecordLock(sys, lock)) return false;\n  try {"],
+  ["TP-9", REG_REL, "appendDurableLine", "if (held === null && sys.exists(path)) return false;"],
   ["TP-9", REG_REL, "appendDurableLine", "if (!sys.renameFile(temporary, path)) {"],
   ["TP-9", REG_REL, "appendDurableLine", "return sys.readText(path)?.endsWith(line) === true;"],
   ["TP-9", REG_REL, "appendDurableLine", "} catch {\n    return false;\n  }"],
@@ -214,6 +278,10 @@ const PINS = [
   ["TP-14", HOST_REL, "handleGovernedCommand", "projectSelectionRefusal(tenantContext(resolveProjectRoot(inventory, outcome.projectId)))"],
   ["TP-14", HOST_REL, "handleGovernedCommand", "controlCenterTenantRefusal(tenantContext(root), check.request.verb)"],
   ["TP-14", HOST_REL, "tenantContext", "tenantInstallRoot: installRoot"],
+  ["TP-14", HOST_REL, null, "let selectedProjectId = admittedSelection(initialSelection());"],
+  ["TP-14", HOST_REL, "refreshInventory", "selectedProjectId = admittedSelection(defaultSelection(inventory));"],
+  ["TP-14", HOST_REL, "admittedSelection", "projectSelectionRefusal(tenantContext(root))"],
+  ["TP-14", HOST_REL, "admittedSelection", "if (refused === null) return projectId;"],
   ["TP-14", GC_REL, "controlCenterTenantRefusal", "if (CONTROL_CENTER_VERBS_WITHOUT_TENANT.includes(verb)) return null;"],
   // TP-15: wired.
   ["TP-15", CMD_REL, "show", "deriveProjectTenant(ctx.sys, ctx.root, source)"],
@@ -228,6 +296,7 @@ const PINS = [
   // TP-17: the store.
   ["TP-17", REG_REL, "claimIdempotencyKey", "if (sys.createExclusive(path,"],
   ["TP-17", REG_REL, "claimIdempotencyKey", "if (earlier === null) return { kind: 'unavailable'"],
+  ["TP-17", REG_REL, "claimIdempotencyKey", "a person may remove that file"],
   ["TP-17", REG_REL, "claimIdempotencyKey", "earlier.outcome === 'completed' || (earlier.outcome === 'admitted' && options.retryUnsettled !== true)"],
   ["TP-17", REG_REL, "claimIdempotencyKey", "const attempt = earlier.attempts + 1;"],
   ["TP-17", REG_REL, "claimIdempotencyKey", "if (stateDir === null) return { kind: 'unavailable'"],
@@ -244,6 +313,39 @@ const PINS = [
   // TP-20: the limit stays on the page.
   ["TP-20", CMD_REL, "receiptAnswer", "[...lines, TENANT_RECEIPT_STATEMENT]"],
   ["TP-20", CMD_REL, "show", "TENANT_RECEIPT_STATEMENT,"],
+  // TP-23: the admitted run stays, narrowly.
+  ["TP-23", GC_REL, "runStartTenantRefusal", "ADMITTED_RUNS.delete(ctx);"],
+  ["TP-23", GC_REL, "runStartTenantRefusal", "ADMITTED_RUNS.set(ctx, { envelope: admission.envelope, derived });"],
+  ["TP-23", GC_REL, "admittedRunEnvelopeOf", "ADMITTED_RUNS.get(ctx)?.envelope ?? null"],
+  ["TP-23", GC_REL, "mintRunCrossing", "if (admitted === undefined) return { ok: false, rule: 'RUN_LINK'"],
+  ["TP-23", GC_REL, "mintRunCrossing", "return mintCrossing("],
+  ["TP-23", GC_REL, null, "const ADMITTED_RUNS = new WeakMap<object,"],
+  // TP-24: a method, not a person.
+  ["TP-24", REG_REL, null, "export const TENANT_RECEIPT_CONFIRMATION = 'typed-terminal';"],
+  ["TP-24", CMD_REL, "receipt", "principal: 'implementer',"],
+  ["TP-24", CMD_REL, "receipt", "`confirmation:${TENANT_RECEIPT_CONFIRMATION}`"],
+  // TP-25: seen, and reconciled.
+  ["TP-25", CMD_REL, "changesSinceLastReceipt", "registryAtBlob(ctx.sys, installRoot, last)"],
+  ["TP-25", CMD_REL, "changeOf", "CHANGED"],
+  ["TP-25", CMD_REL, "receipt", "...changesSinceLastReceipt(ctx, source.installRoot, before, derived.registry)"],
+  ["TP-25", CMD_REL, "changesSinceLastReceipt", "REMOVED"],
+  ["TP-25", CMD_REL, "changesSinceLastReceipt", "ADDED"],
+  ["TP-25", CMD_REL, "changeOf", "(['tenant', 'domain', 'repository', 'governedRoot'] as const)"],
+  ["TP-25", REG_REL, "receiptRefusal", "if (matches && hasAdmissionLine(sys, source.stateDir, read.receipt)) return null;"],
+  ["TP-25", REG_REL, "hasAdmissionLine", "record?.stage === 'admission'"],
+  ["TP-25", REG_REL, "hasAdmissionLine", "record.outcome === 'allowed'"],
+  ["TP-25", REG_REL, "hasAdmissionLine", "envelope.envelopeId === receipt.envelopeId"],
+  ["TP-25", REG_REL, "hasAdmissionLine", "envelope.subjectHash === receipt.registryBlob"],
+  ["TP-25", CMD_REL, "receipt", "envelopeRecorder(sys, source.stateDir, TENANT_CHANGE_RECORDS_FILENAME)"],
+  ["TP-25", CMD_REL, "receipt", "writeTenantReceipt(sys, source.stateDir, blob, sys.now(), admission.envelope.envelopeId)"],
+  // TP-26: bounded waits, bounded files.
+  ["TP-26", REG_REL, "takeRecordLock", "for (let step = 0; step < LOCK_WAIT_STEPS; step += 1) {"],
+  ["TP-26", REG_REL, "takeRecordLock", "Atomics.wait(pause, 0, 0, LOCK_WAIT_STEP_MS);"],
+  ["TP-26", REG_REL, "takeRecordLock", "if (!sys.exists(lock)) return sys.createExclusive(lock, content);"],
+  ["TP-26", REG_REL, null, "const LOCK_WAIT_STEPS = 40;"],
+  ["TP-26", REG_REL, null, "export const DURABLE_LINE_ROTATE_BYTES = 1_048_576;"],
+  ["TP-26", REG_REL, "appendDurableLine", "Buffer.byteLength(held, 'utf8') >= DURABLE_LINE_ROTATE_BYTES"],
+  ["TP-26", REG_REL, "appendDurableLine", "-${randomBytes(4).toString('hex')}`)) return false;\n      existing = null;"],
 ];
 
 /** Lines only `tenantRegistry.ts` may reach: one caller, or the rule has a second door. */
@@ -251,10 +353,10 @@ const NOT_IN_CALLERS = [GC_REL, CMD_REL, RUN_REL, CLI_REL, BRIDGE_REL];
 
 const MUTATIONS = [
   // TP-1
-  { name: "registry-read-from-the-working-tree", rule: "TP-1", rel: REG_REL, from: "const shown = sys.exec('git', ['-C', install, 'show', `${commit}:./${rel}`]);", to: "const shown = { code: 0, stdout: sys.readText(join(install, rel)) ?? '' };" },
+  { name: "registry-read-from-the-working-tree", rule: "TP-1", rel: REG_REL, from: "const shown = gitAt(sys, install, 'show', `${commit}:./${rel}`);", to: "const shown = { code: 0, stdout: sys.readText(join(install, rel)) ?? '' };" },
   { name: "dirty-registry-accepted", rule: "TP-1", rel: REG_REL, from: "if (dirty.code !== 0 || dirty.stdout.trim().length > 0) {", to: "if (dirty.code !== 0) {" },
-  { name: "uncommitted-registry-accepted", rule: "TP-1", rel: REG_REL, from: "const logged = sys.exec('git', ['-C', install, 'log', '-1', '--format=%H', '--', rel]);", to: "const logged = { code: 0, stdout: 'x' };" },
-  { name: "blob-named-from-a-moving-head", rule: "TP-1", rel: REG_REL, from: "const named = sys.exec('git', ['-C', install, 'rev-parse', `${commit}:./${rel}`]);", to: "const named = sys.exec('git', ['-C', install, 'rev-parse', `HEAD:./${rel}`]);" },
+  { name: "uncommitted-registry-accepted", rule: "TP-1", rel: REG_REL, from: "const logged = gitAt(sys, install, 'log', '-1', '--format=%H', '--', rel);", to: "const logged = { code: 0, stdout: 'x' };" },
+  { name: "blob-named-from-a-moving-head", rule: "TP-1", rel: REG_REL, from: "const named = gitAt(sys, install, 'rev-parse', `${commit}:./${rel}`);", to: "const named = gitAt(sys, install, 'rev-parse', `HEAD:./${rel}`);" },
   { name: "action-registry-from-another-rel", rule: "TP-1", rel: REG_REL, from: "committedBytes(sys, installRoot, ACTION_REGISTRY_REL, 'ACTION_REGISTRY_UNREADABLE')", to: "committedBytes(sys, installRoot, TENANT_REGISTRY_REL, 'ACTION_REGISTRY_UNREADABLE')" },
   // TP-2
   { name: "registry-not-judged-whole", rule: "TP-2", rel: REG_REL, from: "const parsed = parseTenantRegistry(raw);\n  if (!parsed.ok) {", to: "const parsed = parseTenantRegistry(raw);\n  if (false) {" },
@@ -262,9 +364,10 @@ const MUTATIONS = [
   { name: "action-registry-not-judged-whole", rule: "TP-2", rel: REG_REL, from: "if (!parsed.ok) return refusal('ACTION_REGISTRY_UNREADABLE'", to: "if (false) return refusal('ACTION_REGISTRY_UNREADABLE'" },
   // TP-3
   { name: "receipt-not-asked", rule: "TP-3", rel: GC_REL, from: "if (unconfirmed !== null) return unconfirmed;", to: "" },
-  { name: "receipt-checked-after-the-match", rule: "TP-3", rel: GC_REL, from: "  const unconfirmed = ownerReceiptRefusal(sys, source, registries.blob);\n  if (unconfirmed !== null) return unconfirmed;\n  return bindCheckout(sys, root, projectId, registries);", to: "  const bound = bindCheckout(sys, root, projectId, registries);\n  if (bound.ok) return bound;\n  const unconfirmed = ownerReceiptRefusal(sys, source, registries.blob);\n  if (unconfirmed !== null) return unconfirmed;\n  return bound;" },
-  { name: "any-receipt-will-do", rule: "TP-3", rel: REG_REL, from: "if (read.kind === 'ok' && read.receipt.registryBlob === blob) return null;", to: "if (read.kind === 'ok') return null;" },
-  { name: "no-receipt-passes", rule: "TP-3", rel: REG_REL, from: "if (read.kind === 'ok' && read.receipt.registryBlob === blob) return null;", to: "if (read.kind !== 'unreadable') return null;" },
+  { name: "printed-command-unquoted", rule: "TP-3", rel: REG_REL, from: "return `node \"${", to: "return `node ${" },
+  { name: "receipt-checked-after-the-match", rule: "TP-3", rel: GC_REL, from: "  const unconfirmed = receiptRefusal(sys, source, registries.blob);\n  if (unconfirmed !== null) return unconfirmed;\n  return bindCheckout(sys, root, projectId, registries);", to: "  const bound = bindCheckout(sys, root, projectId, registries);\n  if (bound.ok) return bound;\n  const unconfirmed = receiptRefusal(sys, source, registries.blob);\n  if (unconfirmed !== null) return unconfirmed;\n  return bound;" },
+  { name: "any-receipt-will-do", rule: "TP-3", rel: REG_REL, from: "const matches = read.kind === 'ok' && read.receipt.registryBlob === blob;", to: "const matches = read.kind === 'ok';" },
+  { name: "no-receipt-passes", rule: "TP-3", rel: REG_REL, from: "const matches = read.kind === 'ok' && read.receipt.registryBlob === blob;", to: "if (read.kind !== 'unreadable') return null;\n  const matches = read.kind === 'ok' && read.receipt.registryBlob === blob;" },
   { name: "refusal-hides-the-command", rule: "TP-3", rel: REG_REL, from: "`  ${tenantReceiptCommand(source.installRoot, blob)}`,", to: "" },
   { name: "receipt-tolerates-extra-fields", rule: "TP-3", rel: REG_REL, from: "Object.keys(record).length === TENANT_RECEIPT_FIELDS.length &&", to: "" },
   { name: "receipt-any-kind", rule: "TP-3", rel: REG_REL, from: "record['kind'] === TENANT_RECEIPT_KIND &&", to: "" },
@@ -272,7 +375,7 @@ const MUTATIONS = [
   { name: "receipt-any-confirmation", rule: "TP-3", rel: REG_REL, from: "record['confirmation'] === TENANT_RECEIPT_CONFIRMATION &&", to: "" },
   { name: "receipt-any-blob-text", rule: "TP-3", rel: REG_REL, from: "typeof blob === 'string' &&\n    GIT_OBJECT.test(blob);", to: "typeof blob === 'string';" },
   { name: "receipt-path-moved", rule: "TP-3", rel: REG_REL, from: "return join(stateDir, TENANT_RECEIPT_FILENAME);", to: "return join(stateDir, 'receipts', TENANT_RECEIPT_FILENAME);" },
-  { name: "owner-check-falls-back-to-a-git-name", rule: "TP-3", rel: REG_REL, from: "const read = readTenantReceipt(sys, source.stateDir);\n  if (read.kind", to: "const read = readTenantReceipt(sys, source.stateDir);\n  if (sys.exec('git', ['-C', source.installRoot, 'log', '-1', '--format=%an']).stdout.trim() === 'Murad') return null;\n  if (read.kind" },
+  { name: "owner-check-falls-back-to-a-git-name", rule: "TP-3", rel: REG_REL, from: "const read = readTenantReceipt(sys, source.stateDir);\n  const matches", to: "const read = readTenantReceipt(sys, source.stateDir);\n  if (sys.exec('git', ['-C', source.installRoot, 'log', '-1', '--format=%an']).stdout.trim() === 'Murad') return null;\n  const matches" },
   // TP-4
   { name: "one-tty-is-enough", rule: "TP-4", rel: CMD_REL, from: "t.stdinIsTTY !== true || t.stdoutIsTTY !== true", to: "t.stdinIsTTY !== true && t.stdoutIsTTY !== true" },
   { name: "no-tty-means-yes", rule: "TP-4", rel: CMD_REL, from: "if (t.stdinIsTTY !== true || t.stdoutIsTTY !== true) return { kind: 'no-terminal' };", to: "if (t.stdinIsTTY !== true || t.stdoutIsTTY !== true) return { kind: 'typed', text: blob.slice(0, CONFIRMATION_LENGTH) };" },
@@ -280,7 +383,7 @@ const MUTATIONS = [
   { name: "confirmation-comes-from-the-context", rule: "TP-4", rel: CMD_REL, from: "confirm: TenantReceiptConfirm = terminalTenantReceiptConfirm(),", to: "confirm: TenantReceiptConfirm = (ctx as unknown as { confirm: TenantReceiptConfirm }).confirm,", },
   { name: "confirmation-not-required", rule: "TP-4", rel: CMD_REL, from: "if (confirmation.kind !== 'typed') {", to: "if (false) {" },
   { name: "any-typed-text-confirms", rule: "TP-4", rel: CMD_REL, from: "if (confirmation.text !== blob.slice(0, CONFIRMATION_LENGTH)) {", to: "if (confirmation.kind !== 'typed') {" },
-  { name: "as-owner-skips-the-terminal", rule: "TP-4", rel: CMD_REL, from: "const confirmation = confirm(blob, registrySummary(derived));", to: "const confirmation = flags['as'] === 'owner' ? { kind: 'typed' as const, text: blob.slice(0, CONFIRMATION_LENGTH) } : confirm(blob, registrySummary(derived));" },
+  { name: "as-owner-skips-the-terminal", rule: "TP-4", rel: CMD_REL, from: "const confirmation = confirm(blob, [...changesSinceLastReceipt(", to: "const confirmation = flags['as'] === 'owner' ? { kind: 'typed' as const, text: blob.slice(0, CONFIRMATION_LENGTH) } : confirm(blob, [...changesSinceLastReceipt(" },
   { name: "receipt-for-a-named-blob", rule: "TP-4", rel: CMD_REL, from: "if (blob !== registries.blob) {", to: "if (false) {" },
   { name: "receipt-written-outside-the-command", rule: "TP-4", rel: BRIDGE_REL, from: "function appendRefusal(sys: System,", to: "void writeTenantReceipt;\nfunction appendRefusal(sys: System," },
   { name: "cli-gives-the-tenant-command-a-confirm", rule: "TP-4", rel: CLI_REL, from: "return tenant(ctx, flags, positionals);", to: "return tenant(ctx, flags, positionals, () => ({ kind: 'typed', text: str(flags, 'blob').slice(0, 12) }));" },
@@ -300,12 +403,12 @@ const MUTATIONS = [
   { name: "resolve-tenant-called-from-a-second-place", rule: "TP-6", rel: GC_REL, from: "function newEnvelopeId(): string {", to: "void resolveTenant;\nfunction newEnvelopeId(): string {" },
   // TP-7
   { name: "derivation-reads-a-flag", rule: "TP-7", rel: GC_REL, from: "export function deriveProjectTenant(sys: System, root: string, source: TenantSource): TenantDerivation {\n  const projectId = declaredProjectId(sys, root);", to: "export function deriveProjectTenant(sys: System, root: string, source: TenantSource, flags: Record<string, string> = {}): TenantDerivation {\n  const projectId = flags['tenant'] ?? declaredProjectId(sys, root);" },
-  { name: "derivation-reads-the-environment", rule: "TP-7", rel: REG_REL, from: "const named = sys.exec('git', ['-C', install, 'rev-parse', `${commit}:./${rel}`]);", to: "const named = process.env['PROJECTOS_TENANT'] ? { code: 0, stdout: 'a' } : sys.exec('git', ['-C', install, 'rev-parse', `${commit}:./${rel}`]);" },
+  { name: "derivation-reads-the-environment", rule: "TP-7", rel: REG_REL, from: "const named = gitAt(sys, install, 'rev-parse', `${commit}:./${rel}`);", to: "const named = process.env['PROJECTOS_TENANT'] ? { code: 0, stdout: 'a' } : gitAt(sys, install, 'rev-parse', `${commit}:./${rel}`);" },
   { name: "tenant-show-reads-a-flag", rule: "TP-7", rel: CMD_REL, from: "`tenant: ${binding.tenant}`,", to: "`tenant: ${String(flagsTenant)}`," },
   { name: "a-login-picks-the-tenant", rule: "TP-7", rel: GC_REL, from: "function newEnvelopeId(): string {", to: "const fromSupabaseSession = (session: { tenant: string }) => session.tenant;\nfunction newEnvelopeId(): string {" },
   { name: "envelope-tenant-from-the-request", rule: "TP-7", rel: GC_REL, from: "action: request.action,\n      subjectHash", to: "action: request.action,\n      tenant: 'owner-personal',\n      subjectHash" },
   // TP-8
-  { name: "envelope-hand-built", rule: "TP-8", rel: GC_REL, from: "return admitEnvelope(minted, now, envelopeRecorder(sys, stateDir), grant);", to: "return { admitted: true, envelope: minted as never };" },
+  { name: "envelope-hand-built", rule: "TP-8", rel: GC_REL, from: "return admitEnvelope(minted, now, recorder, grant);", to: "return { admitted: true, envelope: minted as never };" },
   { name: "binding-not-the-derived-one", rule: "TP-8", rel: GC_REL, from: "binding: derived.binding, registry: derived.actions", to: "binding: { ...derived.binding }, registry: derived.actions" },
   { name: "run-mints-another-action", rule: "TP-8", rel: GC_REL, from: "action: 'run-start',", to: "action: 'project-selection'," },
   { name: "run-claims-the-owner", rule: "TP-8", rel: GC_REL, from: "principal: 'implementer',", to: "principal: 'owner'," },
@@ -314,8 +417,8 @@ const MUTATIONS = [
   { name: "bridge-claims-the-owner", rule: "TP-8", rel: BRIDGE_REL, from: "principal: 'advisor',", to: "principal: 'owner'," },
   { name: "subject-is-not-the-checkout", rule: "TP-8", rel: GC_REL, from: "const head = sys.exec('git', ['-C', root, 'rev-parse', '--verify', 'HEAD']);", to: "const head = sys.exec('git', ['-C', root, 'rev-parse', 'origin/main']);" },
   // TP-9
-  { name: "held-lock-reads-as-written", rule: "TP-9", rel: REG_REL, from: "if (!sys.createExclusive(lock, `{\"heldSince\":\"${sys.now()}\"}\\n`)) return false;", to: "if (!sys.createExclusive(lock, `{\"heldSince\":\"${sys.now()}\"}\\n`)) return true;" },
-  { name: "unreadable-file-replaced", rule: "TP-9", rel: REG_REL, from: "if (existing === null && sys.exists(path)) return false;", to: "" },
+  { name: "held-lock-reads-as-written", rule: "TP-9", rel: REG_REL, from: "if (!takeRecordLock(sys, lock)) return false;", to: "if (!takeRecordLock(sys, lock)) return true;" },
+  { name: "unreadable-file-replaced", rule: "TP-9", rel: REG_REL, from: "if (held === null && sys.exists(path)) return false;", to: "" },
   { name: "rename-failure-ignored", rule: "TP-9", rel: REG_REL, from: "if (!sys.renameFile(temporary, path)) {\n      sys.removeFile(temporary);\n      return false;\n    }\n    return sys.readText(path)?.endsWith(line) === true;", to: "sys.renameFile(temporary, path);\n    return sys.readText(path)?.endsWith(line) === true;" },
   { name: "line-not-read-back", rule: "TP-9", rel: REG_REL, from: "return sys.readText(path)?.endsWith(line) === true;", to: "return true;" },
   { name: "write-throw-reads-as-written", rule: "TP-9", rel: REG_REL, from: "return sys.readText(path)?.endsWith(line) === true;\n  } catch {\n    return false;\n  }", to: "return sys.readText(path)?.endsWith(line) === true;\n  } catch {\n    return true;\n  }" },
@@ -372,11 +475,11 @@ const MUTATIONS = [
   { name: "boundary-port-grants-by-default", rule: "TP-16", rel: GC_REL, from: "grant: EnvelopeGrantPort = NO_GRANT,", to: "grant: EnvelopeGrantPort = () => true," },
   { name: "receipt-grant-covers-any-subject", rule: "TP-16", rel: CMD_REL, from: "envelope.action === 'tenant-registry-change' && envelope.subjectHash === blob", to: "envelope.action === 'tenant-registry-change'" },
   { name: "receipt-grant-covers-any-action", rule: "TP-16", rel: CMD_REL, from: "envelope.action === 'tenant-registry-change' && envelope.subjectHash === blob", to: "envelope.subjectHash === blob" },
-  { name: "grant-built-before-the-terminal", rule: "TP-16", rel: CMD_REL, from: "  const confirmation = confirm(blob, registrySummary(derived));\n", to: "  const earlyGrant = tenantReceiptGrant(blob);\n  void earlyGrant;\n  const confirmation = confirm(blob, registrySummary(derived));\n" },
+  { name: "grant-built-before-the-terminal", rule: "TP-16", rel: CMD_REL, from: "  const confirmation = confirm(blob, [...changes", to: "  const earlyGrant = tenantReceiptGrant(blob);\n  void earlyGrant;\n  const confirmation = confirm(blob, [...changes" },
   { name: "receipt-is-not-the-p5-action", rule: "TP-16", rel: CMD_REL, from: "action: 'tenant-registry-change',", to: "action: 'project-selection'," },
   // TP-17
   { name: "claim-always-first", rule: "TP-17", rel: REG_REL, from: "if (sys.createExclusive(path, `${JSON.stringify(entry(1))}\\n`)) return { kind: 'first', attempt: 1 };", to: "sys.createExclusive(path, `${JSON.stringify(entry(1))}\\n`);\n  return { kind: 'first', attempt: 1 };" },
-  { name: "unreadable-key-reads-as-new", rule: "TP-17", rel: REG_REL, from: "if (earlier === null) return { kind: 'unavailable', why: `the idempotency record ${path} cannot be read or written` };", to: "if (earlier === null) return { kind: 'first', attempt: 1 };" },
+  { name: "unreadable-key-reads-as-new", rule: "TP-17", rel: REG_REL, from: "if (earlier === null) return { kind: 'unavailable', why: `the idempotency record ${path} cannot be read or written; if no run is in progress at this commit, a person may remove that file` };", to: "if (earlier === null) return { kind: 'first', attempt: 1 };" },
   { name: "completed-key-runs-again", rule: "TP-17", rel: REG_REL, from: "if (earlier.outcome === 'completed' || (earlier.outcome === 'admitted' && options.retryUnsettled !== true)) return { kind: 'duplicate', earlier };", to: "if (earlier.outcome === 'admitted' && options.retryUnsettled !== true) return { kind: 'duplicate', earlier };" },
   { name: "unsettled-key-always-retried", rule: "TP-17", rel: REG_REL, from: "(earlier.outcome === 'admitted' && options.retryUnsettled !== true)", to: "false" },
   { name: "attempt-not-counted", rule: "TP-17", rel: REG_REL, from: "const attempt = earlier.attempts + 1;", to: "const attempt = earlier.attempts;" },
@@ -392,11 +495,12 @@ const MUTATIONS = [
   { name: "state-dir-from-the-environment", rule: "TP-19", rel: GC_REL, from: "stateDir: platformStopDirOf(ctx),", to: "stateDir: process.env['LOCALAPPDATA'] ?? null," },
   { name: "install-root-from-the-environment", rule: "TP-19", rel: GC_REL, from: "const named = (ctx as { readonly tenantInstallRoot?: unknown }).tenantInstallRoot;", to: "const named = process.env['PROJECTOS_INSTALL_ROOT'];" },
   // TP-20
-  { name: "statement-hides-the-direct-write", rule: "TP-20", rel: REG_REL, from: "It does not stop a process that drives a console or writes the receipt file directly", to: "It does not stop a process that drives a console" },
+  { name: "statement-hides-the-direct-write", rule: "TP-20", rel: REG_REL, from: "It does not stop a process that drives a console or writes the receipt and its line directly", to: "It does not stop a process that drives a console" },
+  { name: "statement-claims-a-person", rule: "TP-20", rel: REG_REL, from: "a person or a process confirmed this registry blob at a console, nothing more", to: "the owner confirmed this registry blob" },
   { name: "statement-overclaims", rule: "TP-20", rel: REG_REL, from: "because everything here runs as one Windows user (ADR-T1 section 10).", to: "and it proves the owner confirmed it." },
   { name: "refusal-drops-the-statement", rule: "TP-20", rel: CMD_REL, from: "return { code, lines: [...lines, TENANT_RECEIPT_STATEMENT] };", to: "return { code, lines };" },
   { name: "show-drops-the-statement", rule: "TP-20", rel: CMD_REL, from: "      TENANT_RECEIPT_STATEMENT,\n", to: "" },
-  { name: "evidence-hides-the-direct-write", rule: "TP-20", rel: EVIDENCE_REL, from: "process of this user can write the receipt file directly", to: "the receipt is safe" },
+  { name: "evidence-hides-the-direct-write", rule: "TP-20", rel: EVIDENCE_REL, from: "process of this user can write the receipt and its line directly", to: "the receipt is safe" },
   { name: "evidence-hides-the-console", rule: "TP-20", rel: EVIDENCE_REL, from: "**It does not stop:** a process that drives a console.", to: "**It does not stop:** a process." },
   { name: "evidence-hides-the-missing-outcome-line", rule: "TP-20", rel: EVIDENCE_REL, from: "`run-start` has no execution line", to: "`run-start` is fully recorded" },
   { name: "evidence-hides-the-unstopped-duplicate", rule: "TP-20", rel: EVIDENCE_REL, from: "a repeat `run-start` is counted, not stopped", to: "a repeat `run-start` is stopped" },
@@ -409,6 +513,71 @@ const MUTATIONS = [
   // TP-22
   { name: "validate-all-omits-this-validator", rule: "TP-22", rel: VA_REL, from: "  \"val-projectos-tenant-principal1a\"", to: "  \"val-projectos-tenant-rls1a-copy\"" },
   { name: "cached-runner-omits-this-validator", rule: "TP-22", rel: CR_REL, from: "  \"val-projectos-tenant-principal1a\"", to: "  \"val-projectos-tenant-rls1a-copy\"" },
+  // Review round: TP-1
+  { name: "replace-objects-allowed", rule: "TP-1", rel: REG_REL, from: "sys.exec('git', ['--no-replace-objects', '-C', install, ...args])", to: "sys.exec('git', ['-C', install, ...args])" },
+  { name: "bytes-not-hashed", rule: "TP-1", rel: REG_REL, from: "if (blobNameOf(shown.stdout, blob) !== blob) return refusal(code,", to: "if (false) return refusal(code," },
+  { name: "allowlist-replace-objects-allowed", rule: "TP-1", rel: ALLOWLIST_REL, from: "sys.exec('git', ['--no-replace-objects', '-C', install, ...args])", to: "sys.exec('git', ['-C', install, ...args])" },
+  { name: "allowlist-bytes-not-hashed", rule: "TP-1", rel: ALLOWLIST_REL, from: "if (named.code !== 0 || blobNameOf(shown.stdout, blob) !== blob) {", to: "if (false) {" },
+  { name: "hash-ignores-the-length", rule: "TP-1", rel: ALLOWLIST_REL, from: ".update(`blob ${bytes.length}\\0`)", to: ".update('blob ')" },
+  { name: "a-call-bypasses-the-flag", rule: "TP-1", rel: REG_REL, from: "const head = gitAt(sys, install, 'rev-parse', '--verify', 'HEAD');", to: "const head = sys.exec('git', ['-C', install, 'rev-parse', '--verify', 'HEAD']);" },
+  { name: "old-blob-not-hashed", rule: "TP-1", rel: REG_REL, from: "if (shown.code !== 0 || blobNameOf(shown.stdout, blob) !== blob) return null;", to: "if (shown.code !== 0) return null;" },
+  // TP-14
+  { name: "restored-selection-unasked", rule: "TP-14", rel: HOST_REL, from: "let selectedProjectId = admittedSelection(initialSelection());", to: "let selectedProjectId = initialSelection();" },
+  { name: "default-selection-unasked", rule: "TP-14", rel: HOST_REL, from: "selectedProjectId = admittedSelection(defaultSelection(inventory));", to: "selectedProjectId = defaultSelection(inventory);" },
+  { name: "restored-refusal-ignored", rule: "TP-14", rel: HOST_REL, from: "if (refused === null) return projectId;", to: "if (refused !== undefined) return projectId;" },
+  // TP-17
+  { name: "corrupt-key-names-no-fix", rule: "TP-17", rel: REG_REL, from: "; if no run is in progress at this commit, a person may remove that file", to: "" },
+  // TP-23
+  { name: "run-discarded", rule: "TP-23", rel: GC_REL, from: "  ADMITTED_RUNS.set(ctx, { envelope: admission.envelope, derived });\n", to: "" },
+  { name: "run-kept-before-the-claim", rule: "TP-23", rel: GC_REL, from: "  if (!admission.admitted) return admissionRefusalLines(admission);\n  const claim = claimIdempotencyKey(", to: "  if (!admission.admitted) return admissionRefusalLines(admission);\n  ADMITTED_RUNS.set(ctx, { envelope: admission.envelope, derived });\n  const claim = claimIdempotencyKey(" },
+  { name: "stale-run-survives-a-refusal", rule: "TP-23", rel: GC_REL, from: "  ADMITTED_RUNS.delete(ctx);\n", to: "" },
+  { name: "crossing-needs-no-run", rule: "TP-23", rel: GC_REL, from: "if (admitted === undefined) return { ok: false, rule: 'RUN_LINK', reasons: ['this context admitted no run, so it can link nothing'] };", to: "if (admitted === undefined) return { ok: true, envelope: {} as TaskEnvelope };" },
+  { name: "accessor-hands-out-the-derivation", rule: "TP-23", rel: GC_REL, from: "export function admittedRunEnvelopeOf(ctx: CommandContext): TaskEnvelope | null {", to: "export function admittedRunDerivationOf(ctx: CommandContext): DerivedTenant | null {\n  return ADMITTED_RUNS.get(ctx)?.derived ?? null;\n}\n\nexport function admittedRunEnvelopeOf(ctx: CommandContext): TaskEnvelope | null {" },
+  { name: "run-held-on-the-context", rule: "TP-23", rel: GC_REL, from: "const ADMITTED_RUNS = new WeakMap<object,", to: "const ADMITTED_RUNS = new Map<object," },
+  // TP-24
+  { name: "receipt-claims-the-owner", rule: "TP-24", rel: CMD_REL, from: "principal: 'implementer',", to: "principal: 'owner'," },
+  { name: "method-not-recorded", rule: "TP-24", rel: CMD_REL, from: ", `confirmation:${TENANT_RECEIPT_CONFIRMATION}`]", to: "]" },
+  { name: "method-names-a-person", rule: "TP-24", rel: REG_REL, from: "export const TENANT_RECEIPT_CONFIRMATION = 'typed-terminal';", to: "export const TENANT_RECEIPT_CONFIRMATION = 'typed-by-owner';" },
+  { name: "wording-claims-the-owner", rule: "TP-24", rel: CMD_REL, from: "already has a receipt:", to: "was already confirmed by the owner:" },
+  { name: "refusal-name-claims-the-owner", rule: "TP-24", rel: REG_REL, from: "  | 'TENANT_REGISTRY_NO_RECEIPT'\n", to: "  | 'TENANT_REGISTRY_NO_OWNER_RECEIPT'\n" },
+  // TP-25
+  { name: "prompt-hides-the-change", rule: "TP-25", rel: CMD_REL, from: "confirm(blob, [...changesSinceLastReceipt(ctx, source.installRoot, before, derived.registry), ...registrySummary(derived)])", to: "confirm(blob, [...registrySummary(derived)])" },
+  { name: "change-ignores-the-tenant", rule: "TP-25", rel: CMD_REL, from: "(['tenant', 'domain', 'repository', 'governedRoot'] as const)", to: "(['domain', 'repository', 'governedRoot'] as const)" },
+  { name: "removed-project-not-shown", rule: "TP-25", rel: CMD_REL, from: "`  REMOVED ${old.projectId}: tenant ${old.tenant}, domain ${old.domain}`", to: "''" },
+  { name: "receipt-needs-no-line", rule: "TP-25", rel: REG_REL, from: "if (matches && hasAdmissionLine(sys, source.stateDir, read.receipt)) return null;", to: "if (matches) return null;" },
+  { name: "any-line-will-do", rule: "TP-25", rel: REG_REL, from: "envelope.envelopeId === receipt.envelopeId &&\n", to: "" },
+  { name: "line-for-any-blob", rule: "TP-25", rel: REG_REL, from: "envelope.subjectHash === receipt.registryBlob\n", to: "true\n" },
+  { name: "refused-line-counts", rule: "TP-25", rel: REG_REL, from: "record.outcome === 'allowed' &&\n", to: "" },
+  { name: "receipt-lines-in-the-rotated-file", rule: "TP-25", rel: CMD_REL, from: "envelopeRecorder(sys, source.stateDir, TENANT_CHANGE_RECORDS_FILENAME)", to: "envelopeRecorder(sys, source.stateDir)" },
+  { name: "receipt-names-no-envelope", rule: "TP-25", rel: CMD_REL, from: "writeTenantReceipt(sys, source.stateDir, blob, sys.now(), admission.envelope.envelopeId)", to: "writeTenantReceipt(sys, source.stateDir, blob, sys.now(), '')" },
+  // TP-26
+  { name: "no-wait-for-the-lock", rule: "TP-26", rel: REG_REL, from: "    Atomics.wait(pause, 0, 0, LOCK_WAIT_STEP_MS);\n", to: "    return false;\n" },
+  { name: "unbounded-wait", rule: "TP-26", rel: REG_REL, from: "for (let step = 0; step < LOCK_WAIT_STEPS; step += 1) {", to: "for (;;) {" },
+  { name: "wait-grows-past-its-bound", rule: "TP-26", rel: REG_REL, from: "const LOCK_WAIT_STEPS = 40;", to: "const LOCK_WAIT_STEPS = 4000;" },
+  { name: "unwritable-directory-waits", rule: "TP-26", rel: REG_REL, from: "    if (!sys.exists(lock)) return sys.createExclusive(lock, content);\n", to: "" },
+  { name: "never-rotates", rule: "TP-26", rel: REG_REL, from: "Buffer.byteLength(held, 'utf8') >= DURABLE_LINE_ROTATE_BYTES", to: "false" },
+  { name: "rotation-failure-ignored", rule: "TP-26", rel: REG_REL, from: "-${randomBytes(4).toString('hex')}`)) return false;\n      existing = null;", to: "-${randomBytes(4).toString('hex')}`)) existing = null;\n      existing = null;" },
+  { name: "rotation-size-grows", rule: "TP-26", rel: REG_REL, from: "export const DURABLE_LINE_ROTATE_BYTES = 1_048_576;", to: "export const DURABLE_LINE_ROTATE_BYTES = 1_073_741_824;" },
+  // TP-28
+  { name: "registry-trust-basis-claims-the-owner", rule: "TP-28", rel: TREG_REL, from: "A receipt shows that a person or a process confirmed this blob at a console, nothing more", to: "A receipt shows the owner confirmed this blob" },
+  { name: "registry-loses-dead-aisle", rule: "TP-28", rel: TREG_REL, from: "\"projectId\": \"dead-aisle\",", to: "\"projectId\": \"dead-aisle-renamed\"," },
+  { name: "dead-aisle-entered-as-its-worktree", rule: "TP-28", rel: TREG_REL, from: "\"governedRoot\": \"C:/dev/deadaisle\",", to: "\"governedRoot\": \"C:/dev/deadaisle-phase6-proof1a\"," },
+  { name: "added-project-moved-to-the-agency", rule: "TP-28", rel: TREG_REL, from: "\"repository\": \"github.com/jdonlinetesting/JDtesting\",\n      \"governedRoot\": \"C:/dev/JD Project\",\n      \"tenant\": \"owner-personal\",", to: "\"repository\": \"github.com/jdonlinetesting/JDtesting\",\n      \"governedRoot\": \"C:/dev/JD Project\",\n      \"tenant\": \"agency-business\"," },
+  { name: "adr-hides-cwd", rule: "TP-28", rel: ADR_REL, from: "- **cwd selects the checkout.** The tenant is derived", to: "- The tenant is derived" },
+  { name: "adr-overclaims-the-receipt", rule: "TP-28", rel: ADR_REL, from: "**A receipt proves a console confirmation and nothing more.** It shows", to: "It shows" },
+  { name: "adr-drops-the-replace-ref-lesson", rule: "TP-28", rel: ADR_REL, from: "**The replace-ref lesson.**", to: "**A note.**" },
+  { name: "adr-drops-what-git-is-read-for", rule: "TP-28", rel: ADR_REL, from: "**What the `.git` file IS read for.** It can only refuse, and it attaches nothing.", to: "**The `.git` file.**" },
+  { name: "adr-drops-the-binding", rule: "TP-28", rel: ADR_REL, from: "the requester is a kernel-issued run handle that survives process boundaries, never\n  cwd", to: "the requester is known" },
+  // TP-27
+  { name: "evidence-drops-cwd", rule: "TP-27", rel: EVIDENCE_REL, from: "**cwd selects the checkout.** The tenant value is derived", to: "The tenant value is derived" },
+  { name: "evidence-drops-the-handle", rule: "TP-27", rel: EVIDENCE_REL, from: "the requester is a kernel-issued run handle that survives process boundaries, never cwd", to: "the requester is known" },
+  { name: "evidence-drops-worktree-rule", rule: "TP-27", rel: EVIDENCE_REL, from: "worktree binding alone releases nothing", to: "worktrees are fine" },
+  { name: "evidence-drops-receipt-rule", rule: "TP-27", rel: EVIDENCE_REL, from: "a receipt is never a credential-release grant", to: "a receipt helps" },
+  { name: "evidence-drops-jwt-rule", rule: "TP-27", rel: EVIDENCE_REL, from: "no JWT or OAuth requester", to: "requesters vary" },
+  { name: "evidence-drops-the-budget", rule: "TP-27", rel: EVIDENCE_REL, from: "`run-start` has a budget", to: "budgets exist" },
+  { name: "evidence-hides-dead-aisle", rule: "TP-27", rel: EVIDENCE_REL, from: "dead-aisle", to: "one project" },
+  { name: "evidence-hides-bizcomply", rule: "TP-27", rel: EVIDENCE_REL, from: "bizcomply-v2", to: "another project" },
+  { name: "evidence-hides-the-console-script", rule: "TP-27", rel: EVIDENCE_REL, from: "an agent could run it", to: "it is only a test" },
   // TP-T
   { name: "a-proof-skipped", rule: "TP-T", rel: "projectos/agent/test/tenantBridgeRule.test.ts", from: "  it('still refuses a read across tenants", to: "  it.skip('still refuses a read across tenants" },
   { name: "a-proof-isolated", rule: "TP-T", rel: "projectos/agent/test/tenantPrincipal.test.ts", from: "  it('a run whose admission cannot be recorded does not start'", to: "  it.only('a run whose admission cannot be recorded does not start'" },
@@ -416,6 +585,24 @@ const MUTATIONS = [
   { name: "a-proof-deleted", rule: "TP-T", rel: "projectos/agent/test/tenantPrincipal.test.ts", from: "a refusal that cannot be recorded stops the operation, and says it was not recorded", to: "a nice test" },
 ];
 
+/** Added in this phase, in `owner-personal` under D2. Dead Aisle's governed checkout is a worktree of this root. */
+const ADDED_PROJECTS = [
+  ["dead-aisle", "C:/dev/deadaisle"],
+  ["jd-testing", "C:/dev/JD Project"],
+  ["criclocal", "C:/dev/CricLocal/criclocal-repo"],
+  ["coverdrive", "C:/dev/Coverdrive/coverdrive"],
+  ["boithok-khana", "C:/dev/Boithok Khana"],
+  ["brik", "C:/dev/Brik"],
+  ["trading-bot", "C:/dev/Trading Bot"],
+  ["bizcomply-v2", "C:/dev/BizComply V2/Source"],
+];
+const ADR_NEEDLES = [
+  "cwd selects the checkout. The tenant is derived",
+  "A receipt proves a console confirmation and nothing more. It shows",
+  "The replace-ref lesson.",
+  "What the `.git` file IS read for. It can only refuse, and it attaches nothing.",
+  "the requester is a kernel-issued run handle that survives process boundaries, never cwd",
+];
 const NOT_RUN = /\b(?:it|test|describe)\.(?:skip|only|todo|fails)\b|\b(?:xit|xdescribe|fit|fdescribe)\b|\.skipIf\(|\.runIf\(/;
 
 function read(rel) {
@@ -486,7 +673,7 @@ function check(raw) {
       E("TP-0", `${rel} is missing`);
       return errors;
     }
-    src[rel] = rel.endsWith(".md") ? raw[rel] : code(raw[rel]);
+    src[rel] = rel.endsWith(".md") || rel.endsWith(".json") ? raw[rel] : code(raw[rel]);
   }
 
   for (const [rule, rel, fn, needle] of PINS) {
@@ -501,9 +688,17 @@ function check(raw) {
   // TP-3: the order in the one derivation: the file, then the owner, then the match.
   const derive = fnSpan(src[GC_REL], "deriveTenant");
   const fileAt = derive.indexOf("readInstallationRegistries(");
-  const ownerAt = derive.indexOf("ownerReceiptRefusal(");
+  const ownerAt = derive.indexOf("receiptRefusal(");
   const matchAt = derive.indexOf("bindCheckout(");
   if (!(fileAt >= 0 && fileAt < ownerAt && ownerAt < matchAt)) E("TP-3", "deriveTenant no longer asks the file, then the owner, then the match");
+
+  // TP-3: one way to pass the receipt.
+  if ((fnSpan(src[REG_REL], "receiptRefusal").match(/return null;/g) || []).length !== 1) E("TP-3", "receiptRefusal has more than one way to pass");
+
+  // TP-1: nothing on a registry read reaches git except through the one call with replacement objects off.
+  if (/sys\.exec\(/.test(fnSpan(src[REG_REL], "committedBytes")) || /sys\.exec\(/.test(fnSpan(src[REG_REL], "registryAtBlob"))) {
+    E("TP-1", "a registry read reaches git without --no-replace-objects");
+  }
 
   // TP-4: the receipt is written by the one command, and no context property can stand in for the terminal.
   for (const rel of [GC_REL, RUN_REL, CLI_REL, BRIDGE_REL, HOST_REL]) {
@@ -542,6 +737,16 @@ function check(raw) {
     if (/envelopeVersion/.test(src[rel])) E("TP-8", `${rel} builds an envelope by hand`);
   }
   if (/\{ \.\.\.derived\.binding \}/.test(src[GC_REL])) E("TP-8", "a copy of the binding is not a binding");
+
+  // TP-23: held in a weak map, kept only after the whole admission, and one accessor out.
+  const runStartBody = fnSpan(src[GC_REL], "runStartTenantRefusal");
+  if (runStartBody.indexOf("ADMITTED_RUNS.set(") < runStartBody.indexOf("if (claim.kind !== 'first'")) E("TP-23", "the run is kept before its key was claimed");
+  if ((src[GC_REL].match(/ADMITTED_RUNS\.get\(/g) || []).length !== 2 || /export (?:const|function) \w*Derivation\w*Of\b/.test(src[GC_REL])) E("TP-23", "the admitted run leaves through something other than its narrow accessor");
+
+  // TP-24: nothing says the owner did it. Code is checked here; the code name is one word everywhere.
+  for (const rel of [REG_REL, CMD_REL, GC_REL, BRIDGE_REL]) {
+    if (/NO_OWNER_RECEIPT|principal: 'owner'|by the owner|owner confirmed/i.test(src[rel])) E("TP-24", `${rel} claims the owner where only a console was shown`);
+  }
 
   // TP-11: order in the handler: the contract, then stop-work, then the tenant, then the read.
   const handler = fnSpan(src[BRIDGE_REL], "handleBridgeRpc");
@@ -593,13 +798,12 @@ function check(raw) {
 
   // TP-20: the honest limit, in the code and in the evidence.
   const statement = /TENANT_RECEIPT_STATEMENT =([\s\S]*?);\n/.exec(src[REG_REL]);
-  if (statement === null || !statement[1].includes(OWNER_RECEIPT_LIMIT) || !statement[1].includes("one Windows user")) {
+  if (statement === null || !statement[1].includes(RECEIPT_LIMIT) || !statement[1].includes(RECEIPT_CLAIM) || !statement[1].includes("one Windows user")) {
     E("TP-20", "the receipt's statement no longer says what it does not stop");
   }
   const evidence = prose(src[EVIDENCE_REL]);
-  for (const needle of ["any process of this user can write the receipt file directly", "It does not stop: a process that drives a console", "`run-start` has no execution line", "a repeat `run-start` is counted, not stopped"]) {
-    if (!evidence.includes(needle)) E("TP-20", `the evidence no longer says: ${needle}`);
-  }
+  for (const needle of EVIDENCE_NEEDLES.slice(0, 4)) if (!evidence.includes(needle)) E("TP-20", `the evidence no longer says: ${needle}`);
+  for (const needle of EVIDENCE_NEEDLES.slice(4)) if (!evidence.includes(needle)) E("TP-27", `the evidence no longer says: ${needle}`);
 
   // TP-21: the suite's one replacement stays one, and src has no switch for it.
   const setup = src[SETUP_REL];
@@ -614,6 +818,25 @@ function check(raw) {
   const cr = modulesOf(src[CR_REL]);
   if (va === null || !va.includes(THIS_VALIDATOR)) E("TP-22", "validate-all does not run this validator");
   if (cr === null || !cr.includes(THIS_VALIDATOR)) E("TP-22", "cached-runner does not run this validator");
+
+  // TP-28: the registry's added lines, and what ADR-T1 now rules.
+  let registry = null;
+  try {
+    registry = JSON.parse(raw[TREG_REL]);
+  } catch {
+    registry = null;
+  }
+  const lines = registry !== null && Array.isArray(registry.projects) ? registry.projects : [];
+  const line = (id) => lines.find((entry) => entry.projectId === id);
+  for (const [id, governedRoot] of ADDED_PROJECTS) {
+    const entry = line(id);
+    if (entry === undefined || entry.tenant !== "owner-personal" || entry.governedRoot !== governedRoot) E("TP-28", `the registry's line for '${id}' is not the one this phase added`);
+  }
+  if (registry === null || typeof registry.trustBasis !== "string" || !registry.trustBasis.includes(RECEIPT_CLAIM.replace("this registry blob", "this blob")) || !registry.trustBasis.includes("replacement objects off")) {
+    E("TP-28", "the registry's trustBasis no longer says what a receipt shows, or how its bytes are read");
+  }
+  const adr = prose(src[ADR_REL]);
+  for (const needle of ADR_NEEDLES) if (!adr.includes(needle)) E("TP-28", `ADR-T1 no longer says: ${needle}`);
 
   // TP-T: every proof exists, and every proof runs.
   for (const [rel, needles] of Object.entries(TESTS)) {
@@ -638,7 +861,7 @@ function selfTest(raw) {
   const names = MUTATIONS.map((m) => m.name);
   if (new Set(names).size !== names.length) errors.push("TP-M: two mutations share a name");
   const rules = new Set(MUTATIONS.map((m) => m.rule));
-  for (const rule of [...Array.from({ length: 22 }, (_, i) => `TP-${i + 1}`), "TP-T"]) {
+  for (const rule of [...Array.from({ length: 28 }, (_, i) => `TP-${i + 1}`), "TP-T"]) {
     if (!rules.has(rule)) errors.push(`TP-M: rule ${rule} has no named mutation`);
   }
   return errors;
