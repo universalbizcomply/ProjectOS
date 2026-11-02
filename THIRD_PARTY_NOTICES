@@ -429,6 +429,33 @@ Licence: MIT
 Copyright: Copyright (c) 2025 Nous Research
 Licence-Text: SOURCE hermes-agent, in this file
 
+ENTRY: projectos/agent/src/skills/skillQueue.ts
+Source: oh-my-hermes
+Upstream: https://github.com/rlaope/oh-my-hermes
+Source-Path: src/plugin_bundle/omh/memory_admission.py
+Source-Commit: 612a1cd9c44a19ecddcd263865e40e8c3910a514
+Licence: MIT
+Copyright: Copyright (c) 2026 oh-my-hermes contributors
+Licence-Text: SOURCE oh-my-hermes, in this file
+
+ENTRY: projectos/agent/src/skills/skillQueue.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/memory_tool_store.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/agent/src/skills/skillQueue.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/write_approval.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
 ENTRY: projectos/core/src/approvals/effectKey.ts
 Source: rakazo
 Upstream: https://github.com/elie222/rakazo
@@ -663,3 +690,129 @@ Licence: MIT
 Copyright: Copyright (c) 2026 OpenClaw Foundation
 Licence-Text: SOURCE openclaw, in this file
 Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/skills/frontmatter.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/skill_utils.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/skills/frontmatter.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/skill_manager_tool.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/skills/guard.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/skills_guard.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/skills/guardPatterns.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/skills_guard.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/skills/hiddenText.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/skills_guard.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/skills/linter.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/skill_utils.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/skills/linter.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/skill_linter.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/skills/linter.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/skill_manager_tool.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/skills/promotion.ts
+Source: oh-my-hermes
+Upstream: https://github.com/rlaope/oh-my-hermes
+Source-Path: src/plugin_bundle/omh/memory_admission.py
+Source-Commit: 612a1cd9c44a19ecddcd263865e40e8c3910a514
+Licence: MIT
+Copyright: Copyright (c) 2026 oh-my-hermes contributors
+Licence-Text: SOURCE oh-my-hermes, in this file
+
+ENTRY: projectos/core/src/skills/promotion.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/write_approval.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/skills/prompt.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/memory_tool_store.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/skills/skillPackage.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/skill_manager_tool.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/skills/skillPackage.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/skills_guard.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/skills/sourceAudit.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/skills_ast_audit.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
