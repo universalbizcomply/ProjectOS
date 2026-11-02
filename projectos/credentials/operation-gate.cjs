@@ -12,8 +12,8 @@
  *   2. PERMIT AND GRANT. A permit must name this project, this environment, this reference, this action and
  *      this run, and must not have expired. `grantPermit` asks for the owner-confirmation capability, a flag
  *      the flow above sets after its terminal check: it prevents accidents and proves no one, and any
- *      in-process caller could set it. What authorises a release is the committed `credential-release` grant
- *      the vault reads. WHO IS ASKING is the kernel-minted requester this run was handed, never the reference:
+ *      in-process caller could set it. What authorises a release is the committed, receipted
+ *      `credential-release` grant the vault reads, for exactly the command this will run. WHO IS ASKING is the kernel-minted requester this run was handed, never the reference:
  *      the vault refuses a requester outside the reference's project or tenant, and a plain string.
  *   3. ARGUMENT HYGIENE. The command line is refused if it carries a token-shaped argument, so the secret
  *      cannot reach a process listing. The value travels in the CHILD's environment under one named
@@ -234,7 +234,7 @@ function createOperationGate(opts) {
     // WHO IS ASKING IS THE REQUESTER, NOT THE REFERENCE. Any refusal here is the vault's, by its own name.
     let grant;
     try {
-      grant = vault.authoriseOperationRelease({ reference: ref.reference, requester: req.requester, permit, capability: req.capability || {} });
+      grant = vault.authoriseOperationRelease({ reference: ref.reference, requester: req.requester, permit, capability: req.capability || {}, command: [executable, ...args] });
     } catch (e) {
       return refuse(typeof e.code === "string" ? e.code : "OWNER PERMIT REQUIRED", base);
     }

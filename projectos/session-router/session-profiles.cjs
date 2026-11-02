@@ -42,7 +42,8 @@ const PROFILES = {
     // No Supabase token: a personal access token is account-wide and bypasses RLS, so no session holds one.
     credentials: ["gh-token", "vercel-token"],
     capabilities: { repositoryWrite: true, providerWrite: true, deploy: false, migrate: true },
-    mcpServers: ["github", "supabase", "vercel"],
+    // No Supabase server either: it would start with no token, and leave that to the MCP client to discover.
+    mcpServers: ["github", "vercel"],
     autoLoadable: true,
     requiresOwnerPermit: false,
     requiresWriteLease: true,

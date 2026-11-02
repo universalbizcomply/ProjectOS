@@ -20,8 +20,14 @@
  * need a requester. It comes from `--run <handle>`, the id of a kernel-admitted run, in any directory. A
  * command with no run mints one, and only at a real terminal on both ends, naming `--project`, which the
  * committed registry must list. A console's own handle is no use to `--run`: console authority is the
- * terminal in front of this process. `--owner-confirm` needs that terminal too, so a flag alone confirms
- * nothing. Nothing here reads a tenant from a flag, the environment or the working directory. `--checkout`
+ * terminal in front of this process.
+ *
+ * A FLAG CONFIRMS NOTHING. `--owner-confirm`, a declared reach, the platform key and a grant receipt each
+ * need an answer typed at the terminal. A TTY alone proves little: a hidden `Start-Process` window reads as
+ * one on both ends. The typed answer raises the bar and is not a boundary, because a process that drives a
+ * console can type too. Console authority stays acceptable only under D4.
+ *
+ * Nothing here reads a tenant from a flag, the environment or the working directory. `--checkout`
  * and the working directory still say where a session stands; they say nothing about who asked. With no
  * terminal and no handle the command is refused by name, which is what the Control Center's
  * `set_credential` meets until it can pass one, and it shows that sentence to the owner.
@@ -34,7 +40,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { createCredentialVault } = require("../credentials/vault.cjs");
-const { createRequesterAuthority, installationStateDir, refusal } = require("../credentials/credential-metadata.cjs");
+const { createRequesterAuthority, installationStateDir, refusal, GRANT_RECEIPT_STATEMENT, GRANT_CONFIRMATION_LENGTH } = require("../credentials/credential-metadata.cjs");
 const { createWindowsCredentialStore, isAvailable } = require("../credentials/windows-credential-store.cjs");
 const { createOperationGate } = require("../credentials/operation-gate.cjs");
 const { parseReference, OPERATION_CREDENTIALS } = require("../credentials/reference.cjs");
@@ -150,15 +156,69 @@ function buildVault(deps) {
 /** This installation, from this file's own location. A governed project cannot move it. */
 const INSTALL_ROOT = path.resolve(__dirname, "..", "..").split(String.fromCharCode(92)).join("/");
 
+/** One line typed at the terminal, or `null` if the input ends first. It is echoed: nothing here is secret. */
+function readTypedLine(prompt) {
+  return new Promise((resolve) => {
+    const input = process.stdin;
+    let line = "";
+    const finish = (value) => {
+      input.pause();
+      input.removeListener("data", onData);
+      input.removeListener("end", onEnd);
+      resolve(value);
+    };
+    const onData = (chunk) => {
+      line += chunk;
+      const end = line.search(/\r?\n/);
+      if (end >= 0) finish(line.slice(0, end));
+    };
+    const onEnd = () => finish(null);
+    process.stdout.write(prompt);
+    input.setEncoding("utf8");
+    input.on("data", onData);
+    input.on("end", onEnd);
+    input.resume();
+  });
+}
+
+function terminalOf(deps) {
+  return (deps && deps.terminal) || { stdin: process.stdin, stdout: process.stdout, readLine: readTypedLine };
+}
+
 /** Both ends, because a redirected stream on either is how a process answers its own prompt. */
 function atRealTerminal(deps) {
-  const terminal = (deps && deps.terminal) || process;
+  const terminal = terminalOf(deps);
   return terminal.stdin.isTTY === true && terminal.stdout.isTTY === true;
 }
 
-/** `--owner-confirm` is the owner asserting something at the keyboard, so a keyboard must be there. */
-function requireOwnerConfirm(flags, deps, message) {
-  if (flags["owner-confirm"] !== true || !atRealTerminal(deps)) throw new Error(message);
+/** What was typed at the terminal for this question, or `null`. No terminal, or no reader, is no answer. */
+async function askTerminal(question, deps) {
+  const terminal = terminalOf(deps);
+  if (!atRealTerminal(deps) || typeof terminal.readLine !== "function") return null;
+  return terminal.readLine(question);
+}
+
+/** The owner's word, typed back. What is typed is what is being confirmed, so a flag can stand in for neither. */
+async function typedConfirmation(deps, expected, message) {
+  if ((await askTerminal('Type "' + expected + '" to confirm: ', deps)) !== expected) throw new Error(message);
+}
+
+/** `--owner-confirm` asks for the typed answer. The flag only says the question should be asked. */
+async function requireOwnerConfirm(flags, deps, expected, message) {
+  if (flags["owner-confirm"] !== true) throw new Error(message);
+  await typedConfirmation(deps, expected, message);
+}
+
+/** The installation's own authority. `deps` is the programmatic seam, and no flag reaches it. */
+function authorityOf(deps) {
+  return (deps && deps.authority) || createRequesterAuthority({ installRoot: INSTALL_ROOT, stateDir: installationStateDir() });
+}
+
+/** Reach and the platform key are the owner's to change, so a requester is not enough for them. */
+async function confirmSensitive(ref, flags, deps) {
+  if (ref.credentialClass === "platform" || flags.reach !== undefined) {
+    await typedConfirmation(deps, ref.reference, "OWNER PERMIT REQUIRED — a reach or the platform key is confirmed by typing at a real terminal");
+  }
 }
 
 /**
@@ -166,10 +226,10 @@ function requireOwnerConfirm(flags, deps, message) {
  * programmatic seam validators use, and no flag reaches it.
  */
 function requesterFor(flags, deps) {
-  const authority = (deps && deps.authority) || createRequesterAuthority({ installRoot: INSTALL_ROOT, stateDir: installationStateDir() });
+  const authority = authorityOf(deps);
   if (flags.run !== undefined) return authority.fromRun(flags.run);
   if (!atRealTerminal(deps)) {
-    throw refusal("REQUESTER_REQUIRED", "this needs a real terminal: run it in PowerShell or Windows Terminal with --project <id>, or pass --run <handle>, the id of a kernel-admitted run");
+    throw refusal("REQUESTER_REQUIRED", "this needs a real terminal: run it from the main checkout in PowerShell or Windows Terminal with --project <id>, or pass --run <handle>, the id of a kernel-admitted run");
   }
   if (typeof flags.project !== "string" || !flags.project) {
     throw refusal("REQUESTER_REQUIRED", "with no run, name the project this command is for with --project <id>");
@@ -227,11 +287,39 @@ function readValueFromEnvironment() {
   return value;
 }
 
+/**
+ * Confirm one committed grant, by retyping the start of its blob at a terminal, with what it names on the
+ * screen first, as `projectos tenant receipt` does for the registry. Every answer carries the statement.
+ */
+async function grantReceiptCommand(flags, deps) {
+  const authority = authorityOf(deps);
+  const noConsole = "CREDENTIAL_GRANT_NO_TERMINAL: a grant receipt is typed at a real terminal, on the main checkout. " + GRANT_RECEIPT_STATEMENT;
+  if (!atRealTerminal(deps)) throw new Error(noConsole);
+  const blob = flags.blob;
+  const grant = authority.describeGrant(blob);
+  console.log("credential-release grant " + blob);
+  console.log("  phase       " + grant.phaseId);
+  console.log("  project     " + grant.projectId);
+  grant.references.forEach((reference) => console.log("  reference   " + reference));
+  console.log("  action      " + grant.action);
+  console.log("  command     " + grant.command.join(" "));
+  console.log("  expires     " + grant.expiresAt);
+  console.log("  granted by  " + grant.grantedBy);
+  console.log(GRANT_RECEIPT_STATEMENT);
+  const typed = await askTerminal("Retype the first " + GRANT_CONFIRMATION_LENGTH + " characters of the blob exactly to confirm: ", deps);
+  if (typed === null) throw new Error(noConsole);
+  authority.confirmGrant({ blob, typed });
+  console.log("CREDENTIAL GRANT CONFIRMED: blob " + blob + ", by typed-terminal.");
+  console.log(GRANT_RECEIPT_STATEMENT);
+  return 0;
+}
+
 async function credentialsCommand(sub, flags, deps) {
   const vault = buildVault(deps);
   if (sub === "set") {
     const ref = requireReference(flags);
     const requester = requesterFor(flags, deps);
+    await confirmSensitive(ref, flags, deps);
     const fromEnv = flags["from-env"] === true || flags["from-env"] === "true";
     const value = fromEnv
       ? readValueFromEnvironment()
@@ -253,7 +341,9 @@ async function credentialsCommand(sub, flags, deps) {
   }
   if (sub === "delete") {
     const ref = requireReference(flags);
-    const removed = vault.remove({ reference: ref.reference, requester: requesterFor(flags, deps) });
+    const requester = requesterFor(flags, deps);
+    await confirmSensitive(ref, flags, deps);
+    const removed = vault.remove({ reference: ref.reference, requester });
     console.log(removed ? "deleted  " + ref.reference : "not found  " + ref.reference);
     return removed ? 0 : 3;
   }
@@ -261,10 +351,13 @@ async function credentialsCommand(sub, flags, deps) {
     const ref = requireReference(flags);
     const reach = reachFlags(flags);
     if (reach.reach === undefined) throw new Error("--reach is required: project, tenant or account");
-    vault.rotateMetadata({ reference: ref.reference, requester: requesterFor(flags, deps), ...reach });
+    const requester = requesterFor(flags, deps);
+    await confirmSensitive(ref, flags, deps);
+    vault.rotateMetadata({ reference: ref.reference, requester, ...reach });
     console.log("reach  " + reach.reach + (reach.reachTenants ? " (" + reach.reachTenants.join(", ") + ")" : "") + "  " + ref.reference);
     return 0;
   }
+  if (sub === "grant-receipt") return grantReceiptCommand(flags, deps);
   if (sub === "status") {
     const rows = vault.status({ project: flags.project, environment: flags.environment, provider: flags.provider });
     // MACHINE-READABLE, for the Control Centre. Exactly the same rows the human listing prints —
@@ -334,7 +427,7 @@ async function sessionCommand(sub, flags, passthrough, deps) {
     // project, environment and profile. `--owner-confirm` is the owner asserting it at the keyboard.
     let permit = null;
     if (profile.autoLoadable !== true || profile.requiresOwnerPermit === true) {
-      requireOwnerConfirm(flags, deps, "OWNER PERMIT REQUIRED — profile '" + profile.name + "' is never loaded automatically; re-run at a real terminal with --owner-confirm");
+      await requireOwnerConfirm(flags, deps, profile.name, "OWNER PERMIT REQUIRED — profile '" + profile.name + "' is never loaded automatically; re-run at a real terminal with --owner-confirm, and type the confirmation");
       const loaded = loadConnection(checkoutPath);
       if (!loaded.ok) throw new Error(loaded.reason);
       permit = mintProfilePermit({ projectId: loaded.connection.projectId, environment: flags.environment, profile: profile.name, capability: { ownerConfirmation: true }, phaseId: typeof flags.phase === "string" ? flags.phase : null });
@@ -424,7 +517,7 @@ function providersCommand(sub, flags) {
   return 0;
 }
 
-function operationCommand(sub, flags, passthrough, deps) {
+async function operationCommand(sub, flags, passthrough, deps) {
   if (sub !== "run") throw new Error("unknown operation subcommand '" + String(sub) + "'");
   const vault = buildVault(deps);
   // The approval queue records the owner-gated intent before anything runs, so an operation always leaves
@@ -435,7 +528,7 @@ function operationCommand(sub, flags, passthrough, deps) {
   if (!Array.isArray(passthrough) || !passthrough.length) throw new Error("pass the command after '--', e.g. operation run --ref ... -- <executable> <args>");
   if (typeof flags.action !== "string" || !flags.action) throw new Error("--action is required and names the provider action being performed, e.g. --action read-config");
   if (typeof flags["env-var"] !== "string" || !flags["env-var"]) throw new Error("--env-var is required and names the environment variable the credential is delivered under");
-  requireOwnerConfirm(flags, deps, "OWNER PERMIT REQUIRED — re-run at a real terminal with --owner-confirm to record your explicit confirmation");
+  await requireOwnerConfirm(flags, deps, ref.reference, "OWNER PERMIT REQUIRED — re-run at a real terminal with --owner-confirm, and type the confirmation");
   if (typeof flags.phase !== "string" || !flags.phase) throw new Error("--phase is required and names the phase whose committed credential-release grant covers this");
   const requester = requesterFor(flags, deps);
 
@@ -472,11 +565,11 @@ function operationCommand(sub, flags, passthrough, deps) {
   return result.ok ? 0 : 1;
 }
 
-function projectsCommand(sub, flags, deps) {
+async function projectsCommand(sub, flags, deps) {
   const registry = createProjectRegistry({});
   if (sub === "register") {
-    requireOwnerConfirm(flags, deps, "OWNER PERMIT REQUIRED — registering a project pins its identity; re-run at a real terminal with --owner-confirm");
     const checkout = flags.checkout || process.cwd();
+    await requireOwnerConfirm(flags, deps, String(checkout), "OWNER PERMIT REQUIRED — registering a project pins its identity; re-run at a real terminal with --owner-confirm, and type the confirmation");
     const loaded = loadConnection(checkout);
     if (!loaded.ok) throw new Error(loaded.reason);
     const record = registry.register({ connection: loaded.connection, checkoutPath: checkout, capability: { ownerConfirmation: true } });
@@ -495,7 +588,7 @@ function projectsCommand(sub, flags, deps) {
     return 0;
   }
   if (sub === "unregister") {
-    requireOwnerConfirm(flags, deps, "OWNER PERMIT REQUIRED — re-run at a real terminal with --owner-confirm");
+    await requireOwnerConfirm(flags, deps, String(flags.project), "OWNER PERMIT REQUIRED — re-run at a real terminal with --owner-confirm, and type the confirmation");
     const removed = registry.unregister({ projectId: flags.project, checkoutPath: flags.checkout, capability: { ownerConfirmation: true } });
     console.log(removed ? "unregistered  " + String(flags.project) : "not registered  " + String(flags.project));
     return removed ? 0 : 3;
@@ -510,7 +603,8 @@ function usage() {
     "projectos projects unregister --project <id> [--checkout <path>] --owner-confirm",
     "projectos credentials set    --ref <reference> (--run <handle> | --project <id>) [--replace] [--note <text>] [--expires <iso>] [--reach project|tenant|account] [--reach-tenants <a,b>] [--from-env]",
     "projectos credentials delete --ref <reference> (--run <handle> | --project <id>)",
-    "projectos credentials reach  --ref <reference> --project <id> --reach project|tenant|account [--reach-tenants <a,b>]    (console only)",
+    "projectos credentials reach  --ref <reference> --project <id> --reach project|tenant|account [--reach-tenants <a,b>]    (console only, typed)",
+    "projectos credentials grant-receipt --blob <sha>    (confirms one committed credential-release grant, typed at a real terminal)",
     "projectos credentials status [--project <id>] [--environment <env>] [--provider <name>]",
     "projectos credentials doctor [--project <id>]",
     "projectos session start --slot <slot> --profile <profile> --environment <env> (--run <handle> | --project <id>) [--checkout <path>] [--observations <file>] [-- <command> ...]",

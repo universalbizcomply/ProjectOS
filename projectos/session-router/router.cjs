@@ -196,19 +196,28 @@ function createSessionRouter(opts) {
     }
     if (mcpSource.present) {
       const declaredProviders = Array.isArray(connection.providers) ? connection.providers : [];
+      // WHAT THIS PROFILE WILL REALLY PROJECT, not all a provider could. Each adapter is asked what it would
+      // set given a stand-in for each credential the profile permits, so a variable with no credential behind
+      // it is not declared, and a placeholder for it is refused here rather than left to the MCP client.
       const declaredEnv = {};
       for (const providerName of declaredProviders) {
         const adapter = registry.get(providerName);
-        if (!adapter || !Array.isArray(adapter.envVars)) continue;
-        // A NAME-ONLY stand-in proving the variable will exist. Never a credential, never sent to a child.
-        for (const varName of adapter.envVars) declaredEnv[varName] = "declared";
+        if (!adapter) continue;
+        const standIns = {};
+        for (const entry of adapter.sessionCredentials || []) {
+          // A NAME-ONLY stand-in proving the variable will exist. Never a credential, never sent to a child.
+          if (permitsCredential(profile.name, entry.credential)) standIns[entry.key] = "declared";
+        }
+        Object.assign(declaredEnv, adapter.projectEnvironment(connection, environment, standIns));
       }
-      const mcpVerdict = validateMcpConfig({ mcpConfig: mcpSource.mcpConfig, env: declaredEnv, allowedServers: declaredProviders });
+      // A SERVER THIS PROFILE DOES NOT OFFER DOES NOT START: it would have no credential to start with.
+      const allowedServers = declaredProviders.filter((name) => profile.mcpServers.includes(name));
+      const mcpVerdict = validateMcpConfig({ mcpConfig: mcpSource.mcpConfig, env: declaredEnv, allowedServers });
       if (!mcpVerdict.ok) {
         const detail = mcpVerdict.literalSecrets.length
           ? "MCP config carries a non-placeholder credential value: " + mcpVerdict.literalSecrets[0]
           : mcpVerdict.disallowedServers.length
-            ? "MCP config declares server '" + mcpVerdict.disallowedServers[0] + "' which this project does not declare"
+            ? "MCP config declares server '" + mcpVerdict.disallowedServers[0] + "' which this project does not declare or this profile does not offer"
             : "MCP placeholder '" + mcpVerdict.missingPlaceholders[0] + "' resolves to no variable this session declares";
         return { status: "MCP CONFIG INVALID", ready: false, blocker: "MCP CONFIG INVALID", detail, slot, projectId: connection.projectId, environment, profile: profile.name };
       }

@@ -70,6 +70,8 @@ const OPERATION_CREDENTIALS = Object.freeze([
  * never a session credential, and the vault reads its reach as `account` even if a record says otherwise.
  */
 const ACCOUNT_WIDE_CREDENTIALS = Object.freeze(["supabase-access-token"]);
+/** Names that say the same thing another way: a personal access token, by whichever spelling. */
+const ACCOUNT_WIDE_NAME_RE = /(?:^|[-_.])(?:pat|personal[-_.]?access[-_.]?token|access[-_.]?token)(?:$|[-_.])/i;
 
 const SESSION_SET = new Set(SESSION_CREDENTIALS);
 
@@ -100,6 +102,14 @@ function asciiLower(text) {
 }
 
 const PLATFORM_SET = new Set(PLATFORM_REFERENCES.map(asciiLower));
+
+/**
+ * Does this NAME say the credential reaches a whole account? A name can lie: a classic GitHub token stored
+ * as `gh-token` is account-wide and reads as nothing here. This catches what says so, and nothing more.
+ */
+function isAccountWide(credentialName) {
+  return typeof credentialName === "string" && (ACCOUNT_WIDE_CREDENTIALS.includes(credentialName) || ACCOUNT_WIDE_NAME_RE.test(credentialName));
+}
 
 /** Would a credential reference read this project id as a tenant-class segment? */
 function isReservedProjectId(projectId) {
@@ -193,5 +203,6 @@ module.exports = {
   belongsToProject,
   isReservedProjectId,
   isTenantId,
+  isAccountWide,
   asciiLower,
 };

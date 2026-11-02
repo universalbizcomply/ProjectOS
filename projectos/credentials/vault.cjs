@@ -25,8 +25,9 @@
  *  - RISK SEPARATION. `session`-class credentials may be authorised for projection into a session's child
  *    environment. `operation`-class credentials (database passwords, service-role keys, production deploy
  *    tokens, real-send and payment credentials) can ONLY be authorised against a permit bound to the same
- *    project, environment, reference and run, and a committed `credential-release` grant naming the project,
- *    the exact reference, the action and an expiry. Risk class is fail-closed: an unknown name is `operation`.
+ *    project, environment, reference and run, and a committed, receipted `credential-release` grant naming the
+ *    project, the exact reference, the action, the exact command and an expiry. Risk class is fail-closed: an
+ *    unknown name is `operation`.
  *  - GRANTS, NOT VALUES. Authorisation returns an opaque grant, not a secret. A grant is single-use, is
  *    recognised only by the vault instance that minted it (identity membership in a private WeakSet — a
  *    hand-built look-alike object is refused), and carries no value itself.
@@ -49,7 +50,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { createRedactor } = require("../security/redaction.cjs");
-const { parseReference, fingerprint, belongsToProject, REACHES, ACCOUNT_WIDE_CREDENTIALS } = require("./reference.cjs");
+const { parseReference, fingerprint, belongsToProject, REACHES, isAccountWide } = require("./reference.cjs");
 const { createMetadataStore, requesterState, refusal, RECORD_LOCK_HINT } = require("./credential-metadata.cjs");
 
 const GRANT_TTL_MS = 5 * 60 * 1000;
@@ -364,7 +365,7 @@ function createCredentialVault(opts) {
     if (record && metadata.isExpired(record, new Date(nowMs()).toISOString())) return { code: "CREDENTIAL_EXPIRED", reason: "credential-expired", message: "credential-vault: this credential has passed its recorded expiry" };
     const declared = record ? record.reach : null;
     if (!REACHES.includes(declared)) return { code: "REACH_UNDECLARED", reason: "reach-undeclared", message: "credential-vault: this credential declares no reach, so it is not released" };
-    const accountWide = ACCOUNT_WIDE_CREDENTIALS.includes(ref.credential) || declared === "account";
+    const accountWide = isAccountWide(ref.credential) || declared === "account";
     if (path === "session") {
       return declared === "project" && !accountWide ? null : { code: "REACH_WIDER_THAN_PROJECT", reason: "reach-wider-than-project", message: "credential-vault: this credential reaches beyond its project, so it is not projected into a session" };
     }
@@ -454,7 +455,7 @@ function createCredentialVault(opts) {
 
   /**
    * Authorise a credential for ONE command. Requires a permit whose project, environment, reference and run
-   * all match, and a committed `credential-release` grant. `ownerConfirmation` is a flag the flow above sets
+   * all match, and a committed, receipted `credential-release` grant naming this exact command. `ownerConfirmation` is a flag the flow above sets
    * after its terminal check. Any in-process caller could set it, so it prevents accidents and proves no one.
    *
    * THE REQUESTER IS NOT THE REFERENCE. This route used to be handed `projectId: ref.project`, so the check
@@ -462,7 +463,7 @@ function createCredentialVault(opts) {
    * now, and a platform credential is released to nobody, whoever that is.
    */
   function authoriseOperationRelease(input) {
-    const { requester, permit } = input || {};
+    const { requester, permit, command } = input || {};
     const capability = (input || {}).capability || {};
     const ref = requireRef((input || {}).reference, "authorise-operation");
     const state = requireRequester(requester, ref, "authorise-operation");
@@ -493,7 +494,7 @@ function createCredentialVault(opts) {
     }
     // THE P5 GRANT, whichever route the requester came by. A linked worktree's binding, a tenant receipt and
     // a gatekeeper `secrets-handling` gate are not this and cannot stand in for it.
-    const ungranted = state.authority.operationGrantRefusal(requester, ref, permit);
+    const ungranted = state.authority.operationGrantRefusal(requester, ref, permit, command);
     if (ungranted !== null) {
       refuseRelease(ref, requester, "authorise-operation", ungranted, "CREDENTIAL_GRANT_REQUIRED");
       throw refusal("CREDENTIAL_GRANT_REQUIRED", "credential-vault: " + ungranted);

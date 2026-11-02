@@ -65,7 +65,20 @@ const PHASE_ID_RE = /^[A-Za-z0-9_-]{4,128}$/;
 /** Where a credential-release grant lives: the installation, because a project's own work can write its own repository (F8). */
 const CREDENTIAL_GRANTS_REL = "projectos/security/credential-grants/";
 const CREDENTIAL_GRANT_KIND = "credential-release-grant";
-const CREDENTIAL_GRANT_FIELDS = Object.freeze(["schemaVersion", "kind", "phaseId", "projectId", "references", "action", "expiresAt", "grantedBy"]);
+const CREDENTIAL_GRANT_FIELDS = Object.freeze(["schemaVersion", "kind", "phaseId", "projectId", "references", "action", "command", "expiresAt", "grantedBy"]);
+/** The grant's own receipt, one per blob, beside the tenant receipt and outside every repository. */
+const GRANT_RECEIPTS_DIRNAME = "credential-grant-receipts";
+const GRANT_CHANGE_RECORDS_FILENAME = "credential-grant-changes.jsonl";
+const GRANT_RECEIPT_KIND = "credential-grant-receipt";
+const GRANT_RECEIPT_CONFIRMATION = "typed-terminal";
+const GRANT_CONFIRMATION_LENGTH = 12;
+/** Printed with every receipt answer, and written into the receipt. `TENANT_RECEIPT_STATEMENT`'s words. */
+const GRANT_RECEIPT_STATEMENT =
+  "A grant receipt shows that a person or a process confirmed this grant blob at a console, nothing more. " +
+  "It stops an agent with no terminal from using this command, and it stops a commit alone from releasing a credential. " +
+  "It does not stop a process that drives a console or writes the receipt and its line directly, because everything here runs as one Windows user (ADR-T1 section 10).";
+/** The registry's line for the installation itself. */
+const INSTALLATION_PROJECT_ID = "projectos";
 const GIT_OBJECT_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const WILDCARD_RE = /[*?]/;
 const DOMAINS = Object.freeze(["develop", "business", "personal", "phone"]);
@@ -292,6 +305,12 @@ function createMetadataStore(opts) {
   return { filePath, stateDir, recordProvision, recordRotationMetadata, remove, get, list, isExpired };
 }
 
+/** One spelling of a path: separators, trailing slashes and, on Windows, ASCII case do not count. */
+function pathKey(p) {
+  const forward = String(p).split(String.fromCharCode(92)).join("/").replace(/\/+$/, "");
+  return process.platform === "win32" ? asciiLower(forward) : forward;
+}
+
 /** A refusal a caller can match on. It never carries a value, because nothing here reads one. */
 function refusal(code, message) {
   return Object.assign(new Error(code + ": " + message), { code });
@@ -378,6 +397,29 @@ function idempotencyKeyOf(intent) {
   return "sha256:" + crypto.createHash("sha256").update(IDEMPOTENCY_DOMAIN + canonical, "utf8").digest("hex");
 }
 
+/** Is this a well-formed grant, on its own terms? Why not, or `null`. A malformed one is never shown or confirmed. */
+function grantShapeProblem(grant) {
+  if (grant === null || typeof grant !== "object" || Array.isArray(grant)) return "the committed credential-release grant is not a record";
+  const keys = Object.keys(grant);
+  if (keys.length !== CREDENTIAL_GRANT_FIELDS.length || !CREDENTIAL_GRANT_FIELDS.every((field) => keys.includes(field))) {
+    return "the committed credential-release grant does not have exactly the fields a grant has";
+  }
+  if (grant.schemaVersion !== "1.0.0" || grant.kind !== CREDENTIAL_GRANT_KIND) return "the committed record is not a credential-release grant";
+  if (typeof grant.grantedBy !== "string" || grant.grantedBy.trim() === "") return "the committed credential-release grant names nobody who granted it";
+  if (typeof grant.action !== "string" || grant.action === "") return "the committed credential-release grant names no action";
+  const textList = (value) => Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item !== "");
+  if (!textList(grant.references)) return "the committed credential-release grant names no references";
+  if (!textList(grant.command)) return "the committed credential-release grant names no command";
+  const expiresAtMs = typeof grant.expiresAt === "string" ? Date.parse(grant.expiresAt) : Number.NaN;
+  if (!Number.isFinite(expiresAtMs) || new Date(expiresAtMs).toISOString() !== grant.expiresAt) return "the committed credential-release grant has no readable expiry";
+  return null;
+}
+
+/** The exact command: the same executable, by path, and exactly the same arguments in order. */
+function sameCommand(granted, running) {
+  return Array.isArray(running) && running.length === granted.length && pathKey(granted[0]) === pathKey(running[0]) && granted.every((item, index) => index === 0 || item === running[index]);
+}
+
 /**
  * The state directory as the operating system places it, and only while the environment agrees with it:
  * `defaultPlatformStopStateDir`, so one variable cannot point authority at a forged record. `null` refuses.
@@ -409,6 +451,14 @@ function createRequesterAuthority(opts) {
   function requireSources() {
     if (typeof installRoot !== "string" || !path.isAbsolute(installRoot) || typeof stateDir !== "string" || !path.isAbsolute(stateDir)) {
       throw refusal("TENANT_REGISTRY_UNREADABLE", "no installation and no state directory can be established, so no requester can be derived");
+    }
+    // THE INSTALLATION IS THE MAIN CHECKOUT. The router takes this root from its own location, and a linked
+    // worktree of the repository has that same code on a branch of its own, where a grant can be committed
+    // with nothing in the main checkout. So its git directory must be its own and the common one.
+    const asked = ["--git-dir", "--git-common-dir"].map((flag) => git(installRoot, ["rev-parse", flag]));
+    const dirs = asked.map((answer) => pathKey(path.resolve(installRoot, answer.stdout.trim())));
+    if (asked.some((answer) => answer.code !== 0 || !answer.stdout.trim()) || dirs[0] !== dirs[1] || dirs[0] !== pathKey(path.join(installRoot, ".git"))) {
+      throw refusal("INSTALLATION_NOT_MAIN_CHECKOUT", "this code is not running from the main checkout of the installation, so it holds no authority. Run it from the checkout the tenant registry names");
     }
   }
 
@@ -455,20 +505,45 @@ function createRequesterAuthority(opts) {
     try { raw = JSON.parse(bytes.text); } catch (e) { throw refusal("TENANT_REGISTRY_UNREADABLE", "the committed tenant registry is not readable JSON"); }
     const problem = registryProblem(raw);
     if (problem !== null) throw refusal(problem.code, problem.message);
+    // AND IT IS THE CHECKOUT THE REGISTRY NAMES, so a clone elsewhere is not an installation either.
+    const self = raw.projects.find((entry) => entry.projectId === INSTALLATION_PROJECT_ID);
+    if (self === undefined || pathKey(self.governedRoot) !== pathKey(installRoot)) {
+      throw refusal("INSTALLATION_NOT_MAIN_CHECKOUT", "the committed tenant registry does not name this checkout as the installation");
+    }
     if (!receiptConfirms(bytes.blob)) {
       throw refusal("TENANT_REGISTRY_NO_RECEIPT", "the committed tenant registry (blob " + bytes.blob + ") has no receipt with its admission line, so no tenant can be derived. A receipt is a precondition of reading the registry, and it grants nothing");
     }
     return { entries: new Map(raw.projects.map((entry) => [entry.projectId, entry])), commit: bytes.commit };
   }
 
-  function receiptConfirms(blob) {
-    let receipt;
-    try { receipt = JSON.parse(fs.readFileSync(path.join(stateDir, TENANT_RECEIPT_FILENAME), "utf8")); } catch (e) { return false; }
-    if (!receipt || receipt.kind !== "tenant-registry-receipt" || receipt.confirmation !== "typed-terminal" || receipt.registryBlob !== blob) return false;
-    return readJsonLines(path.join(stateDir, TENANT_CHANGE_RECORDS_FILENAME)).some((line) => {
+  /**
+   * Does this receipt stand? It must name this blob, by a typed confirmation, and have its admission line: a
+   * receipt with no line is a copied file. Both kinds read alike, so neither can drift from the other.
+   */
+  function receiptStands(receipt, blob, spec) {
+    if (!receipt || receipt.kind !== spec.kind || receipt.confirmation !== "typed-terminal" || receipt[spec.blobField] !== blob) return false;
+    return readJsonLines(path.join(stateDir, spec.changes)).some((line) => {
       const envelope = line && line.envelope;
-      return line && line.stage === "admission" && line.outcome === "allowed" && envelope && envelope.action === "tenant-registry-change" && envelope.envelopeId === receipt.envelopeId && envelope.subjectHash === blob;
+      return line && line.stage === "admission" && line.outcome === "allowed" && envelope && envelope.action === spec.action && envelope.envelopeId === receipt.envelopeId && envelope.subjectHash === blob;
     });
+  }
+
+  function readReceiptFile(file) {
+    try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return null; }
+  }
+
+  function receiptConfirms(blob) {
+    const spec = { kind: "tenant-registry-receipt", blobField: "registryBlob", changes: TENANT_CHANGE_RECORDS_FILENAME, action: "tenant-registry-change" };
+    return receiptStands(readReceiptFile(path.join(stateDir, TENANT_RECEIPT_FILENAME)), blob, spec);
+  }
+
+  function grantReceiptPath(blob) {
+    return path.join(stateDir, GRANT_RECEIPTS_DIRNAME, blob + ".json");
+  }
+
+  function grantReceiptConfirms(blob) {
+    const spec = { kind: GRANT_RECEIPT_KIND, blobField: "grantBlob", changes: GRANT_CHANGE_RECORDS_FILENAME, action: "credential-release" };
+    return receiptStands(readReceiptFile(grantReceiptPath(blob)), blob, spec);
   }
 
   /** Each action's class and environment come from the committed action registry, never from this file. */
@@ -634,31 +709,74 @@ function createRequesterAuthority(opts) {
    * names the project, the exact references, the action and an expiry, and any difference releases nothing.
    *
    * IT LIVES IN THE INSTALLATION, read from committed bytes at HEAD: a project's work can write its own
-   * repository (F8), and a linked worktree can commit there. A tenant receipt and a `secrets-handling` gate
-   * are not this and answer nothing. `null` when the record grants this release; otherwise why not.
+   * repository (F8), and a linked worktree of a project can commit there. A worktree of the installation is
+   * refused before this. It covers one exact command, and a commit alone grants nothing: the blob needs its
+   * receipt. A tenant receipt and a `secrets-handling` gate are not this and answer nothing. `null` when the
+   * record grants this release; otherwise why not.
    */
-  function operationGrantRefusal(requester, ref, permit) {
+  function operationGrantRefusal(requester, ref, permit, command) {
     const phaseId = permit.phaseId;
     if (typeof phaseId !== "string" || !PHASE_ID_RE.test(phaseId)) return "the permit names no phase, so no grant can answer for it";
     const bytes = readCommitted(installRoot, CREDENTIAL_GRANTS_REL + phaseId + ".credential-release.json");
     if (bytes === null) return "no committed credential-release grant exists for this phase in the installation";
     let grant;
     try { grant = JSON.parse(bytes.text); } catch (e) { return "the committed credential-release grant is not readable JSON"; }
-    if (grant === null || typeof grant !== "object" || Array.isArray(grant)) return "the committed credential-release grant is not a record";
-    const keys = Object.keys(grant);
-    if (keys.length !== CREDENTIAL_GRANT_FIELDS.length || !CREDENTIAL_GRANT_FIELDS.every((field) => keys.includes(field))) {
-      return "the committed credential-release grant does not have exactly the fields a grant has";
-    }
-    if (grant.schemaVersion !== "1.0.0" || grant.kind !== CREDENTIAL_GRANT_KIND) return "the committed record is not a credential-release grant";
-    if (typeof grant.grantedBy !== "string" || grant.grantedBy.trim() === "") return "the committed credential-release grant names nobody who granted it";
+    const malformed = grantShapeProblem(grant);
+    if (malformed !== null) return malformed;
     if (grant.phaseId !== phaseId) return "the committed credential-release grant is for another phase";
     if (grant.projectId !== requester.project) return "the committed credential-release grant is for another project";
-    if (!Array.isArray(grant.references) || !grant.references.includes(ref.reference)) return "the committed credential-release grant does not name this exact reference";
-    if (typeof permit.action !== "string" || grant.action !== permit.action) return "the committed credential-release grant is for another action";
-    const expiresAtMs = typeof grant.expiresAt === "string" ? Date.parse(grant.expiresAt) : Number.NaN;
-    if (!Number.isFinite(expiresAtMs) || new Date(expiresAtMs).toISOString() !== grant.expiresAt) return "the committed credential-release grant has no readable expiry";
-    if (expiresAtMs <= nowMs()) return "the committed credential-release grant has expired";
+    if (!grant.references.includes(ref.reference)) return "the committed credential-release grant does not name this exact reference";
+    if (grant.action !== permit.action) return "the committed credential-release grant is for another action";
+    if (!sameCommand(grant.command, command)) return "the committed credential-release grant is for another command";
+    if (Date.parse(grant.expiresAt) <= nowMs()) return "the committed credential-release grant has expired";
+    if (!grantReceiptConfirms(bytes.blob)) return "the committed credential-release grant (blob " + bytes.blob + ") has no receipt with its admission line. A person confirms it with: credentials grant-receipt --blob " + bytes.blob;
     return null;
+  }
+
+  /** The committed grant with this blob, judged, or a refusal. It is what a person sees before confirming. */
+  function describeGrant(blob) {
+    requireSources();
+    const missing = () => refusal("CREDENTIAL_GRANT_NOT_FOUND", "no well-formed credential-release grant at the installation's HEAD has this blob");
+    if (typeof blob !== "string" || !GIT_OBJECT_RE.test(blob)) throw missing();
+    const listed = git(installRoot, ["ls-tree", "-r", "HEAD", "--", CREDENTIAL_GRANTS_REL]).stdout.split("\n").map((line) => /^\d+ blob (\S+)\t(.+)$/.exec(line.trim()));
+    const entry = listed.find((match) => match !== null && match[1] === blob);
+    if (entry === undefined) throw missing();
+    const bytes = readCommitted(installRoot, entry[2]);
+    if (bytes === null || bytes.blob !== blob) throw missing();
+    let grant;
+    try { grant = JSON.parse(bytes.text); } catch (e) { throw missing(); }
+    if (grantShapeProblem(grant) !== null) throw missing();
+    return grant;
+  }
+
+  /**
+   * Write a grant's receipt: the admission line, then the file, then read it back. `typed` is what was typed
+   * at a terminal, and only the credential router's terminal route reaches this. A grant that is not exactly
+   * this blob has no receipt, so a changed grant needs a new one, and an old one does not come back to life.
+   */
+  function confirmGrant(input) {
+    const { blob, typed } = input || {};
+    const grant = describeGrant(blob);
+    if (typed !== blob.slice(0, GRANT_CONFIRMATION_LENGTH)) {
+      throw refusal("CREDENTIAL_GRANT_CONFIRMATION_MISMATCH", "what was typed does not match the blob exactly");
+    }
+    const requester = issueConsoleRun({ projectId: grant.projectId });
+    const envelopeId = newEnvelopeId();
+    const at = new Date(nowMs()).toISOString();
+    const envelope = { envelopeId, action: "credential-release", subjectHash: blob, tenant: requester.tenant, project: requester.project, scope: ["run:" + requester.runHandle, "confirmation:" + GRANT_RECEIPT_CONFIRMATION] };
+    const receipt = { schemaVersion: "1.0.0", kind: GRANT_RECEIPT_KIND, grantBlob: blob, confirmedAt: at, confirmation: GRANT_RECEIPT_CONFIRMATION, envelopeId, statement: GRANT_RECEIPT_STATEMENT };
+    const file = grantReceiptPath(blob);
+    const tmp = file + "." + crypto.randomBytes(4).toString("hex") + ".tmp";
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.appendFileSync(path.join(stateDir, GRANT_CHANGE_RECORDS_FILENAME), JSON.stringify({ stage: "admission", outcome: "allowed", envelope, via: "console", at }) + "\n", { encoding: "utf8", mode: 0o600 });
+      fs.writeFileSync(tmp, JSON.stringify(receipt, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+      fs.renameSync(tmp, file);
+    } catch (e) {
+      throw refusal("ENVELOPE_NOT_RECORDED", "the grant receipt could not be written, so nothing is confirmed");
+    }
+    if (!grantReceiptConfirms(blob)) throw refusal("ENVELOPE_NOT_RECORDED", "the grant receipt did not read back, so nothing is confirmed");
+    return receipt;
   }
 
   /**
@@ -691,8 +809,8 @@ function createRequesterAuthority(opts) {
     return appendRecord({ stage: "admission", at: at.toISOString(), outcome, rule, envelope, registered: true, via: requester.via, runLinked: true, reasons, grantSource });
   }
 
-  const authority = Object.freeze({ fromRun, issueConsoleRun, operationGrantRefusal, recordRelease });
+  const authority = Object.freeze({ fromRun, issueConsoleRun, operationGrantRefusal, recordRelease, describeGrant, confirmGrant });
   return authority;
 }
 
-module.exports = { createMetadataStore, defaultStateDir, FILE_NAME, MAX_NOTE, CREDENTIAL_GRANTS_REL, createRequesterAuthority, requesterState, installationStateDir, refusal, RUN_HANDLE_RE, ENVELOPE_RECORDS_FILENAME, RECORD_LOCK_HINT };
+module.exports = { createMetadataStore, defaultStateDir, FILE_NAME, MAX_NOTE, CREDENTIAL_GRANTS_REL, createRequesterAuthority, requesterState, installationStateDir, refusal, RUN_HANDLE_RE, ENVELOPE_RECORDS_FILENAME, RECORD_LOCK_HINT, GRANT_RECEIPT_STATEMENT, GRANT_CONFIRMATION_LENGTH };
