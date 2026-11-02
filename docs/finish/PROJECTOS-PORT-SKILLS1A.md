@@ -165,6 +165,16 @@ holds in between. It counts negated classes and `\S` only, so a wide repeat over
 - **Run nothing from `scripts/`.** A package may hold scripts, and no code here runs them. Running one is a C14 action under that
   policy, not something a promotion allows.
 
+**From the ECC recheck, binding on the same phase.** Nothing loads a skill yet, so none of these is live.
+
+- **BINDING: sign the pin or kernel-issue the actor before any loader reads a promoted skill.** A self-asserted `owner` plus a second
+  label still promotes, and a hand-written promoted record still renders.
+- **BINDING: the kernel sets `origin`.** Today it comes from the request and defaults to `proposed`.
+- **BINDING: an import needs an owner design.** A single owner label cannot promote an import. That is a safe dead end, not a route.
+- **BINDING: close the bounded-repeat evasions.** The 64 bound lets a 70-character path to `.env` evade `py_read_secrets_file` and
+  `js_read_secrets_file`. A `sed` with 5 or more arguments before `-i` evades the critical `agent_config_mod_shell`, and only the low
+  `agent_config_ref` still fires. Both were run against the stacked build, with a short-path and a 4-argument control that fire.
+
 ## Limits
 
 - **Only the owner role reviews, and the owner does not review the owner.** So a skill the owner proposed, which includes every import, needs a
