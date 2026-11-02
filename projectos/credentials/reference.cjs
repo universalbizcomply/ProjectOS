@@ -20,6 +20,14 @@
  * Fingerprints are non-reversible (salted-domain SHA-256, truncated) and are the ONLY value-derived
  * data this capability is permitted to display or log.
  *
+ * WHOSE A CREDENTIAL IS (PROJECTOS-TENANT-CREDENTIALS1A, ADR-T1 §6). Risk says how dangerous it is; class
+ * says who it belongs to, and the five-segment format does not change, so no stored secret is re-entered:
+ *   - "project"  → `ProjectOS/<project>/…`, which inherits its project's tenant;
+ *   - "tenant"   → `ProjectOS/tenant.<tenantId>/…`, the reserved segment, matched case-insensitively
+ *                  because Windows target names may be. No real project id may start with it, in any case;
+ *   - "platform" → the gatekeeper key. It serves every tenant through the broker and is released to none.
+ *                  It keeps its stored name, so it is named here exactly, in any case.
+ *
  * Zero dependencies (Node built-ins only). No network, no disk, no spawning.
  */
 
@@ -58,6 +66,43 @@ const OPERATION_CREDENTIALS = Object.freeze([
 
 const SESSION_SET = new Set(SESSION_CREDENTIALS);
 
+/** The reserved project segment. The same prefix `core/src/tenant.ts` refuses as a project id. */
+const TENANT_PREFIX = "tenant.";
+/** The same shape `core/src/tenant.ts` gives a tenant id. */
+const TENANT_ID_RE = /^[a-z][a-z0-9-]{1,56}$/;
+
+/**
+ * The credentials that serve every tenant through the broker and are released to none. Named exactly,
+ * because the stored name stays: the gatekeeper key's project segment is `projectos`, so nothing about
+ * its shape says what it is.
+ */
+const PLATFORM_REFERENCES = Object.freeze(["ProjectOS/projectos/development/openai/gatekeeper-api-key"]);
+
+/**
+ * What a credential can reach, as declared per credential rather than assumed (ADR-T1 §6): one project,
+ * one tenant, or a whole provider account, which then names every tenant that account holds.
+ */
+const REACHES = Object.freeze(["project", "tenant", "account"]);
+
+/**
+ * Lower-cases A to Z and nothing else. `toLowerCase` folds U+212A KELVIN SIGN to `k`, so a non-ASCII
+ * spelling could equal a reserved name.
+ */
+function asciiLower(text) {
+  return text.replace(/[A-Z]/g, (letter) => String.fromCharCode(letter.charCodeAt(0) + 32));
+}
+
+const PLATFORM_SET = new Set(PLATFORM_REFERENCES.map(asciiLower));
+
+/** Would a credential reference read this project id as a tenant-class segment? */
+function isReservedProjectId(projectId) {
+  return typeof projectId === "string" && asciiLower(projectId).startsWith(TENANT_PREFIX);
+}
+
+function isTenantId(value) {
+  return typeof value === "string" && TENANT_ID_RE.test(value);
+}
+
 function isSegment(s) {
   return typeof s === "string" && SEGMENT_RE.test(s);
 }
@@ -78,6 +123,8 @@ function parseReference(text) {
     if (!isSegment(value)) return { ok: false, reason: "reference-invalid-segment:" + name };
   }
   if (!ENVIRONMENTS.includes(environment)) return { ok: false, reason: "reference-unknown-environment" };
+  const tenantId = isReservedProjectId(project) ? asciiLower(project).slice(TENANT_PREFIX.length) : null;
+  if (tenantId !== null && !isTenantId(tenantId)) return { ok: false, reason: "reference-invalid-tenant-segment" };
   return {
     ok: true,
     ref: Object.freeze({
@@ -87,6 +134,8 @@ function parseReference(text) {
       provider,
       credential,
       risk: classifyRisk(credential),
+      credentialClass: PLATFORM_SET.has(asciiLower(text)) ? "platform" : tenantId !== null ? "tenant" : "project",
+      tenantId,
     }),
   };
 }
@@ -127,9 +176,14 @@ module.exports = {
   ENVIRONMENTS,
   SESSION_CREDENTIALS,
   OPERATION_CREDENTIALS,
+  PLATFORM_REFERENCES,
+  REACHES,
   parseReference,
   formatReference,
   classifyRisk,
   fingerprint,
   belongsToProject,
+  isReservedProjectId,
+  isTenantId,
+  asciiLower,
 };

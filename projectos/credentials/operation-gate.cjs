@@ -9,9 +9,11 @@
  *   1. PROVIDER INTENT. The action is classified by the EXISTING provider context guards. A prohibited
  *      action is refused here and never reaches a credential; a production-targeting action on a frozen
  *      project is refused; anything else is owner-gated, which enqueues an approval item.
- *   2. OWNER PERMIT. A permit must name this project, this environment, this reference and this action,
- *      must carry an explicit owner confirmation, and must not have expired. ProjectOS cannot mint one for
- *      itself: `grantPermit` requires the owner-confirmation capability that only the owner-facing flow sets.
+ *   2. OWNER PERMIT. A permit must name this project, this environment, this reference, this action and
+ *      this run, must carry an explicit owner confirmation, and must not have expired. ProjectOS cannot mint
+ *      one for itself: `grantPermit` requires the owner-confirmation capability that only the owner-facing
+ *      flow sets. WHO IS ASKING is the kernel-minted requester this run was handed, never the reference:
+ *      the vault refuses a requester outside the reference's project or tenant, and a plain string.
  *   3. ARGUMENT HYGIENE. The command line is refused if it carries a token-shaped argument, so the secret
  *      cannot reach a process listing. The value travels in the CHILD's environment under one named
  *      variable, and the child gets a minimal environment — nothing of this process's own is forwarded.
@@ -28,6 +30,7 @@ const childProcess = require("child_process");
 const crypto = require("crypto");
 const { evaluateProviderIntent, REFUSED } = require("../guards/provider-context-guards.cjs");
 const { parseReference } = require("./reference.cjs");
+const { requesterState } = require("./credential-metadata.cjs");
 const vercel = require("../providers/vercel.provider.cjs");
 
 const DEFAULT_PERMIT_TTL_MS = 10 * 60 * 1000;
@@ -141,6 +144,12 @@ function createOperationGate(opts) {
       log({ action: "grant-permit", reference: ref.reference, projectId: ref.project, environment: ref.environment, ok: false, reason: "owner-confirmation-required" });
       throw new Error("OWNER PERMIT REQUIRED");
     }
+    // A PERMIT IS FOR ONE RUN. It says nothing about whether this run may have this credential: that stays
+    // the vault's one rule, asked at release, so a permit minted for the wrong requester still stops there.
+    if (requesterState(req.requester) === null) {
+      log({ action: "grant-permit", reference: ref.reference, projectId: ref.project, environment: ref.environment, ok: false, reason: "requester-not-kernel-minted" });
+      throw new Error("REQUESTER REQUIRED");
+    }
     const ttl = Number.isFinite(req.ttlMs) && req.ttlMs > 0 ? req.ttlMs : DEFAULT_PERMIT_TTL_MS;
     const permit = Object.freeze({
       permitId: "permit_" + crypto.randomBytes(9).toString("hex"),
@@ -149,6 +158,7 @@ function createOperationGate(opts) {
       reference: ref.reference,
       action: req.action,
       phaseId: typeof req.phaseId === "string" ? req.phaseId : null,
+      runHandle: req.requester.runHandle,
       ownerConfirmation: true,
       expiresAtMs: nowMs() + ttl,
     });
@@ -163,7 +173,7 @@ function createOperationGate(opts) {
 
   /**
    * Run exactly one command with the credential in its environment.
-   * @param input { reference, permit, capability, command, args, envVarName, cwd, productionFrozen }
+   * @param input { reference, requester, permit, capability, command, args, envVarName, cwd, productionFrozen }
    * @returns { ok, blocker, exitCode, stdout, stderr } — output redacted, value never present
    */
   function run(input) {
@@ -219,7 +229,13 @@ function createOperationGate(opts) {
     // 4/5. One command, value only inside the closure. Output is WITHHELD by default: exact-string
     // redaction cannot survive a child that re-encodes or line-wraps the value, and this is the highest
     // risk credential class there is. `includeOutput` is an explicit, informed opt-in.
-    const grant = vault.authoriseOperationRelease({ reference: ref.reference, projectId: ref.project, permit, capability: req.capability || {} });
+    // WHO IS ASKING IS THE REQUESTER, NOT THE REFERENCE. Any refusal here is the vault's, by its own name.
+    let grant;
+    try {
+      grant = vault.authoriseOperationRelease({ reference: ref.reference, requester: req.requester, permit, capability: req.capability || {} });
+    } catch (e) {
+      return refuse(typeof e.code === "string" ? e.code : "OWNER PERMIT REQUIRED", base);
+    }
     const result = vault.useValue(grant, (value) =>
       spawnSync(executable, args, {
         cwd: typeof req.cwd === "string" && req.cwd ? req.cwd : undefined,

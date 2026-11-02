@@ -10,12 +10,38 @@
  * `~/.projectos/` elsewhere) so it can never be committed. Every field is non-secret by construction:
  * the writer refuses any record carrying a `value`-shaped field, and refuses a note long enough to hide
  * a token.
+ *
+ * IT ALSO HOLDS WHO IS ASKING (PROJECTOS-TENANT-CREDENTIALS1A, ADR-T1 §6 and §10). `createRequesterAuthority`
+ * reads the installation's own records and is the only source of a requester, the branded value the vault
+ * and the operation gate demand. It sits here because this is the module that reads what ProjectOS may know
+ * from outside a repository, and the plan names this file and no new one.
+ *
+ *   A REQUESTER IS A KERNEL-ISSUED RUN HANDLE, NEVER A DIRECTORY. The handle is a `run-start` envelope's id,
+ *   and its admission line in the installation's `envelope-records.jsonl` is what survives the process. A
+ *   process that holds the id, in any directory, is that run; a process that does not is nobody. Nothing
+ *   here reads a cwd, a flag naming a tenant, an environment variable naming a tenant, a JWT or an OAuth
+ *   identity. Everything the requester says comes from that line and from the committed tenant registry,
+ *   and the line's own words are held to the registry.
+ *
+ *   WHAT THE HANDLE IS NOT. It names a record and it is not a secret: any process of this Windows user can
+ *   read the line, and can write one. That is ADR-T1 §10's first limit, one Windows user, and it is why no
+ *   second party's credentials go on this machine. This stops the kernel's routes being told who asks.
+ *
+ *   A CONSOLE IS A RUN TOO. A command with no run mints one first, as the contract requires. Only the
+ *   credential router's terminal check reaches `issueConsoleRun`, and what it shows is what a tenant
+ *   receipt shows: a person or a process at a console, nothing more.
+ *
+ *   THE CORE CANNOT BE LOADED HERE. It is TypeScript, and this is plain synchronous CommonJS that must run
+ *   with no build, so the few rules below repeat core's on purpose: the record's shape, whole-file refusal,
+ *   the idempotency key. A test holds them to the core's own functions.
  */
 
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { parseReference, fingerprint } = require("./reference.cjs");
+const crypto = require("crypto");
+const childProcess = require("child_process");
+const { parseReference, fingerprint, isReservedProjectId, isTenantId, asciiLower, REACHES } = require("./reference.cjs");
 const { matchedShapes } = require("./credential-shapes.cjs");
 
 const FILE_NAME = "credential-metadata.json";
@@ -25,6 +51,30 @@ const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+
 const LOCK_TIMEOUT_MS = 5000;
 // Fields that could smuggle a secret into a file that is otherwise safe to read, print and back up.
 const FORBIDDEN_FIELDS = ["value", "secret", "password", "token", "key", "blob", "plaintext"];
+
+const TENANT_REGISTRY_REL = "projectos/security/tenant-registry.json";
+const ACTION_REGISTRY_REL = "projectos/security/action-registry.json";
+const ENVELOPE_RECORDS_FILENAME = "envelope-records.jsonl";
+const TENANT_RECEIPT_FILENAME = "tenant-registry-receipt.json";
+const TENANT_CHANGE_RECORDS_FILENAME = "tenant-registry-changes.jsonl";
+/** A run-start envelope's id, which is all a handle is. A JWT is not this shape, and nothing else is read. */
+const RUN_HANDLE_RE = /^ENV-[0-9a-f]{24}$/;
+const PHASE_ID_RE = /^[A-Za-z0-9_-]{4,128}$/;
+const GIT_OBJECT_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const WILDCARD_RE = /[*?]/;
+const DOMAINS = Object.freeze(["develop", "business", "personal", "phone"]);
+/** How a requester came to exist. A linked worktree is named so that it can be refused. */
+const REQUESTER_ROUTES = Object.freeze(["governed-root", "linked-worktree", "console"]);
+const KERNEL_ACTOR = Object.freeze({ agent: "projectos-kernel", provider: "projectos", model: "none" });
+/** The moment around one command at a console. A governed run's window is the kernel's, on its line. */
+const CONSOLE_RUN_WINDOW_MS = 5 * 60 * 1000;
+const IDEMPOTENCY_DOMAIN = "projectos-envelope-idempotency-v2:";
+/** The same rotation size, lock and bounded wait as `appendDurableLine`, because they share a file. */
+const RECORD_ROTATE_BYTES = 1048576;
+const RECORD_LOCK_WAIT_STEP_MS = 50;
+const RECORD_LOCK_WAIT_STEPS = 40;
+/** A record's lock left by a process that died holds every later line, and only a person may clear it. */
+const RECORD_LOCK_HINT = "If no other ProjectOS process is running, a .jsonl.lock file in the installation state was left by one that died and must be removed.";
 
 function defaultStateDir() {
   if (process.platform === "win32" && typeof process.env.LOCALAPPDATA === "string" && process.env.LOCALAPPDATA) {
@@ -87,6 +137,24 @@ function createMetadataStore(opts) {
         throw new Error("credential-metadata: expiresAt must be an ISO-8601 instant, e.g. 2026-12-31T00:00:00Z");
       }
     }
+    // A DECLARED REACH MUST BE ONE OF THREE WORDS, and an account says whose it reaches. "account" alone
+    // cannot be judged, so it is refused rather than read as narrower than it is.
+    if (record.reach !== undefined && record.reach !== null) {
+      if (!REACHES.includes(record.reach)) throw new Error("credential-metadata: reach must be one of " + REACHES.join(", "));
+      const tenants = record.reachTenants;
+      if (record.reach === "account" ? !Array.isArray(tenants) || tenants.length === 0 || !tenants.every(isTenantId) : tenants !== undefined && tenants !== null) {
+        throw new Error("credential-metadata: an account reach names the tenants it reaches, and only an account reach does");
+      }
+    }
+  }
+
+  /** The reach to keep: a newly stated one replaces the old whole, or the old one stands. */
+  function reachFields(record, previous) {
+    const stated = typeof record.reach === "string";
+    return {
+      reach: stated ? record.reach : (previous && previous.reach) || null,
+      reachTenants: stated ? record.reachTenants || null : (previous && previous.reachTenants) || null,
+    };
   }
 
   /**
@@ -157,6 +225,7 @@ function createMetadataStore(opts) {
       rotatedAt: stamp,
       expiresAt: typeof record.expiresAt === "string" ? record.expiresAt : (previous ? previous.expiresAt : null) || null,
       note: typeof record.note === "string" ? record.note : null,
+      ...reachFields(record, previous),
     };
     writeAll(all);
     return { ...all[reference], reference };
@@ -176,6 +245,7 @@ function createMetadataStore(opts) {
         ...existing,
         expiresAt: typeof record.expiresAt === "string" ? record.expiresAt : existing.expiresAt || null,
         note: typeof record.note === "string" ? record.note : existing.note || null,
+        ...reachFields(record, existing),
       };
       writeAll(all);
       return { ...all[reference], reference };
@@ -219,4 +289,379 @@ function createMetadataStore(opts) {
   return { filePath, stateDir, recordProvision, recordRotationMetadata, remove, get, list, isExpired };
 }
 
-module.exports = { createMetadataStore, defaultStateDir, FILE_NAME, MAX_NOTE };
+/** A refusal a caller can match on. It never carries a value, because nothing here reads one. */
+function refusal(code, message) {
+  return Object.assign(new Error(code + ": " + message), { code });
+}
+
+/** Every requester the kernel minted, with what its authority read when it did. Nothing else passes. */
+const LIVE_REQUESTERS = new WeakMap();
+
+/** What the authority knows of this requester, or `null`. A structurally perfect copy is not in the map. */
+function requesterState(value) {
+  return (typeof value === "object" && value !== null && LIVE_REQUESTERS.get(value)) || null;
+}
+
+/** The object name of these bytes as a blob, so a lie between git's names and git's objects shows. */
+function blobNameOf(text, blob) {
+  const bytes = Buffer.from(text, "utf8");
+  return crypto.createHash(blob.length === 64 ? "sha256" : "sha1").update("blob " + bytes.length + "\0").update(bytes).digest("hex");
+}
+
+function isInsidePath(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+/**
+ * The git that answers, absolute, or `null`.
+ *
+ * A BARE NAME RESOLVES AGAINST THE CURRENT DIRECTORY ON WINDOWS, and git decides every question here, so
+ * a planted `git.exe` would choose the tenant. Never from inside the installation or the directory this
+ * process stands in, and a relative or UNC `PATH` entry is skipped, as `resolveBoundGit` does.
+ */
+function boundGit(installRoot) {
+  const name = process.platform === "win32" ? "git.exe" : "git";
+  const usable = (candidate) => {
+    if (!path.isAbsolute(candidate) || candidate.startsWith("\\\\") || candidate.startsWith("//")) return false;
+    const here = process.cwd();
+    if (isInsidePath(installRoot, candidate) || (path.parse(here).root !== here && isInsidePath(here, candidate))) return false;
+    try { return fs.statSync(candidate).isFile(); } catch (e) { return false; }
+  };
+  const named = process.env.PROJECTOS_GIT_EXE;
+  if (typeof named === "string" && path.basename(named).toLowerCase() === name && usable(named)) return named;
+  for (const dir of String(process.env.PATH || process.env.Path || "").split(path.delimiter)) {
+    if (dir && usable(path.join(dir, name))) return path.join(dir, name);
+  }
+  return null;
+}
+
+/**
+ * Whole-file judgement of the committed registry: the first problem, or `null`. Core's
+ * `parseTenantRegistry` is the rule, and this refuses by the same names what decides a match.
+ */
+function registryProblem(raw) {
+  const problem = (code, message) => ({ code, message });
+  if (typeof raw !== "object" || raw === null || raw.schemaVersion !== "1.0.0" || raw.policy !== "tenant-registry" || !Array.isArray(raw.tenants) || !Array.isArray(raw.projects) || raw.projects.length === 0) {
+    return problem("TENANT_REGISTRY_INVALID", "the committed tenant registry is not a registry this code recognises");
+  }
+  const tenantIds = raw.tenants.map((entry) => entry && entry.tenantId);
+  if (!tenantIds.every(isTenantId)) return problem("TENANT_REGISTRY_INVALID", "a tenant line has no valid tenantId");
+  const seen = new Set();
+  const once = (kind, key) => { const fresh = !seen.has(kind + key); seen.add(kind + key); return fresh; };
+  if (!tenantIds.every((id) => once("tenant:", id))) return problem("TENANT_REGISTRY_DUPLICATE", "two tenant lines share a tenantId");
+  const roots = [];
+  for (const entry of raw.projects) {
+    const fields = entry ? [entry.projectId, entry.repository, entry.governedRoot, entry.tenant, entry.domain] : [];
+    if (fields.length === 0 || !fields.every((field) => typeof field === "string" && field !== "")) return problem("TENANT_REGISTRY_INVALID", "a project line is missing a binding field");
+    if (fields.some((field) => WILDCARD_RE.test(field))) return problem("TENANT_REGISTRY_WILDCARD", "a project line has a wildcard");
+    if (isReservedProjectId(entry.projectId)) return problem("TENANT_REGISTRY_RESERVED_ID", "a project id starts with the reserved tenant prefix");
+    if (!tenantIds.includes(entry.tenant) || !DOMAINS.includes(entry.domain)) return problem("TENANT_REGISTRY_INVALID", "a project line names an undeclared tenant or an unknown domain");
+    const root = asciiLower(entry.governedRoot.replace(/\/+$/, ""));
+    if (!once("project:", asciiLower(entry.projectId)) || !once("repository:", asciiLower(entry.repository)) || !once("root:", root)) {
+      return problem("TENANT_REGISTRY_DUPLICATE", "two project lines share a project, a repository or a root");
+    }
+    roots.push(root);
+  }
+  if (roots.some((root) => roots.some((other) => root !== other && root.startsWith(other + "/")))) {
+    return problem("TENANT_REGISTRY_NESTED_ROOT", "one project's root is inside another's");
+  }
+  return null;
+}
+
+/** The kernel's key for one intent: `deriveIdempotencyKey`, the same bytes. */
+function idempotencyKeyOf(intent) {
+  const canonical = JSON.stringify([intent.tenant, intent.project, intent.action, intent.subjectHash, intent.intentScope]);
+  return "sha256:" + crypto.createHash("sha256").update(IDEMPOTENCY_DOMAIN + canonical, "utf8").digest("hex");
+}
+
+/**
+ * The state directory as the operating system places it, and only while the environment agrees with it:
+ * `defaultPlatformStopStateDir`, so one variable cannot point authority at a forged record. `null` refuses.
+ */
+function installationStateDir() {
+  let home;
+  try { home = os.userInfo().homedir; } catch (e) { return null; }
+  const configured = process.env.LOCALAPPDATA || process.env.XDG_STATE_HOME || process.env.HOME;
+  if (typeof home !== "string" || !path.isAbsolute(home) || typeof configured !== "string" || !path.isAbsolute(configured)) return null;
+  const derived = path.resolve(process.platform === "win32" ? path.resolve(home, "AppData", "Local") : home, "ProjectOS", "installation-state");
+  const stated = path.resolve(configured, "ProjectOS", "installation-state");
+  const key = (p) => (process.platform === "win32" ? asciiLower(p) : p);
+  return key(derived) === key(stated) ? derived.split(String.fromCharCode(92)).join("/") : null;
+}
+
+/**
+ * The only source of a requester.
+ *
+ * @param opts { installRoot, stateDir, nowMs? } The caller is kernel code: the credential router passes the
+ *        installation it runs from and `installationStateDir()`, and exposes neither to a flag.
+ */
+function createRequesterAuthority(opts) {
+  const options = opts || {};
+  const installRoot = options.installRoot;
+  const stateDir = options.stateDir;
+  const nowMs = typeof options.nowMs === "function" ? options.nowMs : () => Date.now();
+  let actionEntries = null;
+
+  function requireSources() {
+    if (typeof installRoot !== "string" || !path.isAbsolute(installRoot) || typeof stateDir !== "string" || !path.isAbsolute(stateDir)) {
+      throw refusal("TENANT_REGISTRY_UNREADABLE", "no installation and no state directory can be established, so no requester can be derived");
+    }
+  }
+
+  /** Git, with replacement objects off and nothing inherited that could change what it answers. */
+  function git(root, args) {
+    const exe = boundGit(installRoot);
+    if (exe === null) return { code: 127, stdout: "" };
+    const env = {};
+    for (const name of ["SystemRoot", "windir", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "HOME"]) {
+      if (typeof process.env[name] === "string") env[name] = process.env[name];
+    }
+    const r = childProcess.spawnSync(exe, ["--no-replace-objects", "-C", root, ...args], { encoding: "utf8", windowsHide: true, cwd: installRoot, env });
+    return { code: r.status === null ? 1 : r.status, stdout: r.stdout || "" };
+  }
+
+  /** One record's bytes at one commit, committed and unmodified, hashed to their blob. `null` on any doubt. */
+  function readCommitted(root, rel) {
+    const logged = git(root, ["log", "-1", "--format=%H", "--", rel]);
+    if (logged.code !== 0 || !logged.stdout.trim()) return null;
+    const dirty = git(root, ["diff", "--name-only", "HEAD", "--", rel]);
+    if (dirty.code !== 0 || dirty.stdout.trim()) return null;
+    const commit = git(root, ["rev-parse", "--verify", "HEAD"]).stdout.trim();
+    if (!GIT_OBJECT_RE.test(commit)) return null;
+    const blob = git(root, ["rev-parse", commit + ":./" + rel]).stdout.trim();
+    const shown = git(root, ["show", commit + ":./" + rel]);
+    if (!GIT_OBJECT_RE.test(blob) || shown.code !== 0 || !shown.stdout.trim() || blobNameOf(shown.stdout, blob) !== blob) return null;
+    return { text: shown.stdout, blob, commit };
+  }
+
+  function readJsonLines(file) {
+    let text;
+    try { text = fs.readFileSync(file, "utf8"); } catch (e) { return []; }
+    return text.split("\n").flatMap((line) => {
+      try { return line.trim() ? [JSON.parse(line)] : []; } catch (e) { return []; }
+    });
+  }
+
+  /** The committed registry, judged whole, and confirmed. A commit alone moves no tenant here either. */
+  function readRegistry() {
+    requireSources();
+    const bytes = readCommitted(installRoot, TENANT_REGISTRY_REL);
+    if (bytes === null) throw refusal("TENANT_REGISTRY_UNREADABLE", "the installation commits no unmodified " + TENANT_REGISTRY_REL);
+    let raw;
+    try { raw = JSON.parse(bytes.text); } catch (e) { throw refusal("TENANT_REGISTRY_UNREADABLE", "the committed tenant registry is not readable JSON"); }
+    const problem = registryProblem(raw);
+    if (problem !== null) throw refusal(problem.code, problem.message);
+    if (!receiptConfirms(bytes.blob)) {
+      throw refusal("TENANT_REGISTRY_NO_RECEIPT", "the committed tenant registry (blob " + bytes.blob + ") has no receipt with its admission line, so no tenant can be derived. A receipt is a precondition of reading the registry, and it grants nothing");
+    }
+    return { entries: new Map(raw.projects.map((entry) => [entry.projectId, entry])), commit: bytes.commit };
+  }
+
+  function receiptConfirms(blob) {
+    let receipt;
+    try { receipt = JSON.parse(fs.readFileSync(path.join(stateDir, TENANT_RECEIPT_FILENAME), "utf8")); } catch (e) { return false; }
+    if (!receipt || receipt.kind !== "tenant-registry-receipt" || receipt.confirmation !== "typed-terminal" || receipt.registryBlob !== blob) return false;
+    return readJsonLines(path.join(stateDir, TENANT_CHANGE_RECORDS_FILENAME)).some((line) => {
+      const envelope = line && line.envelope;
+      return line && line.stage === "admission" && line.outcome === "allowed" && envelope && envelope.action === "tenant-registry-change" && envelope.envelopeId === receipt.envelopeId && envelope.subjectHash === blob;
+    });
+  }
+
+  /** Each action's class and environment come from the committed action registry, never from this file. */
+  function actionEntry(id) {
+    if (actionEntries === null) {
+      const bytes = readCommitted(installRoot, ACTION_REGISTRY_REL);
+      let parsed = null;
+      try { parsed = bytes === null ? null : JSON.parse(bytes.text); } catch (e) { parsed = null; }
+      if (parsed === null || !Array.isArray(parsed.actions)) throw refusal("ACTION_REGISTRY_UNREADABLE", "the installation commits no readable " + ACTION_REGISTRY_REL);
+      actionEntries = parsed.actions;
+    }
+    const entry = actionEntries.find((candidate) => candidate && candidate.id === id);
+    if (!entry) throw refusal("ACTION_REGISTRY_UNREADABLE", "the action registry does not list '" + id + "'");
+    return entry;
+  }
+
+  /** Every line of the record, the rotated files too: a long run outlives a busy bridge's rotation. */
+  function recordLines() {
+    let names;
+    try { names = fs.readdirSync(stateDir); } catch (e) { return []; }
+    return names
+      .filter((name) => name === ENVELOPE_RECORDS_FILENAME || (name.startsWith(ENVELOPE_RECORDS_FILENAME + ".") && !name.endsWith(".lock") && !name.endsWith(".tmp")))
+      .flatMap((name) => readJsonLines(path.join(stateDir, name)));
+  }
+
+  function takeRecordLock(lock) {
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    for (let step = 0; step < RECORD_LOCK_WAIT_STEPS; step += 1) {
+      try { fs.writeFileSync(lock, "{}\n", { flag: "wx" }); return true; } catch (e) { if (!e || e.code !== "EEXIST") return false; }
+      Atomics.wait(pause, 0, 0, RECORD_LOCK_WAIT_STEP_MS);
+    }
+    return false;
+  }
+
+  /**
+   * One line, or `false`. It takes `appendDurableLine`'s lock and rewrites as it does, because the kernel
+   * replaces this file under that lock, and a plain append between its read and its rename would be lost.
+   */
+  function appendRecord(entry) {
+    const file = path.join(stateDir, ENVELOPE_RECORDS_FILENAME);
+    const lock = file + ".lock";
+    try { fs.mkdirSync(stateDir, { recursive: true }); } catch (e) { return false; }
+    if (!takeRecordLock(lock)) return false;
+    const tmp = file + "." + crypto.randomBytes(4).toString("hex") + ".tmp";
+    try {
+      let existing = "";
+      if (fs.existsSync(file)) {
+        existing = fs.readFileSync(file, "utf8");
+        if (Buffer.byteLength(existing, "utf8") >= RECORD_ROTATE_BYTES) {
+          fs.renameSync(file, file + "." + new Date(nowMs()).toISOString().replace(/[^0-9TZ]/g, "") + "-" + crypto.randomBytes(4).toString("hex"));
+          existing = "";
+        }
+      }
+      const line = JSON.stringify(entry) + "\n";
+      fs.writeFileSync(tmp, existing + line, { encoding: "utf8", mode: 0o600 });
+      fs.renameSync(tmp, file);
+      return fs.readFileSync(file, "utf8").endsWith(line);
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch (cleanup) { /* nothing better is available */ }
+      return false;
+    } finally {
+      try { fs.rmSync(lock, { force: true }); } catch (e) { /* the next writer refuses and names the file */ }
+    }
+  }
+
+  function newEnvelopeId() {
+    return "ENV-" + crypto.randomBytes(12).toString("hex");
+  }
+
+  /** The requester this run's line and the committed registry agree on. Nothing else is asked. */
+  function fromRun(handle) {
+    if (typeof handle !== "string" || !RUN_HANDLE_RE.test(handle)) {
+      throw refusal("REQUESTER_REQUIRED", "a requester is a kernel-issued run handle, and this is not one");
+    }
+    const registry = readRegistry();
+    const lines = recordLines().filter((line) => line && line.envelope && line.envelope.envelopeId === handle);
+    const admissions = lines.filter((line) => {
+      const envelope = line.envelope;
+      return line.stage === "admission" && line.outcome === "allowed" && envelope.envelopeVersion === 2 && envelope.action === "run-start" && envelope.parentEnvelopeId === null;
+    });
+    if (admissions.length !== 1) throw refusal("RUN_HANDLE_UNKNOWN", "no one admitted run-start has this handle in the installation's record");
+    if (lines.some((line) => line.stage === "execution")) throw refusal("RUN_HANDLE_ENDED", "this run has recorded its end, so it asks for nothing more");
+    const { envelope, via } = admissions[0];
+    const expiresAtMs = Date.parse(envelope.expiry);
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs()) throw refusal("RUN_HANDLE_EXPIRED", "this run's window has closed");
+    if (!REQUESTER_ROUTES.includes(via)) throw refusal("RUN_HANDLE_UNKNOWN", "this run's line names no route the kernel uses");
+    const entry = registry.entries.get(envelope.project);
+    if (entry === undefined) throw refusal("TENANT_UNKNOWN", "project '" + envelope.project + "' is not in the tenant registry");
+    // THE LINE'S OWN WORDS COUNT FOR NOTHING. A tenant moved since, or written in by hand, stops here.
+    if (entry.tenant !== envelope.tenant || entry.domain !== envelope.domain) {
+      throw refusal("TENANT_MISMATCH", "this run names tenant '" + envelope.tenant + "', and the committed registry binds project '" + entry.projectId + "' to '" + entry.tenant + "'");
+    }
+    const requester = Object.freeze({
+      kind: "run-handle",
+      runHandle: handle,
+      tenant: entry.tenant,
+      domain: entry.domain,
+      project: entry.projectId,
+      via,
+      principal: envelope.principal,
+      expiry: envelope.expiry,
+    });
+    LIVE_REQUESTERS.set(requester, { authority, expiresAtMs, entries: registry.entries });
+    return requester;
+  }
+
+  /**
+   * A command with no run mints one, so that one route reads every requester. Reached only from the
+   * credential router after its terminal check. It names a project, which the registry must list: the
+   * tenant is still read, never stated.
+   */
+  function issueConsoleRun(input) {
+    const projectId = (input || {}).projectId;
+    const registry = readRegistry();
+    const entry = registry.entries.get(projectId);
+    if (entry === undefined) throw refusal("TENANT_UNKNOWN", "project '" + String(projectId) + "' is not in the tenant registry");
+    const action = actionEntry("run-start");
+    const envelopeId = newEnvelopeId();
+    const at = new Date(nowMs());
+    const intent = { tenant: entry.tenant, project: entry.projectId, action: "run-start", subjectHash: registry.commit, intentScope: "console-run:" + envelopeId };
+    const envelope = {
+      envelopeVersion: 2,
+      envelopeId,
+      parentEnvelopeId: null,
+      principal: "implementer",
+      actor: KERNEL_ACTOR,
+      tenant: entry.tenant,
+      domain: entry.domain,
+      project: entry.projectId,
+      environment: action.environment,
+      action: "run-start",
+      actionClass: action.class,
+      subjectHash: registry.commit,
+      scope: ["project:" + entry.projectId, "confirmation:console"],
+      budget: 0,
+      expiry: new Date(at.getTime() + CONSOLE_RUN_WINDOW_MS).toISOString(),
+      idempotencyKey: idempotencyKeyOf(intent),
+    };
+    const written = appendRecord({ stage: "admission", at: at.toISOString(), outcome: "allowed", rule: null, envelope, registered: true, via: "console", runLinked: false, reasons: [] });
+    if (!written) throw refusal("ENVELOPE_NOT_RECORDED", "the console run could not be recorded, so it did not happen. " + RECORD_LOCK_HINT);
+    return fromRun(envelopeId);
+  }
+
+  /**
+   * The operation grant (the lead's decision, for the owner to overrule): the phase's committed
+   * `secrets-handling` owner record, the route the broker already uses, read at the project's REGISTERED
+   * root, so a linked worktree cannot commit its own. A tenant receipt is not this and answers nothing.
+   * `null` when the record approves; otherwise why not.
+   */
+  function operationGrantRefusal(requester, phaseId) {
+    const state = requesterState(requester);
+    if (state === null) return "no kernel requester";
+    if (typeof phaseId !== "string" || !PHASE_ID_RE.test(phaseId)) return "the permit names no phase whose owner record could approve this";
+    const rel = ".projectops/gates/" + phaseId + ".secrets-handling.json";
+    const bytes = readCommitted(state.entries.get(requester.project).governedRoot, rel);
+    if (bytes === null) return "no committed secrets-handling record approves credential use for this phase";
+    let record;
+    try { record = JSON.parse(bytes.text); } catch (e) { return "the committed secrets-handling record is not readable JSON"; }
+    if (!record || record.ownerChoice !== "APPROVE" || record.gateName !== "secrets-handling" || record.phaseId !== phaseId) {
+      return "the committed secrets-handling record does not approve this phase";
+    }
+    return null;
+  }
+
+  /**
+   * One `credential-release` line through an envelope, tied to its run: `mintCrossing`'s shape, written
+   * with the kernel's lock. `false` means it was not recorded, and the release does not happen.
+   */
+  function recordRelease(requester, ref, input) {
+    const { outcome, rule, reasons, intent, grantSource } = input;
+    const action = actionEntry("credential-release");
+    const at = new Date(nowMs());
+    const subjectHash = crypto.createHash("sha256").update(ref.reference, "utf8").digest("hex");
+    const envelope = {
+      envelopeVersion: 2,
+      envelopeId: newEnvelopeId(),
+      parentEnvelopeId: null,
+      principal: requester.principal,
+      actor: KERNEL_ACTOR,
+      tenant: requester.tenant,
+      domain: requester.domain,
+      project: requester.project,
+      environment: action.environment,
+      action: "credential-release",
+      actionClass: action.class,
+      subjectHash,
+      scope: ["run:" + requester.runHandle],
+      budget: 0,
+      expiry: requester.expiry,
+      idempotencyKey: idempotencyKeyOf({ tenant: requester.tenant, project: requester.project, action: "credential-release", subjectHash, intentScope: intent }),
+    };
+    return appendRecord({ stage: "admission", at: at.toISOString(), outcome, rule, envelope, registered: true, via: requester.via, runLinked: true, reasons, grantSource });
+  }
+
+  const authority = Object.freeze({ fromRun, issueConsoleRun, operationGrantRefusal, recordRelease });
+  return authority;
+}
+
+module.exports = { createMetadataStore, defaultStateDir, FILE_NAME, MAX_NOTE, createRequesterAuthority, requesterState, installationStateDir, refusal, RUN_HANDLE_RE, ENVELOPE_RECORDS_FILENAME, RECORD_LOCK_HINT };

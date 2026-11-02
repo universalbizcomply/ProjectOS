@@ -5,8 +5,11 @@
  * Turns "work on PolyGo staging in slot polygo-1" into a child process that can see exactly that project's
  * credentials and nothing else. The order is fixed and every step can only narrow what follows:
  *
+ *   0. who is asking: a kernel-issued run handle, which must be this project's  — never cwd, never the
+ *      connection file; a reserved project id or a mismatch is refused before anything else is read
  *   1. read the checkout's real facts (root, branch, origin)                — read-only, no credential
- *   2. resolve the session profile and the credentials it is allowed to hold — allowlist, never a class
+ *   2. resolve the session profile and the credentials it is allowed to hold — allowlist, never a class,
+ *      then ask the vault whether each may be auto-loaded for this requester: tenant, class and reach
  *   3. validate the checkout's MCP configuration against the variables this session will declare
  *      — no credential is read, and a bad config refuses the session before any value is touched
  *   4. ask the vault which of those are present / expired                    — metadata only
@@ -39,7 +42,7 @@ const { createRepositoryReader } = require("./repository-facts.cjs");
 const { evaluatePreflight, READY } = require("./identity-preflight.cjs");
 const { getProfile, permitsCredential } = require("./session-profiles.cjs");
 const { buildChildEnvironment, validateMcpConfig } = require("./env-projection.cjs");
-const { formatReference, parseReference } = require("../credentials/reference.cjs");
+const { formatReference, parseReference, isReservedProjectId } = require("../credentials/reference.cjs");
 
 const SLOT_RE = /^[a-z][a-z0-9-]{1,40}$/;
 
@@ -163,6 +166,18 @@ function createSessionRouter(opts) {
       return { status: "REPOSITORY MISMATCH", ready: false, blocker: "REPOSITORY MISMATCH", detail: "connection profile is invalid: " + configErrors[0], slot };
     }
 
+    // WHO IS ASKING, BEFORE ANYTHING IS ACQUIRED. `projectId` is a line in a file the checkout writes, so a
+    // connection calling itself `tenant.agency-business` would otherwise have every reference it formats
+    // read as that tenant's. The requester is the kernel's, and it must be this project's.
+    const projectBlocker = (blocker, detail) => ({ status: blocker, ready: false, blocker, detail, slot, projectId: connection.projectId, environment, profile: profile.name });
+    if (isReservedProjectId(connection.projectId)) {
+      return projectBlocker("TENANT_RESERVED_ID", "a project id may not start with the reserved prefix 'tenant.', in any case");
+    }
+    const notThisRequester = vault.requesterRefusalFor(req.requester, connection.projectId);
+    if (notThisRequester !== null) {
+      return projectBlocker(notThisRequester, "this session's requester is not a live kernel-issued run handle for project '" + String(connection.projectId) + "'");
+    }
+
     const observed = req.repository ? { ok: true, facts: req.repository } : repositories.read(req.checkoutPath);
     if (!observed.ok) return { status: "REPOSITORY MISMATCH", ready: false, blocker: "REPOSITORY MISMATCH", detail: observed.reason, slot };
     const repository = observed.facts;
@@ -201,6 +216,13 @@ function createSessionRouter(opts) {
 
     const wanted = requiredCredentials(connection, profile, environment);
     const credentials = credentialStatus(wanted);
+
+    // TENANT, CLASS AND REACH, BEFORE THE LEASE. The vault asks all of this again at release, because it is
+    // the chokepoint. Asking here is what makes a too-wide token a named blocker and not a failed start.
+    for (const credential of credentials) {
+      const refused = credential.present ? vault.sessionReleaseRefusal({ reference: credential.reference, requester: req.requester }) : null;
+      if (refused !== null) return projectBlocker(refused, "credential " + credential.reference + " may not be auto-loaded into this session");
+    }
 
     // Acquire the lease only for a writer profile, and only once the profile/environment pair is sane.
     let lease = null;
@@ -253,6 +275,7 @@ function createSessionRouter(opts) {
       connection,
       repository,
       credentials,
+      requester: req.requester,
       leaseHeld: !!(lease && lease.ok),
     };
   }
@@ -264,7 +287,7 @@ function createSessionRouter(opts) {
   function projectEnvironment(prepared, baseEnv) {
     const perProvider = new Map();
     for (const credential of prepared.credentials) {
-      const grant = vault.authoriseSessionRelease({ reference: credential.reference, projectId: prepared.projectId, sessionId: prepared.sessionId });
+      const grant = vault.authoriseSessionRelease({ reference: credential.reference, requester: prepared.requester, sessionId: prepared.sessionId });
       const value = vault.releaseIntoChildEnvironment(grant);
       const bucket = perProvider.get(credential.provider) || {};
       bucket[credential.key] = value;
@@ -286,6 +309,8 @@ function createSessionRouter(opts) {
       slot: prepared.slot,
       sessionId: prepared.sessionId,
       projectId: prepared.projectId,
+      tenant: prepared.requester.tenant,
+      runHandle: prepared.requester.runHandle,
       profile: prepared.profile,
       environment: prepared.environment,
       checkoutPath: prepared.repository.checkoutPath,
@@ -358,7 +383,7 @@ function createSessionRouter(opts) {
         try { stop({ slot: record.slot, sessionId: record.sessionId }); } catch (e) { /* stop is best-effort on exit */ }
       });
     }
-    return { ...prepared, connection: undefined, credentials: undefined, record, envSummary: { scrubbed: projected.scrubbed, added: projected.added }, child };
+    return { ...prepared, connection: undefined, credentials: undefined, requester: undefined, record, envSummary: { scrubbed: projected.scrubbed, added: projected.added }, child };
   }
 
   /** Ask every registered provider whether this command line is permissible. Returns a reason, or null. */

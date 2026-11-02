@@ -16,6 +16,14 @@
  *  - Nothing this CLI prints contains a credential. `status` and `doctor` show references, presence,
  *    risk class and a short non-reversible fingerprint; that is the entire value-derived surface.
  *
+ * WHO IS ASKING (PROJECTOS-TENANT-CREDENTIALS1A). `set`, `delete`, `reach`, `session start` and `operation run`
+ * need a requester. It comes from `--run <handle>`, the id of a kernel-admitted run, in any directory. A
+ * command with no run mints one, and only at a real terminal on both ends, naming `--project`, which the
+ * committed registry must list. Nothing here reads a tenant from a flag, the environment or the working
+ * directory. `--checkout` and the working directory still say where a session stands; they say nothing
+ * about who asked. With no terminal and no handle the command is refused by name, which is what the
+ * Control Center's `set_credential` meets until it can pass one.
+ *
  * Live provider access is out of scope for this phase: `providers verify` prints the read-only plan each
  * adapter WOULD run and evaluates any observation supplied from a file. It contacts nothing.
  */
@@ -24,6 +32,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { createCredentialVault } = require("../credentials/vault.cjs");
+const { createRequesterAuthority, installationStateDir, refusal } = require("../credentials/credential-metadata.cjs");
 const { createWindowsCredentialStore, isAvailable } = require("../credentials/windows-credential-store.cjs");
 const { createOperationGate } = require("../credentials/operation-gate.cjs");
 const { parseReference, OPERATION_CREDENTIALS } = require("../credentials/reference.cjs");
@@ -130,9 +139,37 @@ function readHiddenLine(prompt) {
  * records always resolve to `%LOCALAPPDATA%\ProjectOS`. Validators inject a state directory through the
  * programmatic API instead, where no real credential store is involved.
  */
-function buildVault() {
+function buildVault(deps) {
+  if (deps && deps.store) return createCredentialVault({ store: deps.store, stateDir: deps.stateDir, nowMs: deps.nowMs });
   if (!isAvailable()) throw new Error("the Windows Credential Manager store is unavailable on this platform — refusing to substitute a weaker store");
   return createCredentialVault({ store: createWindowsCredentialStore({}) });
+}
+
+/** This installation, from this file's own location. A governed project cannot move it. */
+const INSTALL_ROOT = path.resolve(__dirname, "..", "..").split(String.fromCharCode(92)).join("/");
+
+/**
+ * The requester for this command, or a refusal. The authority is the installation's own; `deps` is the
+ * programmatic seam validators use, and no flag reaches it.
+ */
+function requesterFor(flags, deps) {
+  const authority = (deps && deps.authority) || createRequesterAuthority({ installRoot: INSTALL_ROOT, stateDir: installationStateDir() });
+  if (flags.run !== undefined) return authority.fromRun(flags.run);
+  const terminal = (deps && deps.terminal) || process;
+  if (terminal.stdin.isTTY !== true || terminal.stdout.isTTY !== true) {
+    throw refusal("REQUESTER_REQUIRED", "with no terminal, pass --run <handle>, the id of a kernel-admitted run");
+  }
+  if (typeof flags.project !== "string" || !flags.project) {
+    throw refusal("REQUESTER_REQUIRED", "with no run, name the project this command is for with --project <id>");
+  }
+  return authority.issueConsoleRun({ projectId: flags.project });
+}
+
+/** The reach this command states, or nothing. The vault refuses it from a run, and the metadata store judges it. */
+function reachFlags(flags) {
+  if (typeof flags.reach !== "string") return {};
+  const tenants = typeof flags["reach-tenants"] === "string" ? flags["reach-tenants"].split(",").filter(Boolean) : undefined;
+  return { reach: flags.reach, reachTenants: tenants };
 }
 
 function requireReference(flags) {
@@ -178,10 +215,11 @@ function readValueFromEnvironment() {
   return value;
 }
 
-async function credentialsCommand(sub, flags) {
-  const vault = buildVault();
+async function credentialsCommand(sub, flags, deps) {
+  const vault = buildVault(deps);
   if (sub === "set") {
     const ref = requireReference(flags);
+    const requester = requesterFor(flags, deps);
     const fromEnv = flags["from-env"] === true || flags["from-env"] === "true";
     const value = fromEnv
       ? readValueFromEnvironment()
@@ -189,9 +227,11 @@ async function credentialsCommand(sub, flags) {
     if (!value) throw new Error("no value entered — nothing stored");
     const result = vault.provision({
       reference: ref.reference,
+      requester,
       replace: flags.replace === true || flags.replace === "true",
       note: typeof flags.note === "string" ? flags.note : undefined,
       expiresAt: typeof flags.expires === "string" ? flags.expires : undefined,
+      ...reachFlags(flags),
       readValue: () => value,
     });
     console.log((result.replaced ? "replaced" : "stored") + "  " + result.reference);
@@ -201,9 +241,17 @@ async function credentialsCommand(sub, flags) {
   }
   if (sub === "delete") {
     const ref = requireReference(flags);
-    const removed = vault.remove({ reference: ref.reference });
+    const removed = vault.remove({ reference: ref.reference, requester: requesterFor(flags, deps) });
     console.log(removed ? "deleted  " + ref.reference : "not found  " + ref.reference);
     return removed ? 0 : 3;
+  }
+  if (sub === "reach") {
+    const ref = requireReference(flags);
+    const reach = reachFlags(flags);
+    if (reach.reach === undefined) throw new Error("--reach is required: project, tenant or account");
+    vault.rotateMetadata({ reference: ref.reference, requester: requesterFor(flags, deps), ...reach });
+    console.log("reach  " + reach.reach + (reach.reachTenants ? " (" + reach.reachTenants.join(", ") + ")" : "") + "  " + ref.reference);
+    return 0;
   }
   if (sub === "status") {
     const rows = vault.status({ project: flags.project, environment: flags.environment, provider: flags.provider });
@@ -246,6 +294,7 @@ async function credentialsCommand(sub, flags) {
       if (!row.present) problems.push("CREDENTIAL MISSING  " + row.reference);
       else if (row.expired) problems.push("CREDENTIAL EXPIRED  " + row.reference);
       else if (!row.managed) problems.push("unmanaged (no ProjectOS metadata)  " + row.reference);
+      else if (row.risk === "session" && !row.reach) problems.push("reach undeclared, so no session loads it  " + row.reference);
     }
     console.log("store           " + vault.storeName);
     console.log("metadata file   " + vault.metadataPath);
@@ -258,9 +307,9 @@ async function credentialsCommand(sub, flags) {
   throw new Error("unknown credentials subcommand '" + String(sub) + "'");
 }
 
-async function sessionCommand(sub, flags, passthrough) {
-  const vault = buildVault();
-  const router = createSessionRouter({ vault });
+async function sessionCommand(sub, flags, passthrough, deps) {
+  const vault = buildVault(deps);
+  const router = createSessionRouter({ vault, ...((deps && deps.router) || {}) });
   if (sub === "start") {
     const profile = getProfile(flags.profile);
     if (!profile) throw new Error("--profile must be one of: " + PROFILE_NAMES.join(", "));
@@ -280,6 +329,7 @@ async function sessionCommand(sub, flags, passthrough) {
     }
 
     const outcome = router.start({
+      requester: requesterFor(flags, deps),
       slot: flags.slot,
       profileName: profile.name,
       environment: flags.environment,
@@ -362,18 +412,20 @@ function providersCommand(sub, flags) {
   return 0;
 }
 
-function operationCommand(sub, flags, passthrough) {
+function operationCommand(sub, flags, passthrough, deps) {
   if (sub !== "run") throw new Error("unknown operation subcommand '" + String(sub) + "'");
-  const vault = buildVault();
+  const vault = buildVault(deps);
   // The approval queue records the owner-gated intent before anything runs, so an operation always leaves
   // a redacted, reviewable trace even when the owner confirms it in the same breath.
   const approvalQueue = createApprovalQueue({});
-  const gate = createOperationGate({ vault, approvalQueue });
+  const gate = createOperationGate({ vault, approvalQueue, ...((deps && deps.gate) || {}) });
   const ref = requireReference(flags);
   if (!Array.isArray(passthrough) || !passthrough.length) throw new Error("pass the command after '--', e.g. operation run --ref ... -- <executable> <args>");
   if (typeof flags.action !== "string" || !flags.action) throw new Error("--action is required and names the provider action being performed, e.g. --action read-config");
   if (typeof flags["env-var"] !== "string" || !flags["env-var"]) throw new Error("--env-var is required and names the environment variable the credential is delivered under");
   if (flags["owner-confirm"] !== true) throw new Error("OWNER PERMIT REQUIRED — re-run with --owner-confirm to record your explicit confirmation");
+  if (typeof flags.phase !== "string" || !flags.phase) throw new Error("--phase is required and names the phase whose committed secrets-handling record approves this");
+  const requester = requesterFor(flags, deps);
 
   const productionFrozen = flags["production-unfrozen"] === true ? false : true;
   const intent = gate.requestPermit({ reference: ref.reference, action: flags.action, productionFrozen });
@@ -383,9 +435,10 @@ function operationCommand(sub, flags, passthrough) {
     return 1;
   }
 
-  const permit = gate.grantPermit({ reference: ref.reference, action: flags.action, capability: { ownerConfirmation: true }, phaseId: typeof flags.phase === "string" ? flags.phase : null });
+  const permit = gate.grantPermit({ reference: ref.reference, action: flags.action, requester, capability: { ownerConfirmation: true }, phaseId: flags.phase });
   const result = gate.run({
     reference: ref.reference,
+    requester,
     action: flags.action,
     permit,
     capability: { ownerConfirmation: true },
@@ -443,30 +496,32 @@ function usage() {
     "projectos projects register --checkout <path> --owner-confirm    (pins this project's identity; required before any session)",
     "projectos projects list",
     "projectos projects unregister --project <id> [--checkout <path>] --owner-confirm",
-    "projectos credentials set    --ref <reference> [--replace] [--note <text>] [--expires <iso>] [--from-env]",
-    "projectos credentials delete --ref <reference>",
+    "projectos credentials set    --ref <reference> (--run <handle> | --project <id>) [--replace] [--note <text>] [--expires <iso>] [--reach project|tenant|account] [--reach-tenants <a,b>] [--from-env]",
+    "projectos credentials delete --ref <reference> (--run <handle> | --project <id>)",
+    "projectos credentials reach  --ref <reference> --project <id> --reach project|tenant|account [--reach-tenants <a,b>]    (console only)",
     "projectos credentials status [--project <id>] [--environment <env>] [--provider <name>]",
     "projectos credentials doctor [--project <id>]",
-    "projectos session start --slot <slot> --profile <profile> --environment <env> [--checkout <path>] [--observations <file>] [-- <command> ...]",
+    "projectos session start --slot <slot> --profile <profile> --environment <env> (--run <handle> | --project <id>) [--checkout <path>] [--observations <file>] [-- <command> ...]",
     "projectos session status [--slot <slot>]",
     "projectos session stop   --slot <slot>",
     "projectos providers verify [--checkout <path>] [--environment <env>] [--observations <file>]",
-    "projectos operation run --ref <reference> --action <action> --env-var <VAR> --owner-confirm [--show-output] -- <command> ...",
+    "projectos operation run --ref <reference> --action <action> --env-var <VAR> --phase <phase> (--run <handle> | --project <id>) --owner-confirm [--show-output] -- <command> ...",
     "",
     "profiles: " + PROFILE_NAMES.join(", "),
     "A credential value is only ever typed at a hidden prompt. There is no flag that accepts one.",
+    "--project works only at a real terminal. Anywhere else, --run names a kernel-admitted run.",
   ].join("\n"));
 }
 
-async function main(argv) {
+async function main(argv, deps) {
   const { positional, flags, passthrough } = parseArgs(argv);
   const [group, sub] = positional;
   if (!group || group === "help" || flags.help === true) { usage(); return 0; }
   if (group === "projects") return projectsCommand(sub, flags);
-  if (group === "credentials") return credentialsCommand(sub, flags);
-  if (group === "session") return sessionCommand(sub, flags, passthrough);
+  if (group === "credentials") return credentialsCommand(sub, flags, deps);
+  if (group === "session") return sessionCommand(sub, flags, passthrough, deps);
   if (group === "providers") return providersCommand(sub, flags);
-  if (group === "operation") return operationCommand(sub, flags, passthrough);
+  if (group === "operation") return operationCommand(sub, flags, passthrough, deps);
   throw new Error("unknown command group '" + String(group) + "'");
 }
 
@@ -476,4 +531,4 @@ if (require.main === module) {
     .catch((e) => { console.error(String(e && e.message ? e.message : e)); process.exit(1); });
 }
 
-module.exports = { parseArgs, usage, FORBIDDEN_FLAGS, main, SCRIPT_PATH: path.resolve(__filename) };
+module.exports = { parseArgs, usage, FORBIDDEN_FLAGS, main, requesterFor, SCRIPT_PATH: path.resolve(__filename) };
