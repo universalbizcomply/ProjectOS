@@ -3,7 +3,7 @@
 **Phase:** PROJECTOS-PORT-SKILLS1A, phase 4 of `docs/changes/delta_spec_V4_PORTS.md`, plan v1.33 (active).
 **Branch:** `projectos-port-skills1a`, worktree `C:/dev/ProjectOS-worktrees/port-skills1a`, based on `374f9eaf`. Not pushed,
 not merged, phase not closed, no phase record created. `docs/06_Plan.md` is not edited.
-**State:** implementation complete. No reviewer has seen it. Full `validate-all` is the lead's and was not run here.
+**State:** one review round answered, at the commits below. Neither review has seen the fixes. Full `validate-all` is the lead's and was not run here.
 
 Nothing was run from a vendor folder, `openbot-lower` was not opened, and `.projectops/` was not touched.
 
@@ -17,12 +17,12 @@ Nothing was run from a vendor folder, `openbot-lower` was not opened, and `.proj
 | Python audit | `projectos/core/src/skills/sourceAudit.ts` | A linear token scan in place of Python's `ast`. Pure |
 | Linter | `projectos/core/src/skills/linter.ts` | Errors block and warnings inform, by named rule. Pure |
 | Validator pass | `projectos/core/src/skills/skillPackage.ts` | Caps first, then shape, then text. Holds the package hash. Pure |
-| Promotion | `projectos/core/src/skills/promotion.ts` | Build, check, decide, promote, read. Uses `HashPinnedProposal`. Pure |
+| Promotion | `projectos/core/src/skills/promotion.ts` | Build, check, decide, promote, read. Owner-only review, a hashed origin. Uses `HashPinnedProposal`. Pure |
 | Prompt block | `projectos/core/src/skills/prompt.ts` | The one way a skill reaches a prompt. Pure |
 | Queue | `projectos/agent/src/skills/skillQueue.ts` | Propose, list, review and promote, reject, load, on the `System` port |
 | Credit | `THIRD_PARTY_NOTICES` | 17 entries. Ten files credited; `refusal.ts` and both barrels are marked original |
-| Tests | `projectos/core/test/skills-*.test.ts`, `projectos/agent/test/skillsQueue.test.ts` | 331 core, 39 agent |
-| Validator | `projectos/validators/val-projectos-port-skills1a.cjs` | 21 rules, 413 named mutations, about 30 seconds, in both runners |
+| Tests | `projectos/core/test/skills-*.test.ts`, `projectos/agent/test/skillsQueue.test.ts` | 376 core, 47 agent |
+| Validator | `projectos/validators/val-projectos-port-skills1a.cjs` | 21 rules, 440 named mutations, about 45 seconds, in both runners |
 
 ## Acceptance criteria
 
@@ -30,9 +30,9 @@ Nothing was run from a vendor folder, `openbot-lower` was not opened, and `.proj
 |---|---|
 | A skill failing the linter or audit cannot be promoted, by a named rule, tested with a passing control | `skills-promotion.test.ts`, `skills-package.test.ts`. The refusal carries `named` and every finding. It holds at proposal, at decision and at promotion, and for a forgery that reached the queue. PK-5, PK-6, PK-7, PK-8 |
 | A promoted skill changed by one byte is stale, tested | `checkPromotedSkill` hashes again on every read. A byte, a CRLF, a BOM, a Unicode form, a renamed or added file each move the pin. PK-10, and in the agent through a real record |
-| Skill text is data: an instruction inside a skill grants nothing, tested | A skill saying it is approved stays pending, needs the same review, and renders with `authority: 'none'` and `grants: []`. PK-13 |
+| Skill text is data: an instruction inside a skill grants nothing, tested | A skill saying it is approved stays pending, needs the same review, and renders with `authority: 'none'` and `grants: []`. The string sent is the string scanned. PK-6, PK-13 |
 | Every ported file carries its credit header and a `THIRD_PARTY_NOTICES` entry; the credit validator passes | `val-projectos-port-credit1a`: PASS. PK-18 also pins the exact upstream files each one credits |
-| Validator pin and named mutations, each killed by its own rule | 413 mutations. See "How the mutations run" for what that does and does not prove |
+| Validator pin and named mutations, each killed by its own rule | 440 mutations. See "How the mutations run" for what that does and does not prove |
 
 ## What replaced what
 
@@ -53,7 +53,8 @@ Nothing was run from a vendor folder, `openbot-lower` was not opened, and `.proj
 | An audit finding is a hint | It blocks. There is no way to force it |
 
 **The pattern table, by script against upstream.** 142 upstream rows hold 140 ids, of which 7 are structural and became named
-package rules, and `invisible_unicode` became `hiddenText`. The rest all arrive with the same severity, except: `html_comment_injection` is
+package rules, and `invisible_unicode` became `hiddenText`. The rest all arrive with the same severity. After the review round many of
+them are narrower than upstream, because gaps are bounded and no two wide repeats nest, and a long enough gap now misses. Otherwise: `html_comment_injection` is
 dropped, because every comment is refused with no keyword; two ids that shared a name are split (`shell_profile_mod`,
 `setuid_mention`); four `hermes_*` ids became `agent_home_*` and also match `.projectops`; `governance_record_mod` is added;
 `role_hijack` is narrowed as memory narrows it.
@@ -65,12 +66,35 @@ credits with `Port-Strategy: ADAPT`. Marking them original would have claimed co
 **Not ported, on purpose:** the name-directory rule and the reference-count rule (a package has no directory here, and the file
 cap is lower), the upstream author and `metadata.hermes` rules, platform and environment matching, and the three-stage loader.
 
+## Reviews and dispositions
+
+Round 1, at `bc380ee2`: **ECC SECURITY accepted with conditions, two HIGH. ECC CODE approved.** The findings reached this builder as
+one decided list from the coordinator, which did not say which review raised each item, except that the HIGHs are the security
+conditions. The tests were written first: 24 core and 8 agent tests failed before the source changed, some of those only because a
+fixture needed the new field. Neither review has seen the fixes.
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| 1 | HIGH | A double-quoted `\t` decoded after the scan, so `"ignore\tall\tprevious\tinstructions"` passed, promoted and rendered | **Fixed.** `\n` and `\t` are refused like every other escape. `deliveredSkillText` builds the string the prompt sends, and the validator scans that exact string. A folded description that only joins into an attack is caught by this, which the first fix alone would miss |
+| 2 | HIGH | Nested 512-wide repeats: `sed -i ` 33 s on 1 MB, `dd if= ` 2.7 s on 262 KB | **Fixed.** Both now cost under 0.3 s at 1 MB. PK-21 fails the class twice over: a static rule on the product of wide repeats in each alternative, limit 4,096, and a clock per pattern on 30 hostile shapes and on each pattern's own sample cut short. The clock also caught `translate_execute` and `python_compile_exec`, and the static rule listed 16 patterns, all narrowed. The caps already came first in the pass; they now also come before the hash on a read |
+| 3 | MEDIUM | A self-chosen `advisor` with a fresh session promoted, and a hand-written record renders | **Fixed in part, as decided.** `SKILL_REVIEWER_ROLES` is owner-only. A hand-written record still renders, so signing is BINDING below |
+| 4 | MEDIUM | No record of where a skill came from | **Fixed.** A hashed `origin`, kept in the pin. `imported` needs the owner as proposer, and a resealed import by an agent is refused. See Limits |
+| L | LOW | `</untrusted-skill>` | **Fixed.** `fence-forgery`, in any file, for the memory tag too |
+| L | LOW | `writeWhole` duplicated `writeFileAtomically` | **Fixed.** Imported. `agent/src/memory` is outside the write paths, so the validator lifts that one function unchanged into its scratch copy, and PK-14 mutates it where it lives. PK-16 allows one call |
+| L | LOW | `SKILL_NAME` omitted Windows device names | **Fixed.** `skillNameProblem(name)` |
+| L | LOW | A corrupt active record blocked a rejection | **Fixed.** The active hash is read only for an approval |
+| L | LOW | No per-author cap | **Fixed.** Ten of the fifty |
+| L | LOW | `<path>.tmp` followed a write | **Fixed** in this phase's wrapper, which clears the path first and stops if it cannot. The memory write itself still follows a planted link, and memory is outside the write paths. That belongs in `memoryFiles.ts` |
+| V | Coordinator | A probe that throws must not count as killed | **Fixed.** Nine mutations had been killed only by a crash. Each now has a probe that answers, or a mutant that runs |
+| C | CARRY | Homoglyphs, HTML entities and base64 | **Carried**, see Limits |
+| C | CARRY | No export from `agent/src/index.ts` | **Carried**, matching memory and search |
+
 ## Defects found by the proofs
 
 - **Upstream's dangling-link rule catches the sentence's full stop.** `See references/a.md.` read as a missing `a.md.`. Kept, fixed
   here, with its own mutation.
 - **A cubic pattern.** `md_link_exfil` took 5.7 seconds on `[a](http://` repeated to the cap, with two 512-wide repeats nested.
-  It now starts at `](`. The worst pattern at the cap is now about 0.6 seconds and the whole scan about 1.3.
+  It now starts at `](`. This first look covered one shape, and it missed the two the review found.
 - **Open repeats the first translation kept.** `[ \t]*`, `\d+`, and `[A-Z0-9]*(?:_[A-Z0-9]+)+`. PK-21 reads every compiled source
   and refused them.
 - **Dead checks.** The mutations `tab-indent-allowed` and `nested-lists-allowed` survived, because the key rule and the scalar rule
@@ -89,17 +113,16 @@ cap is lower), the upstream author and `metadata.hermes` rules, platform and env
 ## Proofs
 
 ```text
-val-projectos-port-skills1a: PASS (21 rules; 413 named mutations killed)
+val-projectos-port-skills1a: PASS (21 rules; 440 named mutations killed)
 val-projectos-port-credit1a: PASS (47 real file(s) judged; 147 fixture and 59 record mutations killed)
 validate-no-secrets: PASS
-core whole suite: 50 files, 2,187 passed (331 of them skills)
-agent: skillsQueue 39, memoryQueue and searchIndex with it, 174 passed
+core whole suite: 50 files, 2,232 passed (376 of them skills)
+agent: skillsQueue 47, memoryQueue and searchIndex with it, 182 passed
 tsc core: clean. tsc agent/src/skills and its test, through the alias: clean
 ```
 
 **Validators that read a touched file.** A scratchpad script selected 72 by a text match and ran each in its own process, four at
-a time, at `89eb4fa2`: **70 pass**. One failure was `validate-no-secrets`, on a fake key in this validator, fixed after that run and
-re-run alone. The other is below. `val-cd-b4-production-ipc-provider1a`, the six-minute Rust fixture, was left out. It reads none of
+a time, at `9031c712`: **71 pass**. The one failure is below. `val-cd-b4-production-ipc-provider1a`, the six-minute Rust fixture, was left out. It reads none of
 these files.
 
 **One failure that is not this phase, and that `validate-all` will show.** `val-cd-b4-sealed-expected-window-facts1a` fails with
@@ -112,17 +135,20 @@ run there. It was not investigated further, and it needs a look on `main`.
 
 ## How the mutations run
 
-The unmutated source runs every probe, which is the positive control. A mutation runs every text rule, and the behaviour probes of
+The unmutated source runs every probe, which is the positive control. A probe that throws fails that run and kills no mutation. A
+mutation runs every text rule, and the behaviour probes of
 the rules it names and no others. **This is weaker than the memory validator**, where a mutation runs every probe. An early run did
 nearly that here, and found 33 mismatches, all answered, so cross-rule firing was seen once. It is not held from now on: a mutation
 proves its own rule fires, and does not prove that another rule's behaviour probes stay quiet.
 
 **The cut may have been larger than it needed to be.** That run took four minutes, and scoping was the first answer. Profiling then
-showed most of the time was the timed mutants, and shrinking those took the scoped run to 30 seconds. A full run at today's sizes was
+showed most of the time was the timed mutants, and shrinking those took the scoped run to under a minute. A full run at today's sizes was
 not measured. Going back means running every group for every mutation and retuning the `also` lists.
 
-**PK-21 uses wall-clock budgets.** A real run takes milliseconds against a budget of 750, and a quadratic mutant takes one to four
-seconds. A badly starved machine could fail the real run.
+**PK-21 uses wall-clock budgets.** A real run takes milliseconds against budgets of 500 and 750, and a slow mutant takes seconds. A badly
+starved machine could fail the real run. The shapes are a list, so a new pattern with a new word needs one, and the static rule is what
+holds in between. It counts negated classes and `\S` only, so a wide repeat over a listed class passes it: the mutation
+`a-slow-pattern-the-static-rule-cannot-see` is there to show the clock catches that.
 
 **The behavioural copy is not the build.** It runs under type stripping with imports rewritten, and a stand-in for
 `authoringEvidence.js`. PK-15 pins that import, and `skillsQueue.test.ts` uses the real one.
@@ -132,23 +158,28 @@ seconds. A badly starved machine could fail the real run.
 - **Export it.** `agent/src/index.ts` is outside this phase's write paths, so nothing can reach the queue yet.
 - **Supply `SkillActor` from something stronger than the caller.** Independence is by actor and session, and both are asserted until
   owner proof exists. The queue takes them from the kernel and never from a request, and nothing proves them.
+- **BINDING: sign the pin before any loader reads it.** A hand-written promoted record renders today. Nothing loads one yet, and nothing may
+  until the pin is signed.
+- **Make the actor kernel-issued before widening `SKILL_REVIEWER_ROLES`.** It is owner-only for that reason, and D11 roles wait for it.
 - **Ignore or sign `.projectops/skills/`.** See Limits.
 - **Run nothing from `scripts/`.** A package may hold scripts, and no code here runs them. Running one is a C14 action under that
   policy, not something a promotion allows.
 
 ## Limits
 
-- **An advisor can promote without the owner.** The brief asks for an independent review, and ADR-K1 D11 reads as implementer
-  different from reviewer. So `advisor` or `owner` may review, as a different actor in a different session. Memory is owner-only. If the
-  owner wants the same here, it is one line in `SKILL_REVIEWER_ROLES`, and the validator pins it.
+- **Only the owner role reviews, and the owner does not review the owner.** So a skill the owner proposed, which includes every import, needs a
+  second actor holding the owner role. There is one owner today, so **an import cannot be promoted under one label.** The fix is a decision:
+  let the owner review an import in a separate session, since the owner did not write that text. It was not made here, because it loosens
+  an authority rule.
+- **`origin` is what the caller states.** An agent can paste outside text and call it `proposed`. The review is what catches that.
 - **The pin is a hash, not a signature.** Anyone who can write `.projectops/skills/` can reseal a proposal, hand-write a record that passes
   every check, or put back an older promoted record. The hash detects a change. Today's rules still run on such a record, and
   it still grants nothing. Signing belongs with owner proof.
 - **`.projectops/skills/` is not git-ignored,** so a cloned or PR-borne record counts, as memory's does.
 - **The state of a proposal is not hashed.** A file changed from `rejected` to `pending` reads as pending. It still needs an independent
   review over its hash.
-- **The patterns are a list.** A miss proves nothing. They do not decode base64 or `\uXXXX`, and they do not fold cross-script
-  look-alikes. That is why a promoted skill stays fenced. The scan reads the whole file, so a phrase split over lines is seen, and one
+- **The patterns are a list.** A miss proves nothing. They do not decode base64, HTML entities or `\uXXXX`, and they do not fold cross-script
+  look-alikes (homoglyphs). That is why a promoted skill stays fenced. The scan reads the whole file, so a phrase split over lines is seen, and one
   split across two files is not.
 - **False positives have no override.** A legitimate skill that says `sudo apt install` is refused until reworded, and so is a doc link
   three levels up. That is the safe way to be wrong, and a reviewer cannot wave it through.
@@ -170,4 +201,6 @@ seconds. A badly starved machine could fail the real run.
 - `4ee9636a` fix(skills): what the mutation run and self-review found
 - `89eb4fa2` feat(validators): the skill rules, run against the real source
 - `7007036f` fix(skills): spell the fake access key in two parts
-- The evidence commit that adds this file.
+- `bc380ee2` docs(finish): PROJECTOS-PORT-SKILLS1A evidence
+- `9031c712` fix(skills): answer the skills review round
+- The evidence commit that adds this review round.
