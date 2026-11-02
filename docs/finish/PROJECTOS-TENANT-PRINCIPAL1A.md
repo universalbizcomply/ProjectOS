@@ -23,7 +23,7 @@ registry bytes are the same. Use PowerShell or Windows Terminal, because Git Bas
 node "C:/dev/ProjectOS-worktrees/tenant-principal1a/projectos/agent/bin/projectos.js" tenant receipt --blob 8f7b7437c648defc54d8d2005ab76691f51948fb
 ```
 
-That is the final registry's blob, at `0f9dfaea`. If the registry changes again, the blob changes, and
+That is the final registry's blob, at `5733cab2`. If the registry changes again, the blob changes, and
 `projectos.js tenant show` prints the new line.
 
 It shows what changed and every binding, then asks for the first 12 characters of the blob. No commit is needed. I
@@ -76,18 +76,20 @@ cheap: if `tenant receipt` fails in the worktree, nothing is locked.
 
 | Commit | Content |
 |---|---|
-| `c9315efb` | `installation/tenantRegistry.ts`, `commands/tenant.ts`; `governedContext.ts`, `mcp/bridge.ts`, `cli.ts`; one entry refusal in `commands/run.ts` |
-| `fa4c1fad` | `control-center/sidecar/host.mjs`: selection and acting verbs ask the tenant |
-| `f636b12b` | `tenantPrincipal.test.ts`, `tenantBridgeRule.test.ts`, `support/tenantWorld.ts`; fixtures in `mcpBridge`, `mcpOAuth`, `platformStop`; `setup.ts` |
-| `3b4dbc31` | Sidecar import kept on its pinned line, found by `val-projectos-kernel-platform-stop1a` |
-| `ffd3be4e` | Four weak proofs the sweep found; the dead `isAbsolute` line removed |
-| `41769ab3` | `val-projectos-tenant-principal1a`, registered in `validate-all` and `cached-runner`; this file |
-| `dc6ab91b`, `f2f894b8` | The review round: fixes, then real-git, real-sidecar and real-console tests |
-| `ff39f2aa` | The allowlist's replace-ref fix; four tests the sweep showed to be weak |
-| `0f9dfaea` | `tenant-registry.json` and ADR-T1 |
-| _this commit_ | The validator's review rules; this file |
+| `e425ec33` | `installation/tenantRegistry.ts`, `commands/tenant.ts`; `governedContext.ts`, `mcp/bridge.ts`, `cli.ts`; one entry refusal in `commands/run.ts` |
+| `6c43e920` | `control-center/sidecar/host.mjs`: selection and acting verbs ask the tenant |
+| `14ba3b02` | `tenantPrincipal.test.ts`, `tenantBridgeRule.test.ts`, `support/tenantWorld.ts`; fixtures in `mcpBridge`, `mcpOAuth`, `platformStop`; `setup.ts` |
+| `1e071622` | Sidecar import kept on its pinned line, found by `val-projectos-kernel-platform-stop1a` |
+| `09b34b8f` | Four weak proofs the sweep found; the dead `isAbsolute` line removed |
+| `f5891bbb` | `val-projectos-tenant-principal1a`, registered in `validate-all` and `cached-runner`; this file |
+| `b4f81faf`, `2769f179` | The review round: fixes, then real-git, real-sidecar and real-console tests |
+| `a537756d` | The allowlist's replace-ref fix; four tests the sweep showed to be weak |
+| `5733cab2` | `tenant-registry.json` and ADR-T1 |
+| `5d9b9b6f`, `e11c8c10` | The validator's review rules; this file |
+| `835abe1a` | The ECC recheck: the core tests, the lock hint, the by-hand route removed, TP-29 |
+| _this commit_ | The final numbers in this file |
 
-Commits are hashed after the rebase onto plan v1.33. The review ran at `aac21426`, which is `41769ab3` here.
+Commits are hashed after the lead's rebase onto `cb3979f5`. The review ran at `aac21426`, which is `f5891bbb` here.
 
 ## Acceptance criteria
 
@@ -106,7 +108,7 @@ Commits are hashed after the rebase onto plan v1.33. The review ran at `aac21426
 5. **Linked worktrees follow ADR-T1, and governed runs still work in one, tested:** met, against real git. A real
    `run --dry-run` in a `git worktree add` checkout walks to `DRY RUN: nothing was written and no worker was started.`,
    and the same worktree is refused once its project leaves the registry.
-6. **Validator pin and named mutations, each killed by its own rule:** met, 200 of 200. See below for how many
+6. **Validator pin and named mutations, each killed by its own rule:** met, 210 of 210. See below for how many
    also fail a behavioural test.
 
 ## Review round, at `aac21426`
@@ -247,13 +249,13 @@ The cost is real: tests other than those two files no longer pass through the ru
 |---|---|---|
 | Build | `npm run -s build` in `projectos/agent` | 0 errors |
 | Test typecheck | `npx tsc -p tsconfig.test.json` in `projectos/agent` | 0 errors |
-| Full agent suite, final tree, nothing else running | `vitest run` in `projectos/agent`, on the final tree | 105 files, 3187 tests, all pass |
+| Full agent suite, final tree, nothing else running | `vitest run` in `projectos/agent`, at `835abe1a` | 105 files, 3189 tests, all pass |
 | Control Center suite | `vitest run` in `projectos/control-center`, before the review round | 66 files, 890 tests, all pass. It does not load `host.mjs`, which the agent suite's real-process test proves. Not rerun after the rebase |
-| Core tests that read the registry | `tenant`, `tenant-contract-review`, `task-envelope`, `action-registry` | **401 of 405. The 4 failures are named under "Needs the lead"** |
-| This phase's validator | `node projectos/validators/val-projectos-tenant-principal1a.cjs` | PASS, 200 of 200 |
-| Validators reading a touched file | Each in its own process, on the final tree, nothing else running | 23 PASS, 0 FAIL. Includes `val-projectos-boot-continue1a`, which pins `run.ts`, `val-projectos-kernel-platform-stop1a`, `val-projectos-tenant-contract1a` (346), `val-projectos-trust-boundary1a`, `val-projectos-tenant-rls1a`, `validate-no-secrets`. The RLS validator ran alone. A further 3 that walk the agent source passed before the rebase and were not rerun |
+| Full core suite, nothing else running | `vitest run` in `projectos/core`, at `835abe1a` | 43 files, 1866 tests, all pass |
+| This phase's validator | `node projectos/validators/val-projectos-tenant-principal1a.cjs` | PASS, 210 of 210 |
+| Validators reading a touched file | Each in its own process, at `835abe1a`, nothing else running | 22 PASS, 0 FAIL. Includes `val-projectos-tenant-contract1a` (346), `val-projectos-boot-continue1a`, which pins `run.ts`, `val-projectos-kernel-platform-stop1a`, `val-projectos-trust-boundary1a`, `validate-no-secrets`. `val-projectos-tenant-rls1a` passed alone before the last rebase and reads nothing touched since. A further 3 that walk the agent source passed before the rebases and were not rerun |
 | Real registry against real repositories, read-only | `bindCheckout` for all thirteen host projects and `seo-agency` | 11 bound, `dead-aisle` via `linked-worktree`; `tkn`, `erp-system`, `wizard-probe` refused `TENANT_UNKNOWN`. Nothing written |
-| Real CLI in this worktree, read-only | `tenant show`, and `tenant receipt --blob … --as owner` | `TENANT_REGISTRY_NO_RECEIPT` with the one line, and `TENANT_RECEIPT_NEEDS_A_TERMINAL`. Nothing written to the real state directory |
+| Real CLI in this worktree, on the real state, at `835abe1a` | `tenant show`; then `tenant receipt --blob 8f7b7437…` in a real console, stopped at the prompt with nothing typed | `TENANT_REGISTRY_NO_RECEIPT` printing the one line, and the prompt reached with all eleven bindings on screen. The process was ended there. No receipt and no record were written |
 
 **Not run:** full `validate-all`, which is the lead's. A packaged daemon. Mintty, which is refused by name.
 
@@ -264,9 +266,9 @@ The cost is real: tests other than those two files no longer pass through the ru
 
 ## Do the tests themselves discriminate?
 
-The validator's mutations are text pins, so 200 of 200 says the pins fire, not that a behaviour test fails. So mutations were applied to the real source files, the proof each should trip was run with an exact filter, the failing test was recorded, and the file restored. Clean `git status` confirmed each restore.
+The validator's mutations are text pins, so 210 of 210 says the pins fire, not that a behaviour test fails. So mutations were applied to the real source files, the proof each should trip was run with an exact filter, the failing test was recorded, and the file restored. Clean `git status` confirmed each restore.
 
-- **On the final code, 98 mutations were swept, and 98 are killed by a behavioural test that passes unmutated in the full suite above.** That baseline matters, and I learned it late: the last full run showed two tests failing with no mutation at all, after the bounded retry changed what a single failed lock means, so the sweep had counted two false kills. Both tests were fixed, each confirmed green, and each mutation run again. The kills include every mutation of the tenant rule, the receipt, the door's recording, the replace-ref fix, the admitted run, the real sidecar and the allowlist. The rest have only their text pin. Many of those are docs, registration and evidence, which alter no behaviour, but some are real code mutations and were not tried.
+- **99 mutations were swept, and 99 are killed by a behavioural test that passes unmutated in the full suite above.** 98 ran on the code before the ECC recheck, whose only source change was adding the lock hint, and the hint's own mutation ran after it. That baseline matters, and I learned it late: the last full run showed two tests failing with no mutation at all, after the bounded retry changed what a single failed lock means, so the sweep had counted two false kills. Both tests were fixed, each confirmed green, and each mutation run again. The kills include every mutation of the tenant rule, the receipt, the door's recording, the replace-ref fix, the admitted run, the real sidecar and the allowlist. The rest have only their text pin. Many of those are docs, registration and evidence, which alter no behaviour, but some are real code mutations and were not tried.
 - **`receipt-path-moved` survives correctly:** reader and writer share the path, so it alters no behaviour, and TP-3 is its only catch.
 - **The sweeps found eight weak proofs, all fixed.** Four in the first round: the receipt grant was tested through a copy, the committed read was hidden behind the dirty check, and two unrecorded branches were never reached. A dead `isAbsolute` line came out. Four in the review round: a spy that missed the `HEAD` call, a fake that failed every rename rather than the rotation, a selection read before its inventory arrived, and an assertion whose failure hung the reporter on a megabyte.
 - **My first sweep was invalid.** It split multi-word filters through a shell and ran the wrong tests. Its numbers are discarded, and the script now records which test made each kill.
@@ -286,7 +288,7 @@ Every mutation below was killed by the rule it names, in `selfTest`, on the fina
 | TP-7 | 5 | `derivation-reads-a-flag`, `derivation-reads-the-environment`, `tenant-show-reads-a-flag`, `a-login-picks-the-tenant`, `envelope-tenant-from-the-request` |
 | TP-8 | 8 | `envelope-hand-built`, `binding-not-the-derived-one`, `run-mints-another-action`, `run-claims-the-owner`, `selection-mints-another-action`, `bridge-mints-another-action`, `bridge-claims-the-owner`, `subject-is-not-the-checkout` |
 | TP-9 | 11 | `held-lock-reads-as-written`, `unreadable-file-replaced`, `rename-failure-ignored`, `line-not-read-back`, `write-throw-reads-as-written`, `no-state-dir-reads-as-recorded`, `run-starts-unrecorded`, `selection-proceeds-unrecorded`, `selection-outcome-ignored`, `not-recorded-loses-its-name`, `receipt-written-without-admission` |
-| TP-10 | 6 | `append-refusal-drops-again`, `unrecorded-refusal-not-said`, `contract-refusal-outcome-ignored`, `unimplemented-refusal-outcome-ignored`, `cli-refusal-outcome-ignored`, `refusal-record-always-claims-written` |
+| TP-10 | 7 | `append-refusal-drops-again`, `unrecorded-refusal-not-said`, `contract-refusal-outcome-ignored`, `unimplemented-refusal-outcome-ignored`, `cli-refusal-outcome-ignored`, `refusal-record-always-claims-written`, `stale-lock-hint-dropped` |
 | TP-11 | 10 | `tenant-rule-compares-nothing`, `unlisted-project-passes-the-rule`, `rule-reduced-to-the-project-check`, `bridge-skips-the-tenant-rule`, `tenant-rule-compares-the-asked-with-itself`, `bridge-checks-after-reading`, `unrecorded-read-answered`, `read-outcome-not-recorded`, `stop-work-needs-a-tenant`, `bridge-binds-the-requested-project` |
 | TP-12 | 4 | `bridge-refusal-returns-the-reasons`, `bridge-crossing-returns-the-reasons`, `tenant-refusal-not-recorded-at-the-bridge`, `crossing-not-recorded-at-the-bridge` |
 | TP-13 | 4 | `run-loses-the-entry-refusal`, `run-asks-after-the-gatekeeper`, `run-skips-the-execute-flag`, `compose-gatekeeper-learns-the-tenant` |
@@ -305,6 +307,7 @@ Every mutation below was killed by the rule it names, in `selfTest`, on the fina
 | TP-26 | 7 | `no-wait-for-the-lock`, `unbounded-wait`, `wait-grows-past-its-bound`, `unwritable-directory-waits`, `never-rotates`, `rotation-failure-ignored`, `rotation-size-grows` |
 | TP-27 | 10 | `evidence-drops-cwd`, `evidence-drops-the-handle`, `evidence-drops-worktree-rule`, `evidence-drops-receipt-rule`, `evidence-drops-jwt-rule`, `evidence-drops-the-budget`, `evidence-hides-dead-aisle`, `evidence-hides-bizcomply`, `evidence-hides-who-stays-refused`, `evidence-hides-the-console-script` |
 | TP-28 | 9 | `registry-trust-basis-claims-the-owner`, `registry-loses-dead-aisle`, `dead-aisle-entered-as-its-worktree`, `added-project-moved-to-the-agency`, `adr-hides-cwd`, `adr-overclaims-the-receipt`, `adr-drops-the-replace-ref-lesson`, `adr-drops-what-git-is-read-for`, `adr-drops-the-binding` |
+| TP-29 | 9 | `cli-reaches-the-console-script`, `tenant-command-reaches-the-console-script`, `sidecar-reaches-the-console-script`, `cli-binary-reaches-the-console-script`, `package-script-reaches-the-console-script`, `payload-carries-the-console-script`, `console-script-loses-its-label`, `driver-loses-its-label`, `evidence-softens-the-console-script` |
 | TP-T | 4 | `a-proof-skipped`, `a-proof-isolated`, `a-proof-commented-out`, `a-proof-deleted` |
 
 ## Decisions for the lead to challenge
