@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PORT-SKILLS1A",
   "project": "ProjectOS",
   "objective": "Translate the Hermes skill linter, audit and frontmatter parser (C9), about 1.3k lines, MIT. An agent may only propose a skill. Promotion needs a validator pass, an independent review and a hash pin, and any change makes it stale. SKILL.md is the exchange format. Internet skill auto-install is refused.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-02T02:28:16.720Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-02T02:28:18.516Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PORT-SKILLS1A:owner-closure:f5c4b43f"
     }
   ]
 }
