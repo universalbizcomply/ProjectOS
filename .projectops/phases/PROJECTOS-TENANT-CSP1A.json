@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-TENANT-CSP1A",
+  "project": "ProjectOS",
+  "objective": "The Control Center has no CSP (csp: null). Owner decision, 2026-11-01: \"Approve strict policy (Recommended)\", with the exact Supabase address and no wildcard, because a wildcard would let injected script post data to any Supabase project. A wrong policy can blank the app, so this is proved in a real app window and not only by reading config. The installed app gets it only when the MSI is next rebuilt.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-02T00:55:11.551Z",
+      "note": "Owner-approved plans v1.28 to v1.33. Implemented by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-02T00:55:12.189Z",
+      "note": "strict Control Center CSP and the production build repaired"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-02T00:55:12.887Z",
+      "note": "core 1865/1865, agent 3056/3056, control-center 952/952 at 861601cd; npm run build passes and scan-bundle finds no bare Node global. validate-all 161/162 at 861601cd. validate-desktop-e2e PASSES on a real bundle for the first time since 2026-09-25; the one failure is val-cd-b4-sealed-expected-window-facts1a."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-02T00:55:13.549Z",
+      "note": "Evidence: docs/finish/PROJECTOS-TENANT-CSP1A.md (861601cd)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-02T00:55:14.247Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (APPROVE WITH CHANGES; recheck: all closed bar a docs gap, fixed by the lead)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-02T00:55:14.885Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
