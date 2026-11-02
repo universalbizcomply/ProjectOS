@@ -41,6 +41,13 @@
  * diagnostic would corrupt the result, and a diagnostic quoting the request is how a key reaches a
  * log file.
  *
+ * ITS OWN TENANT CHECK — PROJECTOS-TENANT-CREDENTIALS1A. The credential here is the platform class: it
+ * serves every tenant through this file and is released to none, so nothing here hands it to a tenant.
+ * An envelope cannot reach this process, because a crossing is an in-process value, so the door's run link
+ * proves nothing on this side. So this reads the committed tenant registry for itself, judges it whole, and
+ * refuses a project that is unlisted or whose repository and root are not the line's. It cannot tell WHICH
+ * run asked: the request carries no handle yet, and the fix is in the two callers that write it.
+ *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * TWO KINDS OF CALL — PROJECTOS-LIVE-PLAN-AUTHORING-AND-OWNER-DECISION1A.
  *
@@ -73,6 +80,7 @@ const crypto = require("crypto");
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const ALLOWLIST_REL = "projectos/security/installation-project-allowlist.json";
+const TENANT_REGISTRY_REL = "projectos/security/tenant-registry.json";
 const ADAPTER_REL = "projectos/credentials/windows-credential-store.ps1";
 
 /**
@@ -235,6 +243,29 @@ function readCommitted(root, rel) {
   const shown = git(root, ["show", "HEAD:./" + rel]);
   if (shown.code !== 0 || !shown.stdout.trim()) return null;
   return shown.stdout;
+}
+
+/**
+ * The tenant registry's bytes, the same read as `readCommitted` with two things more.
+ *
+ * NO REPLACEMENT OBJECTS, AND THE BYTES HASH TO THEIR BLOB. A `git replace` ref changes what a name yields
+ * with no commit and no diff, and `refs/replace` is shared across linked worktrees. Pinned to one commit,
+ * so the blob and the bytes cannot come from two different HEADs. `readCommitted` itself is left as it was:
+ * every other record it reads is a separate audit.
+ */
+function readCommittedBlob(root, rel) {
+  const askGit = (args) => git(root, ["--no-replace-objects", ...args]);
+  const logged = askGit(["log", "-1", "--format=%H", "--", rel]);
+  if (logged.code !== 0 || !logged.stdout.trim()) return null;
+  const dirty = askGit(["diff", "--name-only", "HEAD", "--", rel]);
+  if (dirty.code !== 0 || dirty.stdout.trim()) return null;
+  const commit = askGit(["rev-parse", "--verify", "HEAD"]).stdout.trim();
+  const blob = askGit(["rev-parse", commit + ":./" + rel]).stdout.trim();
+  const shown = askGit(["show", commit + ":./" + rel]);
+  if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(blob) || shown.code !== 0 || !shown.stdout.trim()) return null;
+  const bytes = Buffer.from(shown.stdout, "utf8");
+  const named = crypto.createHash(blob.length === 64 ? "sha256" : "sha1").update("blob " + bytes.length + "\0").update(bytes).digest("hex");
+  return named === blob ? shown.stdout : null;
 }
 
 function canonicalRepository(root) {
@@ -520,7 +551,7 @@ function spendPath(stateDir) {
  * The lock is one create-if-absent file: two brokers may run at once, and a lost update here is a
  * lost spend. A busy ledger refuses; there is no waiting inside a governance decision.
  */
-function reserveSpend(projectId, phaseId, requestId, limit) {
+function reserveSpend(projectId, phaseId, requestId, limit, tenant) {
   const stateDir = installationStateDir();
   if (stateDir === null) return "this installation cannot locate its own state, so it cannot govern what it spends";
   const file = spendPath(stateDir);
@@ -592,6 +623,7 @@ function reserveSpend(projectId, phaseId, requestId, limit) {
     }
     ledger.calls.push({
       projectId: projectId,
+      tenant: tenant,
       phaseId: phaseId,
       requestId: requestId,
       outcome: "reserved",
@@ -690,6 +722,83 @@ function installationAllows(installRoot, governedRoot, projectId) {
     return null;
   }
   return "this installation does not authorise project '" + projectId + "' at " + repository;
+}
+
+/**
+ * The whole registry, or what is wrong with it. A contradiction anywhere refuses every project, because a
+ * reader that stops at the first match never sees it. `null` when it is sound. The core's
+ * `parseTenantRegistry` is the rule; this file has no way to load it, so it refuses by the same names.
+ */
+function tenantRegistryProblem(registry) {
+  if (registry === null || typeof registry !== "object" || registry.schemaVersion !== "1.0.0" || registry.policy !== "tenant-registry") {
+    return "TENANT_REGISTRY_INVALID: the committed tenant registry is not one this broker recognises";
+  }
+  if (!Array.isArray(registry.tenants) || !Array.isArray(registry.projects) || registry.projects.length === 0) {
+    return "TENANT_REGISTRY_INVALID: the committed tenant registry lists no projects";
+  }
+  const tenants = registry.tenants.map((entry) => (entry ? entry.tenantId : undefined));
+  const key = (text) => text.replace(/[A-Z]/g, (letter) => String.fromCharCode(letter.charCodeAt(0) + 32));
+  const seen = new Set();
+  const repeated = (kind, value) => {
+    const name = kind + ":" + key(value);
+    const again = seen.has(name);
+    seen.add(name);
+    return again;
+  };
+  const roots = [];
+  for (const entry of registry.projects) {
+    const fields = entry ? [entry.projectId, entry.repository, entry.governedRoot, entry.tenant] : [];
+    if (fields.length === 0 || fields.some((field) => typeof field !== "string" || field === "")) {
+      return "TENANT_REGISTRY_INVALID: a project line is missing a binding field";
+    }
+    if (fields.some((field) => /[*?]/.test(field))) return "TENANT_REGISTRY_WILDCARD: a project line has a wildcard";
+    if (key(entry.projectId).startsWith("tenant.")) return "TENANT_REGISTRY_RESERVED_ID: a project id starts with the reserved tenant prefix";
+    if (tenants.indexOf(entry.tenant) === -1) return "TENANT_REGISTRY_INVALID: a project line names a tenant the registry does not declare";
+    const root = entry.governedRoot.replace(/\/+$/, "");
+    if (repeated("project", entry.projectId) || repeated("repository", entry.repository) || repeated("root", root)) {
+      return "TENANT_REGISTRY_DUPLICATE: two project lines share a project, a repository or a root";
+    }
+    roots.push(key(root));
+  }
+  if (roots.some((root) => roots.some((other) => root !== other && root.startsWith(other + "/")))) {
+    return "TENANT_REGISTRY_NESTED_ROOT: one project's root is inside another's";
+  }
+  return null;
+}
+
+/**
+ * The tenant this project is bound to, from committed bytes, or why not. Returns `{ tenant }` or `{ problem }`.
+ *
+ * THE REQUEST NAMES A PROJECT AND A ROOT, AND NEITHER IS BELIEVED. The allowlist says this installation will
+ * spend on a project; this says whose that project is. They are two committed records and a project must
+ * satisfy both, so either one can refuse with the other still saying yes. A worktree cannot pass here: the
+ * allowlist's shape check refuses it, and a line's root is compared by identity.
+ *
+ * NO RECEIPT IS ASKED. `TRUSTED_STATE_DIR` is where spend is counted, and it is not always where a receipt
+ * lives, and a receipt grants nothing here. So a registry commit alone can change what this reads. It moves
+ * no spend: the allowlist is still asked, and `projectos run` refuses an unconfirmed registry first.
+ */
+function tenantOfProject(installRoot, governedRoot, projectId) {
+  const raw = readCommittedBlob(installRoot, TENANT_REGISTRY_REL);
+  if (raw === null) return { problem: "TENANT_REGISTRY_UNREADABLE: this installation commits no unmodified tenant registry" };
+  let registry;
+  try {
+    registry = JSON.parse(raw);
+  } catch {
+    return { problem: "TENANT_REGISTRY_UNREADABLE: the committed tenant registry is not readable JSON" };
+  }
+  const wrong = tenantRegistryProblem(registry);
+  if (wrong !== null) return { problem: wrong };
+  const entry = registry.projects.find((candidate) => candidate.projectId === projectId);
+  if (entry === undefined) return { problem: "TENANT_UNKNOWN: project '" + projectId + "' is not in the tenant registry" };
+  const repository = canonicalRepository(governedRoot);
+  if (repository === null || repository.toLowerCase() !== entry.repository.toLowerCase()) {
+    return { problem: "TENANT_MISMATCH: project '" + projectId + "' is registered at " + entry.repository + ", and this checkout is " + String(repository) };
+  }
+  if (!sameRealPath(entry.governedRoot, governedRoot)) {
+    return { problem: "TENANT_MISMATCH: project '" + projectId + "' is registered at " + entry.governedRoot + ", and this checkout is at " + governedRoot };
+  }
+  return { tenant: entry.tenant };
 }
 
 /** The governed project's own committed owner decision for this phase. */
@@ -964,7 +1073,18 @@ async function main() {
   // git against the CALLER-SUPPLIED governed root, including `git remote get-url origin` inside it.
   // Computing it eagerly would do work on behalf of a request that cannot yet be shown to be the one
   // it claims to be, and would leave two comments describing an order the code no longer had.
-  const firstFactor = () => installationAllows(installRoot, governedRoot, projectId);
+  //
+  // AND WHOSE IT IS, ON BOTH KINDS, IN THE SAME STEP. The tenant is held here so that the spend row can say
+  // whose call this was. Nothing below takes it from the request.
+  let boundTenant = null;
+  const firstFactor = () => {
+    const notAllowed = installationAllows(installRoot, governedRoot, projectId);
+    if (notAllowed !== null) return notAllowed;
+    const bound = tenantOfProject(installRoot, governedRoot, projectId);
+    if (bound.problem !== undefined) return bound.problem;
+    boundTenant = bound.tenant;
+    return null;
+  };
 
   /** Where this kind counts its calls, and how many it may make. */
   let spendKey = phaseId;
@@ -1053,7 +1173,7 @@ async function main() {
   }
 
   // AND WITHIN WHAT THIS INSTALLATION IS WILLING TO SPEND, counted where the project cannot reach it.
-  const overspend = reserveSpend(projectId, spendKey, requestId, spendLimit);
+  const overspend = reserveSpend(projectId, spendKey, requestId, spendLimit, boundTenant);
   if (overspend !== null) {
     fail(overspend);
     return;
