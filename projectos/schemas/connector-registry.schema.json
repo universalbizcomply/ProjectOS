@@ -24,23 +24,28 @@
     },
     "note": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": "\\S"
     },
     "authority": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": "\\S"
     },
     "authorisedBy": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": "\\S"
     },
     "provenance": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": "\\S"
     },
     "trustBasis": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": "\\S"
     },
     "connectors": {
       "type": "array",
@@ -114,7 +119,7 @@
           "type": "string",
           "pattern": "^ProjectOS/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(?:development|staging|production)/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
           "not": {
-            "pattern": "[A-Za-z0-9]{24,}"
+            "pattern": "[A-Za-z0-9]{24,}|/(?:[A-Za-z0-9][._-]?){24,}$|/(?:sk-|gh[pousr]_|github_pat_|xox[baprs]-|AKIA|eyJ)"
           }
         },
         "dataCategories": {
@@ -220,7 +225,10 @@
         },
         "evidence": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,255}$"
+          "pattern": "^(?:provider:|commit:|docs/)[A-Za-z0-9][A-Za-z0-9._:/#-]{2,240}$",
+          "not": {
+            "pattern": "[A-Za-z0-9]{24,}|[:/](?:sk-|gh[pousr]_|github_pat_|xox[baprs]-|AKIA|eyJ)"
+          }
         }
       }
     }

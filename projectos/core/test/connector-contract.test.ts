@@ -18,6 +18,7 @@ import {
   CONNECTOR_ACCEPTANCE_MAX_AGE_DAYS,
   CONNECTOR_ERROR_CODES,
   CONNECTOR_MAX_ATTEMPTS,
+  CONNECTOR_RECONCILE_ACTION,
   CONNECTOR_RETRY_RULES,
   decideConnectorRetry,
   parseConnectorError,
@@ -32,7 +33,7 @@ import {
   type ConnectorRetryFacts,
 } from '../src/connectorContract.js';
 import * as barrel from '../src/index.js';
-import { admitEnvelope, deriveIdempotencyKey, mintEnvelope, type EnvelopeRequest, type TaskEnvelope } from '../src/taskEnvelope.js';
+import { admitEnvelope, mintEnvelope, type EnvelopeRequest, type TaskEnvelope } from '../src/taskEnvelope.js';
 import { parseTenantRegistry, resolveTenant, type CheckoutFacts, type TenantBinding, type TenantRegistry } from '../src/tenant.js';
 
 type Raw = Record<string, unknown>;
@@ -178,6 +179,9 @@ interface GateRequest {
   readonly now: string;
 }
 
+/** The action registry the first connector phase will commit: reconciliation fails closed without it. */
+const reconcileActions = (): ActionRegistry => actionsWith(CONNECTOR_RECONCILE_ACTION, 'P2');
+
 function gate(over: Partial<GateRequest> = {}): ConnectorAdmission {
   return admitConnectorCall({
     registry: registryOf([entry()]),
@@ -205,13 +209,24 @@ const receipt = (over: Raw = {}): Raw => ({
   connector: 'fixture-mail',
   action: 'bridge-read',
   idempotencyKey: KEY,
+  attempt: 1,
   outcome: 'succeeded',
   errorCode: null,
+  providerReceipt: 'provider:receipt-77',
   ...over,
 });
 
-const failed = (errorCode: string, over: Raw = {}): Raw => receipt({ outcome: 'failed', errorCode, ...over });
-const unknown = (over: Raw = {}): Raw => receipt({ outcome: 'unknown', errorCode: 'outcome_unknown', ...over });
+const failed = (errorCode: string, over: Raw = {}): Raw => receipt({ outcome: 'failed', errorCode, providerReceipt: null, ...over });
+const unknown = (over: Raw = {}): Raw => receipt({ outcome: 'unknown', errorCode: 'outcome_unknown', providerReceipt: null, ...over });
+const started = (attempt: number, over: Raw = {}): Raw => ({
+  tenant: 'agency-business',
+  connector: 'fixture-mail',
+  action: 'bridge-read',
+  idempotencyKey: KEY,
+  attempt,
+  envelopeId: `ENV-${'a'.repeat(24)}`,
+  ...over,
+});
 const reconciliation = (finding: string, over: Raw = {}): Raw => ({
   tenant: 'agency-business',
   connector: 'fixture-mail',
@@ -219,14 +234,34 @@ const reconciliation = (finding: string, over: Raw = {}): Raw => ({
   idempotencyKey: KEY,
   finding,
   evidence: 'provider:message-4471',
-  reconciledBy: 'owner',
+  reconciledBy: 'implementer',
+  reconcilerEnvelope: `ENV-${'c'.repeat(24)}`,
   reconciledAt: NOW,
   ...over,
 });
 
+/**
+ * Lines as the gate and a connector would leave them: each receipt gets the start before it and its attempt, and
+ * each reconciliation answers the latest attempt unless it says otherwise. Anything else passes through untouched.
+ */
+function story(steps: unknown): unknown {
+  if (!Array.isArray(steps)) return steps;
+  let attempt = 0;
+  return [...(steps as unknown[])].flatMap((step) => {
+    if (typeof step !== 'object' || step === null) return [step];
+    const line = step as Raw;
+    if ('finding' in line) return [{ attempt, ...line }];
+    if ('envelopeId' in line) return [line];
+    attempt += 1;
+    return [started(attempt, { tenant: line['tenant'], connector: line['connector'], action: line['action'], idempotencyKey: line['idempotencyKey'] }), { ...line, attempt }];
+  });
+}
+
 const FAKE_PREFIXED = ['sk', 'ant', 'api03', 'abcdefghij', 'klmnopqrst', 'uvwxyz0123'].join('-');
 const FAKE_BARE = 'a1B2'.repeat(10);
 const FAKE_JWT = ['eyJ', 'abcdefghij_klmnopqrst', '.', 'b'.repeat(12)].join('');
+const FAKE_UUID = ['550e8400', 'e29b', '41d4', 'a716', '446655440000'].join('-');
+const FAKE_SPLIT = ['abcdefgh', 'ijklmnop', 'qrstuvwx', 'yz012345'].join('-');
 
 function deepFreeze<T>(value: T): T {
   if (typeof value === 'object' && value !== null) {
@@ -310,6 +345,8 @@ describe('the registry file', () => {
     ['an empty actions list', { actions: [] }],
     ['an action that is not a name', { actions: ['Bridge Read'] }],
     ['an unreadable lastAcceptanceDate', { lastAcceptanceDate: 'last week' }],
+    ['a date past four year digits', { lastAcceptanceDate: '+010000-01-01T00:00:00.000Z', releaseRecord: passingRelease({ acceptedAt: '+010000-01-01T00:00:00.000Z' }) }],
+    ['a date that does not exist', { lastAcceptanceDate: '2026-02-31T00:00:00.000Z', releaseRecord: passingRelease({ acceptedAt: '2026-02-31T00:00:00.000Z' }) }],
   ])('a bad %s refuses the whole file, by name', (_label, over) => {
     expect(codes(file([ownerEntry(), entry(over)]))).toContain('CONNECTOR_REGISTRY_INVALID');
   });
@@ -369,6 +406,9 @@ describe('what a connector must declare', () => {
     ['a prefixed key as the last segment', `ProjectOS/tenant.agency-business/production/google/${FAKE_PREFIXED}`],
     ['a bare long run as the last segment', `ProjectOS/tenant.agency-business/production/google/${FAKE_BARE}`],
     ['a signed token alone', FAKE_JWT],
+    ['a bare long run in the provider segment', `ProjectOS/tenant.agency-business/production/${FAKE_BARE}/mail-refresh`],
+    ['a UUID as the last segment', `ProjectOS/tenant.agency-business/production/google/${FAKE_UUID}`],
+    ['a hyphen-split long run as the last segment', `ProjectOS/tenant.agency-business/production/google/${FAKE_SPLIT}`],
   ])('%s in the reference field is refused as a raw credential, and not repeated', (_label, value) => {
     const parsed = parseConnectorRegistry(file([entry({ secretReference: value })]), context());
     expect(parsed.ok).toBe(false);
@@ -396,6 +436,15 @@ describe('what a connector must declare', () => {
     expect(codes(file([entry({ secretReference: value })]))).toContain('CONNECTOR_SECRET_WRONG_TENANT');
   });
 
+  it('a project of the same tenant in another domain is refused', () => {
+    expect(codes(file([ownerEntry({ domain: 'personal', secretReference: 'ProjectOS/polygo/production/google/mail-refresh' })]))).toContain('CONNECTOR_SECRET_WRONG_TENANT');
+    expect(codes(file([ownerEntry({ secretReference: 'ProjectOS/polygo/production/google/mail-refresh' })]))).toEqual([]);
+  });
+
+  it('a credential name of ordinary hyphenated words is accepted: the split rule is not a length limit on words', () => {
+    expect(codes(file([entry({ secretReference: 'ProjectOS/tenant.agency-business/production/google/production-deploy-token' })]))).toEqual([]);
+  });
+
   it('a project-class reference inside its own tenant is accepted: the rule is the tenant, not the class', () => {
     expect(codes(file([entry({ secretReference: 'ProjectOS/seo-agency/production/google/mail-refresh' })]))).toEqual([]);
   });
@@ -405,8 +454,8 @@ describe('what a connector must declare', () => {
   });
 
   it('a read-only connector may hold only P1 actions: the class is looked up, not said', () => {
-    expect(codes(file([entry({ actions: ['bridge-read', 'broker-call'] })]))).toContain('CONNECTOR_IDEMPOTENCY_MISMATCH');
-    expect(codes(file([entry({ idempotency: 'provider-key', actions: ['bridge-read', 'broker-call'] })]))).toEqual([]);
+    expect(codes(file([entry({ actions: ['bridge-read', 'generate_report'] })]))).toContain('CONNECTOR_IDEMPOTENCY_MISMATCH');
+    expect(codes(file([entry({ idempotency: 'provider-key', actions: ['bridge-read', 'generate_report'] })]))).toEqual([]);
   });
 });
 
@@ -424,7 +473,9 @@ describe('the release record', () => {
     ['an extra scenario', { scenarios: [...SCENARIO_IDS, 'looked-fine'] }],
     ['no evidence', { evidence: '' }],
     ['evidence that is prose', { evidence: 'it worked on my machine' }],
+    ['evidence that is a word, not a pointer', { evidence: 'nothing' }],
     ['evidence holding a credential', { evidence: `provider:${FAKE_PREFIXED}` }],
+    ['evidence holding a long run', { evidence: `provider:${FAKE_BARE}` }],
   ])('%s is not a passing record', (_label, over) => {
     expect(codes(file([entry({ releaseRecord: passingRelease(over) })]))).toContain('CONNECTOR_RELEASE_NOT_PASSED');
   });
@@ -507,10 +558,57 @@ describe('the action registry', () => {
     expect(problem?.message).toContain('P5');
   });
 
-  it.each(['Bridge-read', 'bridge-read ', 'constructor', '__proto__'])('the near miss %j is not a synonym', (action) => {
-    const raw = file([entry({ idempotency: 'provider-key', actions: [action] })]);
-    expect(codes(raw).some((code) => code === 'CONNECTOR_ACTION_UNREGISTERED' || code === 'CONNECTOR_REGISTRY_INVALID')).toBe(true);
-    expect(parseConnectorRegistry(raw, context()).ok).toBe(false);
+  it.each([
+    ['bridge_read', 'CONNECTOR_ACTION_UNREGISTERED'],
+    ['constructor', 'CONNECTOR_ACTION_UNREGISTERED'],
+    ['Bridge-read', 'CONNECTOR_REGISTRY_INVALID'],
+    ['bridge-read ', 'CONNECTOR_REGISTRY_INVALID'],
+    ['__proto__', 'CONNECTOR_REGISTRY_INVALID'],
+  ])('the near miss %j is not a synonym: it is %s and nothing else', (action, code) => {
+    expect(codes(file([entry({ idempotency: 'provider-key', actions: [action] })]))).toEqual([code]);
+  });
+
+  it.each([
+    ['credential-release', 'RUN_LINK_REQUIRED'],
+    ['broker-call', 'RUN_LINK_REQUIRED'],
+    ['commit', 'RUN_LINK_REQUIRED'],
+    ['cross-tenant-access', 'P5_NO_GRANT'],
+    ['tenant-registry-change', 'P5_NO_GRANT'],
+    ['approve', 'P5_NO_GRANT'],
+  ])('the door would refuse %s to a connector, by its own rule %s, so it cannot register', (action, rule) => {
+    const parsed = parseConnectorRegistry(file([entry({ idempotency: 'provider-key', actions: ['bridge-read', action] })]), context());
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.problems.map((problem) => problem.code)).toEqual(['CONNECTOR_ACTION_DOOR_REFUSED']);
+    expect(parsed.problems[0]?.message).toContain(rule);
+  });
+
+  it.each([['P3', 'P3_NO_GRANT'], ['P4', 'P4_NO_GRANT'], ['P5', 'P5_NO_GRANT'], ['P6', 'P6_PROHIBITED']])('a connector action at %s is refused by the door as %s', (cls, rule) => {
+    const parsed = parseConnectorRegistry(file([entry({ idempotency: 'provider-key', actions: ['fixture-class'] })]), context(actionsWith('fixture-class', cls)));
+    expect(parsed.ok).toBe(false);
+    expect(!parsed.ok && parsed.problems[0]?.message).toContain(rule);
+  });
+
+  it('P1 and P2 pass the same door: the positive control', () => {
+    expect(codes(file([entry({ idempotency: 'provider-key', actions: ['bridge-read', 'generate_report'] })]))).toEqual([]);
+  });
+
+  it('a value that could be a credential is never repeated by a refusal', () => {
+    const shaped = FAKE_PREFIXED;
+    const unregistered = parseConnectorRegistry(file([entry({ idempotency: 'provider-key', actions: [shaped] })]), context());
+    const claimed = parseConnectorRegistry(file([entry({ actions: [shaped] })]), context(actionsWith(shaped, 'P2')));
+    const twice = parseConnectorRegistry(file([entry({ connectorId: shaped, releaseRecord: passingRelease({ connectorId: shaped }) }), entry({ connectorId: shaped, releaseRecord: passingRelease({ connectorId: shaped }) })]), context());
+    for (const result of [unregistered, claimed, twice]) {
+      expect(result.ok).toBe(false);
+      expect(JSON.stringify(result)).not.toContain(shaped);
+    }
+  });
+
+  it('a read-only connector whose action moved from P1 to P3 is refused at the gate', () => {
+    const wider = actionsWith('fixture-read', 'P1');
+    const registry = registryOf([entry({ actions: ['fixture-read'] })], wider);
+    const admission = gate({ registry, actions: actionsWith('fixture-read', 'P3'), envelope: agencyEnvelope({ action: 'fixture-read' }, wider) });
+    expect(admission).toMatchObject({ admitted: false, code: 'CONNECTOR_IDEMPOTENCY_MISMATCH' });
   });
 
   it('an action registry that did not pass parseActionRegistry registers nothing', () => {
@@ -566,7 +664,8 @@ describe('the error vocabulary', () => {
 });
 
 describe('the retry rule', () => {
-  const decide = (history: unknown, facts: ConnectorRetryFacts = NO_FACTS, key: string = KEY) => decideConnectorRetry(history, key, facts);
+  const raw = (history: unknown, facts: ConnectorRetryFacts = NO_FACTS, key: string = KEY) => decideConnectorRetry(history, key, 'agency-business', facts);
+  const decide = (history: unknown, facts: ConnectorRetryFacts = NO_FACTS, key: string = KEY) => raw(story(history), facts, key);
 
   it('a key with no history is a first attempt', () => {
     expect(decide([])).toEqual({ allowed: true, attempt: 1, rule: 'first-attempt' });
@@ -604,8 +703,81 @@ describe('the retry rule', () => {
     expect(decide([unknown(), reconciliation('not_completed'), unknown()])).toMatchObject({ allowed: false, code: 'RETRY_UNRECONCILED' });
   });
 
-  it('a success is never repeated', () => {
-    expect(decide([receipt()])).toMatchObject({ allowed: false, code: 'RETRY_ALREADY_COMPLETED' });
+  it('a duplicate returns the earlier outcome (ADR-K1 §2), not a bare refusal', () => {
+    expect(decide([receipt()])).toMatchObject({ allowed: false, code: 'RETRY_ALREADY_COMPLETED', earlier: { outcome: 'succeeded', providerReceipt: 'provider:receipt-77' } });
+    expect(decide([unknown(), reconciliation('completed')])).toMatchObject({ allowed: false, code: 'RETRY_ALREADY_COMPLETED', earlier: { finding: 'completed', evidence: 'provider:message-4471' } });
+  });
+
+  it('the gate hands the earlier outcome back too', () => {
+    const envelope = agencyEnvelope();
+    const history = story([receipt({ idempotencyKey: envelope.idempotencyKey })]);
+    expect(gate({ envelope, history })).toMatchObject({ admitted: false, code: 'RETRY_ALREADY_COMPLETED', earlier: { outcome: 'succeeded' } });
+  });
+
+  it.each(['permission_denied', 'invalid_input'])('%s stops the key across the whole history: a later rate limit does not reopen it', (code) => {
+    expect(decide([failed(code), failed('rate_limited')])).toMatchObject({ allowed: false, code: 'RETRY_NEVER' });
+  });
+
+  it('a condition unmet earlier in the history still stands', () => {
+    expect(decide([failed('authentication_required'), failed('rate_limited')])).toMatchObject({ allowed: false, code: 'RETRY_NEEDS_REAUTHENTICATION' });
+    expect(decide([failed('approval_required'), failed('upstream_unavailable')])).toMatchObject({ allowed: false, code: 'RETRY_NEEDS_APPROVAL' });
+    expect(decide([failed('authentication_required'), failed('rate_limited')], { reauthenticated: true, approved: false })).toEqual({ allowed: true, attempt: 3, rule: 'after-backoff' });
+  });
+
+  it('a start with no receipt counts as outcome_unknown: a crash after the write stops the retry', () => {
+    expect(raw([started(1)])).toMatchObject({ allowed: false, code: 'RETRY_UNRECONCILED' });
+  });
+
+  it('a second start while the first has no receipt leaves both unknown', () => {
+    expect(raw([started(1), started(2)])).toMatchObject({ allowed: false, code: 'RETRY_UNRECONCILED' });
+    expect(raw([started(1), started(2), failed('rate_limited', { attempt: 2 })])).toMatchObject({ allowed: false, code: 'RETRY_UNRECONCILED' });
+  });
+
+  it('a receipt closes only its own start', () => {
+    expect(raw([started(1), receipt({ attempt: 2 })])).toMatchObject({ allowed: false, code: 'RETRY_HISTORY_INVALID' });
+    expect(raw([started(1), receipt({ connector: 'fixture-other' })])).toMatchObject({ allowed: false, code: 'RETRY_HISTORY_INVALID' });
+    expect(raw([started(1), failed('rate_limited'), failed('rate_limited')])).toMatchObject({ allowed: false, code: 'RETRY_HISTORY_INVALID' });
+  });
+
+  it('a start out of order fails closed', () => {
+    expect(raw([started(2)])).toMatchObject({ allowed: false, code: 'RETRY_HISTORY_INVALID' });
+  });
+
+  it('a receipt with no start fails closed: a line has been lost', () => {
+    expect(raw([receipt()])).toMatchObject({ allowed: false, code: 'RETRY_HISTORY_INVALID' });
+  });
+
+  it('admission returns a start the caller must keep before acting', () => {
+    const envelope = agencyEnvelope();
+    const admission = gate({ envelope });
+    expect(admission).toMatchObject({ admitted: true, started: { tenant: 'agency-business', connector: 'fixture-mail', action: 'bridge-read', idempotencyKey: envelope.idempotencyKey, attempt: 1, envelopeId: envelope.envelopeId } });
+    expect(admission.admitted && Object.isFrozen(admission.started)).toBe(true);
+  });
+
+  it('a second admit that sees the first start is stopped', () => {
+    const envelope = agencyEnvelope();
+    const first = gate({ envelope });
+    if (!first.admitted) throw new Error('expected admission');
+    expect(gate({ envelope: agencyEnvelope(), history: [first.started] })).toMatchObject({ admitted: false, code: 'RETRY_UNRECONCILED' });
+  });
+
+  it('a refused receipt leaves the start open, so the retry stays stopped', () => {
+    const envelope = agencyEnvelope();
+    const first = gate({ envelope });
+    if (!first.admitted) throw new Error('expected admission');
+    const refused = checkConnectorReceipt(failed('rate_limited', { idempotencyKey: envelope.idempotencyKey, tenant: 'owner-personal' }), first.call);
+    expect(refused.ok).toBe(false);
+    expect(gate({ envelope, history: [first.started] })).toMatchObject({ admitted: false, code: 'RETRY_UNRECONCILED' });
+  });
+
+  it('an empty history reads as a first attempt: this is the limit the ledger must close', () => {
+    expect(gate({ history: [] })).toMatchObject({ admitted: true });
+  });
+
+  it('a line of another tenant under this key fails closed at the gate', () => {
+    const envelope = agencyEnvelope();
+    const foreign = { tenant: 'owner-personal', idempotencyKey: envelope.idempotencyKey };
+    expect(gate({ envelope, history: story([failed('rate_limited', foreign)]) })).toMatchObject({ admitted: false, code: 'RETRY_HISTORY_INVALID' });
   });
 
   it.each(['permission_denied', 'invalid_input'])('%s is never retried under the same key', (code) => {
@@ -645,8 +817,13 @@ describe('the retry rule', () => {
     ['a sparse list', new Array(1)],
     ['a line that is not a record', ['ok']],
     ['a receipt with an unknown code, for any key', [failed('timeout', { idempotencyKey: OTHER_KEY })]],
-    ['a reconciliation with nothing open', [reconciliation('not_completed')]],
+    ['a reconciliation with nothing open', [reconciliation('not_completed', { attempt: 1 })]],
     ['a reconciliation after a plain failure', [failed('rate_limited'), reconciliation('not_completed')]],
+    ['a reconciliation of an attempt that never was', [unknown(), reconciliation('not_completed', { attempt: 9 })]],
+    ['a reconciliation with a free-text reconciler', [unknown(), reconciliation('not_completed', { reconciledBy: 'looked at it' })]],
+    ['a reconciliation naming no envelope', [unknown(), reconciliation('not_completed', { reconcilerEnvelope: 'owner' })]],
+    ['a start with an unknown field', [started(1, { note: 'x' })]],
+    ['a start with no envelope', [started(1, { envelopeId: 'owner' })]],
     ['a reconciliation with no evidence', [unknown(), reconciliation('not_completed', { evidence: '' })]],
     ['a reconciliation with an unknown field', [unknown(), reconciliation('not_completed', { note: 'x' })]],
     ['a key crossing tenants', [failed('rate_limited'), failed('rate_limited', { tenant: 'owner-personal' })]],
@@ -656,12 +833,12 @@ describe('the retry rule', () => {
   });
 
   it('a malformed key fails closed', () => {
-    expect(decide([], NO_FACTS, 'RUN-1')).toMatchObject({ allowed: false, code: 'RETRY_KEY_INVALID' });
+    expect(raw([], NO_FACTS, 'RUN-1')).toMatchObject({ allowed: false, code: 'RETRY_KEY_INVALID' });
   });
 
   it('the gate asks the retry rule, by the envelope\'s own key', () => {
     const envelope = agencyEnvelope();
-    expect(gate({ envelope, history: [unknown({ idempotencyKey: envelope.idempotencyKey })] })).toMatchObject({ admitted: false, code: 'RETRY_UNRECONCILED' });
+    expect(gate({ envelope, history: story([unknown({ idempotencyKey: envelope.idempotencyKey })]) })).toMatchObject({ admitted: false, code: 'RETRY_UNRECONCILED' });
   });
 
   it('a new envelope for the same intent carries the same key, and is refused the same way', () => {
@@ -669,77 +846,119 @@ describe('the retry rule', () => {
     const second = agencyEnvelope();
     expect(second.envelopeId).not.toBe(first.envelopeId);
     expect(second.idempotencyKey).toBe(first.idempotencyKey);
-    expect(gate({ envelope: second, history: [unknown({ idempotencyKey: first.idempotencyKey })] })).toMatchObject({ admitted: false, code: 'RETRY_UNRECONCILED' });
+    expect(gate({ envelope: second, history: story([unknown({ idempotencyKey: first.idempotencyKey })]) })).toMatchObject({ admitted: false, code: 'RETRY_UNRECONCILED' });
   });
 
   it('the same key through another connector of the tenant is still refused', () => {
     const envelope = agencyEnvelope();
     const registry = registryOf([entry(), entry({ connectorId: 'fixture-mail-two', releaseRecord: passingRelease({ connectorId: 'fixture-mail-two' }) })]);
-    const history = [unknown({ idempotencyKey: envelope.idempotencyKey })];
+    const history = story([unknown({ idempotencyKey: envelope.idempotencyKey })]);
     expect(gate({ registry, connectorId: 'fixture-mail-two', envelope, history })).toMatchObject({ admitted: false, code: 'RETRY_UNRECONCILED' });
   });
 
   it('a call admitted on retry reports its attempt', () => {
     const envelope = agencyEnvelope();
-    const history = [failed('rate_limited', { idempotencyKey: envelope.idempotencyKey })];
-    expect(gate({ envelope, history })).toMatchObject({ admitted: true, call: { attempt: 2 } });
+    const history = story([failed('rate_limited', { idempotencyKey: envelope.idempotencyKey })]);
+    expect(gate({ envelope, history })).toMatchObject({ admitted: true, call: { attempt: 2 }, started: { attempt: 2 } });
   });
 });
 
 describe('reconciliation', () => {
-  const asking = (over: Raw = {}) => ({ idempotencyKey: KEY, finding: 'not_completed', evidence: 'provider:message-4471', reconciledBy: 'owner', reconciledAt: NOW, ...over });
+  const reconciler = (over: Partial<EnvelopeRequest> = {}) => agencyEnvelope({ action: CONNECTOR_RECONCILE_ACTION, ...over }, reconcileActions());
+  const asking = (over: Raw = {}) => ({ idempotencyKey: KEY, finding: 'not_completed', evidence: 'provider:message-4471', envelope: reconciler(), actions: reconcileActions(), now: NOW, ...over });
+  const reconcile = (history: unknown, over: Raw = {}) => reconcileConnectorOutcome(history, asking(over) as never);
 
-  it('leaves evidence: a record naming what was found, who found it and on what', () => {
-    const result = reconcileConnectorOutcome([unknown()], asking() as never);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.record).toEqual(reconciliation('not_completed'));
-    expect(result.history).toHaveLength(2);
-    expect(decideConnectorRetry(result.history, KEY, NO_FACTS)).toEqual({ allowed: true, attempt: 2, rule: 'after-reconciliation' });
+  it('fails closed today: the committed action registry does not register its action', () => {
+    expect(reconcile(story([unknown()]), { actions: actions() })).toMatchObject({ ok: false, code: 'RECONCILE_ACTION_UNREGISTERED' });
   });
 
-  it('takes tenant, connector and action from the open receipt: nothing the caller says can move them', () => {
-    const result = reconcileConnectorOutcome([unknown()], asking({ tenant: 'owner-personal', connector: 'other', action: 'broker-call' }) as never);
-    expect(result.ok && result.record.tenant).toBe('agency-business');
-    expect(result.ok && result.record.connector).toBe('fixture-mail');
-    expect(result.ok && result.record.action).toBe('bridge-read');
+  it('leaves evidence: what was found, on what, and which admitted envelope said so', () => {
+    const envelope = reconciler();
+    const result = reconcile(story([unknown()]), { envelope });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.record).toEqual({ ...reconciliation('not_completed'), attempt: 1, reconciledBy: envelope.principal, reconcilerEnvelope: envelope.envelopeId });
+    expect(result.history).toHaveLength(3);
+    expect(decideConnectorRetry(result.history, KEY, 'agency-business', NO_FACTS)).toEqual({ allowed: true, attempt: 2, rule: 'after-reconciliation' });
+  });
+
+  it('answers a start with no receipt: a crash is reconciled the same way', () => {
+    const result = reconcile([started(1)]);
+    expect(result.ok && result.record.attempt).toBe(1);
+    expect(result.ok && decideConnectorRetry(result.history, KEY, 'agency-business', NO_FACTS)).toMatchObject({ allowed: true, attempt: 2 });
+  });
+
+  it('answers the oldest open attempt first', () => {
+    const first = reconcile([started(1), started(2)]);
+    expect(first.ok && first.record.attempt).toBe(1);
+    expect(first.ok && decideConnectorRetry(first.history, KEY, 'agency-business', NO_FACTS)).toMatchObject({ allowed: false, code: 'RETRY_UNRECONCILED' });
+  });
+
+  it('takes tenant, connector and action from the attempt: nothing the caller says can move them', () => {
+    const result = reconcile(story([unknown()]), { tenant: 'owner-personal', connector: 'other', action: 'broker-call', reconciledBy: 'owner' });
+    expect(result.ok && result.record).toMatchObject({ tenant: 'agency-business', connector: 'fixture-mail', action: 'bridge-read', reconciledBy: 'implementer' });
   });
 
   it('appends: the history it was given is untouched', () => {
-    const history = deepFreeze([unknown()]);
-    const result = reconcileConnectorOutcome(history, asking() as never);
-    expect(result.ok).toBe(true);
-    expect(history).toHaveLength(1);
+    const history = deepFreeze(story([unknown()]) as Raw[]);
+    expect(reconcile(history).ok).toBe(true);
+    expect(history).toHaveLength(2);
+  });
+
+  it('a copy of a reconciliation answers nothing: the second unknown stays open', () => {
+    const replay = reconciliation('not_completed', { attempt: 1 });
+    const history = story([unknown(), replay, unknown(), replay]);
+    expect(decideConnectorRetry(history, KEY, 'agency-business', NO_FACTS)).toMatchObject({ allowed: false, code: 'RETRY_UNRECONCILED' });
+  });
+
+  it('a replay does not stop the real answer: the second unknown can still be reconciled', () => {
+    const replay = reconciliation('not_completed', { attempt: 1 });
+    const result = reconcile(story([unknown(), replay, unknown(), replay]));
+    expect(result.ok && result.record.attempt).toBe(2);
+  });
+
+  it('a reconciliation for another connector answers nothing', () => {
+    const history = story([unknown(), reconciliation('not_completed', { connector: 'fixture-other' })]);
+    expect(decideConnectorRetry(history, KEY, 'agency-business', NO_FACTS)).toMatchObject({ allowed: false, code: 'RETRY_UNRECONCILED' });
+  });
+
+  it.each([
+    ['a copied envelope', () => ({ envelope: { ...reconciler() } })],
+    ['a minted envelope the door never saw', () => { const minted = mint(binding(AGENCY_FACTS), { action: CONNECTOR_RECONCILE_ACTION }, reconcileActions()); return { envelope: minted.ok ? minted.envelope : null }; }],
+    ['an envelope for another action', () => ({ envelope: agencyEnvelope() })],
+    ['an envelope of another tenant', () => ({ envelope: ownerEnvelope({ action: CONNECTOR_RECONCILE_ACTION }, reconcileActions()) })],
+    ['an expired envelope', () => ({ now: LATER })],
+    ['an unreadable time', () => ({ now: 'today' })],
+  ])('%s cannot reconcile', (_label, over) => {
+    expect(reconcile(story([unknown()]), over())).toMatchObject({ ok: false, code: 'RECONCILE_UNAUTHORISED' });
   });
 
   it.each([
     ['nothing at all', []],
-    ['a plain failure', [failed('rate_limited')]],
-    ['a success', [receipt()]],
-    ['an unknown already reconciled', [unknown(), reconciliation('not_completed')]],
+    ['a plain failure', story([failed('rate_limited')])],
+    ['a success', story([receipt()])],
+    ['an unknown already reconciled', story([unknown(), reconciliation('not_completed')])],
   ])('there is nothing to reconcile after %s', (_label, history) => {
-    expect(reconcileConnectorOutcome(history, asking() as never)).toMatchObject({ ok: false, code: 'RECONCILE_NOTHING_OPEN' });
+    expect(reconcile(history)).toMatchObject({ ok: false, code: 'RECONCILE_NOTHING_OPEN' });
   });
 
   it.each([
     ['no evidence', { evidence: '' }],
     ['prose evidence', { evidence: 'looked fine to me' }],
+    ['a word, not a pointer', { evidence: 'nothing' }],
     ['evidence holding a credential', { evidence: `provider:${FAKE_PREFIXED}` }],
+    ['evidence holding a long run', { evidence: `provider:${FAKE_BARE}` }],
     ['evidence that is not text', { evidence: 7 }],
   ])('%s is refused: reconciliation is explicit or it did not happen', (_label, over) => {
-    expect(reconcileConnectorOutcome([unknown()], asking(over) as never)).toMatchObject({ ok: false, code: 'RECONCILE_EVIDENCE_REQUIRED' });
+    expect(reconcile(story([unknown()]), over)).toMatchObject({ ok: false, code: 'RECONCILE_EVIDENCE_REQUIRED' });
   });
 
-  it.each([
-    ['an unknown finding', { finding: 'probably' }],
-    ['no reconciler', { reconciledBy: ' ' }],
-    ['an unreadable time', { reconciledAt: 'today' }],
-  ])('%s is refused', (_label, over) => {
-    expect(reconcileConnectorOutcome([unknown()], asking(over) as never)).toMatchObject({ ok: false, code: 'RECONCILE_INVALID' });
+  it('an unknown finding is refused', () => {
+    expect(reconcile(story([unknown()]), { finding: 'probably' })).toMatchObject({ ok: false, code: 'RECONCILE_INVALID' });
   });
 
   it('malformed history is refused, not reconciled', () => {
-    expect(reconcileConnectorOutcome(['ok'], asking() as never)).toMatchObject({ ok: false, code: 'RETRY_HISTORY_INVALID' });
+    expect(reconcile(['ok'])).toMatchObject({ ok: false, code: 'RETRY_HISTORY_INVALID' });
   });
 });
 
@@ -752,11 +971,35 @@ describe('the execution receipt', () => {
     expect(parseConnectorReceipt(failed('rate_limited')).ok).toBe(true);
   });
 
+  it.each([
+    ['no provider receipt', { providerReceipt: null }],
+    ['a pointer of the wrong kind', { providerReceipt: 'docs/finish/FIXTURE.md' }],
+    ['a word for a pointer', { providerReceipt: 'nothing' }],
+    ['a pointer holding a long run', { providerReceipt: `provider:${FAKE_BARE}` }],
+  ])('a success with %s is refused: missing-evidence is enforceable', (_label, over) => {
+    expect(parseConnectorReceipt(receipt(over))).toMatchObject({ ok: false, code: 'RECEIPT_INVALID' });
+  });
+
+  it('what comes back is only the plain copy: a getter cannot change its answer after the check', () => {
+    let reads = 0;
+    const raw = receipt();
+    Object.defineProperty(raw, 'tenant', { enumerable: true, get: () => { reads += 1; return reads === 1 ? 'agency-business' : 'owner-personal'; } });
+    const parsed = parseConnectorReceipt(raw);
+    expect(reads).toBe(1);
+    expect(parsed.ok && parsed.receipt.tenant).toBe('agency-business');
+  });
+
+  it('a getter that throws is refused, not thrown', () => {
+    const raw = receipt();
+    Object.defineProperty(raw, 'tenant', { enumerable: true, get: () => { throw new Error('boom'); } });
+    expect(parseConnectorReceipt(raw)).toMatchObject({ ok: false, code: 'RECEIPT_INVALID' });
+  });
+
   it.each(['payload', 'body', 'secret', 'providerResponse', 'credential'])('the field %s is refused: a receipt has no room for content', (field) => {
     expect(parseConnectorReceipt(receipt({ [field]: 'x' }))).toMatchObject({ ok: false, code: 'RECEIPT_INVALID' });
   });
 
-  it.each(['tenant', 'connector', 'action', 'idempotencyKey', 'outcome', 'errorCode'])('a receipt with no %s is refused', (field) => {
+  it.each(['tenant', 'connector', 'action', 'idempotencyKey', 'attempt', 'outcome', 'errorCode', 'providerReceipt'])('a receipt with no %s is refused', (field) => {
     expect(parseConnectorReceipt(receipt({ [field]: undefined }))).toMatchObject({ ok: false, code: 'RECEIPT_INVALID' });
     const { [field]: _gone, ...rest } = receipt();
     expect(parseConnectorReceipt(rest)).toMatchObject({ ok: false, code: 'RECEIPT_INVALID' });
@@ -768,6 +1011,7 @@ describe('the execution receipt', () => {
     ['action', 'send the email to murad'],
     ['idempotencyKey', 'RUN-1'],
     ['outcome', 'done'],
+    ['attempt', 'first'],
   ])('a %s that is not its shape cannot smuggle text', (field, value) => {
     expect(parseConnectorReceipt(receipt({ [field]: value }))).toMatchObject({ ok: false, code: 'RECEIPT_INVALID' });
   });
@@ -813,6 +1057,7 @@ describe('the execution receipt', () => {
     ['connector', { connector: 'fixture-other' }],
     ['action', { action: 'broker-call' }],
     ['idempotencyKey', { idempotencyKey: OTHER_KEY }],
+    ['attempt', { attempt: 2 }],
   ])('a receipt for another %s is refused', (_label, over) => {
     const envelope = agencyEnvelope();
     expect(checkConnectorReceipt(presented(envelope, over), call({ envelope }))).toMatchObject({ ok: false, code: 'RECEIPT_CALL_MISMATCH' });
@@ -862,16 +1107,9 @@ describe('cross-tenant denial', () => {
     expect(gate({ registry, connectorId: 'fixture-calendar', envelope: ownerEnvelope() })).toMatchObject({ admitted: false, code: 'CONNECTOR_CROSS_TENANT' });
   });
 
-  it('a registered P5 grant does not open it: cross-tenant-access is not a connector route', () => {
-    const entryWithAccess = entry({ idempotency: 'provider-key', actions: ['bridge-read', 'cross-tenant-access'] });
-    const registry = registryOf([entryWithAccess]);
+  it('an admitted cross-tenant-access envelope does not open it: it is not a connector route', () => {
     const envelope = ownerEnvelope({ action: 'cross-tenant-access' });
-    expect(gate({ registry, envelope })).toMatchObject({ admitted: false, code: 'CONNECTOR_CROSS_TENANT' });
-  });
-
-  it('the idempotency key of one tenant is not another tenant\'s: the key is derived with the tenant', () => {
-    const shared = { project: 'p', action: 'bridge-read', subjectHash: 'a'.repeat(40), intentScope: 'RUN-1' };
-    expect(deriveIdempotencyKey({ ...shared, tenant: 'owner-personal' })).not.toBe(deriveIdempotencyKey({ ...shared, tenant: 'agency-business' }));
+    expect(gate({ registry: both(), envelope })).toMatchObject({ admitted: false, code: 'CONNECTOR_CROSS_TENANT' });
   });
 });
 
@@ -940,9 +1178,10 @@ describe('the nine acceptance scenarios', () => {
     expect(Object.keys(scenarioTally())).not.toContain('passed');
   });
 
-  it('a release record that lists a scenario changes nothing in the tally', () => {
+  it('only cross-tenant denial has a proof, whatever a release record lists', () => {
     expect(parseConnectorRegistry(file([entry()]), context()).ok).toBe(true);
-    expect(scenarioTally()).toEqual({ total: 9, proved: 1, defined: 8 });
+    expect(ACCEPTANCE_SCENARIOS.filter((scenario) => scenario.proof !== null).map((scenario) => scenario.id)).toEqual(['cross-tenant-denial']);
+    expect(ACCEPTANCE_SCENARIOS.filter((scenario) => scenario.status === 'proved').map((scenario) => scenario.id)).toEqual(['cross-tenant-denial']);
   });
 
   it('the table cannot be edited in place', () => {
@@ -957,6 +1196,15 @@ describe('immutability', () => {
     const before = JSON.stringify(raw);
     expect(parseConnectorRegistry(raw, context()).ok).toBe(true);
     expect(JSON.stringify(raw)).toBe(before);
+  });
+
+  it('a registry behind a getter is judged once, on the copy', () => {
+    let reads = 0;
+    const raw = file([entry()]);
+    Object.defineProperty((raw['connectors'] as Raw[])[0], 'tenant', { enumerable: true, get: () => { reads += 1; return reads === 1 ? 'agency-business' : 'owner-personal'; } });
+    const parsed = parseConnectorRegistry(raw, context());
+    expect(reads).toBe(1);
+    expect(parsed.ok && parsed.registry.connectors[0]?.tenant).toBe('agency-business');
   });
 
   it('what comes back is frozen all the way down, and shares nothing with the input', () => {
@@ -981,7 +1229,7 @@ describe('immutability', () => {
     const raw = deepFreeze(receipt());
     const parsed = parseConnectorReceipt(raw);
     expect(parsed.ok && Object.isFrozen(parsed.receipt)).toBe(true);
-    expect(decideConnectorRetry(deepFreeze([failed('rate_limited')]), KEY, NO_FACTS)).toMatchObject({ allowed: true });
+    expect(decideConnectorRetry(deepFreeze(story([failed('rate_limited')]) as Raw[]), KEY, 'agency-business', NO_FACTS)).toMatchObject({ allowed: true });
   });
 
   it('the admitted call is frozen', () => {
@@ -989,7 +1237,8 @@ describe('immutability', () => {
   });
 
   it('a reconciliation and the history it returns are frozen', () => {
-    const result = reconcileConnectorOutcome([unknown()], { idempotencyKey: KEY, finding: 'not_completed', evidence: 'provider:message-4471', reconciledBy: 'owner', reconciledAt: NOW });
+    const envelope = agencyEnvelope({ action: CONNECTOR_RECONCILE_ACTION }, reconcileActions());
+    const result = reconcileConnectorOutcome(story([unknown()]), { idempotencyKey: KEY, finding: 'not_completed', evidence: 'provider:message-4471', envelope, actions: reconcileActions(), now: NOW });
     expect(result.ok && Object.isFrozen(result.record)).toBe(true);
     expect(result.ok && Object.isFrozen(result.history)).toBe(true);
   });
