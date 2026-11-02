@@ -177,7 +177,9 @@ const MODULES = [
   // PROJECTOS-PORT-APPROVALS1A — an approval bound to run, tool and arguments; taint; evidence receipts.
   "val-projectos-port-approvals1a",
   // PROJECTOS-TENANT-CSP1A — the strict Control Center CSP and narrowed window capability, proved in a real webview.
-  "val-projectos-tenant-csp1a"
+  "val-projectos-tenant-csp1a",
+  // PROJECTOS-PORT-SKILLS1A — skill rules: an agent only proposes; a validator pass, an independent review and a hash pin promote.
+  "val-projectos-port-skills1a"
 ];
 
 const REGISTERED_MODULE_COUNT = MODULES.length;
