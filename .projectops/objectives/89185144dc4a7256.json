@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "89185144dc4a7256",
+  "objective": "Plan v1.34: PROJECTOS-TENANT-PRINCIPAL1A may update the two core tests that pin a three-project registry; no other phase, criterion or review changes.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "a98874e60947fa9993195a514e7d7ebe313eabd7",
+  "submittedAt": "2026-11-02T00:57:37.000Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
