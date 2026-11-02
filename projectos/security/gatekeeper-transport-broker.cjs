@@ -217,6 +217,11 @@ function boundGit(governedRoot) {
  * resolves to even when the binary is genuine, so the child gets a minimal environment rather than
  * this process's. `cwd` is the root being asked about, never whatever directory this process started
  * in.
+ *
+ * NO REPLACEMENT OBJECTS, ON EVERY CALL. A `git replace` ref changes what a name yields with no commit
+ * and no diff, and it is shared across linked worktrees. Added here at review, on one line, because a
+ * replace ref plus a matching working-tree file forged the owner's approval, the allowlist and the
+ * authoring permission: the dirty check compared two forgeries and agreed.
  */
 function git(root, args) {
   const exe = boundGit(GOVERNED_ROOT ?? root);
@@ -225,7 +230,7 @@ function git(root, args) {
   for (const name of ["SystemRoot", "windir", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"]) {
     if (typeof process.env[name] === "string") env[name] = process.env[name];
   }
-  const r = spawnSync(exe, ["-C", root, ...args], { encoding: "utf8", windowsHide: true, cwd: root, env });
+  const r = spawnSync(exe, ["--no-replace-objects", "-C", root, ...args], { encoding: "utf8", windowsHide: true, cwd: root, env });
   return { code: r.status === null ? 1 : r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
 }
 
@@ -240,29 +245,12 @@ function readCommitted(root, rel) {
   if (logged.code !== 0 || !logged.stdout.trim()) return null;
   const dirty = git(root, ["diff", "--name-only", "HEAD", "--", rel]);
   if (dirty.code !== 0 || dirty.stdout.trim()) return null;
+  const blob = git(root, ["rev-parse", "HEAD:./" + rel]).stdout.trim();
   const shown = git(root, ["show", "HEAD:./" + rel]);
   if (shown.code !== 0 || !shown.stdout.trim()) return null;
-  return shown.stdout;
-}
-
-/**
- * The tenant registry's bytes, the same read as `readCommitted` with two things more.
- *
- * NO REPLACEMENT OBJECTS, AND THE BYTES HASH TO THEIR BLOB. A `git replace` ref changes what a name yields
- * with no commit and no diff, and `refs/replace` is shared across linked worktrees. Pinned to one commit,
- * so the blob and the bytes cannot come from two different HEADs. `readCommitted` itself is left as it was:
- * every other record it reads is a separate audit.
- */
-function readCommittedBlob(root, rel) {
-  const askGit = (args) => git(root, ["--no-replace-objects", ...args]);
-  const logged = askGit(["log", "-1", "--format=%H", "--", rel]);
-  if (logged.code !== 0 || !logged.stdout.trim()) return null;
-  const dirty = askGit(["diff", "--name-only", "HEAD", "--", rel]);
-  if (dirty.code !== 0 || dirty.stdout.trim()) return null;
-  const commit = askGit(["rev-parse", "--verify", "HEAD"]).stdout.trim();
-  const blob = askGit(["rev-parse", commit + ":./" + rel]).stdout.trim();
-  const shown = askGit(["show", commit + ":./" + rel]);
-  if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(blob) || shown.code !== 0 || !shown.stdout.trim()) return null;
+  // THE BYTES ARE THE BLOB'S BYTES. Two calls, so a HEAD that moved between them, or anything else standing
+  // between git's names and git's objects, shows here and refuses.
+  if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(blob)) return null;
   const bytes = Buffer.from(shown.stdout, "utf8");
   const named = crypto.createHash(blob.length === 64 ? "sha256" : "sha1").update("blob " + bytes.length + "\0").update(bytes).digest("hex");
   return named === blob ? shown.stdout : null;
@@ -737,6 +725,9 @@ function tenantRegistryProblem(registry) {
     return "TENANT_REGISTRY_INVALID: the committed tenant registry lists no projects";
   }
   const tenants = registry.tenants.map((entry) => (entry ? entry.tenantId : undefined));
+  if (tenants.some((id) => typeof id !== "string" || !/^[a-z][a-z0-9-]{1,56}$/.test(id))) {
+    return "TENANT_REGISTRY_INVALID: a tenant line has no valid tenantId";
+  }
   const key = (text) => text.replace(/[A-Z]/g, (letter) => String.fromCharCode(letter.charCodeAt(0) + 32));
   const seen = new Set();
   const repeated = (kind, value) => {
@@ -747,13 +738,14 @@ function tenantRegistryProblem(registry) {
   };
   const roots = [];
   for (const entry of registry.projects) {
-    const fields = entry ? [entry.projectId, entry.repository, entry.governedRoot, entry.tenant] : [];
+    const fields = entry ? [entry.projectId, entry.repository, entry.governedRoot, entry.tenant, entry.domain] : [];
     if (fields.length === 0 || fields.some((field) => typeof field !== "string" || field === "")) {
       return "TENANT_REGISTRY_INVALID: a project line is missing a binding field";
     }
     if (fields.some((field) => /[*?]/.test(field))) return "TENANT_REGISTRY_WILDCARD: a project line has a wildcard";
     if (key(entry.projectId).startsWith("tenant.")) return "TENANT_REGISTRY_RESERVED_ID: a project id starts with the reserved tenant prefix";
     if (tenants.indexOf(entry.tenant) === -1) return "TENANT_REGISTRY_INVALID: a project line names a tenant the registry does not declare";
+    if (["develop", "business", "personal", "phone"].indexOf(entry.domain) === -1) return "TENANT_REGISTRY_INVALID: a project line names an unknown domain";
     const root = entry.governedRoot.replace(/\/+$/, "");
     if (repeated("project", entry.projectId) || repeated("repository", entry.repository) || repeated("root", root)) {
       return "TENANT_REGISTRY_DUPLICATE: two project lines share a project, a repository or a root";
@@ -779,7 +771,7 @@ function tenantRegistryProblem(registry) {
  * no spend: the allowlist is still asked, and `projectos run` refuses an unconfirmed registry first.
  */
 function tenantOfProject(installRoot, governedRoot, projectId) {
-  const raw = readCommittedBlob(installRoot, TENANT_REGISTRY_REL);
+  const raw = readCommitted(installRoot, TENANT_REGISTRY_REL);
   if (raw === null) return { problem: "TENANT_REGISTRY_UNREADABLE: this installation commits no unmodified tenant registry" };
   let registry;
   try {
