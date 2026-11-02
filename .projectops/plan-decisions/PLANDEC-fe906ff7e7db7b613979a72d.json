@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-11-02T03:51:34.352Z",
   "note": "Owner, 2026-11-01: \"You have full authority\". Reviews found the lead-chosen credential grant too coarse; this amendment adds five write paths and a stricter criterion to PROJECTOS-TENANT-CREDENTIALS1A. It tightens a rule and loosens none.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-11-02T03:51:37.886Z"
 }
