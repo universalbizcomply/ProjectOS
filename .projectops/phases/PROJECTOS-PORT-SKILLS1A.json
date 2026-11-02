@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-PORT-SKILLS1A",
+  "project": "ProjectOS",
+  "objective": "Translate the Hermes skill linter, audit and frontmatter parser (C9), about 1.3k lines, MIT. An agent may only propose a skill. Promotion needs a validator pass, an independent review and a hash pin, and any change makes it stale. SKILL.md is the exchange format. Internet skill auto-install is refused.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-02T02:28:13.512Z",
+      "note": "Owner-approved plans v1.30 to v1.34. Implemented by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-02T02:28:14.166Z",
+      "note": "skill checks, hash-pinned promotion and an owner-only review, as pure core and an agent queue"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-02T02:28:14.849Z",
+      "note": "core 2575/2575, agent 3103/3103, control-center 952/952 at f5c4b43f with normal package resolution. validate-all 163/164 at f5c4b43f; the one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public since 693bc75d in dormant Host code, carried to Stage 4."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-02T02:28:15.447Z",
+      "note": "Evidence: docs/finish/PROJECTOS-PORT-SKILLS1A.md (f5c4b43f)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-02T02:28:16.081Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (two HIGH fixed; recheck ACCEPT, with forgery open as a wiring condition); ECC CODE review (APPROVE, LOWs fixed)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-02T02:28:16.720Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
