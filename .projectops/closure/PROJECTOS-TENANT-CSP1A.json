@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-TENANT-CSP1A",
+  "evidenceSubjectHead": "861601cd92407010298c1715680ea08cde72afac",
+  "baselineCommit": "374f9eaf66d060eb6c12a3466d7b4321f39935bf",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-02T00:55:15.501Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-TENANT-CSP1A, phase 29 of 35 of plan v1.33, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 861601cd on 374f9eaf (plan v1.33 activation).",
+    "validatorsPass: val-projectos-tenant-csp1a (106 mutations) and validate-no-secrets PASS. validate-all 161/162 at 861601cd. validate-desktop-e2e PASSES on a real bundle for the first time since 2026-09-25; the one failure is val-cd-b4-sealed-expected-window-facts1a.",
+    "checksPass: core 1865/1865, agent 3056/3056, control-center 952/952 at 861601cd; npm run build passes and scan-bundle finds no bare Node global.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review (APPROVE WITH CHANGES; recheck: all closed bar a docs gap, fixed by the lead).",
+    "unresolved: zero CRITICAL/HIGH. Carried: a successful sign-in on the production build, wss and frame-ancestors unproved; named blind spots in the bundle scan and CSP-22; app commands have no caller check, so the CSP is the barrier, and a command manifest is due; the capability wording nit; one sidecar crash unreproduced, with no policy risk.",
+    "protectedEffects NONE: one failed sign-in request reached Supabase, on a made-up address with sign-ups off, as the phase allowed; nothing was created. No provider spend, deployment, credential, message, payment, database change, service, ACL, registry, force push or merge commit. No MSI was built.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
