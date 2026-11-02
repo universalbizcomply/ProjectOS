@@ -76,8 +76,9 @@ const EVIDENCE_NEEDLES = [
   "a receipt is never a credential-release grant",
   "no JWT or OAuth requester",
   "`run-start` has a budget",
-  "dead-aisle",
-  "bizcomply-v2",
+  "`dead-aisle`, `jd-testing`, `criclocal`",
+  "`brik`, `trading-bot`, `bizcomply-v2`",
+  "`tkn`, `erp-system`, `wizard-probe`. They have",
   "an agent could run it",
 ];
 
@@ -575,8 +576,9 @@ const MUTATIONS = [
   { name: "evidence-drops-receipt-rule", rule: "TP-27", rel: EVIDENCE_REL, from: "a receipt is never a credential-release grant", to: "a receipt helps" },
   { name: "evidence-drops-jwt-rule", rule: "TP-27", rel: EVIDENCE_REL, from: "no JWT or OAuth requester", to: "requesters vary" },
   { name: "evidence-drops-the-budget", rule: "TP-27", rel: EVIDENCE_REL, from: "`run-start` has a budget", to: "budgets exist" },
-  { name: "evidence-hides-dead-aisle", rule: "TP-27", rel: EVIDENCE_REL, from: "dead-aisle", to: "one project" },
-  { name: "evidence-hides-bizcomply", rule: "TP-27", rel: EVIDENCE_REL, from: "bizcomply-v2", to: "another project" },
+  { name: "evidence-hides-dead-aisle", rule: "TP-27", rel: EVIDENCE_REL, from: "`dead-aisle`, `jd-testing`, `criclocal`", to: "`jd-testing`, `criclocal`" },
+  { name: "evidence-hides-bizcomply", rule: "TP-27", rel: EVIDENCE_REL, from: "`brik`, `trading-bot`, `bizcomply-v2`", to: "`brik`, `trading-bot`" },
+  { name: "evidence-hides-who-stays-refused", rule: "TP-27", rel: EVIDENCE_REL, from: "`tkn`, `erp-system`, `wizard-probe`.\n", to: "a few.\n" },
   { name: "evidence-hides-the-console-script", rule: "TP-27", rel: EVIDENCE_REL, from: "an agent could run it", to: "it is only a test" },
   // TP-T
   { name: "a-proof-skipped", rule: "TP-T", rel: "projectos/agent/test/tenantBridgeRule.test.ts", from: "  it('still refuses a read across tenants", to: "  it.skip('still refuses a read across tenants" },

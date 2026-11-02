@@ -103,7 +103,7 @@ Commits are hashed after the rebase onto plan v1.33. The review ran at `aac21426
 5. **Linked worktrees follow ADR-T1, and governed runs still work in one, tested:** met, against real git. A real
    `run --dry-run` in a `git worktree add` checkout walks to `DRY RUN: nothing was written and no worker was started.`,
    and the same worktree is refused once its project leaves the registry.
-6. **Validator pin and named mutations, each killed by its own rule:** met, 199 of 199. See below for how many
+6. **Validator pin and named mutations, each killed by its own rule:** met, 200 of 200. See below for how many
    also fail a behavioural test.
 
 ## Review round, at `aac21426`
@@ -232,7 +232,7 @@ The cost is real: tests other than those two files no longer pass through the ru
 | Full agent suite, final tree, nothing else running | `vitest run` in `projectos/agent`, on the final tree | 105 files, 3187 tests, all pass |
 | Control Center suite | `vitest run` in `projectos/control-center`, before the review round | 66 files, 890 tests, all pass. It does not load `host.mjs`, which the agent suite's real-process test proves. Not rerun after the rebase |
 | Core tests that read the registry | `tenant`, `tenant-contract-review`, `task-envelope`, `action-registry` | **401 of 405. The 4 failures are named under "Needs the lead"** |
-| This phase's validator | `node projectos/validators/val-projectos-tenant-principal1a.cjs` | PASS, 199 of 199 |
+| This phase's validator | `node projectos/validators/val-projectos-tenant-principal1a.cjs` | PASS, 200 of 200 |
 | Validators reading a touched file | Each in its own process, on the final tree, nothing else running | 23 PASS, 0 FAIL. Includes `val-projectos-boot-continue1a`, which pins `run.ts`, `val-projectos-kernel-platform-stop1a`, `val-projectos-tenant-contract1a` (346), `val-projectos-trust-boundary1a`, `val-projectos-tenant-rls1a`, `validate-no-secrets`. The RLS validator ran alone. A further 3 that walk the agent source passed before the rebase and were not rerun |
 | Real registry against real repositories, read-only | `bindCheckout` for all thirteen host projects and `seo-agency` | 11 bound, `dead-aisle` via `linked-worktree`; `tkn`, `erp-system`, `wizard-probe` refused `TENANT_UNKNOWN`. Nothing written |
 | Real CLI in this worktree, read-only | `tenant show`, and `tenant receipt --blob … --as owner` | `TENANT_REGISTRY_NO_RECEIPT` with the one line, and `TENANT_RECEIPT_NEEDS_A_TERMINAL`. Nothing written to the real state directory |
@@ -246,7 +246,7 @@ The cost is real: tests other than those two files no longer pass through the ru
 
 ## Do the tests themselves discriminate?
 
-The validator's mutations are text pins, so 199 of 199 says the pins fire, not that a behaviour test fails. So mutations were applied to the real source files, the proof each should trip was run with an exact filter, the failing test was recorded, and the file restored. Clean `git status` confirmed each restore.
+The validator's mutations are text pins, so 200 of 200 says the pins fire, not that a behaviour test fails. So mutations were applied to the real source files, the proof each should trip was run with an exact filter, the failing test was recorded, and the file restored. Clean `git status` confirmed each restore.
 
 - **On the final code, 98 mutations were swept, and 98 are killed by a behavioural test that passes unmutated in the full suite above.** That baseline matters, and I learned it late: the last full run showed two tests failing with no mutation at all, after the bounded retry changed what a single failed lock means, so the sweep had counted two false kills. Both tests were fixed, each confirmed green, and each mutation run again. The kills include every mutation of the tenant rule, the receipt, the door's recording, the replace-ref fix, the admitted run, the real sidecar and the allowlist. The rest have only their text pin. Many of those are docs, registration and evidence, which alter no behaviour, but some are real code mutations and were not tried.
 - **`receipt-path-moved` survives correctly:** reader and writer share the path, so it alters no behaviour, and TP-3 is its only catch.
@@ -285,7 +285,7 @@ Every mutation below was killed by the rule it names, in `selfTest`, on the fina
 | TP-24 | 5 | `receipt-claims-the-owner`, `method-not-recorded`, `method-names-a-person`, `wording-claims-the-owner`, `refusal-name-claims-the-owner` |
 | TP-25 | 9 | `prompt-hides-the-change`, `change-ignores-the-tenant`, `removed-project-not-shown`, `receipt-needs-no-line`, `any-line-will-do`, `line-for-any-blob`, `refused-line-counts`, `receipt-lines-in-the-rotated-file`, `receipt-names-no-envelope` |
 | TP-26 | 7 | `no-wait-for-the-lock`, `unbounded-wait`, `wait-grows-past-its-bound`, `unwritable-directory-waits`, `never-rotates`, `rotation-failure-ignored`, `rotation-size-grows` |
-| TP-27 | 9 | `evidence-drops-cwd`, `evidence-drops-the-handle`, `evidence-drops-worktree-rule`, `evidence-drops-receipt-rule`, `evidence-drops-jwt-rule`, `evidence-drops-the-budget`, `evidence-hides-dead-aisle`, `evidence-hides-bizcomply`, `evidence-hides-the-console-script` |
+| TP-27 | 10 | `evidence-drops-cwd`, `evidence-drops-the-handle`, `evidence-drops-worktree-rule`, `evidence-drops-receipt-rule`, `evidence-drops-jwt-rule`, `evidence-drops-the-budget`, `evidence-hides-dead-aisle`, `evidence-hides-bizcomply`, `evidence-hides-who-stays-refused`, `evidence-hides-the-console-script` |
 | TP-28 | 9 | `registry-trust-basis-claims-the-owner`, `registry-loses-dead-aisle`, `dead-aisle-entered-as-its-worktree`, `added-project-moved-to-the-agency`, `adr-hides-cwd`, `adr-overclaims-the-receipt`, `adr-drops-the-replace-ref-lesson`, `adr-drops-what-git-is-read-for`, `adr-drops-the-binding` |
 | TP-T | 4 | `a-proof-skipped`, `a-proof-isolated`, `a-proof-commented-out`, `a-proof-deleted` |
 
