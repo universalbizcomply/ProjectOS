@@ -103,7 +103,7 @@ and the check fails closed by design. This phase did not change that check.
 built, and anything treating that failure as expected would now hide a real one. A failure at check 5 means nobody ran the build. Any other
 failure is real. Retire the label rather than carry it forward.
 
-**How to run it:** `npm ci` in `projectos/core` and `projectos/control-center`, then `npm run build` in `projectos/control-center`, then `node projectos/validators/validate-desktop-e2e.cjs`
+**How to run it:** `npm ci` in `projectos/core`, `projectos/bridge/daemon` and `projectos/control-center`, then build `projectos/bridge/daemon`, because the Control Center's `tsc` imports that package's types from its `dist`, then `npm run build` in `projectos/control-center`, then `node projectos/validators/validate-desktop-e2e.cjs`
 from the repository root, or `validate-all`. Use a real checkout: in a worktree whose `node_modules` is a link to another worktree, the
 bundle comes from that worktree's `core`, which is what hid this. The scan still judges that bundle, but it is not this checkout's code.
 
