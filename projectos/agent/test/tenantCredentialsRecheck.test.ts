@@ -85,6 +85,31 @@ describe('HIGH: the installation is the main checkout', () => {
     expect(existsSync(join(w.installation.root, ...GRANT_REL(PHASE).split('/')))).toBe(false);
   });
 
+  /** A registry naming this path as the installation, so the registry rule passes and only the git rule is left. */
+  function registryNaming(w: CredentialWorld, path: string): void {
+    const text = readFileSync(join(w.installation.root, 'projectos', 'security', 'tenant-registry.json'), 'utf8');
+    w.installation.commitRegistryText(text.split(`"governedRoot": "${w.installation.root}"`).join(`"governedRoot": "${path}"`));
+    w.installation.confirm(sys);
+  }
+
+  it('a worktree the registry itself names is still refused: the git rule decides alone', () => {
+    const w = credentialWorld(made, sys);
+    const worktree = forward(join(tempDir(made, 'projectos-install-wt-'), 'wt'));
+    registryNaming(w, worktree);
+    git(w.installation.root, 'worktree', 'add', '--quiet', worktree, '-b', 'named-by-the-registry');
+    const forged = metadata.createRequesterAuthority({ installRoot: worktree, stateDir: w.stateDir, nowMs });
+    expect(refusalOf(() => forged.issueConsoleRun({ projectId: 'alpha' })).code).toBe('INSTALLATION_NOT_MAIN_CHECKOUT');
+  });
+
+  it('a .git file pointing at the installation is refused, though both directories agree', () => {
+    const w = credentialWorld(made, sys);
+    const pointer = tempDir(made, 'projectos-install-pointer-');
+    registryNaming(w, pointer);
+    writeFileSync(join(pointer, '.git'), `gitdir: ${w.installation.root}/.git\n`);
+    const forged = metadata.createRequesterAuthority({ installRoot: pointer, stateDir: w.stateDir, nowMs });
+    expect(refusalOf(() => forged.issueConsoleRun({ projectId: 'alpha' })).code).toBe('INSTALLATION_NOT_MAIN_CHECKOUT');
+  });
+
   it('a clone elsewhere is not the installation the registry names', () => {
     const w = credentialWorld(made, sys);
     const clone = join(tempDir(made, 'projectos-install-clone-'), 'clone');
@@ -187,6 +212,15 @@ describe('HIGH: a grant needs a receipt', () => {
     expect(existsSync(join(w.stateDir, 'credential-grant-receipts', `${blob}.json`))).toBe(true);
   });
 
+  it('a wrong answer at the command writes nothing, whatever the flag says', async () => {
+    const w = credentialWorld(made, sys);
+    const blob = commitGrant(w, {});
+    const logged = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await expect(cli.main(['credentials', 'grant-receipt', '--blob', blob, '--owner-confirm'], { store: w.store, stateDir: join(w.stateDir, 'vault'), nowMs, authority: w.authority, terminal: WRONG_ANSWER })).rejects.toMatchObject({ code: 'CREDENTIAL_GRANT_CONFIRMATION_MISMATCH' });
+    logged.mockRestore();
+    expect(existsSync(join(w.stateDir, 'credential-grant-receipts'))).toBe(false);
+  });
+
   it('with no terminal, or no answer, the command refuses and writes nothing', async () => {
     const w = credentialWorld(made, sys);
     const blob = commitGrant(w, {});
@@ -210,6 +244,12 @@ describe('MEDIUM: a flag confirms nothing, and a TTY alone is not a person', () 
     await expect(cli.main(['projects', 'unregister', '--project', 'alpha', '--owner-confirm'], deps)).rejects.toThrow('OWNER PERMIT REQUIRED');
     await expect(cli.main(['projects', 'register', '--checkout', w.alpha.root, '--owner-confirm'], deps)).rejects.toThrow('OWNER PERMIT REQUIRED');
     await expect(cli.main(['session', 'start', '--slot', 'cred-1', '--profile', 'production-operation', '--environment', 'production', '--project', 'alpha', '--checkout', w.alpha.root, '--owner-confirm'], deps)).rejects.toThrow('OWNER PERMIT REQUIRED');
+  });
+
+  it('an answer with no terminal behind it is no answer', async () => {
+    const w = credentialWorld(made, sys);
+    const answersWithNoTerminal = { stdin: {}, stdout: {}, readLine: TYPES_WHAT_IT_IS_ASKED.readLine };
+    await expect(cli.main(['projects', 'unregister', '--project', 'alpha', '--owner-confirm'], depsOf(w, answersWithNoTerminal))).rejects.toThrow('OWNER PERMIT REQUIRED');
   });
 
   it('a wrong answer is refused as firmly as none', async () => {
@@ -341,6 +381,7 @@ describe('MEDIUM: a grant names the exact command', () => {
     expect(release(gate, w.console('alpha'), ['--eval', 'process.exit(0)']).blocker).toBe('CREDENTIAL_GRANT_REQUIRED');
     expect(release(gate, w.console('alpha'), ['--version', '--extra']).blocker).toBe('CREDENTIAL_GRANT_REQUIRED');
     expect(release(gate, w.console('alpha'), []).blocker).toBe('CREDENTIAL_GRANT_REQUIRED');
+    expect(release(gate, w.console('alpha'), ['--help']).blocker).toBe('CREDENTIAL_GRANT_REQUIRED');
     expect(calls).toHaveLength(0);
     expect(release(gate, w.console('alpha')).ok).toBe(true);
   });

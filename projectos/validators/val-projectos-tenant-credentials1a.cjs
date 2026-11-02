@@ -116,6 +116,8 @@ const TESTS = {
   "projectos/agent/test/tenantCredentialsRecheck.test.ts": [
     "a linked worktree of the installation is no installation, so its own grant releases nothing",
     "a clone elsewhere is not the installation the registry names",
+    "a worktree the registry itself names is still refused: the git rule decides alone",
+    "a .git file pointing at the installation is refused, though both directories agree",
     "positive control: the main checkout passes, in any spelling Windows treats as the same path",
     "a committed grant with no receipt releases nothing, and the same grant with one does",
     "a changed grant is a new blob, so its old receipt releases nothing",
@@ -355,7 +357,7 @@ const PINS = [
   ["TCR-16", CLI_REL, "requesterFor", "if (flags.run !== undefined) return authority.fromRun(flags.run);"],
   ["TCR-16", CLI_REL, "requesterFor", "if (!atRealTerminal(deps)) {"],
   ["TCR-16", CLI_REL, "requesterFor", "return authority.issueConsoleRun({ projectId: flags.project });"],
-  ["TCR-16", CLI_REL, "credentialsCommand", "const requester = requesterFor(flags, deps);"],
+  ["TCR-16", CLI_REL, "credentialsCommand", "const requester = requesterFor(flags, deps);\n    await confirmSensitive(ref, flags, deps);\n    const fromEnv"],
   ["TCR-16", CLI_REL, "credentialsCommand", "const removed = vault.remove({ reference: ref.reference, requester });"],
   ["TCR-16", CLI_REL, "sessionCommand", "requester: requesterFor(flags, deps),"],
   ["TCR-16", CLI_REL, "operationCommand", "const requester = requesterFor(flags, deps);"],
