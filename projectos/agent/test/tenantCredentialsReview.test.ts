@@ -97,6 +97,8 @@ describe('CRITICAL: a release needs a committed credential-release grant', () =>
     ['another action', { action: 'apply-migration' }],
     ['a stale date', { expiresAt: '2026-10-31T23:59:59.000Z' }],
     ['an unreadable date', { expiresAt: 'next week' }],
+    ['a date in another format', { expiresAt: '2027-01-01' }],
+    ['a blank grantor', { grantedBy: '  ' }],
     ['another phase inside it', { phaseId: 'OTHER-PHASE1A' }],
     ['another kind', { kind: 'secrets-handling' }],
     ['a missing field', { grantedBy: undefined }],
@@ -136,11 +138,15 @@ describe('CRITICAL: a release needs a committed credential-release grant', () =>
     expect(run(gate, w.console('alpha')).blocker).toBe('CREDENTIAL_GRANT_REQUIRED');
   });
 
-  it('a phase id cannot climb out of the grants directory', () => {
+  it('a phase id cannot climb out of the grants directory, even to a well-formed record', () => {
     const w = credentialWorld(made, sys);
     w.vault.provision({ reference: OP, requester: w.console('alpha'), reach: 'project', readValue: () => VALUE });
-    const { gate } = gateOf(w);
-    expect(run(gate, w.console('alpha'), OP, 'read-config', '../../x').blocker).toBe('CREDENTIAL_GRANT_REQUIRED');
+    const escaped = '../../x';
+    grantRelease(w, {}, escaped);
+    expect(git(w.installation.root, 'ls-files', 'projectos/x.credential-release.json').trim()).toBe('projectos/x.credential-release.json');
+    const { calls, gate } = gateOf(w);
+    expect(run(gate, w.console('alpha'), OP, 'read-config', escaped).blocker).toBe('CREDENTIAL_GRANT_REQUIRED');
+    expect(calls).toHaveLength(0);
   });
 });
 
