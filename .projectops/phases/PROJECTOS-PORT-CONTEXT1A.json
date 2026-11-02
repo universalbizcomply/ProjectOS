@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PORT-CONTEXT1A",
   "project": "ProjectOS",
   "objective": "Per-agent context monitoring with automatic compaction before a long thread exhausts its window, built from Hermes context code (MIT) and our own. This is one of the feature-parity items in the port delta: built from MIT sources, never from nightly-labs/openbot. Current source and approved decisions outrank any summary.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-02T02:28:22.989Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-02T02:28:24.621Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PORT-CONTEXT1A:owner-closure:f5c4b43f"
     }
   ]
 }
