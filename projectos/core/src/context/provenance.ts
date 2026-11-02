@@ -16,7 +16,10 @@ import { CONTEXT_ORIGINS, textKey, trustOfOrigin, type ContextOrigin, type Conte
 
 const COMPACTION_SCHEMA = 'projectos.context-compaction/1';
 const COMPACTION_ID = /^ctx-[0-9a-f]{24}$/;
-const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+const ISO_INSTANT = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?Z$/;
+const DAY_MS = 86_400_000;
+/** A model writes a summary. These names say something else did. */
+const NOT_A_SUMMARISER = ['owner', 'kernel', 'system'];
 
 /** A turn as the record remembers it: enough to say what it was, without keeping its text. */
 export interface TurnMark {
@@ -86,11 +89,19 @@ export function sealCompactionRecord(body: CompactionRecordBody): CompactionReco
   return { ...body, schema: COMPACTION_SCHEMA, id: idOf(recordHash), recordHash };
 }
 
+/** A time of the right shape, on a day that exists. */
+function isRealInstant(value: unknown): boolean {
+  const parts = typeof value === 'string' ? ISO_INSTANT.exec(value) : null;
+  if (parts === null) return false;
+  const [year, month, day] = parts.slice(1, 4).map(Number) as [number, number, number];
+  return day <= (Date.UTC(year, month, 1) - Date.UTC(year, month - 1, 1)) / DAY_MS;
+}
+
 /** A draft's provenance has this shape before it can be sealed. */
 export function compactionProvenanceProblem(fields: { readonly summarisedBy: unknown; readonly session: unknown; readonly at: unknown }): string | null {
-  if (!isContextLabel(fields.summarisedBy)) return 'who summarised it';
+  if (!isContextLabel(fields.summarisedBy) || NOT_A_SUMMARISER.includes(fields.summarisedBy.toLowerCase())) return 'which model summarised it';
   if (!isContextLabel(fields.session)) return 'a session';
-  if (typeof fields.at !== 'string' || !ISO_INSTANT.test(fields.at)) return 'a time';
+  if (!isRealInstant(fields.at)) return 'a real time';
   return null;
 }
 

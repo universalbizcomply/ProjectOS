@@ -21,7 +21,7 @@ const TRIGGER = 6_750;
 const INPUT = 9_000;
 const actionAt = (accounts: ContextAccounts, tokens: number, incoming = 0): string =>
   must(contextPressure(accounts, AGENT, tokens, incoming)).action;
-const usage = (promptTokens: number, agentId: string = AGENT) => ({ agentId, promptTokens, completionTokens: 10 });
+const usage = (promptTokens: number, agentId: string = AGENT) => ({ agentId, promptTokens, estimatedTokens: promptTokens });
 const open = (window: ContextWindow): string => codeOf(openContextAccount(new Map(), AGENT, window));
 
 describe('the compaction trigger', () => {
@@ -149,7 +149,7 @@ describe('what the count is taken from', () => {
 
   it('a reading of zero is no reading, so it cannot clear anything', () => {
     expect(codeOf(recordContextUsage(accountsFor(), usage(0)))).toBe('CONTEXT_USAGE_INVALID');
-    expect(codeOf(recordContextUsage(accountsFor(), { agentId: AGENT, promptTokens: 1, completionTokens: -1 }))).toBe('CONTEXT_USAGE_INVALID');
+    expect(codeOf(recordContextUsage(accountsFor(), { agentId: AGENT, promptTokens: 1, estimatedTokens: -1 }))).toBe('CONTEXT_USAGE_INVALID');
   });
 
   it('refuses an estimate that is not a whole count', () => {

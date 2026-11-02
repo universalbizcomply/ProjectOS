@@ -1,19 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { memoryEntryHash } from '../src/memory/store.js';
 import {
-  TURN_OVERHEAD_TOKENS,
   appendContextTurn,
   applyCompaction,
   checkContextThread,
   compactionRecordProblem,
   contextPressure,
   contextThreadHash,
-  estimateTextTokens,
   estimateThreadTokens,
   noteContextCompaction,
   planCompaction,
   recordContextUsage,
   renderContextPrompt,
+  summaryCostTokens,
   turnCostTokens,
   withApprovedDecision,
   type CompactionRecord,
@@ -81,6 +80,8 @@ describe('what a compaction keeps', () => {
     let accounts = accountsFor();
     let thread = threadOf([kernelTurn('s1', 'The kernel prompt.')], [decisionOf(DECISION)]);
     let compactions = 0;
+    /** A provider that counts more than the estimate does, with a floor the estimate cannot see. */
+    const providerCount = (held: ContextThread): number => Math.ceil(estimateThreadTokens(held) * 1.25) + 300;
     for (let index = 0; index < 120; index += 1) {
       const incoming = agentTurn(`t${index}`, 'x'.repeat(800));
       const pressure = must(contextPressure(accounts, AGENT, estimateThreadTokens(thread), turnCostTokens(incoming)));
@@ -91,7 +92,8 @@ describe('what a compaction keeps', () => {
         compactions += 1;
       }
       thread = must(appendContextTurn(thread, incoming));
-      accounts = must(recordContextUsage(accounts, { agentId: AGENT, promptTokens: estimateThreadTokens(thread), completionTokens: 1 }));
+      expect(providerCount(thread)).toBeLessThan(pressure.inputTokens);
+      accounts = must(recordContextUsage(accounts, { agentId: AGENT, promptTokens: providerCount(thread), estimatedTokens: estimateThreadTokens(thread) }));
     }
     expect(compactions).toBeGreaterThan(3);
     expect(thread.decisions).toHaveLength(1);
@@ -192,15 +194,15 @@ describe('what yields when space runs out', () => {
   it('the summary takes only the room decisions and current turns leave: the exact fit lands', () => {
     const thread = base();
     const plan = must(planCompaction(thread, account));
-    const text = 'x'.repeat(plan.summaryBudgetTokens * 4);
-    expect(estimateTextTokens(text)).toBe(plan.summaryBudgetTokens);
+    const text = fittingText(plan.summaryBudgetTokens);
+    expect(summaryCostTokens(text)).toBe(plan.summaryBudgetTokens);
     expect(codeOf(applyCompaction(thread, account, draftFor(thread, text)))).toBe('ok');
   });
 
   it('one token over the room is refused, and the decisions stay', () => {
     const thread = base();
     const plan = must(planCompaction(thread, account));
-    const text = 'x'.repeat(plan.summaryBudgetTokens * 4 + 1);
+    const text = `${fittingText(plan.summaryBudgetTokens)}x`;
     expect(codeOf(applyCompaction(thread, account, draftFor(thread, text)))).toBe('CONTEXT_SUMMARY_OVER_BUDGET');
     expect(thread.decisions).toHaveLength(2);
   });
@@ -210,7 +212,7 @@ describe('what yields when space runs out', () => {
     const thread = threadOf([...longTurns('old', 8), ownerTurn('u1', 'x'.repeat(18_000)), agentTurn('a1', 'y')], [decisionOf(big)]);
     const plan = must(planCompaction(thread, account));
     const held = estimateThreadTokens({ turns: plan.keep, decisions: thread.decisions, summary: null });
-    expect(plan.summaryBudgetTokens).toBe(6_750 - 1 - held - TURN_OVERHEAD_TOKENS);
+    expect(plan.summaryBudgetTokens).toBe(6_750 - 1 - held);
   });
 
   it('no room at all is refused by name: nothing protected is dropped to fit', () => {
@@ -353,6 +355,13 @@ describe('the record of a compaction', () => {
     expect(codeOf(checkContextThread({ ...thread, summary }))).toBe('CONTEXT_RECORD_TAMPERED');
   });
 });
+
+/** The longest text that costs exactly this as it is sent. */
+function fittingText(budget: number): string {
+  const size = (budget - summaryCostTokens('x')) * 4;
+  const grown = Array.from({ length: 8 }, (_, extra) => size + extra).filter((length) => summaryCostTokens('x'.repeat(length)) <= budget);
+  return 'x'.repeat(Math.max(...grown));
+}
 
 /** More turns on a compacted thread, so it has something to compact again. */
 function threadOf2(thread: ContextThread): ContextThread {

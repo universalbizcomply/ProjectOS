@@ -6,6 +6,8 @@ export * from './accounting.js';
 export * from './window.js';
 export * from './turn.js';
 export * from './fence.js';
+export * from './redact.js';
+export * from './draftScreen.js';
 export * from './provenance.js';
 export * from './thread.js';
 export * from './compaction.js';

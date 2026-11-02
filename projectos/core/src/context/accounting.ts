@@ -5,6 +5,7 @@
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
 // Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: translated from Python to TypeScript; a shared mutable engine became one immutable account per agent, reached by name; the raise-only floors that could push a trigger towards the limit were replaced by a refusal; the trigger also fires on what is about to arrive; cooldowns, durable breaker rows, prompt-cache rearm and per-model overrides not ported
+// Modified-By: ProjectOS 2026-11-02: modified for ProjectOS. CHANGED: growth since the last reading is added to that reading, as upstream's usage-anchored figure does, in place of the larger of the two; the completion count is gone; a refused compaction counts as a strike; an account is judged when it is used
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * How much of its window each agent has used, and when it must compact.
@@ -23,9 +24,15 @@
  * A COMPACTION IS JUDGED BY THE NEXT REAL READING. Upstream's reasoning holds: a compaction can only shrink
  * the messages, and the system prompt and tool schemas are a floor it cannot touch. If that floor reaches
  * the trigger, every pass shrinks something and nothing is ever under it, so the judge is "did the prompt
- * clear the trigger", once, on the first provider reading after the compaction. Two strikes block
- * automatic compaction, and the account says so. Whether to stop is the kernel's decision: `overLimit`
- * gives it the fact, and nothing here sends or drops anything. Pure.
+ * clear the trigger", once, on the first provider reading after the compaction. A compaction that could
+ * not run strikes too, so a summariser that keeps failing has a bound. Two strikes block automatic
+ * compaction, and the account says so. Whether to stop is the kernel's decision: `overLimit` gives it the
+ * fact, whatever the action, and nothing here sends or drops anything.
+ *
+ * A READING AGES. The provider's count describes the prompt it saw, and the thread has grown since. So the
+ * estimate at that reading is kept, and the growth since is added to the real count. Taking the larger of
+ * the two would hide it: 6,000 real at an estimate of 3,000, with the estimate now at 4,050, is 7,050 and
+ * not 6,000. Pure.
  */
 import { contextOk, contextRefused, isContextLabel, type ContextResult } from './refusal.js';
 
@@ -52,7 +59,8 @@ export interface AgentContextAccount {
   readonly triggerTokens: number;
   /** The provider's last count of the prompt. Zero until a reading arrives, and again after a compaction. */
   readonly lastPromptTokens: number;
-  readonly lastCompletionTokens: number;
+  /** The estimate of the prompt that reading measured, so what has grown since can be added to it. */
+  readonly estimateAtReading: number;
   readonly compactions: number;
   readonly ineffectiveStrikes: number;
   /** A compaction ran, and no reading has judged it yet. */
@@ -64,7 +72,8 @@ export type ContextAccounts = ReadonlyMap<string, AgentContextAccount>;
 export interface ContextUsage {
   readonly agentId: string;
   readonly promptTokens: number;
-  readonly completionTokens: number;
+  /** The estimate of the same prompt, made before it was sent. */
+  readonly estimatedTokens: number;
 }
 
 export type ContextAction = 'none' | 'compact' | 'blocked';
@@ -103,6 +112,14 @@ function windowProblem(window: ContextWindow): string | null {
   return null;
 }
 
+/** Null when this account is what `openContextAccount` would have made. A caller holds it, and could have changed it. */
+export function accountProblem(account: AgentContextAccount): string | null {
+  if (!isContextLabel(account.agentId)) return 'its agent id is not of a closed shape';
+  const window = windowProblem(account.window);
+  if (window !== null) return `its window needs ${window}`;
+  return account.triggerTokens === compactionTriggerTokens(account.window) ? null : 'its trigger is not the one its window gives';
+}
+
 /** A new map holding this agent's own account. */
 export function openContextAccount(accounts: ContextAccounts, agentId: string, window: ContextWindow): ContextResult<ContextAccounts> {
   if (!isContextLabel(agentId)) return contextRefused('CONTEXT_ACCOUNT_INVALID', 'An account needs an agent id of a closed shape.');
@@ -115,7 +132,7 @@ export function openContextAccount(accounts: ContextAccounts, agentId: string, w
       window,
       triggerTokens: compactionTriggerTokens(window),
       lastPromptTokens: 0,
-      lastCompletionTokens: 0,
+      estimateAtReading: 0,
       compactions: 0,
       ineffectiveStrikes: 0,
       awaitingVerdict: false,
@@ -133,8 +150,8 @@ export function recordContextUsage(accounts: ContextAccounts, usage: ContextUsag
   const held = accountOf(accounts, usage.agentId);
   if (!held.ok) return held;
   const account = held.value;
-  if (!isWholeCount(usage.promptTokens) || usage.promptTokens === 0 || !isWholeCount(usage.completionTokens)) {
-    return contextRefused('CONTEXT_USAGE_INVALID', 'A reading needs a prompt count above zero and a whole completion count.');
+  if (!isWholeCount(usage.promptTokens) || usage.promptTokens === 0 || !isWholeCount(usage.estimatedTokens)) {
+    return contextRefused('CONTEXT_USAGE_INVALID', 'A reading needs a prompt count above zero and the estimate of the same prompt.');
   }
   const cleared = usage.promptTokens < account.triggerTokens;
   const strikes = cleared ? 0 : account.ineffectiveStrikes + (account.awaitingVerdict ? 1 : 0);
@@ -142,7 +159,7 @@ export function recordContextUsage(accounts: ContextAccounts, usage: ContextUsag
     new Map(accounts).set(account.agentId, {
       ...account,
       lastPromptTokens: usage.promptTokens,
-      lastCompletionTokens: usage.completionTokens,
+      estimateAtReading: usage.estimatedTokens,
       ineffectiveStrikes: strikes,
       awaitingVerdict: false,
     }),
@@ -159,6 +176,13 @@ export function noteContextCompaction(accounts: ContextAccounts, agentId: string
   );
 }
 
+/** A plan or a draft was refused. It counts as a strike, so the attempts have a bound. */
+export function noteCompactionRefused(accounts: ContextAccounts, agentId: string): ContextResult<ContextAccounts> {
+  const held = accountOf(accounts, agentId);
+  if (!held.ok) return held;
+  return contextOk(new Map(accounts).set(agentId, { ...held.value, ineffectiveStrikes: held.value.ineffectiveStrikes + 1 }));
+}
+
 /** Where this agent stands, given a fresh estimate of its thread and what is about to arrive. */
 export function contextPressure(accounts: ContextAccounts, agentId: string, estimatedTokens: number, incomingTokens = 0): ContextResult<ContextPressure> {
   const held = accountOf(accounts, agentId);
@@ -167,7 +191,8 @@ export function contextPressure(accounts: ContextAccounts, agentId: string, esti
   if (!isWholeCount(estimatedTokens) || !isWholeCount(incomingTokens)) {
     return contextRefused('CONTEXT_USAGE_INVALID', 'An estimate must be a whole count of tokens.');
   }
-  const usedTokens = Math.max(account.lastPromptTokens, estimatedTokens);
+  const growth = Math.max(0, estimatedTokens - account.estimateAtReading);
+  const usedTokens = Math.max(account.lastPromptTokens + growth, estimatedTokens);
   const projectedTokens = usedTokens + incomingTokens;
   const inputTokens = inputWindowTokens(account.window);
   const due = projectedTokens >= account.triggerTokens;

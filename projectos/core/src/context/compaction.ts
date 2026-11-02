@@ -1,4 +1,11 @@
-// Origin: original ProjectOS code
+// SPDX-License-Identifier: MIT
+// Ported-From: hermes-agent https://github.com/NousResearch/hermes-agent
+// Source-Path: agent/context_compressor_window.py; agent/context_compressor.py
+// Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+// Source-Copyright: Copyright (c) 2025 Nous Research
+// Port-Strategy: ADAPTED
+// Modified-By: ProjectOS 2026-11-02: modified for ProjectOS. CHANGED: the split into head, middle and tail and the anti-growth refusal adapted from upstream, with the latest request kept verbatim in place of its assistant bridge; the provider call, prepared summaries and fallback summary not ported; the plan, draft pin, provenance and decision rules are ProjectOS's
+// Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * Compacting a thread: what is summarised, what stays, and what a summary may and may not become.
  *
@@ -17,14 +24,13 @@
  * read, and these two values are written here as literals. A model wrote the text, and that model read
  * whatever the turns held, so owner-only input earns it nothing either.
  *
- * WHAT A SUMMARY MAY SAY is the memory admission rule: no threat pattern, no hidden characters, no order
- * to its reader. A summary replays into later turns as memory does, and the size is asked first, so the
- * scan's cost is set by the budget and not by whatever came back. Pure.
+ * WHAT A SUMMARY MAY SAY is in `draftScreen.ts`. The size is asked first, so the scan's cost is set by the
+ * budget and not by whatever came back. An account is judged on the way in, because a caller holds it. Pure.
  */
-import { admitMemoryContent } from '../memory/admission.js';
 import { memoryEntryHash } from '../memory/store.js';
-import { summaryBudgetTokens, type AgentContextAccount } from './accounting.js';
-import { TURN_OVERHEAD_TOKENS, estimateTextTokens } from './estimate.js';
+import { accountProblem, summaryBudgetTokens, type AgentContextAccount } from './accounting.js';
+import { cleanDraftText, summaryTextProblem } from './draftScreen.js';
+import { summaryCostTokens } from './fence.js';
 import { carriedMarks, compactionProvenanceProblem, sealCompactionRecord, turnMark, type CompactionRecord } from './provenance.js';
 import { contextOk, contextRefused, type ContextRefused, type ContextResult } from './refusal.js';
 import { checkContextThread, contextThreadHash, estimateThreadTokens, type ContextSummary, type ContextThread } from './thread.js';
@@ -71,11 +77,13 @@ function divide(thread: ContextThread, account: AgentContextAccount): Pick<Compa
 }
 
 function planFor(thread: ContextThread, account: AgentContextAccount): ContextResult<CompactionPlan> {
+  const broken = accountProblem(account);
+  if (broken !== null) return contextRefused('CONTEXT_ACCOUNT_INVALID', `That account is not valid: ${broken}.`);
   if (account.agentId !== thread.agentId) return contextRefused('CONTEXT_NO_ACCOUNT', `That account is ${account.agentId}'s, and this thread is ${thread.agentId}'s.`);
   const { summarise, keep } = divide(thread, account);
   if (summarise.length === 0) return contextRefused('CONTEXT_NOTHING_TO_COMPACT', 'Every turn in this thread stays, so there is nothing to summarise.');
   const protectedTokens = estimateThreadTokens({ turns: keep, decisions: thread.decisions, summary: null });
-  const room = account.triggerTokens - 1 - protectedTokens - TURN_OVERHEAD_TOKENS;
+  const room = account.triggerTokens - 1 - protectedTokens;
   if (room < 1) {
     return contextRefused('CONTEXT_PROTECTED_OVER_BUDGET', `What must stay already costs ${protectedTokens} tokens against a trigger of ${account.triggerTokens}. Nothing protected is dropped to fit.`);
   }
@@ -96,22 +104,21 @@ export function planCompaction(thread: ContextThread, account: AgentContextAccou
   return checked.ok ? planFor(thread, account) : checked;
 }
 
-function draftProblem(draft: CompactionDraft, plan: CompactionPlan): ContextRefused | null {
+function draftProblem(draft: CompactionDraft, text: string, plan: CompactionPlan): ContextRefused | null {
   if (draft.threadHash !== plan.threadHash) return contextRefused('CONTEXT_PLAN_STALE', 'This thread changed after the draft was made. Draft it again.');
   const missing = compactionProvenanceProblem(draft);
   if (missing !== null) return contextRefused('CONTEXT_DRAFT_INVALID', `A draft must name ${missing}.`);
-  if (typeof draft.text !== 'string' || draft.text.trim() === '') return contextRefused('CONTEXT_DRAFT_INVALID', 'A draft must hold text.');
-  const tokens = estimateTextTokens(draft.text);
-  if (tokens > plan.summaryBudgetTokens) {
-    return contextRefused('CONTEXT_SUMMARY_OVER_BUDGET', `That summary is ${tokens} tokens and there is room for ${plan.summaryBudgetTokens}. It was not read.`);
+  if (text.trim() === '') return contextRefused('CONTEXT_DRAFT_INVALID', 'A draft must hold text.');
+  const tokens = summaryCostTokens(text);
+  if (!(tokens <= plan.summaryBudgetTokens)) {
+    return contextRefused('CONTEXT_SUMMARY_OVER_BUDGET', `That summary costs ${tokens} tokens as it is sent and there is room for ${plan.summaryBudgetTokens}. It was not read.`);
   }
-  const admitted = admitMemoryContent(draft.text);
-  return admitted.ok ? null : contextRefused('CONTEXT_SUMMARY_REFUSED', admitted.refusal.message, admitted.refusal.named);
+  return summaryTextProblem(text);
 }
 
-function compacted(thread: ContextThread, plan: CompactionPlan, draft: CompactionDraft): ContextResult<CompactedContext> {
+function compacted(thread: ContextThread, plan: CompactionPlan, draft: CompactionDraft, text: string): ContextResult<CompactedContext> {
   const tokensBefore = estimateThreadTokens(thread);
-  const tokensAfter = estimateThreadTokens({ turns: plan.keep, decisions: thread.decisions, summary: { text: draft.text } });
+  const tokensAfter = estimateThreadTokens({ turns: plan.keep, decisions: thread.decisions, summary: { text } });
   if (tokensAfter >= tokensBefore) {
     return contextRefused('CONTEXT_NOT_SMALLER', `This compaction would leave ${tokensAfter} tokens where there were ${tokensBefore}.`);
   }
@@ -126,13 +133,13 @@ function compacted(thread: ContextThread, plan: CompactionPlan, draft: Compactio
     covered,
     kept: plan.keep.map(turnMark),
     priorCompactionId: prior?.id ?? null,
-    summaryHash: memoryEntryHash(draft.text),
+    summaryHash: memoryEntryHash(text),
     ...carried,
     decisionHashes: thread.decisions.map((decision) => decision.record.entryHash),
     tokensBefore,
     tokensAfter,
   });
-  const summary: ContextSummary = { text: draft.text, trust: 'untrusted', authority: 'none', compactionId: record.id, ...carried };
+  const summary: ContextSummary = { text, trust: 'untrusted', authority: 'none', compactionId: record.id, ...carried };
   return contextOk({ thread: { ...thread, turns: plan.keep, summary, compactions: [...thread.compactions, record] }, record });
 }
 
@@ -140,5 +147,7 @@ function compacted(thread: ContextThread, plan: CompactionPlan, draft: Compactio
 export function applyCompaction(thread: ContextThread, account: AgentContextAccount, draft: CompactionDraft): ContextResult<CompactedContext> {
   const plan = planCompaction(thread, account);
   if (!plan.ok) return plan;
-  return draftProblem(draft, plan.value) ?? compacted(thread, plan.value, draft);
+  if (typeof draft.text !== 'string') return contextRefused('CONTEXT_DRAFT_INVALID', 'A draft must hold text.');
+  const text = cleanDraftText(draft.text);
+  return draftProblem(draft, text, plan.value) ?? compacted(thread, plan.value, draft, text);
 }

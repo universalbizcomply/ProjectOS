@@ -870,3 +870,57 @@ Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
 Licence: MIT
 Copyright: Copyright (c) 2025 Nous Research
 Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/context/compaction.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/context_compressor.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/context/compaction.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/context_compressor_window.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/context/draftScreen.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/context_compressor.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/context/fence.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/context_compressor.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/context/prompt.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/context_compressor.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/context/redact.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/redact.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file

@@ -5,6 +5,7 @@
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
 // Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: translated from Python to TypeScript; the tail budget and the backward walk only; tool pairing is judged by call id, so a request that arrived between a call and its result cannot split them; the protected first turns, soft ceiling, anchors and oversized-turn exception were replaced by keeping the latest request verbatim, in compaction.ts; each turn is charged what it costs in its fence
+// Modified-By: ProjectOS 2026-11-02: modified for ProjectOS. CHANGED: the walk reads each turn directly, with no cast
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * Where a thread divides: a head that stays, a middle to summarise, and a tail of recent turns that stays.
@@ -57,8 +58,9 @@ function keepToolPairsWhole(turns: readonly ContextTurn[], cut: number): number 
 export function findTailStart(turns: readonly ContextTurn[], headEnd: number, budgetTokens: number): number {
   let used = 0;
   let cut = turns.length;
-  for (let index = turns.length - 1; index >= headEnd; index -= 1) {
-    const cost = turnCostTokens(turns[index] as ContextTurn);
+  for (const [index, turn] of [...turns.entries()].reverse()) {
+    if (index < headEnd) break;
+    const cost = turnCostTokens(turn);
     if (cut < turns.length && used + cost > budgetTokens) break;
     used += cost;
     cut = index;

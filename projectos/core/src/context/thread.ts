@@ -8,13 +8,13 @@
  * Each compaction records the decisions it held, and a thread that has lost one afterwards is refused, so
  * dropping one takes a forged record, not a slip.
  *
- * A TEXT KNOWN TO BE UNTRUSTED CANNOT COME BACK TRUSTED. The record keeps a key for every untrusted turn
- * and every summary, and a trusted turn holding the same text, in any case or spacing, is refused by
- * name. This is the rule that does not depend on an origin being honest. It is an equality on the whole
- * text, so a trusted turn quoting part of a summary is not caught, and it starts at a length, so an owner
- * who says "ok" after a model said "ok" is not refused. That is why trusted turns are the kernel's and
- * the owner's, and no model writes one. An owner who pastes a whole tool output gets this refusal: the
- * text lands as a `channel` turn, which is what it is.
+ * WHAT KEEPS UNTRUSTED TEXT UNTRUSTED is that trust is worked out from an origin the kernel assigns, and that
+ * a summary is never a turn. The check here is a tripwire and nothing more: the record keeps a key for every
+ * untrusted turn and every summary, and a trusted turn that is an exact copy of one, in any case or spacing,
+ * is refused by name. It is an equality on the whole text, so a quotation, a paraphrase or one changed word
+ * passes it, and it starts at a length, so an owner who says "ok" after a model said "ok" is not refused. An
+ * owner who pastes a whole tool output gets this refusal: the text lands as a `channel` turn, which is what
+ * it is.
  *
  * Every read of a thread goes through `checkContextThread`, because a thread is a value a caller holds and
  * could have changed. The hash and the keys detect a change; neither is a signature. Pure.
@@ -22,8 +22,8 @@
 import { createHash } from 'node:crypto';
 import { isMemoryEntryProvenance, type MemoryEntryProvenance } from '../memory/proposal.js';
 import { MEMORY_TARGETS, memoryEntryHash, type MemoryTarget } from '../memory/store.js';
-import { TURN_OVERHEAD_TOKENS, estimateTextTokens } from './estimate.js';
-import { turnCostTokens } from './fence.js';
+import { summaryTextProblem } from './draftScreen.js';
+import { decisionsCostTokens, summaryCostTokens, turnCostTokens } from './fence.js';
 import { compactionRecordProblem, type CompactionRecord } from './provenance.js';
 import { contextOk, contextRefused, isContextLabel, type ContextRefused, type ContextResult } from './refusal.js';
 import { textKey, trustOfOrigin, turnProblem, type ContextOrigin, type ContextSourceRef, type ContextTurn } from './turn.js';
@@ -127,7 +127,13 @@ function launderedProblem(thread: ContextThread): ContextRefused | null {
 
 function threadProblem(thread: ContextThread): ContextRefused | null {
   if (!isContextLabel(thread.agentId)) return contextRefused('CONTEXT_ACCOUNT_INVALID', 'A thread needs an agent id of a closed shape.');
-  return turnsProblem(thread) ?? compactionsProblem(thread) ?? decisionsProblem(thread) ?? launderedProblem(thread);
+  return (
+    turnsProblem(thread) ??
+    compactionsProblem(thread) ??
+    decisionsProblem(thread) ??
+    launderedProblem(thread) ??
+    (thread.summary === null ? null : summaryTextProblem(thread.summary.text))
+  );
 }
 
 /** This thread, if every rule holds of it. */
@@ -154,9 +160,8 @@ export function contextThreadHash(thread: ContextThread): string {
   return `sha256:${createHash('sha256').update(JSON.stringify(fields), 'utf8').digest('hex')}`;
 }
 
-/** The rough size of a thread: turns, decisions and the summary, each with its overhead. */
+/** The size of a thread as it is sent: turns, decision blocks and the summary, each in its fence. */
 export function estimateThreadTokens(thread: Pick<ContextThread, 'turns' | 'decisions'> & { readonly summary: Pick<ContextSummary, 'text'> | null }): number {
   const turns = thread.turns.reduce((sum, turn) => sum + turnCostTokens(turn), 0);
-  const decisions = thread.decisions.reduce((sum, { entry, record }) => sum + estimateTextTokens(`${record.ledgerRef ?? ''} ${entry}`) + TURN_OVERHEAD_TOKENS, 0);
-  return turns + decisions + (thread.summary === null ? 0 : estimateTextTokens(thread.summary.text) + TURN_OVERHEAD_TOKENS);
+  return turns + decisionsCostTokens(thread.decisions) + (thread.summary === null ? 0 : summaryCostTokens(thread.summary.text));
 }
