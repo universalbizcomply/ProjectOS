@@ -4,8 +4,8 @@
 **Branch:** `projectos-tenant-credentials1a`, worktree `C:/dev/ProjectOS-worktrees/tenant-credentials1a`, based on the
 reviewed but unmerged `projectos-tenant-principal1a` at `0c50ebbf`. Not pushed, not merged, phase not closed, no phase
 record created.
-**State:** implementation complete, and every finding of the review round at `151bfd8b` is answered below. That round was
-not re-reviewed. Nothing here touched a live service, a provider, spend, a real stored secret or the real Windows
+**State:** implementation complete, and every finding of both review rounds, at `151bfd8b` and `a78ddf92`, is answered
+below. The last round was not re-reviewed: the lead reads this diff. Nothing here touched a live service, a provider, spend, a real stored secret or the real Windows
 Credential Manager: every store is a test double, every value and every grant is synthetic.
 
 ## The lead's first grant decision is WITHDRAWN
@@ -15,8 +15,9 @@ lead's decision, and it was wrong.** Both reviewers reproduced it: any `APPROVE`
 a production credential, and those records are scoped to the gatekeeper key. A gatekeeper `secrets-handling` gate is
 never a credential grant now.
 
-**A release needs a committed `credential-release` grant. No grant exists yet, so operation release fails closed.
-Creating one is an owner act,** and nothing here writes one. Only synthetic grants in throwaway test installations exist.
+**A release needs a committed `credential-release` grant, and that grant's blob needs a receipt.
+No grant exists yet, so operation release fails closed. Creating one is an owner act,** and nothing here writes one.
+Only synthetic grants in throwaway test installations exist.
 
 The record, at `projectos/security/credential-grants/<PHASE>.credential-release.json` in the installation:
 
@@ -28,10 +29,27 @@ The record, at `projectos/security/credential-grants/<PHASE>.credential-release.
   "projectId": "<the requester's project>",
   "references": ["ProjectOS/<project>/<environment>/<provider>/<credential>"],
   "action": "<the provider action, as the permit names it>",
+  "command": ["<the executable's absolute path>", "<each argument, exactly>"],
   "expiresAt": "2027-01-01T00:00:00.000Z",
   "grantedBy": "<who granted it>"
 }
 ```
+
+Then the owner confirms that exact blob, once, at a real terminal on the main checkout:
+
+```
+projectos credentials grant-receipt --blob <sha>
+```
+
+It shows what the grant names and asks for the first 12 characters of the blob. The receipt goes to
+`credential-grant-receipts/<blob>.json` in the installation state, outside every repository, with its admission line in
+`credential-grant-changes.jsonl`, the shape `tenant receipt` uses. A commit with no receipt, or a changed grant, which is a
+new blob, releases nothing. **A receipt proves a console confirmation and nothing more.** It is not the owner's signature.
+It stops an agent with no terminal on this route and a commit alone. It does not stop a process that drives a console, or
+writes the receipt and its line directly: same-user files are writable under F7.
+
+`command` is what `run` will execute, the resolved executable then the arguments: a different executable or argument
+releases nothing. The path is compared without regard to case or slashes on Windows, and the arguments exactly.
 
 Exactly those fields. It is read from committed bytes at the installation's HEAD, unmodified, with replacement objects off
 and hashed to its blob. A record for another phase, project, credential or action, a stale or unreadable date, a missing
@@ -80,6 +98,36 @@ controls and the zero-budget defaults, which pin behaviour that must stay.
 | 11 | Comments overclaimed | **Fixed.** `vault.cjs` and `operation-gate.cjs` headers, ADR-T1 §6 and §10, `action-registry.json`. TCR-25 |
 | CARRY | `status` leaks reference names and fingerprints | Accepted under D4, in ADR-T1 §10. Stage 4 owes mandatory expiry, an owner, a revocation path and service custody |
 
+## Final recheck, at `a78ddf92`
+
+- **ECC SECURITY recheck: BLOCK.**
+- **Agency recheck: APPROVE WITH CHANGES.**
+
+Findings as relayed by the lead, who confirmed the HIGH in code. The CRITICAL fix held, and every grant variant was refused.
+
+**Fail-first:** `tenantCredentialsRecheck.test.ts` was written before any fix and run at `a78ddf92` with the updated
+worlds: **37 of 40 failed, 3 passed.** Some failed only because `confirmGrant` or `isAccountWide` did not exist. The
+worktree, clone, no-receipt, typed-answer, MCP and command tests failed on behaviour. Two of the 3 were positive controls.
+The third, no-terminal, passed because the old router had no such verb, so it now asserts its own message.
+
+| # | Finding | Disposition |
+|---|---|---|
+| HIGH 1 | A linked worktree of the installation wrote its own grant | **Fixed, in `requireSources` as asked.** `--git-dir`, `--git-common-dir` and `<root>/.git` must be one directory, and the registry's `projectos` line must name this root, compared as normalised paths. A real `git worktree add`, a real clone and a repointed registry all give `INSTALLATION_NOT_MAIN_CHECKOUT`. It breaks one route: **running the router from a development worktree**, so the check stayed here. The registry must now list `projectos`, and the real one does |
+| HIGH 2 | "Owner act" was unenforced | **Fixed.** `credentials grant-receipt`, above. `receiptStands` is one reader for both receipts, so they cannot drift |
+| MEDIUM 3 | A TTY is spoofable | **Fixed.** `--owner-confirm`, a declared reach, the platform key and the receipt each need an answer typed at the terminal, shown working in a real ConPTY. `deps.terminal` stays the seam. **This raises the bar and is not a boundary:** a process that drives a console can type too, and console authority stays acceptable only under D4 |
+| MEDIUM 4 | `staging-writer` failed open for Supabase | **Fixed.** Declared variables come from what each adapter would set for the credentials the profile permits, and `allowedServers` is the project's providers that the profile offers. `supabase` left `staging-writer`. A server with no projected credential, or a placeholder for a token the session will not hold, refuses the session. `SUPABASE_PROJECT_REF` is not a credential and stays. `staging-writer.template.json` and `mcp.template.json` need no change for this to hold: **carried**, below |
+| MEDIUM 5 | The grant's `action` was a label | **Fixed.** `command`, above, passed by `run` as `[executable, ...args]` |
+| LOW 6 | `supabase-pat` was not caught | **Fixed.** `isAccountWide` also matches `pat`, `personal-access-token` and `access-token` as name segments. **A name can still lie:** a classic GitHub token stored as `gh-token` reads as nothing here |
+
+**Carried, each with an owner and a stage:**
+
+| Item | Owner | Stage |
+|---|---|---|
+| A grant is reusable until it expires: it covers a command, not one run of it | Lead to design, owner to approve | Stage 4, with mandatory expiry |
+| A value swapped outside ProjectOS keeps its declared reach, because the metadata cannot see the store change | Lead | Stage 4 service custody |
+| A forged governed-root `run-start` line is accepted, as any process of this user can write one (F7) | Lead | Stage 4 service custody |
+| `staging-writer.template.json` and `mcp.template.json` still name Supabase, so a project built from them is refused at session start | Lead | The next phase granted `templates/` |
+
 ### The committed-bytes sweep (finding 2)
 
 | Where | Reader | State |
@@ -101,19 +149,25 @@ controls and the zero-budget defaults, which pin behaviour that must stay.
 
 ## Behaviour that changes at merge
 
+- **The router must run from the main checkout.** `projectos credentials`, `session start` and `operation run`, with
+  `--run` or `--project`, give `INSTALLATION_NOT_MAIN_CHECKOUT` from a linked worktree, a clone, or anywhere the registry's
+  `projectos` line does not name. A development worktree cannot use them, by design.
+
 - **the Control Center's Add credential is refused.** `set_credential.rs` runs `credentials set --from-env` with no
   terminal and no handle, so it gets `REQUESTER_REQUIRED`, and it now shows that sentence, which says to use a real
   terminal. Allowing it would be the unbound write this phase exists to stop: any process can set an environment
   variable. Giving the host a run to pass is the later fix.
 - **`credentials set`, `delete`, `reach`, `session start` and `operation run` need `--run <handle>`, or a real terminal
-  on both ends and `--project <id>`.** `operation run` also needs `--phase`, and `--owner-confirm` needs a real terminal on every verb, `projects` included.
+  on both ends and `--project <id>`.** `operation run` also needs `--phase`, and `--owner-confirm` asks for a typed answer on every verb, `projects` included.
 - **Every credential a release touches needs a declared reach, or nothing releases it.** Nothing stored has one, so every
   session with a credential stops with `REACH_UNDECLARED` until the owner runs, once per credential, at a console:
   `projectos credentials reach --ref <reference> --project <id> --reach project|tenant|account [--reach-tenants a,b]`.
   No secret is re-entered. `credentials doctor` lists each one. Replacing a value clears it.
 - **A Supabase personal access token no longer loads into any session,** so a session's Supabase MCP server has no token.
   `staging-writer.template.json` and `docs/credential-router.md` still list it, and are outside the writePaths.
-- **Operation release fails closed** until the owner commits a grant.
+- **Operation release fails closed** until the owner commits a grant and confirms its blob.
+- **A reach, and any change to the platform key, need a typed answer.**
+- **An MCP config naming a server the profile does not offer refuses the session,** on every profile.
 - **The tenant registry needs its receipt** on this route too, the one PRINCIPAL1A's evidence asks for before merge.
 
 ## How the requester works
@@ -145,7 +199,7 @@ in its own module.
 | Term | How it is met |
 |---|---|
 | A run handle that survives process boundaries, never cwd | Above. TCR-2 refuses `process.cwd()` in every function on the route |
-| A linked-worktree binding alone releases nothing | `via: linked-worktree` is refused for auto-load by name. An operation still needs its grant, read from the installation, so the worktree's own commit grants nothing. Real `git worktree add`, real kernel run |
+| A linked-worktree binding alone releases nothing | `via: linked-worktree` is refused for auto-load by name. An operation still needs its grant, read from the installation's main checkout. So a project worktree's commit grants nothing, and neither, since the recheck, does a commit on a worktree of the installation, which could until then. Real `git worktree add`, real kernel run |
 | A receipt is never a credential-release grant | The receipt is a precondition of reading the registry. With a receipt, a good permit and no grant, nothing is released, by test. The broker reads no receipt |
 | No JWT or OAuth requester | `RUN_HANDLE_RE` refuses both shapes, by test. TCR-18 refuses the words on this path |
 | `run-start` has a budget | Met in review: the committed per-phase cap |
@@ -161,7 +215,9 @@ in its own module.
 | `71375c9b` | `governedContext.ts`: the end line and the budget |
 | `b77fad6b` | `set_credential.rs`, the host fixture, `action-registry.json`, ADR-T1 |
 | `84513641` | `tenantCredentialsReview.test.ts`, `runEndChild.ts`, the older tests and validators |
-| _this commit_ | This file, and the validator's evidence pin |
+| `fac3ec87` | The recheck: installation identity, grant receipt, typed confirmation, MCP, `command`, account-wide names |
+| `47e0b24a`, `29efb3b2` | `tenantCredentialsRecheck.test.ts`, the worlds, the validators |
+| _this commit_ | This file |
 
 ## Acceptance criteria
 
@@ -182,7 +238,7 @@ in its own module.
    record for another phase, project, credential or a stale date releases nothing, tested:** met, above.
 7. **An account-wide token is not projected into another tenant's session, tested:** met. The owner's account token stored
    under the agency project's name passes the project check, so only the reach rule stops it, and project reach loads.
-8. **Validator pin and named mutations, each killed by its own rule:** met, 235 of 235, 26 rules and TCR-T. `behaviour()` also runs the
+8. **Validator pin and named mutations, each killed by its own rule:** met, 279 of 279, 31 rules and TCR-T. `behaviour()` also runs the
    criteria on every pass.
 
 ### The operation test fails on the old code, on behaviour
@@ -203,7 +259,14 @@ The validator's mutations are text pins, so a pass says the pins fire, not that 
 applied to the real source, the proof each should trip was run with an exact filter, the failing test was recorded, and
 the file restored.
 
-- **107 mutations were swept on the final source. 104 are caught by behaviour:** 103 by a named test, and
+- **The recheck: 38 mutations swept on the final source, 34 killed by a named test.** Four survive, correctly, each pinned
+  by its rule: `worktree-is-an-installation`, because `<root>/.git` still refuses a worktree;
+  `receipt-for-an-uncommitted-blob`, because the listing and the read come from one HEAD; `receipt-not-read-back`, because a
+  write that fails throws first; `receipt-needs-no-terminal`, because the reader refuses with no terminal too.
+- **That sweep found five more weak proofs, all fixed, each mutation run again and killed.** The registry's root rule was
+  hiding the git rule, so two tests now use a registry naming the worktree, and a `.git` file pointing at the installation.
+  A wrong answer at the receipt command, an answer with no terminal, and a same-length argument had no test.
+- **The review round's sweep was not repeated.** 107 mutations, before the recheck: 104 caught by behaviour, 103 by a named test, and
   `profile-offers-the-pat` by `session-profiles.cjs`'s own load-time assertion, which stops the module loading. The other
   128 have only their text pin. Many are evidence, registration and word pins, but some are real code mutations and
   were not tried.
@@ -227,11 +290,12 @@ The validator also runs `behaviour()` on every pass: the plan's criteria, over a
 | Check | Command | Result |
 |---|---|---|
 | Test typecheck | `npx tsc -p tsconfig.test.json --noEmit` in `projectos/agent` | 0 errors |
-| Full agent suite, nothing else running | `vitest run` in `projectos/agent`, at `80b0592b` | 108 files, 3379 tests, all pass |
-| Review tests | `vitest run test/tenantCredentialsReview.test.ts` | 50 tests, all pass; 39 of 46 failed at `151bfd8b` |
-| Host crate | `cargo test the_real_broker_accepts` in `gatekeeper-review-composition`, target directory inside this worktree and removed after | 1 passed. The real broker reaches its credential stage |
+| Full agent suite, nothing else running | `vitest run` in `projectos/agent`, at `29efb3b2` | 109 files, 3424 tests, all pass |
+| Review and recheck tests | `tenantCredentialsReview.test.ts`, `tenantCredentialsRecheck.test.ts` | 50 and 45 tests, all pass; 39 of 46 failed at `151bfd8b`, 37 of 40 at `a78ddf92` |
+| Typed confirmation | The real router in a real ConPTY, `conpty.ps1`, inside the recheck test | A wrong answer refused, the right one through |
+| Host crate | `cargo test the_real_broker_accepts` in `gatekeeper-review-composition`, target directory inside this worktree and removed after, at `84513641`; the broker has not changed since | 1 passed. The real broker reaches its credential stage |
 | `refusal_sentence` | `rustc --test` on that function and its tests, extracted | 4 passed. The Control Center crate itself was not built |
-| This phase's validator | `node projectos/validators/val-projectos-tenant-credentials1a.cjs` | PASS, 235 named mutations killed |
+| This phase's validator | `node projectos/validators/val-projectos-tenant-credentials1a.cjs` | PASS, 279 named mutations killed |
 | Validators reading a touched file | Each in its own process through `run()`, nothing else running | 25 PASS, 1 FAIL. Includes the five the plan requires, `val-projectos-trust-boundary1a`, `val-projectos-closure-transport1a`, `val-projectos-kernel-followup1a`, `val-projectos-tenant-principal1a`, `val-projectos-tenant-contract1a`, `val-projectos-tenant-rls1a` and `val-projectos-boot-continue1a`. **The one FAIL is not this phase's:** `val-cd-b4-sealed-expected-window-facts1a` names `fn session_digest` in `ipc_session.rs`, which this branch does not touch. It was run because it mentions `set_credential` |
 
 **Not run:** full `validate-all`, which is the lead's. Core and Control Center suites: nothing in `core` changed, and the only
@@ -264,6 +328,10 @@ against that tree's core build.
 
 1. **The grant lives in the installation,** not beside the gates in `.projectops`.
 2. **A grant names one phase and one project.** A tenant secret needs a grant per project using it.
+2a. **What is typed is what is confirmed:** the reference, the profile, the project or the checkout, not a fixed word.
+2b. **`<root>/.git` is required as well as the two directories you named,** so a `.git` file pointing at another repository
+   does not pass by having one directory.
+2c. **A grant's executable is the resolved absolute path,** so `node` in a grant matches nothing.
 3. **The handle is the existing run-start id, not a new secret token.** It is readable by any process of this user.
 4. **A killed run's handle lasts 12 hours.** The window is pinned by earlier tests, and I left it.
 5. **Moving the Supabase token to operation class** is how "account-wide" reached the profile table, and it costs sessions
