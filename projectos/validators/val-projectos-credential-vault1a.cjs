@@ -39,6 +39,7 @@ const { createOperationGate } = require("../credentials/operation-gate.cjs");
 const { parseReference, classifyRisk, fingerprint } = require("../credentials/reference.cjs");
 const { createRedactor } = require("../security/redaction.cjs");
 const { syntheticWorld } = require("./val-projectos-tenant-credentials1a.cjs");
+const { resolveExecutable } = require("../credentials/operation-gate.cjs");
 
 const PHASE = "CREDENTIAL-VAULT-FIXTURE1A";
 
@@ -61,7 +62,7 @@ function seedVault(stateDir) {
   const vault = createCredentialVault({ store, redactor, stateDir });
   // The requester is the call's new shape: a kernel run for each project, from a synthetic installation.
   const world = syntheticWorld(path.join(stateDir, "tenant-world"), ["polygo", "jdtesting", "bizcomply"]);
-  world.grant("polygo", PHASE, [REF.polygoServiceRole], "read-config");
+  world.grant("polygo", PHASE, [REF.polygoServiceRole], "read-config", [resolveExecutable("node"), "--version"]);
   const polygo = world.requesterFor("polygo");
   const jdtesting = world.requesterFor("jdtesting");
   const bizcomply = world.requesterFor("bizcomply");

@@ -151,10 +151,10 @@ export interface Installation {
   readonly confirm: (sys: System, dir?: string) => void;
 }
 
-export function makeInstallation(made: string[], lines: readonly RegistryLine[]): Installation {
-  const { root, repository } = makeProject(made, 'installation');
+export function makeInstallation(made: string[], lines: readonly RegistryLine[], selfId = 'installation'): Installation {
+  const { root, repository } = makeProject(made, selfId);
   const stateDir = tempDir(made, 'projectos-tenant-state-');
-  const self: RegistryLine = { projectId: 'installation', repository, governedRoot: root, tenant: OWNER_TENANT, domain: 'develop' };
+  const self: RegistryLine = { projectId: selfId, repository, governedRoot: root, tenant: OWNER_TENANT, domain: 'develop' };
   const registryPath = join(root, 'projectos', 'security', 'tenant-registry.json');
   mkdirSync(join(root, 'projectos', 'security'), { recursive: true });
   writeFileSync(join(root, 'projectos', 'security', 'action-registry.json'), readFileSync(new URL('action-registry.json', REAL_SECURITY)));

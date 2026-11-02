@@ -13,7 +13,7 @@
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { commitAll, makeInstallation, makeProject, AGENCY_TENANT, FIXTURE_NOW, OWNER_TENANT, type Installation } from './tenantWorld.js';
+import { commitAll, git, makeInstallation, makeProject, AGENCY_TENANT, FIXTURE_NOW, OWNER_TENANT, type Installation } from './tenantWorld.js';
 import type { System } from '../../src/system.js';
 
 const load = createRequire(import.meta.url);
@@ -63,11 +63,15 @@ export interface CredentialWorld {
 /** Where a credential-release grant lives in an installation. */
 export const GRANT_REL = (phaseId: string): string => `projectos/security/credential-grants/${phaseId}.credential-release.json`;
 
+/** The command a synthetic grant covers unless it says otherwise: what the gate tests run. */
+export const GRANTED_COMMAND: readonly string[] = [process.execPath, '--version'];
+
 /**
- * A synthetic `credential-release` grant, committed in this world's own installation. A field set to
- * `undefined` is left out. Creating a real one is an owner act, and nothing here can reach a real installation.
+ * A synthetic `credential-release` grant, committed in this world's own installation and given no receipt.
+ * A field set to `undefined` is left out. Creating a real one is an owner act, and nothing here can reach a
+ * real installation. Returns the grant's blob.
  */
-export function grantRelease(w: CredentialWorld, over: Readonly<Record<string, unknown>>, phaseId: string = PHASE): void {
+export function commitGrant(w: CredentialWorld, over: Readonly<Record<string, unknown>>, phaseId: string = PHASE): string {
   const record = {
     schemaVersion: '1.0.0',
     kind: 'credential-release-grant',
@@ -75,6 +79,7 @@ export function grantRelease(w: CredentialWorld, over: Readonly<Record<string, u
     projectId: 'alpha',
     references: ['ProjectOS/alpha/staging/supabase/service-role-key'],
     action: 'read-config',
+    command: GRANTED_COMMAND,
     expiresAt: '2027-01-01T00:00:00.000Z',
     grantedBy: 'Synthetic',
     ...over,
@@ -83,6 +88,25 @@ export function grantRelease(w: CredentialWorld, over: Readonly<Record<string, u
   mkdirSync(join(path, '..'), { recursive: true });
   writeFileSync(path, JSON.stringify(record));
   commitAll(w.installation.root, 'synthetic grant');
+  return git(w.installation.root, 'hash-object', path).trim();
+}
+
+/** The confirmation a person would type, through the real authority. */
+export function confirmGrant(w: CredentialWorld, blob: string): void {
+  w.authority.confirmGrant({ blob, typed: blob.slice(0, 12) });
+}
+
+/** A receipt and its line, written directly, as any process of this user can (ADR-T1 section 10). */
+export function forgeReceipt(w: CredentialWorld, blob: string): void {
+  const envelopeId = `ENV-${blob.slice(0, 24)}`;
+  mkdirSync(join(w.stateDir, 'credential-grant-receipts'), { recursive: true });
+  writeFileSync(join(w.stateDir, 'credential-grant-receipts', `${blob}.json`), JSON.stringify({ kind: 'credential-grant-receipt', grantBlob: blob, confirmation: 'typed-terminal', envelopeId }));
+  writeFileSync(join(w.stateDir, 'credential-grant-changes.jsonl'), `${JSON.stringify({ stage: 'admission', outcome: 'allowed', envelope: { envelopeId, action: 'credential-release', subjectHash: blob } })}\n`);
+}
+
+/** A grant, committed and confirmed: what a release needs. */
+export function grantRelease(w: CredentialWorld, over: Readonly<Record<string, unknown>>, phaseId: string = PHASE): void {
+  confirmGrant(w, commitGrant(w, over, phaseId));
 }
 
 /** A real installation with its registry confirmed, as a receipt would leave it. */
@@ -90,13 +114,11 @@ export function credentialWorld(made: string[], sys: System, options: { readonly
   const alpha = makeProject(made, 'alpha');
   const beta = makeProject(made, 'beta');
   const gamma = makeProject(made, 'gamma');
-  const projectos = makeProject(made, 'projectos');
   const installation = makeInstallation(made, [
     { projectId: 'alpha', repository: alpha.repository, governedRoot: alpha.root, tenant: OWNER_TENANT, domain: 'develop' },
     { projectId: 'beta', repository: beta.repository, governedRoot: beta.root, tenant: OWNER_TENANT, domain: 'develop' },
-    { projectId: 'projectos', repository: projectos.repository, governedRoot: projectos.root, tenant: OWNER_TENANT, domain: 'develop' },
     { projectId: 'gamma', repository: gamma.repository, governedRoot: gamma.root, tenant: AGENCY_TENANT, domain: 'business' },
-  ]);
+  ], 'projectos');
   if (options.confirmed !== false) installation.confirm(sys);
   const authority = metadata.createRequesterAuthority({ installRoot: installation.root, stateDir: installation.stateDir, nowMs });
   const store = memory.createMemoryCredentialStore({ acknowledgedNonPersistent: true });
@@ -106,7 +128,8 @@ export function credentialWorld(made: string[], sys: System, options: { readonly
     alpha,
     beta,
     gamma,
-    projectos,
+    // THE INSTALLATION IS `projectos`, as on the real machine: the registry's line for it is its own root.
+    projectos: { root: installation.root, repository: installation.repository },
     authority,
     store,
     vault,

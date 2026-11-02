@@ -255,7 +255,8 @@ describe('the requester is a kernel-issued run handle', () => {
 
   it('reads the real committed registry whole, and the core agrees', () => {
     const w = credentialWorld(made, sys);
-    const realBytes = readFileSync(join(PROJECTOS_ROOT, 'security/tenant-registry.json'), 'utf8');
+    // THE REAL LINES, with this world's checkout as the installation: only that line says where it stands.
+    const realBytes = readFileSync(join(PROJECTOS_ROOT, 'security/tenant-registry.json'), 'utf8').split('"governedRoot": "C:/dev/ProjectOS"').join(`"governedRoot": "${w.installation.root}"`);
     w.installation.commitRegistryText(realBytes);
     w.installation.confirm(sys);
     expect(parseTenantRegistry(JSON.parse(realBytes)).ok).toBe(true);
@@ -791,7 +792,7 @@ describe('the durable audit', () => {
 
 describe('the credential router', () => {
   const quiet = { stdin: { isTTY: undefined }, stdout: { isTTY: undefined } };
-  const atConsole = { stdin: { isTTY: true }, stdout: { isTTY: true } };
+  const atConsole = { stdin: { isTTY: true }, stdout: { isTTY: true }, readLine: (question: string) => /"([^"]+)"/.exec(question)?.[1] ?? null };
 
   it('refuses every requester-bound verb with no terminal and no handle, before any store is reached', async () => {
     const w = credentialWorld(made, sys);
@@ -849,7 +850,7 @@ describe('the credential router', () => {
     const logged = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const flags = ['--ref', ALPHA_OP, '--action', 'read-config', '--env-var', 'X_VALUE', '--owner-confirm'];
     await expect(cli.main(['operation', 'run', ...flags, '--project', 'alpha', '--', NODE], deps)).rejects.toThrow('--phase is required');
-    await expect(cli.main(['operation', 'run', ...flags, '--project', 'alpha', '--phase', PHASE, '--', NODE], deps)).resolves.toBe(0);
+    await expect(cli.main(['operation', 'run', ...flags, '--project', 'alpha', '--phase', PHASE, '--', NODE, '--version'], deps)).resolves.toBe(0);
     expect(spawn.calls).toHaveLength(1);
     logged.mockRestore();
   });

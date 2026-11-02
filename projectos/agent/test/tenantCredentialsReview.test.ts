@@ -17,7 +17,9 @@ import { nodeSystem, type System } from '../src/system.js';
 import { AGENCY_TENANT, cleanUp, commitAll, FIXTURE_NOW, git, linesOf, OWNER_TENANT, registryText, tempDir } from './support/tenantWorld.js';
 import {
   cli,
+  commitGrant,
   credentialWorld,
+  forgeReceipt,
   grantRelease,
   GRANT_REL,
   metadata,
@@ -41,7 +43,7 @@ const VALUE = 'synthetic-credential-value-2222';
 const OP = 'ProjectOS/alpha/staging/supabase/service-role-key';
 const GH = 'ProjectOS/alpha/staging/github/gh-token';
 const NODE = process.execPath;
-const AT_CONSOLE = { stdin: { isTTY: true }, stdout: { isTTY: true } };
+const AT_CONSOLE = { stdin: { isTTY: true }, stdout: { isTTY: true }, readLine: (question: string) => /"([^"]+)"/.exec(question)?.[1] ?? null };
 const NO_TERMINAL = { stdin: {}, stdout: {} };
 
 function ctxAt(w: CredentialWorld, root: string): CommandContext {
@@ -106,7 +108,8 @@ describe('CRITICAL: a release needs a committed credential-release grant', () =>
   ])('a record with %s releases nothing', (_label, over) => {
     const w = credentialWorld(made, sys);
     w.vault.provision({ reference: OP, requester: w.console('alpha'), reach: 'project', readValue: () => VALUE });
-    grantRelease(w, over);
+    // A RECEIPT TOO, so that only this record's own fault is left to refuse it.
+    forgeReceipt(w, commitGrant(w, over));
     const { calls, gate } = gateOf(w);
     expect(run(gate, w.console('alpha')).blocker).toBe('CREDENTIAL_GRANT_REQUIRED');
     expect(calls).toHaveLength(0);
@@ -142,7 +145,7 @@ describe('CRITICAL: a release needs a committed credential-release grant', () =>
     const w = credentialWorld(made, sys);
     w.vault.provision({ reference: OP, requester: w.console('alpha'), reach: 'project', readValue: () => VALUE });
     const escaped = '../../x';
-    grantRelease(w, {}, escaped);
+    forgeReceipt(w, commitGrant(w, {}, escaped));
     expect(git(w.installation.root, 'ls-files', 'projectos/x.credential-release.json').trim()).toBe('projectos/x.credential-release.json');
     const { calls, gate } = gateOf(w);
     expect(run(gate, w.console('alpha'), OP, 'read-config', escaped).blocker).toBe('CREDENTIAL_GRANT_REQUIRED');
@@ -398,10 +401,11 @@ describe('HIGH: the durable audit says what happened', () => {
     const w = credentialWorld(made, sys);
     grantRelease(w, {});
     w.vault.provision({ reference: OP, requester: w.console('alpha'), reach: 'project', readValue: () => VALUE });
+    const shaped = `ghp_${'a'.repeat(36)}`;
+    grantRelease(w, { command: [NODE, shaped] });
     const { gate } = gateOf(w);
     const requester = w.console('alpha');
     const permit = gate.grantPermit({ reference: OP, action: 'read-config', requester, capability: { ownerConfirmation: true }, phaseId: PHASE });
-    const shaped = `ghp_${'a'.repeat(36)}`;
     gate.run({ reference: OP, action: 'read-config', requester, permit, capability: { ownerConfirmation: true }, command: NODE, args: [shaped], envVarName: 'SYNTHETIC_VALUE' });
     const text = readFileSync(w.vault.auditPath, 'utf8');
     expect(text).toContain('[credential-shaped]');
@@ -422,7 +426,7 @@ describe('HIGH: the durable audit says what happened', () => {
 
   it('a failed audit stops the command before it starts', () => {
     const w = credentialWorld(made, sys);
-    grantRelease(w, {});
+    grantRelease(w, { command: [NODE] });
     w.vault.provision({ reference: OP, requester: w.console('alpha'), reach: 'project', readValue: () => VALUE });
     const { calls, gate } = gateOf(w);
     const requester = w.console('alpha');
