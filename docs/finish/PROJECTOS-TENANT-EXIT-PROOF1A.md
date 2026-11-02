@@ -105,7 +105,22 @@ fail. The gate's finding is named per mutation and the validator requires that e
 
 ## Live, read-only
 
-Pending the lead's run.
+Run by the lead, 2026-11-02 06:31 UTC, on project `vzbzkziksxvyfqrdrwqx`, through the Management API with
+`read_only: true` on every SQL call and the owner's personal access token held in process memory only. Script:
+`live-exit-check.cjs` in the session scratchpad; output `live-apply-evidence/exit-proof-live.json` there. Selected fields
+only were read or printed.
+
+| Check | Result |
+|---|---|
+| The committed `live-postapply.sql`, hash-pinned `821f6815…` | 10 of 10 pass, verdict `POSTAPPLY/all ok=true` |
+| Sign-up disabled (`config/auth`) | `disable_signup: true` |
+| No permissive policy on any public table | 10 policies, none whose `USING` or `WITH CHECK` is `true` |
+| Public tables out of realtime | none in `supabase_realtime` |
+| Row-level security on every public table | `phases`, `projects`, `tenant_members`, `tenants`: enabled. Not forced, so a role with `BYPASSRLS` (`postgres`) still bypasses it, as recorded in RLS1A |
+| Anon reads nothing | `401` from `/rest/v1/` on all four tables |
+
+This is the live state on the date above, not a guarantee of it later: a dashboard change is not seen until this is
+run again.
 
 ## 2. Kernel
 
