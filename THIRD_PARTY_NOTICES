@@ -519,6 +519,60 @@ Licence: Apache-2.0
 Copyright: Copyright 2026 Rakazo contributors
 Licence-Text: SOURCE rakazo, in this file
 
+ENTRY: projectos/core/src/context/accounting.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/context_compressor.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/context/accounting.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/context_engine.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/context/estimate.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/context_compressor.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/context/estimate.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/model_metadata.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/context/window.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/context_compressor.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/context/window.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/context_compressor_tail.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
 ENTRY: projectos/core/src/memory/admission.ts
 Source: oh-my-hermes
 Upstream: https://github.com/rlaope/oh-my-hermes
