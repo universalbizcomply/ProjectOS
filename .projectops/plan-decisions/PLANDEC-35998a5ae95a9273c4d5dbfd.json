@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-35998a5ae95a9273c4d5dbfd",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "748f57348fcbac1c95e2d3d6e1696db1324873ac",
+  "draftId": "89185144dc4a7256",
+  "planDigest": "sha256:041922c76d324175ebd9e3483e03cc20e928e904f11e576f09a63572ee1b6ed6",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-02T00:57:53.411Z",
+  "note": "Owner, 2026-11-01: \"You have full authority\". This amendment adds two test files to PROJECTOS-TENANT-PRINCIPAL1A. No phase, criterion or review changes.",
+  "recordedBy": "projectos plan decide"
+}
