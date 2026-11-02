@@ -5,6 +5,7 @@
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
 // Modified-By: ProjectOS 2026-11-02: modified for ProjectOS. CHANGED: translated from Python to TypeScript; the prose refusal test only, widened to a bare refusal that never mentions a summary, without the provider refusal field and without the length-stop guard upstream marks as ported from elsewhere; the memory admission rule, a credential screen and a broken-surrogate screen added
+// Modified-By: ProjectOS 2026-11-02: modified for ProjectOS. CHANGED: a bare first-person refusal needs no subject; a draft too short to summarise anything is refused
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * What may stand as a summary.
@@ -27,12 +28,19 @@ const MODEL_REFUSAL =
 const REFUSAL_SUBJECT = /summar|checkpoint|help|assist|comply|request|conversation/i;
 const HEADING = /^##\s/m;
 const OPENER_CHARS = 400;
+/** "I cannot do that." names no subject and says nothing else. A longer first-person sentence may be an account. */
+const FIRST_PERSON = /^(?:sorry|as an ai|i\b)/i;
+const BARE_REFUSAL_CHARS = 40;
+/** Fewer visible characters than this cannot stand in for the turns it would replace. */
+const MIN_SUMMARY_CHARS = 20;
 const LONE_SURROGATE = /\p{Cs}/u;
 const EMOJI_VARIATION = /\ufe0f/gu;
 
 function isModelRefusal(text: string): boolean {
   const flat = text.split(/\s+/).join(' ');
-  return MODEL_REFUSAL.test(flat) && !HEADING.test(text) && REFUSAL_SUBJECT.test(flat.slice(0, OPENER_CHARS));
+  if (!MODEL_REFUSAL.test(flat) || HEADING.test(text)) return false;
+  const bare = FIRST_PERSON.test(flat.trim()) && flat.trim().length <= BARE_REFUSAL_CHARS;
+  return bare || REFUSAL_SUBJECT.test(flat.slice(0, OPENER_CHARS));
 }
 
 /** A draft as it will be held: Windows line endings folded, and the emoji mark that is not text gone. */
@@ -45,6 +53,7 @@ export function summaryTextProblem(text: string): ContextRefused | null {
   const refuse = (why: string, named: string): ContextRefused => contextRefused('CONTEXT_SUMMARY_REFUSED', why, named);
   if (LONE_SURROGATE.test(text)) return refuse('That text holds a broken character, so it was not read intact.', 'lone_surrogate');
   if (isModelRefusal(text)) return refuse('That is a refusal, not a summary. The turns stay.', 'model_refusal');
+  if (text.replace(/\s/g, '').length < MIN_SUMMARY_CHARS) return refuse('That is too short to stand in for the turns it would replace. The turns stay.', 'empty_summary');
   if (holdsSecretShape(text)) return refuse('That text holds the shape of a credential, and a summary replays into every later turn.', 'credential_shape');
   const admitted = admitMemoryContent(text);
   return admitted.ok ? null : contextRefused('CONTEXT_SUMMARY_REFUSED', admitted.refusal.message, admitted.refusal.named);

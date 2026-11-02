@@ -87,7 +87,7 @@ describe('what a compaction keeps', () => {
       const pressure = must(contextPressure(accounts, AGENT, estimateThreadTokens(thread), turnCostTokens(incoming)));
       expect(pressure.projectedTokens).toBeLessThan(pressure.inputTokens);
       if (pressure.action === 'compact') {
-        thread = must(applyCompaction(thread, accountOf(accounts), draftFor(thread, `Round ${index} of the work.`))).thread;
+        thread = must(applyCompaction(thread, accountOf(accounts), draftFor(thread, `Round ${index} of the work, in plain words.`))).thread;
         accounts = must(noteContextCompaction(accounts, AGENT));
         compactions += 1;
       }

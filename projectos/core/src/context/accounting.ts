@@ -6,6 +6,7 @@
 // Port-Strategy: TRANSLATE
 // Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: translated from Python to TypeScript; a shared mutable engine became one immutable account per agent, reached by name; the raise-only floors that could push a trigger towards the limit were replaced by a refusal; the trigger also fires on what is about to arrive; cooldowns, durable breaker rows, prompt-cache rearm and per-model overrides not ported
 // Modified-By: ProjectOS 2026-11-02: modified for ProjectOS. CHANGED: growth since the last reading is added to that reading, as upstream's usage-anchored figure does, in place of the larger of the two; the completion count is gone; a refused compaction counts as a strike; an account is judged when it is used
+// Modified-By: ProjectOS 2026-11-02: modified for ProjectOS. CHANGED: only a summariser's failure strikes
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * How much of its window each agent has used, and when it must compact.
@@ -24,8 +25,8 @@
  * A COMPACTION IS JUDGED BY THE NEXT REAL READING. Upstream's reasoning holds: a compaction can only shrink
  * the messages, and the system prompt and tool schemas are a floor it cannot touch. If that floor reaches
  * the trigger, every pass shrinks something and nothing is ever under it, so the judge is "did the prompt
- * clear the trigger", once, on the first provider reading after the compaction. A compaction that could
- * not run strikes too, so a summariser that keeps failing has a bound. Two strikes block automatic
+ * clear the trigger", once, on the first provider reading after the compaction. A summariser whose draft
+ * was refused strikes too, so one that keeps failing has a bound. Two strikes block automatic
  * compaction, and the account says so. Whether to stop is the kernel's decision: `overLimit` gives it the
  * fact, whatever the action, and nothing here sends or drops anything.
  *
@@ -34,12 +35,15 @@
  * the two would hide it: 6,000 real at an estimate of 3,000, with the estimate now at 4,050, is 7,050 and
  * not 6,000. Pure.
  */
-import { contextOk, contextRefused, isContextLabel, type ContextResult } from './refusal.js';
+import { contextOk, contextRefused, isContextLabel, type ContextRefusalCode, type ContextResult } from './refusal.js';
 
 export const MIN_TRIGGER_RATIO = 0.1;
 export const MAX_TRIGGER_RATIO = 0.85;
 export const MIN_INPUT_WINDOW_TOKENS = 1000;
 export const MAX_INEFFECTIVE_STRIKES = 2;
+
+/** A summariser failed. A stale plan, or a thread with nothing to summarise, is no one's failure. */
+const STRIKING_REFUSALS: readonly ContextRefusalCode[] = ['CONTEXT_SUMMARY_REFUSED', 'CONTEXT_SUMMARY_OVER_BUDGET', 'CONTEXT_NOT_SMALLER'];
 
 const MIN_SUMMARY_TOKENS = 2000;
 const SUMMARY_RATIO = 0.2;
@@ -176,10 +180,11 @@ export function noteContextCompaction(accounts: ContextAccounts, agentId: string
   );
 }
 
-/** A plan or a draft was refused. It counts as a strike, so the attempts have a bound. */
-export function noteCompactionRefused(accounts: ContextAccounts, agentId: string): ContextResult<ContextAccounts> {
+/** A compaction was refused with this code. A summariser's failure counts as a strike, so its attempts have a bound. */
+export function noteCompactionRefused(accounts: ContextAccounts, agentId: string, code: ContextRefusalCode): ContextResult<ContextAccounts> {
   const held = accountOf(accounts, agentId);
   if (!held.ok) return held;
+  if (!STRIKING_REFUSALS.includes(code)) return contextOk(accounts);
   return contextOk(new Map(accounts).set(agentId, { ...held.value, ineffectiveStrikes: held.value.ineffectiveStrikes + 1 }));
 }
 

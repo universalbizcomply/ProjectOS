@@ -18,8 +18,8 @@ const COMPACTION_SCHEMA = 'projectos.context-compaction/1';
 const COMPACTION_ID = /^ctx-[0-9a-f]{24}$/;
 const ISO_INSTANT = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?Z$/;
 const DAY_MS = 86_400_000;
-/** A model writes a summary. These names say something else did. */
-const NOT_A_SUMMARISER = ['owner', 'kernel', 'system'];
+/** The kinds of summariser the kernel knows. A name outside this list says nothing anyone can check. */
+export const SUMMARISER_KINDS = ['summary-model', 'agent-model'] as const;
 
 /** A turn as the record remembers it: enough to say what it was, without keeping its text. */
 export interface TurnMark {
@@ -99,7 +99,7 @@ function isRealInstant(value: unknown): boolean {
 
 /** A draft's provenance has this shape before it can be sealed. */
 export function compactionProvenanceProblem(fields: { readonly summarisedBy: unknown; readonly session: unknown; readonly at: unknown }): string | null {
-  if (!isContextLabel(fields.summarisedBy) || NOT_A_SUMMARISER.includes(fields.summarisedBy.toLowerCase())) return 'which model summarised it';
+  if (!SUMMARISER_KINDS.some((kind) => kind === fields.summarisedBy)) return 'a known kind of summariser';
   if (!isContextLabel(fields.session)) return 'a session';
   if (!isRealInstant(fields.at)) return 'a real time';
   return null;

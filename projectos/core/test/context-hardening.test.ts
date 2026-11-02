@@ -3,6 +3,7 @@ import { memoryEntryHash } from '../src/memory/store.js';
 import {
   MAX_INEFFECTIVE_STRIKES,
   MAX_STALE_NAMED,
+  SUMMARISER_KINDS,
   applyCompaction,
   checkContextThread,
   contextPressure,
@@ -223,6 +224,12 @@ describe('what reaches the summariser', () => {
     expect(sourceInput(`Bad ${String.fromCharCode(0xd83d)} text.`)).not.toContain(String.fromCharCode(0xd83d));
   });
 
+  it.each(['password: hunter2', '{"api_key":"abc123def"}', 'postgres://bob:hunter2@db.test/app', 'https://bob:hunter2@host.test/x'])('holds no secret from %s', (text) => {
+    expect(sourceInput(text)).not.toContain('hunter2');
+    expect(sourceInput(text)).not.toContain('abc123def');
+    expect(sourceInput(text)).toContain('[REDACTED]');
+  });
+
   it('keeps ordinary text, lines and tabs: the positive control', () => {
     expect(sourceInput('line one\n\tline two')).toContain('line one\n\tline two');
   });
@@ -245,6 +252,22 @@ describe('the redaction', () => {
     expect(redactSecrets('DB_PASSWORD = "abc def"')).toBe('DB_PASSWORD = [REDACTED]');
   });
 
+  it('removes a configured secret, with or without a prefix', () => {
+    expect(redactSecrets('password: hunter2')).toBe('password: [REDACTED]');
+    expect(redactSecrets('db_password: "a b"')).toBe('db_password: [REDACTED]');
+    expect(redactSecrets('client_secret_key: abc')).toBe('client_secret_key: [REDACTED]');
+    expect(redactSecrets('API Key: abc')).toBe('API Key: [REDACTED]');
+  });
+
+  it('removes a JSON secret and keeps the JSON', () => {
+    expect(redactSecrets('{"api_key":"abc","name":"x"}')).toBe('{"api_key":"[REDACTED]","name":"x"}');
+    expect(redactSecrets('{"db_password" : "a\\"b"}')).toBe('{"db_password" : "[REDACTED]"}');
+  });
+
+  it('removes a password from a URL and keeps the rest', () => {
+    expect(redactSecrets('postgres://bob:hunter2@db.test/app')).toBe('postgres://bob:[REDACTED]@db.test/app');
+  });
+
   it('removes an authorization header', () => {
     expect(redactSecrets('Authorization: Bearer abcdef')).toBe('Authorization: Bearer [REDACTED]');
   });
@@ -256,6 +279,8 @@ describe('the redaction', () => {
   it('leaves words that only look like these: the positive control', () => {
     const plain = 'task-management and KEYBOARD=qwerty and the token count';
     expect(redactSecrets(plain)).toBe(plain);
+    const lookalikes = 'Secretary: J. Smith, tokenizer: cl100k, nonsecret: yes, https://a.test:8080/p@v2';
+    expect(redactSecrets(lookalikes)).toBe(lookalikes);
   });
 });
 
@@ -272,8 +297,40 @@ describe('a draft that is not a summary', () => {
     `I${String.fromCharCode(0x2019)}m sorry, but I cannot summarise this conversation.`,
     'I cannot help with this request.',
     'As an AI, I am unable to assist.',
+    'I cannot do that.',
+    "I'm unable to continue.",
   ])('refuses a model refusal: %s', (text) => {
-    expect(codeOf(landed(text))).toBe('CONTEXT_SUMMARY_REFUSED');
+    const result = landed(text);
+    expect(result.ok ? '' : result.refusal.named).toBe('model_refusal');
+  });
+
+  it.each(['Done.', 'OK', 'Nothing to summarise.', 'See above.'])('refuses a draft that summarises nothing: %s', (text) => {
+    const result = landed(text);
+    expect(result.ok ? '' : result.refusal.named).toBe('empty_summary');
+    expect(held(text)).toHaveLength(11);
+  });
+
+  it('holds the shortest summary to its boundary', () => {
+    expect(codeOf(landed('a'.repeat(20)))).toBe('ok');
+    expect(codeOf(landed('a'.repeat(19)))).toBe('CONTEXT_SUMMARY_REFUSED');
+    expect(codeOf(landed(`${'a '.repeat(19)}a`))).toBe('ok');
+  });
+
+  it('admits a first-person account of a failure: the positive control', () => {
+    expect(codeOf(landed('I could not run the tests because the disk was full.'))).toBe('ok');
+  });
+
+  it.each(['PASS=12', 'AUTH=none', 'PRIMARY_KEY=id', 'TOKEN_LIMIT=4096', 'the Authorization: header', 'password: hunter2'])('does not read %s as a credential', (shape) => {
+    expect(codeOf(landed(`The run set out ${shape} in its notes for later.`))).toBe('ok');
+  });
+
+  it.each([
+    ['a provider key', FAKE_KEY],
+    ['a JWT', `eyJ${'a1'.repeat(10)}.${'b2'.repeat(4)}.${'c3'.repeat(4)}`],
+    ['a key block', `-----BEGIN RSA PRIVATE ${'KEY'}-----\nabc\n-----END RSA PRIVATE ${'KEY'}-----`],
+  ])('still refuses %s', (_, secret) => {
+    const result = landed(`The notes held this value: ${secret} and little else.`);
+    expect(result.ok ? '' : result.refusal.named).toBe('credential_shape');
   });
 
   it('keeps the turns when it refuses', () => {
@@ -307,12 +364,16 @@ describe('a draft that is not a summary', () => {
 });
 
 describe('who a draft can say wrote it', () => {
-  it.each(['owner', 'Owner', 'OWNER', 'kernel', 'system'])('refuses %s', (summarisedBy) => {
+  it.each(['owner', 'Owner', 'kernel', 'system', 'user', 'owner-approved', 'owner-summary-model', 'Summary-Model', 'someone'])('refuses %s', (summarisedBy) => {
     expect(codeOf(landed(SUMMARY, { summarisedBy }))).toBe('CONTEXT_DRAFT_INVALID');
   });
 
-  it('accepts a model label: the positive control', () => {
-    expect(codeOf(landed(SUMMARY, { summarisedBy: 'owner-summary-model' }))).toBe('ok');
+  it('knows exactly these kinds', () => {
+    expect(SUMMARISER_KINDS).toEqual(['summary-model', 'agent-model']);
+  });
+
+  it.each(SUMMARISER_KINDS)('accepts the kernel-known kind %s: the positive control', (summarisedBy) => {
+    expect(codeOf(landed(SUMMARY, { summarisedBy }))).toBe('ok');
   });
 });
 
@@ -330,9 +391,17 @@ describe('when a draft says it was written', () => {
 describe('a compaction that cannot run', () => {
   const refused = (times: number) => {
     let accounts = accountsFor();
-    for (let round = 0; round < times; round += 1) accounts = must(noteCompactionRefused(accounts, AGENT));
+    for (let round = 0; round < times; round += 1) accounts = must(noteCompactionRefused(accounts, AGENT, 'CONTEXT_SUMMARY_REFUSED'));
     return accounts;
   };
+
+  it.each(['CONTEXT_SUMMARY_REFUSED', 'CONTEXT_SUMMARY_OVER_BUDGET', 'CONTEXT_NOT_SMALLER'] as const)('strikes on %s: a summariser that failed', (code) => {
+    expect(accountOf(must(noteCompactionRefused(accountsFor(), AGENT, code))).ineffectiveStrikes).toBe(1);
+  });
+
+  it.each(['CONTEXT_NOTHING_TO_COMPACT', 'CONTEXT_PLAN_STALE', 'CONTEXT_PROTECTED_OVER_BUDGET', 'CONTEXT_DRAFT_INVALID'] as const)('never strikes on %s: no summariser failed', (code) => {
+    expect(accountOf(must(noteCompactionRefused(accountsFor(), AGENT, code))).ineffectiveStrikes).toBe(0);
+  });
 
   it('counts as a strike, so retries have a bound', () => {
     expect(accountOf(refused(1)).ineffectiveStrikes).toBe(1);
@@ -344,12 +413,12 @@ describe('a compaction that cannot run', () => {
   });
 
   it('refuses an agent with no account', () => {
-    expect(codeOf(noteCompactionRefused(accountsFor(), 'agent-9'))).toBe('CONTEXT_NO_ACCOUNT');
+    expect(codeOf(noteCompactionRefused(accountsFor(), 'agent-9', 'CONTEXT_SUMMARY_REFUSED'))).toBe('CONTEXT_NO_ACCOUNT');
   });
 
   it('leaves the accounts it was given unchanged', () => {
     const accounts = accountsFor();
-    must(noteCompactionRefused(accounts, AGENT));
+    must(noteCompactionRefused(accounts, AGENT, 'CONTEXT_SUMMARY_REFUSED'));
     expect(accountOf(accounts).ineffectiveStrikes).toBe(0);
   });
 

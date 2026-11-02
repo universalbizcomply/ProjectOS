@@ -173,6 +173,9 @@ const TESTS = {
     "holds no hidden character",
     "keeps the turns when it refuses",
     "refuses a secret that survived into the draft, by name",
+    "holds the shortest summary to its boundary",
+    "does not read %s as a credential",
+    "never strikes on %s: no summariser failed",
     "blocks automatic compaction at the bound: a refused plan reaches `blocked`",
   ],
   "projectos/core/test/context-boundary.test.ts": [
@@ -433,11 +436,18 @@ function strikeProblems(m, k, E) {
     if (codeOf(() => m.recordContextUsage(accounts(), reading)) !== "CONTEXT_USAGE_INVALID") E("PX-4", "a reading with no estimate was accepted");
   }
   const start = accounts();
-  const once = must(m.noteCompactionRefused(start, AGENT));
+  const failed = "CONTEXT_SUMMARY_REFUSED";
+  const once = must(m.noteCompactionRefused(start, AGENT, failed));
   if (accountOf(once).ineffectiveStrikes !== 1 || accountOf(start).ineffectiveStrikes !== 0) E("PX-4", "a refused compaction did not strike, or changed the map given");
-  const twice = must(m.noteCompactionRefused(once, AGENT));
+  const twice = must(m.noteCompactionRefused(once, AGENT, failed));
+  for (const code of ["CONTEXT_SUMMARY_REFUSED", "CONTEXT_SUMMARY_OVER_BUDGET", "CONTEXT_NOT_SMALLER"]) {
+    if (accountOf(must(m.noteCompactionRefused(start, AGENT, code))).ineffectiveStrikes !== 1) E("PX-4", `${code} did not strike`);
+  }
+  for (const code of ["CONTEXT_NOTHING_TO_COMPACT", "CONTEXT_PLAN_STALE", "CONTEXT_PROTECTED_OVER_BUDGET", "CONTEXT_DRAFT_INVALID"]) {
+    if (accountOf(must(m.noteCompactionRefused(start, AGENT, code))).ineffectiveStrikes !== 0) E("PX-4", `${code} struck, and no summariser failed`);
+  }
   if (action(once, TRIGGER) !== "compact" || action(twice, TRIGGER) !== "blocked") E("PX-4", "refused attempts have no bound");
-  if (codeOf(() => m.noteCompactionRefused(start, "agent-9")) !== "CONTEXT_NO_ACCOUNT") E("PX-4", "a refusal was noted for no account");
+  if (codeOf(() => m.noteCompactionRefused(start, "agent-9", failed)) !== "CONTEXT_NO_ACCOUNT") E("PX-4", "a refusal was noted for no account");
 }
 
 function windowProblems(m, k, E) {
@@ -663,14 +673,26 @@ function screenProblems(m, k, E) {
   for (const text of ["   ", 7]) {
     if (codeOf(() => land(text)) !== "CONTEXT_DRAFT_INVALID") E("PX-11", "a blank draft was admitted");
   }
-  for (const text of ["I'm sorry, I can't help with that.", "I cannot help with this request.", "As an AI, I am unable to assist."]) {
+  for (const text of ["I'm sorry, I can't help with that.", "I cannot help with this request.", "As an AI, I am unable to assist.", "I cannot do that.", "I'm unable to continue."]) {
     if (named(text) !== "model_refusal") E("PX-11", `a refusal was installed: ${text}`);
   }
-  for (const text of ["The tests ran. The vendor said it cannot help until Monday.", "We cannot deploy until the tests pass.", "I cannot see earlier turns, but here is the summary.\n## Done\nTwo tests fixed."]) {
+  for (const text of ["Done.", "OK", "Nothing to summarise.", "See above."]) {
+    if (named(text) !== "empty_summary") E("PX-11", `a draft that summarises nothing was installed: ${text}`);
+  }
+  if (codeOf(() => land("a".repeat(20))) !== "ok" || codeOf(() => land("a".repeat(19))) !== "CONTEXT_SUMMARY_REFUSED" || codeOf(() => land(`${"a ".repeat(19)}a`)) !== "ok") E("PX-11", "the shortest summary is not at its boundary");
+  if (codeOf(() => land("I cannot find the file named in the plan.")) !== "ok") E("PX-11", "a longer first-person account was refused");
+  for (const shape of ["PASS=12", "AUTH=none", "PRIMARY_KEY=id", "TOKEN_LIMIT=4096", "the Authorization: header", "password: hunter2"]) {
+    if (codeOf(() => land(`The run set out ${shape} in its notes for later.`)) !== "ok") E("PX-11", `honest text was read as a credential: ${shape}`);
+  }
+  for (const text of ["The tests ran. The vendor said it cannot help until Monday.", "We cannot deploy until the tests pass.", "I could not run the tests because the disk was full.", "I cannot see earlier turns, but here is the summary.\n## Done\nTwo tests fixed."]) {
     if (codeOf(() => land(text)) !== "ok") E("PX-11", `an honest summary was refused: ${text}`);
   }
   const key = `sk-${"abcd1234".repeat(3)}`;
   if (named(`The key is ${key} for later.`) !== "credential_shape") E("PX-11", "a secret survived into a summary");
+  const webToken = `eyJ${"a1".repeat(10)}.${"b2".repeat(4)}.${"c3".repeat(4)}`;
+  if (named(`The notes held ${webToken} and little else.`) !== "credential_shape") E("PX-11", "a JWT survived into a summary");
+  const blockLine = (edge) => `-----${edge} RSA PRIVATE ${"KEY"}-----`;
+  if (named(`The notes held ${blockLine("BEGIN")}\nabc\n${blockLine("END")} and little else.`) !== "credential_shape") E("PX-11", "a key block survived into a summary");
   if (named(`Bad ${String.fromCharCode(0xd83d)} text.`) !== "lone_surrogate") E("PX-11", "a broken character was admitted");
   const warned = `Watch this ${String.fromCodePoint(0x26a0, 0xfe0f)} carefully.\r\nSecond line.`;
   if (quiet(() => land(warned).value.thread.summary.text) !== `Watch this ${String.fromCodePoint(0x26a0)} carefully.\nSecond line.`) E("PX-11", "a warning sign or a Windows line was refused, or stored unclean");
@@ -690,6 +712,12 @@ function screenProblems(m, k, E) {
   const hidden = sourceInput(`Fine.${ZW}${String.fromCodePoint(0x1b)}[8m ${String.fromCharCode(0xd83d)} end`);
   if (hidden.includes(ZW) || hidden.includes(String.fromCodePoint(0x1b)) || hidden.includes(String.fromCharCode(0xd83d))) E("PX-11", "a hidden character reached the summariser");
   if (!sourceInput("line one\n\tline two").includes("line one\n\tline two")) E("PX-11", "ordinary text was changed for the summariser");
+  for (const text of ["password: hunter2", '{"api_key":"hunter2"}', "postgres://bob:hunter2@db.test/app", "https://bob:hunter2@host.test/x"]) {
+    if (sourceInput(text).includes("hunter2")) E("PX-11", `a secret reached the summariser: ${text}`);
+  }
+  if (m.redactSecrets('db_password: "a b"') !== "db_password: [REDACTED]" || m.redactSecrets("client_secret_key: abc") !== "client_secret_key: [REDACTED]" || m.redactSecrets("API Key: abc") !== "API Key: [REDACTED]") E("PX-11", "a configured secret was not redacted");
+  if (m.redactSecrets('{"api_key":"abc","name":"x"}') !== '{"api_key":"[REDACTED]","name":"x"}') E("PX-11", "a JSON secret was not redacted");
+  if (m.redactSecrets("postgres://bob:hunter2@db.test/app") !== "postgres://bob:[REDACTED]@db.test/app") E("PX-11", "a URL password was not redacted");
   const secrets = [
     [`sk-${"a1".repeat(12)}`, "before [REDACTED] after"],
     [`ghp_${"a1".repeat(12)}`, "before [REDACTED] after"],
@@ -706,8 +734,9 @@ function screenProblems(m, k, E) {
   // Built up, so the secrets validator does not take a fixture for a key.
   const keyLine = (edge) => `-----${edge} RSA PRIVATE ${"KEY"}-----`;
   if (m.redactSecrets(`${keyLine("BEGIN")}\nabc\n${keyLine("END")}`) !== "[REDACTED]") E("PX-11", "a private key was not redacted");
-  const plain = "task-management and KEYBOARD=qwerty and the token count";
-  if (m.redactSecrets(plain) !== plain) E("PX-11", "ordinary words were redacted");
+  for (const text of ["task-management and KEYBOARD=qwerty and the token count", "Secretary: J. Smith, tokenizer: cl100k, nonsecret: yes, https://a.test:8080/p@v2"]) {
+    if (m.redactSecrets(text) !== text) E("PX-11", `ordinary words were redacted: ${text}`);
+  }
 }
 
 function provenanceProblems(m, k, E) {
@@ -762,13 +791,14 @@ function provenanceProblems(m, k, E) {
     return m.applyCompaction(held, account, draftFor(held, SUMMARY, over));
   });
   const forgedDrafts = [
-    { summarisedBy: "a model\n" }, { summarisedBy: "owner" }, { summarisedBy: "Owner" }, { summarisedBy: "kernel" }, { summarisedBy: "system" },
+    { summarisedBy: "a model\n" }, { summarisedBy: "owner" }, { summarisedBy: "kernel" }, { summarisedBy: "system" }, { summarisedBy: "user" }, { summarisedBy: "owner-approved" }, { summarisedBy: "Summary-Model" },
     { session: "" }, { at: "yesterday" }, { at: "9999-99-99T00:00:00Z" }, { at: "2026-13-01T00:00:00Z" }, { at: "2026-02-30T00:00:00Z" }, { at: "2026-11-01T25:00:00Z" }, { at: "2026-11-01T10:61:00Z" },
   ];
   for (const over of forgedDrafts) {
     if (draft(over) !== "CONTEXT_DRAFT_INVALID") E("PX-12", `a draft with ${JSON.stringify(over)} was accepted`);
   }
-  for (const over of [{ summarisedBy: "owner-summary-model" }, { at: "2028-02-29T23:59:59.5Z" }]) {
+  if (m.SUMMARISER_KINDS.join() !== "summary-model,agent-model") E("PX-12", "the kernel's list of summarisers moved");
+  for (const over of [...m.SUMMARISER_KINDS.map((summarisedBy) => ({ summarisedBy })), { at: "2028-02-29T23:59:59.5Z" }]) {
     if (draft(over) !== "ok") E("PX-12", `a draft with ${JSON.stringify(over)} was refused`);
   }
   if (must(m.checkContextThread(thread)) !== thread) E("PX-12", "a whole thread was not returned as itself");
@@ -1009,6 +1039,12 @@ const MUTATIONS = [
   M("zero-reading-accepted", "PX-4", ACCOUNTING, " || usage.promptTokens === 0 ||", " ||"),
   M("reading-with-no-estimate-accepted", "PX-4", ACCOUNTING, " || !isWholeCount(usage.estimatedTokens)", GONE),
   M("refused-plan-does-not-strike", "PX-4", ACCOUNTING, "ineffectiveStrikes: held.value.ineffectiveStrikes + 1", "ineffectiveStrikes: held.value.ineffectiveStrikes"),
+  M("every-refusal-strikes", "PX-4", ACCOUNTING, "  if (!STRIKING_REFUSALS.includes(code)) return contextOk(accounts);\n", GONE),
+  M("refused-summary-does-not-strike", "PX-4", ACCOUNTING, "['CONTEXT_SUMMARY_REFUSED', 'CONTEXT_SUMMARY_OVER_BUDGET', 'CONTEXT_NOT_SMALLER']", "['CONTEXT_SUMMARY_OVER_BUDGET', 'CONTEXT_NOT_SMALLER']"),
+  M("over-budget-does-not-strike", "PX-4", ACCOUNTING, "['CONTEXT_SUMMARY_REFUSED', 'CONTEXT_SUMMARY_OVER_BUDGET', 'CONTEXT_NOT_SMALLER']", "['CONTEXT_SUMMARY_REFUSED', 'CONTEXT_NOT_SMALLER']"),
+  M("not-smaller-does-not-strike", "PX-4", ACCOUNTING, "['CONTEXT_SUMMARY_REFUSED', 'CONTEXT_SUMMARY_OVER_BUDGET', 'CONTEXT_NOT_SMALLER']", "['CONTEXT_SUMMARY_REFUSED', 'CONTEXT_SUMMARY_OVER_BUDGET']"),
+  M("stale-plan-strikes", "PX-4", ACCOUNTING, "'CONTEXT_NOT_SMALLER'];", "'CONTEXT_NOT_SMALLER', 'CONTEXT_PLAN_STALE'];"),
+  M("nothing-to-compact-strikes", "PX-4", ACCOUNTING, "'CONTEXT_NOT_SMALLER'];", "'CONTEXT_NOT_SMALLER', 'CONTEXT_NOTHING_TO_COMPACT'];"),
   M("refusal-changes-the-map-given", "PX-4", ACCOUNTING, "return contextOk(new Map(accounts).set(agentId, { ...held.value, ineffectiveStrikes", "return contextOk((accounts as Map<string, AgentContextAccount>).set(agentId, { ...held.value, ineffectiveStrikes"),
   // PX-5
   M("head-summarised", "PX-5", WINDOW, "return first < 0 ? turns.length : first;", "return 0;", ["PX-8", "PX-10", "PX-12"]),
@@ -1126,8 +1162,17 @@ const MUTATIONS = [
   M("blank-draft-admitted", "PX-11", COMPACTION, "  if (text.trim() === '') return contextRefused('CONTEXT_DRAFT_INVALID', 'A draft must hold text.');\n", GONE),
   M("draft-of-no-text-admitted", "PX-11", COMPACTION, "  if (typeof draft.text !== 'string') return contextRefused('CONTEXT_DRAFT_INVALID', 'A draft must hold text.');\n", GONE),
   M("model-refusal-installed", "PX-11", SCREEN, "  if (isModelRefusal(text)) return refuse('That is a refusal, not a summary. The turns stay.', 'model_refusal');\n", GONE),
-  M("headed-summary-called-a-refusal", "PX-11", SCREEN, " && !HEADING.test(text)", GONE),
-  M("any-refusal-opener-refused", "PX-11", SCREEN, " && REFUSAL_SUBJECT.test(flat.slice(0, OPENER_CHARS))", GONE),
+  M("headed-summary-called-a-refusal", "PX-11", SCREEN, " || HEADING.test(text)", GONE),
+  M("any-refusal-opener-refused", "PX-11", SCREEN, "return bare || REFUSAL_SUBJECT.test(flat.slice(0, OPENER_CHARS));", "return true;"),
+  M("bare-refusal-installed", "PX-11", SCREEN, "return bare || REFUSAL_SUBJECT", "return REFUSAL_SUBJECT"),
+  M("any-short-opener-called-bare", "PX-11", SCREEN, "FIRST_PERSON.test(flat.trim()) && ", GONE),
+  M("bare-length-raised", "PX-11", SCREEN, "BARE_REFUSAL_CHARS = 40", "BARE_REFUSAL_CHARS = 60"),
+  M("bare-length-lowered", "PX-11", SCREEN, "BARE_REFUSAL_CHARS = 40", "BARE_REFUSAL_CHARS = 20"),
+  M("empty-summary-installed", "PX-11", SCREEN, "  if (text.replace(/\\s/g, '').length < MIN_SUMMARY_CHARS) return refuse('That is too short to stand in for the turns it would replace. The turns stay.', 'empty_summary');\n", GONE),
+  M("shortest-summary-raised", "PX-11", SCREEN, "MIN_SUMMARY_CHARS = 20", "MIN_SUMMARY_CHARS = 21"),
+  M("shortest-summary-lowered", "PX-11", SCREEN, "MIN_SUMMARY_CHARS = 20", "MIN_SUMMARY_CHARS = 19"),
+  M("spaces-counted-as-text", "PX-11", SCREEN, "text.replace(/\\s/g, '').length", "text.length"),
+  M("assignments-judge-a-draft", "PX-11", REDACT, "return redactShapes(text) !== text;", "return redactSecrets(text) !== text;"),
   M("secret-survives-into-the-summary", "PX-11", SCREEN, "  if (holdsSecretShape(text)) return refuse('That text holds the shape of a credential, and a summary replays into every later turn.', 'credential_shape');\n", GONE),
   M("broken-character-admitted", "PX-11", SCREEN, "  if (LONE_SURROGATE.test(text)) return refuse('That text holds a broken character, so it was not read intact.', 'lone_surrogate');\n", GONE),
   M("windows-lines-not-folded", "PX-11", SCREEN, "return foldMemoryLines(text).replace(EMOJI_VARIATION, '');", "return text.replace(EMOJI_VARIATION, '');"),
@@ -1137,11 +1182,16 @@ const MUTATIONS = [
   M("hidden-kept-for-the-summariser", "PX-11", REDACT, "redactSecrets(foldMemoryLines(text).replace(HIDDEN, ''))", "redactSecrets(foldMemoryLines(text))"),
   M("hidden-removed-after-redaction", "PX-11", REDACT, "redactSecrets(foldMemoryLines(text).replace(HIDDEN, ''))", "redactSecrets(foldMemoryLines(text)).replace(HIDDEN, '')"),
   M("secrets-kept-for-the-summariser", "PX-11", REDACT, "return redactSecrets(foldMemoryLines(text).replace(HIDDEN, ''));", "return foldMemoryLines(text).replace(HIDDEN, '');"),
-  M("private-keys-kept", "PX-11", REDACT, "    .replace(PRIVATE_KEY, REDACTED)\n", GONE),
+  M("private-keys-kept", "PX-11", REDACT, ".replace(PRIVATE_KEY, REDACTED)", GONE),
   M("auth-headers-kept", "PX-11", REDACT, "    .replace(AUTH_HEADER, `$1$2${REDACTED}`)\n", GONE),
   M("assigned-secrets-kept", "PX-11", REDACT, "    .replace(ASSIGNED, `$1${REDACTED}`)\n", GONE),
-  M("jwts-kept", "PX-11", REDACT, "    .replace(JWT, REDACTED)\n", GONE),
-  M("prefixed-keys-kept", "PX-11", REDACT, "    .replace(PREFIXED, REDACTED);\n", ";\n"),
+  M("jwts-kept", "PX-11", REDACT, ".replace(JWT, REDACTED)", GONE),
+  M("prefixed-keys-kept", "PX-11", REDACT, ".replace(PREFIXED, REDACTED)", GONE),
+  M("configured-values-kept", "PX-11", REDACT, "    .replace(CONFIGURED, `$1${REDACTED}`)\n", GONE),
+  M("json-fields-kept", "PX-11", REDACT, "    .replace(JSON_FIELD, `$1\"${REDACTED}\"`)\n", GONE),
+  M("url-passwords-kept", "PX-11", REDACT, "\n    .replace(URL_PASSWORD, `$1${REDACTED}@`);", ";"),
+  M("words-ending-in-a-name-redacted", "PX-11", REDACT, "/(?<![A-Za-z])((?:password", "/((?:password"),
+  M("prefixed-config-names-kept", "PX-11", REDACT, "(?:[_.-][A-Za-z0-9_.-]*)?\\s*:\\s*)", "\\s*:\\s*)"),
   M("words-inside-words-redacted", "PX-11", REDACT, "`(?<![A-Za-z0-9_-])(?:${SECRET_PREFIXES.join('|')})`", "`(?:${SECRET_PREFIXES.join('|')})`"),
   M("names-inside-words-redacted", "PX-11", REDACT, "(?:${SECRET_NAMES})(?:_[A-Z0-9_]{0,50})?", "(?:${SECRET_NAMES})[A-Z0-9_]{0,50}"),
   M("quoted-value-cut-short", "PX-11", REDACT, String.raw`(?:"[^"\n]*"|'[^'\n]*'|\S+)`, String.raw`\S+`),
@@ -1157,9 +1207,11 @@ const MUTATIONS = [
   M("record-with-no-summary-held", "PX-12", THREAD, "if (thread.summary === null || thread.summary.compactionId !== last.id) return refuse('its summary is not the one recorded');", "if (thread.summary === null) return null;\n  if (thread.summary.compactionId !== last.id) return refuse('its summary is not the one recorded');"),
   M("summary-not-tied-to-its-record", "PX-12", THREAD, " || thread.summary.compactionId !== last.id", GONE),
   M("summary-text-not-pinned", "PX-12", THREAD, "return memoryEntryHash(thread.summary.text) === last.summaryHash ? null : refuse('its summary text changed after the record');", "return null;"),
-  M("who-not-required", "PX-12", PROVENANCE, "  if (!isContextLabel(fields.summarisedBy) || NOT_A_SUMMARISER.includes(fields.summarisedBy.toLowerCase())) return 'which model summarised it';\n", GONE),
-  M("owner-can-summarise", "PX-12", PROVENANCE, " || NOT_A_SUMMARISER.includes(fields.summarisedBy.toLowerCase())", GONE),
-  M("case-escapes-the-name", "PX-12", PROVENANCE, "fields.summarisedBy.toLowerCase()", "fields.summarisedBy"),
+  M("who-not-required", "PX-12", PROVENANCE, "  if (!SUMMARISER_KINDS.some((kind) => kind === fields.summarisedBy)) return 'a known kind of summariser';\n", GONE),
+  M("owner-is-a-summariser", "PX-12", PROVENANCE, "['summary-model', 'agent-model'] as const", "['summary-model', 'agent-model', 'owner'] as const"),
+  M("owner-approved-is-a-summariser", "PX-12", PROVENANCE, "['summary-model', 'agent-model'] as const", "['summary-model', 'agent-model', 'owner-approved'] as const"),
+  M("summariser-name-folded", "PX-12", PROVENANCE, "kind === fields.summarisedBy", "kind === String(fields.summarisedBy).toLowerCase()"),
+  M("a-known-kind-refused", "PX-12", PROVENANCE, "['summary-model', 'agent-model'] as const", "['summary-model'] as const"),
   M("session-not-required", "PX-12", PROVENANCE, "  if (!isContextLabel(fields.session)) return 'a session';\n", GONE),
   M("time-not-required", "PX-12", PROVENANCE, "  if (!isRealInstant(fields.at)) return 'a real time';\n", GONE),
   M("impossible-day-admitted", "PX-12", PROVENANCE, "return day <= (Date.UTC(year, month, 1) - Date.UTC(year, month - 1, 1)) / DAY_MS;", "return day > 0;"),
