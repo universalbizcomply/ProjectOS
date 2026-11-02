@@ -188,7 +188,7 @@
       "ownerOnlyAction": null,
       "class": "P5",
       "environment": "local",
-      "note": "Stage 2 envelope boundary: the vault releasing a secret for one operation, a root envelope from mintCrossing, tied to its run. P5, and OPEN: session release has no owner step today, so its grant source is for the owner to decide at PROJECTOS-TENANT-CREDENTIALS1A (ADR-T1 section 6)."
+      "note": "Stage 2 envelope boundary: the vault releasing a secret for one operation, a root envelope tied to its run. P5. The grant for an operation release is a committed credential-release grant in the installation, naming the phase, the project, the exact references, the action and an expiry; a gatekeeper secrets-handling gate is not one, and until a grant exists operation release fails closed. Creating a grant is an owner act. Session auto-load has no owner step and is kept for a project's own project-reach credential. This prevents accidents on the kernel's routes: only provider-side scope, expiry and revocation are real boundaries until Stage 4 (ADR-T1 sections 6 and 10)."
     },
     {
       "id": "broker-call",

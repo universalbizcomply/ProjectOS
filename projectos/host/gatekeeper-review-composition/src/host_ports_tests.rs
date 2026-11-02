@@ -348,6 +348,15 @@ fn the_real_broker_accepts_the_host_authored_request_up_to_its_credential_stage(
         )
         .as_bytes(),
     );
+    // The broker has its own tenant check, so this project needs its line in the committed registry.
+    write(
+        "projectos/security/tenant-registry.json",
+        format!(
+            r#"{{"schemaVersion":"1.0.0","policy":"tenant-registry","tenants":[{{"tenantId":"owner-personal"}}],"projects":[{{"projectId":"{PROJECT}","repository":"github.com/local/fixture","governedRoot":"{}","tenant":"owner-personal","domain":"develop"}}]}}"#,
+            unix(&install)
+        )
+        .as_bytes(),
+    );
     write(
         &format!(".projectops/gates/{PHASE}.secrets-handling.json"),
         format!(r#"{{"gateName":"secrets-handling","phaseId":"{PHASE}","ownerChoice":"APPROVE"}}"#).as_bytes(),

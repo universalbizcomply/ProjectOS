@@ -22,6 +22,13 @@
 //! hand the value to its own PowerShell child, chosen there for the same reason: unlike argv it does
 //! not appear in a process listing.
 //!
+//! ## What the owner is told
+//!
+//! The router's own refusal, one line of it, because "it may already exist" is a guess and the owner
+//! cannot act on a guess. Since PROJECTOS-TENANT-CREDENTIALS1A this route is refused by name: it has no
+//! terminal and no run handle, so storing a credential needs a real terminal, and that sentence reaches
+//! the screen. See `refusal_sentence` for what stands between the router's output and the owner.
+//!
 //! ## What this does NOT do
 //!
 //! It creates no second credential system. It validates a reference, resolves the existing router
@@ -104,9 +111,8 @@ fn router_path(install_dir: &Path, governed_root: Option<&Path>) -> Option<PathB
 /// command would do that on the thread running the event loop.
 ///
 /// Returns a short non-secret token. Every error is a sentence the owner can act on; none carries
-/// the value, a fingerprint of it, or the router's raw output — the router writes nothing sensitive
-/// to stdout, but this does not forward it regardless, because a failure message is exactly where an
-/// unexpected echo would surface.
+/// the value or a fingerprint of it. The router's stdout is never read, because a failure message is
+/// exactly where an unexpected echo would surface, and its refusal comes through `refusal_sentence`.
 #[tauri::command(async)]
 pub fn set_credential(reference: String, value: String, replace: bool) -> Result<String, String> {
     if !is_valid_reference(&reference) {
@@ -177,24 +183,81 @@ pub fn set_credential(reference: String, value: String, replace: bool) -> Result
         .env("PROJECTOS_CREDENTIAL_VALUE", &value)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
     if replace {
         command.arg("--replace");
     }
 
-    let status = command.status().map_err(|_| {
+    let output = command.output().map_err(|_| {
         "ProjectOS could not run its credential tool, so nothing was stored.".to_string()
     })?;
 
-    match status.code() {
+    match output.status.code() {
         Some(0) => Ok(if replace { "REPLACED" } else { "STORED" }.to_string()),
-        // The router refuses an existing reference unless --replace was asked for. That is a real
-        // answer, not a fault, and the owner can act on it.
-        Some(_) => Err("ProjectOS did not store that credential. It may already exist — choose \
-                        Replace to overwrite it — or the name may not be valid for this project."
-            .to_string()),
+        // A refusal is a real answer, not a fault, and the owner can only act on the real one.
+        Some(_) => Err(refusal_sentence(&String::from_utf8_lossy(&output.stderr), &value)),
         None => Err("The credential tool stopped unexpectedly, so ProjectOS cannot confirm \
                      whether anything was stored."
             .to_string()),
+    }
+}
+
+/// The longest refusal shown. The router's sentences are short; anything longer is not one of them.
+const REFUSAL_MAX_CHARS: usize = 400;
+
+/// What the owner is told when the router refuses: its first line of stderr, as a sentence.
+///
+/// The router puts no value in an error, and this does not rely on that. A line holding the value,
+/// or nothing usable, gives the fixed sentence instead. Controls become spaces, so a line cannot
+/// forge a second one, and the length is bounded.
+fn refusal_sentence(stderr: &str, value: &str) -> String {
+    const NOTHING_STORED: &str = "ProjectOS did not store that credential, and the credential tool \
+                                  gave no reason it could show.";
+    let Some(line) = stderr.lines().map(str::trim).find(|line| !line.is_empty()) else {
+        return NOTHING_STORED.to_string();
+    };
+    if !value.is_empty() && line.contains(value) {
+        return NOTHING_STORED.to_string();
+    }
+    let shown: String = line
+        .chars()
+        .take(REFUSAL_MAX_CHARS)
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    format!("ProjectOS did not store that credential. {shown}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::refusal_sentence;
+
+    #[test]
+    fn shows_the_real_refusal() {
+        let said = refusal_sentence(
+            "REQUESTER_REQUIRED: this needs a real terminal\n    at main\n",
+            "synthetic-value",
+        );
+        assert_eq!(
+            said,
+            "ProjectOS did not store that credential. REQUESTER_REQUIRED: this needs a real terminal"
+        );
+    }
+
+    #[test]
+    fn never_repeats_the_value() {
+        let said = refusal_sentence("refused synthetic-value here", "synthetic-value");
+        assert!(!said.contains("synthetic-value"));
+    }
+
+    #[test]
+    fn says_so_when_there_is_no_reason() {
+        assert!(refusal_sentence("  \n\n", "synthetic-value").contains("gave no reason"));
+    }
+
+    #[test]
+    fn a_line_cannot_forge_another_or_run_on() {
+        let said = refusal_sentence(&format!("a\u{7}b{}", "x".repeat(5000)), "synthetic-value");
+        assert!(!said.chars().any(char::is_control));
+        assert!(said.chars().count() < 500);
     }
 }

@@ -162,6 +162,24 @@ scope was not confirmed live.
 release has no owner step today, so nothing can yet answer the door's grant port for it. A P5 grant source
 for it must be decided there. This ADR does not invent one.
 
+**Decided at that phase's review, 2026-11-02, for the owner to overrule.** The first decision, that a phase's
+`secrets-handling` gate is the grant, is **withdrawn**: those records are scoped to the gatekeeper key, and
+reading one released a production credential to anyone who named the phase. Now:
+
+- **An operation release needs a committed `credential-release` grant,** at
+  `projectos/security/credential-grants/<PHASE>.credential-release.json` in the installation, read from committed
+  bytes. It has exactly these fields: `schemaVersion` `1.0.0`, `kind` `credential-release-grant`, `phaseId`,
+  `projectId`, `references` (exact), `action`, `expiresAt` (`toISOString` form) and `grantedBy`. A record for another
+  phase, project, credential or action, a stale date or a missing or extra field releases nothing. A gatekeeper gate
+  and a tenant receipt are never grants. It lives in the installation because a project's work can write its own
+  repository (F8). **None exists yet, so operation release fails closed. Creating one is an owner act.**
+- **Session auto-load has no owner step,** so it takes only a project-class credential, for its own project in its
+  own tenant, declared with project reach, from a run that is more than a linked worktree, recorded through an
+  envelope.
+- **The gatekeeper key serves every tenant through the broker and is released to none.**
+- **Reach and expiry are asked in the vault on both paths.** A new value clears the declaration. A Supabase personal
+  access token is account-wide whatever it declares, so it is operation-class and no session profile offers it.
+
 ## 7. The database, the owner and the service role
 
 - **The database boundary holds for clients.** RLS and table grants stop a signed-in or anonymous
@@ -250,6 +268,11 @@ ADR-K1 §3 true.
   That was the check this ADR started from, and PROJECTOS-TENANT-PRINCIPAL1A replaced it with a receipt.
 - **A receipt proves a console confirmation and nothing more** (§3). A process that drives a console, or writes the
   receipt and its line directly, is not stopped. The file lives outside every repository, so a forgery is not a diff.
+- **Only provider-side scope, expiry and revocation are real boundaries.** Everything the kernel does with a
+  credential, the requester, the classes, the declared reach, the grant and `via: console`, prevents accidents on its
+  own routes until Stage 4. Under one Windows user each is a record a process can read or write, and `via: console`
+  is a label. Stage 4 owes mandatory expiry, an owner and a revocation path per credential, and service custody.
+  `credentials status` still lists every tenant's reference names and fingerprints, accepted under D4.
 - **cwd selects the checkout** (§1). No piece of work is bound to one tenant yet. **BINDING on
   PROJECTOS-TENANT-CREDENTIALS1A:** the requester is a kernel-issued run handle that survives process boundaries, never
   cwd; worktree binding alone releases nothing; a receipt is never a credential-release grant; no JWT or OAuth
