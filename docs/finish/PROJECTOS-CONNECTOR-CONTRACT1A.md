@@ -4,8 +4,8 @@
 now, connectors later (Recommended)".
 **Branch:** `projectos-connector-contract1a`, worktree `C:/dev/ProjectOS-worktrees/connector-contract1a`.
 Not pushed, not merged, phase not closed, no phase record created. `docs/06_Plan.md` is the lead's.
-**State:** implementation complete at `33763d70`, reviewed, and this round answers both reviews. The fix round has
-not been re-reviewed.
+**State:** implementation complete. Reviewed at `33763d70`, rechecked at `bc740e99`, and this last round answers the
+recheck. No further review: the lead reads this diff.
 
 ## Delivered
 
@@ -15,8 +15,8 @@ not been re-reviewed.
 | `projectos/core/src/index.ts` | One barrel line |
 | `projectos/connectors/registry.json` | Empty and schema-valid: zero live connectors |
 | `projectos/schemas/connector-registry.schema.json` | Draft-07 schema; its patterns are the code's regexes, and the validator runs it |
-| `projectos/core/test/connector-contract.test.ts` | 296 behavioural tests |
-| `projectos/validators/val-projectos-connector-contract1a.cjs` | 37 rules, 283 named mutations, registered in `validate-all` and `cached-runner` |
+| `projectos/core/test/connector-contract.test.ts` | 306 behavioural tests |
+| `projectos/validators/val-projectos-connector-contract1a.cjs` | 38 rules, 293 named mutations, registered in `validate-all` and `cached-runner` |
 
 ## Acceptance criteria
 
@@ -52,7 +52,8 @@ not been re-reviewed.
 
 - **ECC SECURITY, at `33763d70`:** APPROVE WITH CHANGES, no CRITICAL. 2 HIGH, 4 MEDIUM, 4 LOW.
 - **ECC CODE, at `33763d70`:** APPROVE WITH CHANGES, no CRITICAL.
-- **This round was not re-reviewed.** Both reports are as relayed by the lead; this file does not hold them.
+- **ECC SECURITY recheck, at `bc740e99`:** APPROVE WITH CHANGES. Both HIGHs fixed, no new forgery. 1 MEDIUM and 2 further items, below.
+- **The lead reads the last round's diff; it had no further review.** All three reports are as relayed by the lead; this file does not hold them.
 
 | Finding | Disposition |
 |---|---|
@@ -66,20 +67,24 @@ not been re-reviewed.
 | SECURITY LOW, class at the gate | Fixed. A read-only connector whose action moved from P1 to P3 is refused. CC-12 |
 | SECURITY LOW, long run in evidence | Fixed. CC-4, CC-15 |
 | SECURITY LOW, duplicates | Fixed. `RETRY_ALREADY_COMPLETED` carries `earlier`, from `decideConnectorRetry` and the gate, per ADR-K1 §2. CC-35 |
-| CODE, `instantOf` copy | **Not done as instructed.** The import was made, and it fails a registered validator: AP-29 in `val-projectos-port-approvals1a` names `approvals/instant` in `WIRED_NAMES` (line 109), and that file is outside this phase's grant. The check stays private, inside `readInstant`, as `taskEnvelope.ts` already does. See "Open for the lead" |
+| CODE, `instantOf` copy | **Not done as instructed.** The import was made, and it fails a registered validator: AP-29 in `val-projectos-port-approvals1a` names `approvals/instant` in `WIRED_NAMES` (line 109), and that file is outside this phase's grant. The check stays private, inside `readInstant`, as `taskEnvelope.ts` already does. See "Carried to the Stage 5 first-connector phase" |
 | CODE, repeated values | Fixed. Those refusals name a position. CC-37 |
 | CODE, schema and code disagree | Fixed. Dates past four year digits are refused by the code, and whitespace prose and credential-shaped evidence and last segments by the schema. CC-26 runs each through both |
 | CODE, weak tests | Fixed. The near-miss test now asserts the exact code. The key test tested `taskEnvelope`, so it was replaced by a real rule here: a history line of another tenant under this key fails closed at the gate. The tally test now asserts which scenarios carry a proof |
 | CODE, unused exports | `SCENARIO_STATUSES` removed. `CONNECTOR_OUTCOMES` had one internal consumer, so it is now a private list. `CONNECTOR_IDEMPOTENCY` kept |
-| CODE, size | 794 lines, by trimming only. Not split |
+| CODE, size | 800 lines, by trimming only. Not split |
 
-## Open for the lead
+**The recheck:**
 
-**`instantOf` is still a private copy.** To finish it: drop `|instant` from `WIRED_NAMES` at `val-projectos-port-approvals1a.cjs:109`, a one-word edit, because `instant.ts` is a date parser and not an approval rule. Then import it in `connectorContract.ts` and add it to `LOADED` and `PURE_IMPORTS` in this phase's validator. That needs a grant on that validator. Behaviour would not change.
+| Finding | Disposition |
+|---|---|
+| MEDIUM, `connectorContract.ts:712,716`: registered as P2, an implementer-principal envelope reconciles itself | Fixed. The registered action must be P3 or higher, as a floor in code (`RECONCILE_CLASS_TOO_LOW`). The envelope's own class must also equal the registry's, so one minted under a lower registry cannot present a higher one. CC-31 |
+| `:359`: a forged tenant registry refused as a door refusal | Fixed. `parseConnectorRegistry` asks first, and refuses the whole file as `CONNECTOR_TENANT_REGISTRY_INVALID`, "the tenant registry did not pass whole-file validation", with an empty `connectors` list too. CC-38 |
+| `:126`: `aaaaaaaaaaaa--bbbbbbbbbbbb--cccccccccccc` passed as a last segment, and a UUID as a provider | Fixed. The split rule takes any run of separators and reads the provider and credential segments, because the provider is not a closed name. CC-5, CC-26 |
 
 ## Reconciliation fails closed today
 
-`CONNECTOR_RECONCILE_ACTION` is `connector-reconcile`. `action-registry.json` is outside this phase, so nothing registers it, and `reconcileConnectorOutcome` refuses every call as `RECONCILE_ACTION_UNREGISTERED` until the first connector phase does. The tests inject a registry that has it. So, on the committed records, **an `outcome_unknown` cannot be cleared by anyone today.** That is safe with zero live connectors.
+`CONNECTOR_RECONCILE_ACTION` is `connector-reconcile`. `action-registry.json` is outside this phase, so nothing registers it, and `reconcileConnectorOutcome` refuses every call as `RECONCILE_ACTION_UNREGISTERED` until the first connector phase does, at P3 or higher. Below that it refuses as `RECONCILE_CLASS_TOO_LOW`. The tests inject a registry that has it at P3. So, on the committed records, **an `outcome_unknown` cannot be cleared by anyone today.** That is safe with zero live connectors.
 
 ## Decisions for the lead to challenge
 
@@ -102,9 +107,20 @@ not been re-reviewed.
 | No backoff floor. A rate-limited key may retry as soon as a caller asks, up to the attempt ceiling | Provider broker phase | Stage 4 |
 | A new intent scope starts a new count, for attempts and for the unknown stop | Whoever wires `intentScope`, at the call sites | Stage 4 |
 | `now` is supplied by the caller. A caller that lies about it passes the staleness and expiry checks | Kernel call sites | Stage 4 |
-| A forged `TenantRegistry` is not detected as such here | Kernel reader, PRINCIPAL1A's | Stage 2, then Stage 5 |
 
-**One note on the last row.** The door probe needs a live binding, so a forged tenant registry now has every connector action refused as a side effect (`TENANT_REGISTRY_INVALID`, by way of `doorRefusal`). An empty `connectors` list is still accepted against one, so there is no check to rely on, and the decision stands.
+**Superseded in the last round.** The lead recorded "a forged `TenantRegistry` is not detected here". The recheck then asked for it to be refused in plain words, so it now is, by CC-38. The kernel reader still owns reading the real one.
+
+## Carried to the Stage 5 first-connector phase
+
+Line numbers are as at `bc740e99`.
+
+| Item | Owner | Stage |
+|---|---|---|
+| **An in-flight attempt can be reconciled,** after which a late genuine receipt fails closed as `RETRY_HISTORY_INVALID` (`connectorContract.ts:721`). Fail-closed, and it stops that key until someone repairs the history | First connector phase, with the ledger | Stage 5 |
+| **`provider:` pointers are shape-only,** and a real provider id of 24 or more alphanumerics, or containing `=`, is refused (`:503`, `:128`, `:257`). Each connector must declare its id shape | First connector phase | Stage 5 |
+| **P2 governance actions `run-start`, `rollback` and `implement` still register** (`:335`). The door admits them. To be closed by the `connector-registry-change` work | First connector phase | Stage 5 |
+| **`instantOf` stays private,** because AP-29 bars the import. Fix `val-projectos-port-approvals1a.cjs:109` by dropping `|instant` from `WIRED_NAMES` when that validator is granted, then import it and add it to `LOADED` and `PURE_IMPORTS` | Whichever phase holds that validator's grant | Stage 5 |
+| **Only P1 and P2 actions can register,** so a sending connector needs a grant source first | Lead and owner, in the first sending connector's phase | Stage 5 |
 
 ## Mutations, by rule
 
@@ -116,7 +132,7 @@ Every mutation below fired exactly its declared rules.
 | CC-2 | a connector with no declared tenant is refused | 4 | `tenant-missing-not-named`, `tenant-blank-allowed`, `tenant-undeclared-allowed`, `tenant-optional` |
 | CC-3 | a connector with no secret reference is refused | 3 | `secret-missing-not-named`, `secret-blank-allowed`, `secret-optional` |
 | CC-4 | a connector with no passing release record is refused | 11 | `release-record-optional`, `release-missing-misnamed`, `release-never-judged`, `result-not-asked`, `result-truthy`, `checklist-not-asked`, `scenarios-not-asked`, `evidence-not-asked`, `exactly-allows-extras`, `exactly-allows-gaps`, `checklist-loses-an-item` |
-| CC-5 | a raw credential in the reference field is refused, and not repeated | 7 | `credential-shape-not-asked`, `raw-run-not-asked`, `split-run-not-asked`, `split-run-weakened`, `credential-falls-to-shape`, `credential-repeated-in-the-refusal`, `raw-run-weakened` |
+| CC-5 | a raw credential in the reference field is refused, and not repeated | 9 | `credential-shape-not-asked`, `raw-run-not-asked`, `split-run-not-asked`, `split-run-weakened`, `split-run-needs-single-separators`, `split-run-reads-only-the-last-segment`, `credential-falls-to-shape`, `credential-repeated-in-the-refusal`, `raw-run-weakened` |
 | CC-6 | a reference has the store's shape and the connector's own tenant | 7 | `reference-any-environment`, `reference-any-root`, `reference-any-shape`, `reference-any-tenant`, `reference-any-listed-project`, `reference-any-domain`, `reference-any-tenant-class` |
 | CC-7 | a release record binds its connector, version, tenant and date | 4 | `record-any-connector`, `record-any-version`, `record-any-tenant`, `record-any-date` |
 | CC-8 | acceptance is judged per connector against time handed in | 7 | `never-stale`, `stale-one-early`, `window-raised`, `future-date-allowed`, `unreadable-now-is-fresh`, `gate-skips-acceptance`, `lapse-refuses-the-whole-file` |
@@ -142,13 +158,14 @@ Every mutation below fired exactly its declared rules.
 | CC-28 | the proofs exist and run | 6 | `a-proof-skipped`, `a-proof-isolated`, `a-table-skipped`, `a-suite-skipped`, `a-proof-commented-out`, `a-proof-deleted` |
 | CC-29 | the committed registry passes the real reader | 3 | `registry-loses-its-policy`, `registry-loses-its-authority`, `registry-any-schema-version` |
 | CC-30 | a start with no valid receipt is outcome_unknown | 11 | `broken-history-judged-anyway`, `a-start-with-no-receipt-is-fine`, `a-superseded-start-is-forgotten`, `a-receipt-closes-any-attempt`, `a-receipt-closes-any-connector`, `a-start-may-come-in-any-order`, `admission-returns-no-start`, `the-start-names-the-wrong-attempt`, `the-start-is-not-frozen`, `a-start-line-any-field`, `a-start-line-any-envelope` |
-| CC-31 | a reconciliation answers one attempt, through an admitted envelope | 12 | `reconciliation-with-nothing-open-tolerated`, `a-copy-answers-again`, `another-connector-answers`, `reconcile-action-not-asked`, `reconcile-any-envelope`, `reconcile-after-expiry`, `reconcile-any-action`, `reconcile-any-tenant`, `reconciler-from-free-text`, `reconciler-names-no-envelope`, `newest-attempt-answered-first`, `reconcile-action-renamed` |
+| CC-31 | a reconciliation answers one attempt, through an admitted envelope | 15 | `reconciliation-with-nothing-open-tolerated`, `a-copy-answers-again`, `another-connector-answers`, `reconcile-action-not-asked`, `reconcile-any-class`, `reconcile-floor-lowered`, `reconcile-class-of-the-envelope-unread`, `reconcile-any-envelope`, `reconcile-after-expiry`, `reconcile-any-action`, `reconcile-any-tenant`, `reconciler-from-free-text`, `reconciler-names-no-envelope`, `newest-attempt-answered-first`, `reconcile-action-renamed` |
 | CC-32 | a stop reads the whole history | 1 | `a-stop-reads-only-the-last-line` |
 | CC-33 | a connector may hold only what the door allows it | 5 | `the-door-is-not-asked`, `the-door-answer-is-ignored`, `the-door-grants-everything`, `the-door-refusal-says-nothing`, `the-door-probe-always-refuses` |
 | CC-34 | a success points at its provider receipt | 3 | `a-success-needs-no-receipt`, `a-provider-receipt-may-point-anywhere`, `a-provider-receipt-may-be-any-text` |
 | CC-35 | a duplicate returns the earlier outcome | 3 | `a-duplicate-gets-a-bare-refusal`, `the-gate-drops-the-earlier-outcome`, `the-first-outcome-is-overwritten` |
 | CC-36 | everything is judged on a plain copy, and only that comes back | 3 | `the-receipt-is-judged-in-place`, `the-registry-is-judged-in-place`, `a-throwing-getter-escapes` |
 | CC-37 | no refusal repeats a value that could be a credential | 3 | `an-unregistered-action-is-repeated`, `a-read-only-action-is-repeated`, `a-repeated-id-is-repeated` |
+| CC-38 | a forged tenant registry is refused as one | 5 | `a-forged-tenant-registry-is-not-asked`, `a-forged-tenant-registry-reads-as-the-door`, `a-forged-tenant-registry-is-misnamed`, `a-shapeless-tenant-registry-throws`, `an-empty-tenant-registry-binds-nothing` |
 
 ## Corrections to the brief
 
@@ -177,24 +194,28 @@ Every mutation below fired exactly its declared rules.
 
 The validator's mutations prove the validator fires. So each mutation of `connectorContract.ts` was also applied to the real file, `connector-contract.test.ts` run, and the bytes restored and hash-checked.
 
-- **This round: 242 of 244 killed by a behavioural test.** The 2 survivors, `contract-imports-the-filesystem` and `contract-imports-dynamically`, alter no behaviour: purity is the validator's to catch, and CC-24 does. No test gap this round.
-- **Round one:** 188 of 199, then 197 of 199 once 9 real gaps in the test file were closed.
-- **The first sweep's log was truncated by another run,** because the scratchpad is shared across the session and my script names collided with others. That run's control failed and it wrote nothing, but only by luck: it would otherwise have captured mutated bytes as its original. This round ran from a directory named for this phase.
+- **Last round: 252 of 254 killed by a behavioural test.** The 2 survivors, `contract-imports-the-filesystem` and `contract-imports-dynamically`, alter no behaviour: purity is the validator's to catch, and CC-24 does.
+- **Round two:** 242 of 244. **Round one:** 188 of 199, then 197 of 199 once 9 real gaps in the test file were closed.
+- **The first sweep's log was truncated by another run,** because the scratchpad is shared across the session and my script names collided with others. That run's control failed and it wrote nothing, but only by luck: it would otherwise have captured mutated bytes as its original. Later rounds ran from a directory named for this phase.
+- **The exact-fire rule found two masked proofs in the last round.** The wider split rule answered for the raw-run rule, and the class check for the action check. Each now has a fixture only its own rule can refuse.
 
 ## Verification (run in this worktree)
 
 | Check | Command | Result |
 |---|---|---|
 | Core typecheck | `npx tsc -p tsconfig.json --noEmit` in `projectos/core` | 0 errors |
-| Full core suite | `npx vitest run` in `projectos/core` | 59 files, 2871 tests, all pass |
-| New tests | `test/connector-contract.test.ts` | 296 tests, all pass |
+| Full core suite | `npx vitest run` in `projectos/core` | 59 files, 2881 tests, all pass |
+| New tests | `test/connector-contract.test.ts` | 306 tests, all pass |
 | Fail-before, first build | Against a throwaway stub of the same API that accepts everything, at 215 tests | 195 failed, 20 passed |
-| Fail-before, this round | The new tests, 294, against the code at `33763d70` | 88 failed, 206 passed |
-| This phase's validator | `node projectos/validators/val-projectos-connector-contract1a.cjs` | PASS, 37 rules, 283 named mutations, each firing exactly its declared rules. 70 declare a second rule also true of the same change |
+| Fail-before, review round | The new tests, 294, against the code at `33763d70` | 88 failed, 206 passed |
+| Fail-before, recheck round | The new tests, 304, against the code at `bc740e99` | 8 failed, 296 passed |
+| This phase's validator | `node projectos/validators/val-projectos-connector-contract1a.cjs` | PASS, 38 rules, 293 named mutations, each firing exactly its declared rules. 72 declare a second rule also true of the same change |
 | No secrets | `validate-no-secrets` | PASS |
 | Readers of a touched file | 77 validators, each in its own process through `run()` | 75 PASS, 2 FAIL, neither from this phase (below) |
-| Size | `wc -l projectos/core/src/connectorContract.ts` | 794 lines |
+| Size | `wc -l projectos/core/src/connectorContract.ts` | 800 lines |
 | Ignored files | `git check-ignore` and `git ls-files` on all six new files | None ignored, all tracked |
+
+**A commit landed without its evidence.** `b962c50a` says this file lists the recheck. It does not: the evidence step failed in that command and the commit still ran, because `set -e` does not stop a chain in this tool. The source in `b962c50a` is what every check above ran on. The next commit carries the evidence, and from then on each step is gated by hand. Earlier rounds used the same `set -e`, and their output shows every check passing before the commit, so nothing else went in behind a failure.
 
 **The two failures, neither from this phase:**
 
@@ -234,15 +255,16 @@ retrieved content, process crash after a write, cancellation, missing evidence, 
   word "nothing". It now needs a `provider:`, `commit:` or `docs/` pointer, but that is a shape: `provider:nothing`
   passes, and nothing checks that the pointer resolves. Zero live connectors is what holds today: CC-25.
 - **History is handed in, and this module is pure.** The durable write before acting is the duty of the Stage 4 and 5
-  ledger. Until it exists, **a caller passing an empty history defeats the retry rule**, and a caller that acts
-  without persisting `started` loses the stop. A test records that limit.
+  ledger. **The store must append a start only if `attempt == count + 1`, or two concurrent admits both run:** each
+  reads the same history, and this module cannot see the other. Until it exists, **a caller passing an empty history
+  defeats the retry rule**, and a caller that acts without persisting `started` loses the stop. A test records that limit.
 - **A key follows the intent the kernel states.** A new `intentScope` is a new key, so a caller that changes it
   escapes the unknown. Only the call sites can prove they do not.
 - **`reauthenticated` and `approved` are the kernel's word.** Nothing here can check them.
 - **Backoff is not timed here,** and a receipt has no timestamp.
-- **The credential check is a backstop.** A credential of no known shape passes if its last segment has fewer than
-  24 alphanumerics, and other segments are held only to the unsplit run. Below that length it cannot be told from a
-  name. The store holding the value is the real control.
+- **The credential check is a backstop.** A credential of no known shape passes if the provider and credential segments
+  each hold fewer than 24 alphanumerics, whatever separates them, so one split across the two can pass. Below that length
+  it cannot be told from a name. The store holding the value is the real control.
 - **A tampered history file is not detected.** A copy or replay of a reconciliation answers nothing, because it names
   its attempt and connector. A new well-formed line written by hand, with the right attempt and connector, is
   honoured: parsing a stored line cannot check the envelope it names. Only `reconcileConnectorOutcome` checks that.
