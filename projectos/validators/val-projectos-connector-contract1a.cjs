@@ -46,6 +46,10 @@
  *   CC-36 "it was valid when we looked"              — and a getter answers differently the second time
  *   CC-37 "show the value in the message"            — and a credential lands in a log
  *
+ * Added in the security recheck:
+ *
+ *   CC-38 "the door will catch it"                   — and a forged tenant registry reads as an ordinary refusal
+ *
  * THE RULES ARE RUN, NOT READ, as in val-projectos-port-context1a. Node 24 strips the types, so `load` copies
  * the real source to a scratch directory and imports it, and each probe calls the real function with the real
  * committed registries and the real door. A named mutation changes the source in memory and is loaded the same
@@ -117,6 +121,7 @@ const RULE_NAMES = {
   "CC-35": "a duplicate returns the earlier outcome",
   "CC-36": "everything is judged on a plain copy, and only that comes back",
   "CC-37": "no refusal repeats a value that could be a credential",
+  "CC-38": "a forged tenant registry is refused as one",
 };
 
 const CHECKLIST = [
@@ -174,6 +179,8 @@ const NEEDLES = [
   "a duplicate returns the earlier outcome (ADR-K1 §2), not a bare refusal",
   "a value that could be a credential is never repeated by a refusal",
   "what comes back is only the plain copy: a getter cannot change its answer after the check",
+  "a reconcile action registered at %s refuses: an implementer could otherwise answer its own unknown",
+  "a forged tenant registry, %s, is refused as invalid, in words that say so",
   "%s is refused: reconciliation is explicit or it did not happen",
   "the field %s is refused: a receipt has no room for content",
   "a credential fits the name shape of %s, and is still refused",
@@ -293,6 +300,7 @@ const FAKE_BARE = "a1B2".repeat(10);
 const FAKE_JWT = ["eyJ", "abcdefghij_klmnopqrst", ".", "b".repeat(12)].join("");
 const FAKE_UUID = ["550e8400", "e29b", "41d4", "a716", "446655440000"].join("-");
 const FAKE_SPLIT = ["abcdefgh", "ijklmnop", "qrstuvwx", "yz012345"].join("-");
+const FAKE_DOUBLE = ["aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"].join("--");
 const FAR_DATE = "+010000-01-01T00:00:00.000Z";
 const REFERENCE_OF = (segment, credential = "mail-refresh") => `ProjectOS/${segment}/production/google/${credential}`;
 
@@ -379,7 +387,7 @@ function kit(m, raw) {
   const raw2 = (history, facts = NO_FACTS, key = KEY, tenant = "agency-business") => m.decideConnectorRetry(history, key, tenant, facts);
   const decide = (history, facts, key) => raw2(story(history), facts, key);
   let cachedReconcile = null;
-  const reconcileActions = () => (cachedReconcile ??= actionsPlus(m.CONNECTOR_RECONCILE_ACTION, "P2"));
+  const reconcileActions = () => (cachedReconcile ??= actionsPlus(m.CONNECTOR_RECONCILE_ACTION, "P3"));
   const reconciler = (request = {}) => agency({ action: m.CONNECTOR_RECONCILE_ACTION, ...request }, reconcileActions());
   const asking = (over = {}) => ({ idempotencyKey: KEY, finding: "not_completed", evidence: "provider:message-4471", envelope: reconciler(), actions: reconcileActions(), now: NOW, ...over });
   const reconcile = (history, over) => m.reconcileConnectorOutcome(history, asking(over));
@@ -448,7 +456,7 @@ const PROBES = [
     for (const [label, over] of Object.entries(rows)) refusedBy(E, k.codes(k.file([k.entry({ releaseRecord: k.release(over) })])), "CONNECTOR_RELEASE_NOT_PASSED", label);
   }],
   ["CC-5", (k, E) => {
-    const values = [FAKE_PREFIXED, FAKE_JWT, REFERENCE_OF("tenant.agency-business", FAKE_PREFIXED), REFERENCE_OF("tenant.agency-business", FAKE_BARE), REFERENCE_OF("tenant.agency-business", FAKE_UUID), REFERENCE_OF("tenant.agency-business", FAKE_SPLIT), `ProjectOS/tenant.agency-business/production/${FAKE_BARE}/mail-refresh`];
+    const values = [FAKE_PREFIXED, FAKE_JWT, FAKE_BARE, REFERENCE_OF("tenant.agency-business", FAKE_PREFIXED), REFERENCE_OF("tenant.agency-business", FAKE_BARE), REFERENCE_OF("tenant.agency-business", FAKE_UUID), REFERENCE_OF("tenant.agency-business", FAKE_SPLIT), REFERENCE_OF("tenant.agency-business", FAKE_DOUBLE), `ProjectOS/tenant.agency-business/production/${FAKE_BARE}/mail-refresh`, `ProjectOS/tenant.agency-business/production/${FAKE_UUID}/mail-refresh`];
     for (const value of values) {
       const parsed = k.parse(k.file([k.entry({ secretReference: value })]));
       if (parsed.ok) { E("a credential in the reference field was accepted"); continue; }
@@ -715,7 +723,8 @@ const PROBES = [
     both("a date past four year digits", [k.entry({ lastAcceptanceDate: FAR_DATE, releaseRecord: k.release({ acceptedAt: FAR_DATE }) })]);
     both("whitespace for prose", [], { authority: "   " });
     for (const value of [FAKE_PREFIXED, FAKE_BARE, FAKE_JWT]) both(`the evidence ${value.slice(0, 4)}`, [k.entry({ releaseRecord: k.release({ evidence: `provider:${value}` }) })]);
-    for (const value of [FAKE_PREFIXED, FAKE_BARE, FAKE_UUID, FAKE_SPLIT]) both(`the last segment ${value.slice(0, 4)}`, [k.entry({ secretReference: REFERENCE_OF("tenant.agency-business", value) })]);
+    for (const value of [FAKE_PREFIXED, FAKE_BARE, FAKE_UUID, FAKE_SPLIT, FAKE_DOUBLE]) both(`the last segment ${value.slice(0, 4)}`, [k.entry({ secretReference: REFERENCE_OF("tenant.agency-business", value) })]);
+    both("a UUID as the provider", [k.entry({ secretReference: `ProjectOS/tenant.agency-business/production/${FAKE_UUID}/mail-refresh` })]);
     if (schema !== null && schemaErrors(schema, JSON.parse(JSON.stringify(k.file([k.entry()]))), schema, "$").length !== 0) E("the schema refuses what the code accepts");
   }],
   ["CC-29", (k, E, m, raw) => {
@@ -745,6 +754,9 @@ const PROBES = [
     const open = k.story([k.unknown()]);
     refused(E, k.reconcile(open, { actions: k.actions() }), "RECONCILE_ACTION_UNREGISTERED", "the committed action registry");
     if (m.CONNECTOR_RECONCILE_ACTION !== "connector-reconcile" || !k.actions().actions.every((action) => action.id !== m.CONNECTOR_RECONCILE_ACTION)) E("the reconcile action is not the one nothing registers yet");
+    for (const cls of ["P1", "P2"]) refused(E, k.reconcile(open, { actions: k.actionsPlus(m.CONNECTOR_RECONCILE_ACTION, cls) }), "RECONCILE_CLASS_TOO_LOW", `a reconcile action at ${cls}`);
+    const lower = k.actionsPlus(m.CONNECTOR_RECONCILE_ACTION, "P2");
+    refused(E, k.reconcile(open, { envelope: k.agency({ action: m.CONNECTOR_RECONCILE_ACTION }, lower) }), "RECONCILE_UNAUTHORISED", "an envelope minted under a lower class");
     const replay = k.reconciliation("not_completed", { attempt: 1 });
     const replayed = k.story([k.unknown(), replay, k.unknown(), replay]);
     refused(E, k.raw2(replayed), "RETRY_UNRECONCILED", "a copy of a reconciliation");
@@ -761,6 +773,7 @@ const PROBES = [
       "a copied envelope": { envelope: { ...k.reconciler() } },
       "a minted envelope": { envelope: minted.envelope },
       "another action": { envelope: k.agency() },
+      "another action at the same class": { envelope: k.agency({ action: "fixture-three" }, k.actionsPlus("fixture-three", "P3")) },
       "another tenant": { envelope: k.owner({ action: m.CONNECTOR_RECONCILE_ACTION }, k.reconcileActions()) },
       "an expired envelope": { now: LATER },
       "an unreadable time": { now: "today" },
@@ -819,6 +832,16 @@ const PROBES = [
     const throwing = k.receipt();
     Object.defineProperty(throwing, "tenant", { enumerable: true, get: () => { throw new Error("boom"); } });
     refused(E, m.parseConnectorReceipt(throwing), "RECEIPT_INVALID", "a getter that throws");
+  }],
+  ["CC-38", (k, E, m) => {
+    for (const [label, forged] of Object.entries({ "a copy": { ...k.tenants() }, "no projects": { tenants: [], projects: [] }, "no shape": {} })) {
+      for (const connectors of [[k.entry()], []]) {
+        const parsed = m.parseConnectorRegistry(k.file(connectors), { actions: k.actions(), tenants: forged });
+        if (parsed.ok) { E(`a forged tenant registry, ${label}, was accepted`); continue; }
+        if (!same(parsed.problems.map((problem) => problem.code), ["CONNECTOR_TENANT_REGISTRY_INVALID"])) E(`a forged tenant registry, ${label}, was not refused by name`);
+        if (!parsed.problems[0].message.includes("tenant registry") || parsed.problems[0].message.includes("door")) E(`the refusal of ${label} does not say the registry is invalid`);
+      }
+    }
   }],
   ["CC-37", (k, E) => {
     const shaped = FAKE_PREFIXED;
@@ -905,7 +928,7 @@ const SCHEMA_REFUSES = {
   "whitespace for prose": { ...SCHEMA_HEADER, authority: "  ", connectors: [] },
   "a date past four year digits": { ...SCHEMA_HEADER, connectors: [{ ...SCHEMA_ENTRY, lastAcceptanceDate: FAR_DATE, releaseRecord: { ...SCHEMA_RELEASE, acceptedAt: FAR_DATE } }] },
   ...Object.fromEntries([FAKE_PREFIXED, FAKE_BARE, FAKE_JWT].map((value, index) => [`credential-shaped evidence ${index}`, { ...SCHEMA_HEADER, connectors: [{ ...SCHEMA_ENTRY, releaseRecord: { ...SCHEMA_RELEASE, evidence: `provider:${value}` } }] }])),
-  ...Object.fromEntries([FAKE_PREFIXED, FAKE_BARE, FAKE_UUID, FAKE_SPLIT].map((value, index) => [`a credential-shaped last segment ${index}`, { ...SCHEMA_HEADER, connectors: [{ ...SCHEMA_ENTRY, secretReference: REFERENCE_OF("tenant.agency-business", value) }] }])),
+  ...Object.fromEntries([FAKE_PREFIXED, FAKE_BARE, FAKE_UUID, FAKE_SPLIT, FAKE_DOUBLE].map((value, index) => [`a credential-shaped last segment ${index}`, { ...SCHEMA_HEADER, connectors: [{ ...SCHEMA_ENTRY, secretReference: REFERENCE_OF("tenant.agency-business", value) }] }])),
   "evidence that is a word": { ...SCHEMA_HEADER, connectors: [{ ...SCHEMA_ENTRY, releaseRecord: { ...SCHEMA_RELEASE, evidence: "nothing" } }] },
   ...Object.fromEntries(["tenant", "secretReference", "releaseRecord", "scopes", "dataCategories", "idempotency", "actions", "lastAcceptanceDate"].map((field) => [`an entry with no ${field}`, { ...SCHEMA_HEADER, connectors: [without(SCHEMA_ENTRY, field)] }])),
 };
@@ -1045,7 +1068,9 @@ const MUTATIONS = [
   C("credential-shape-not-asked", "CC-5", "if (holdsSecretShape(value) || RAW_CREDENTIAL_RUN.test(value) || SPLIT_CREDENTIAL_RUN.test(value)) {", "if (RAW_CREDENTIAL_RUN.test(value) || SPLIT_CREDENTIAL_RUN.test(value)) {"),
   C("raw-run-not-asked", "CC-5", "if (holdsSecretShape(value) || RAW_CREDENTIAL_RUN.test(value) || SPLIT_CREDENTIAL_RUN.test(value)) {", "if (holdsSecretShape(value) || SPLIT_CREDENTIAL_RUN.test(value)) {"),
   C("split-run-not-asked", "CC-5", "if (holdsSecretShape(value) || RAW_CREDENTIAL_RUN.test(value) || SPLIT_CREDENTIAL_RUN.test(value)) {", "if (holdsSecretShape(value) || RAW_CREDENTIAL_RUN.test(value)) {", ["CC-26"]),
-  C("split-run-weakened", "CC-5", String.raw`const SPLIT_CREDENTIAL_RUN = /\/(?:[A-Za-z0-9][._-]?){24,}$/;`, String.raw`const SPLIT_CREDENTIAL_RUN = /\/(?:[A-Za-z0-9][._-]?){60,}$/;`, ["CC-26"]),
+  C("split-run-weakened", "CC-5", String.raw`){24,}(?:\/[^/]*)?$/;`, String.raw`){60,}(?:\/[^/]*)?$/;`, ["CC-26"]),
+  C("split-run-needs-single-separators", "CC-5", "const SPLIT_CREDENTIAL_RUN = /\\/(?:[A-Za-z0-9][._-]*)", "const SPLIT_CREDENTIAL_RUN = /\\/(?:[A-Za-z0-9][._-]?)", ["CC-26"]),
+  C("split-run-reads-only-the-last-segment", "CC-5", String.raw`){24,}(?:\/[^/]*)?$/;`, String.raw`){24,}$/;`, ["CC-26"]),
   C("credential-falls-to-shape", "CC-5", "return [{ code: 'CONNECTOR_SECRET_VALUE', message:", "return [{ code: 'CONNECTOR_SECRET_REFERENCE_INVALID', message:"),
   C("credential-repeated-in-the-refusal", "CC-5", "secretReference looks like a credential, not a reference to one`", "secretReference looks like a credential: ${value}`"),
   C("raw-run-weakened", "CC-5", "const RAW_CREDENTIAL_RUN = /[A-Za-z0-9]{24,}/;", "const RAW_CREDENTIAL_RUN = /[A-Za-z0-9]{64,}/;", ["CC-4", "CC-15", "CC-26", "CC-34"]),
@@ -1244,11 +1269,14 @@ const MUTATIONS = [
   // CC-31
   C("a-copy-answers-again", "CC-31", "const open = state.awaiting === line.attempt || state.unanswered.includes(line.attempt);", "const open = state.awaiting !== null || state.unanswered.length > 0;"),
   C("another-connector-answers", "CC-31", "  if (state.starts[line.attempt - 1]?.connector !== line.connector) return state;\n", GONE),
-  C("reconcile-action-not-asked", "CC-31", "  if (!resolveAction(actions, CONNECTOR_RECONCILE_ACTION).registered) return reconciliationRefused('RECONCILE_ACTION_UNREGISTERED', `'${CONNECTOR_RECONCILE_ACTION}' is not in the action registry yet`);\n", GONE),
+  C("reconcile-action-not-asked", "CC-31", "  if (!resolved.registered) return reconciliationRefused('RECONCILE_ACTION_UNREGISTERED', `'${CONNECTOR_RECONCILE_ACTION}' is not in the action registry yet`);\n", GONE),
+  C("reconcile-any-class", "CC-31", "  if (!classAtMost(RECONCILE_CLASS_FLOOR, resolved.actionClass)) return reconciliationRefused('RECONCILE_CLASS_TOO_LOW', `'${CONNECTOR_RECONCILE_ACTION}' must be ${RECONCILE_CLASS_FLOOR} or higher, and is ${resolved.actionClass}`);\n", GONE),
+  C("reconcile-floor-lowered", "CC-31", "const RECONCILE_CLASS_FLOOR = 'P3';", "const RECONCILE_CLASS_FLOOR = 'P2';"),
+  C("reconcile-class-of-the-envelope-unread", "CC-31", " || envelope.actionClass !== resolved.actionClass || foreign) {", " || foreign) {"),
   C("reconcile-any-envelope", "CC-31", "if (!admittedAtTheDoor(envelope, now) || envelopeExpired(envelope, now) ||", "if (envelopeExpired(envelope, now) ||"),
   C("reconcile-after-expiry", "CC-31", "if (!admittedAtTheDoor(envelope, now) || envelopeExpired(envelope, now) ||", "if (!admittedAtTheDoor(envelope, now) ||"),
-  C("reconcile-any-action", "CC-31", " || envelope.action !== CONNECTOR_RECONCILE_ACTION || foreign) {", " || foreign) {"),
-  C("reconcile-any-tenant", "CC-31", " || envelope.action !== CONNECTOR_RECONCILE_ACTION || foreign) {", " || envelope.action !== CONNECTOR_RECONCILE_ACTION) {"),
+  C("reconcile-any-action", "CC-31", " || envelope.action !== CONNECTOR_RECONCILE_ACTION || envelope.actionClass", " || envelope.actionClass"),
+  C("reconcile-any-tenant", "CC-31", " || envelope.actionClass !== resolved.actionClass || foreign) {", " || envelope.actionClass !== resolved.actionClass) {"),
   C("reconciler-from-free-text", "CC-31", "reconciledBy: envelope.principal, reconcilerEnvelope", "reconciledBy: String((request as unknown as Record<string, unknown>)['reconciledBy'] ?? envelope.principal), reconcilerEnvelope"),
   C("reconciler-names-no-envelope", "CC-31", "reconcilerEnvelope: envelope.envelopeId,", "reconcilerEnvelope: DOOR_PROBE_ID,", ["CC-15"]),
   C("newest-attempt-answered-first", "CC-31", "const attempt = openAttempts(state)[0];", "const attempt = openAttempts(state).at(-1);"),
@@ -1256,7 +1284,7 @@ const MUTATIONS = [
   // CC-32
   C("a-stop-reads-only-the-last-line", "CC-32", "const rules = state.failures.map((code) => CONNECTOR_RETRY_RULES[code]);", "const rules = state.failures.slice(-1).map((code) => CONNECTOR_RETRY_RULES[code]);"),
   // CC-33
-  C("the-door-is-not-asked", "CC-33", "const refusal = doorRefusal(action, context);", "const refusal = null as string | null;"),
+  C("the-door-is-not-asked", "CC-33", "const refusal = doorRefusal(action, binding, actions);", "const refusal = null as string | null;"),
   C("the-door-answer-is-ignored", "CC-33", "return admission.admitted ? null : admission.rule;", "return null;"),
   C("the-door-grants-everything", "CC-33", "admitEnvelope(minted, DOOR_PROBE_NOW, () => true, () => false);", "admitEnvelope(minted, DOOR_PROBE_NOW, () => true, () => true);"),
   C("the-door-refusal-says-nothing", "CC-33", "`the door refuses ${at} to a connector: ${refusal}`", "`the door refuses ${at} to a connector`"),
@@ -1277,6 +1305,12 @@ const MUTATIONS = [
   C("an-unregistered-action-is-repeated", "CC-37", "`${at} is not in the action registry, so it is ${resolved.actionClass} and refused`", "`${action} is not in the action registry, so it is ${resolved.actionClass} and refused`"),
   C("a-read-only-action-is-repeated", "CC-37", "`${label} says read-only, and ${at} is ${resolved.actionClass}`", "`${label} says read-only, and ${action} is ${resolved.actionClass}`"),
   C("a-repeated-id-is-repeated", "CC-37", "`connectors[${index}] repeats an earlier connector's id`", "`connectors[${index}] repeats the id ${id}`"),
+  // CC-38
+  C("a-forged-tenant-registry-is-not-asked", "CC-38", "  if (binding === null) return { ok: false, problems: [{ code: 'CONNECTOR_TENANT_REGISTRY_INVALID', message: 'the tenant registry did not pass whole-file validation' }] };\n", "  if (binding === null) return { ok: true, registry: Object.freeze({ connectors: Object.freeze([]) }) };\n"),
+  C("a-forged-tenant-registry-reads-as-the-door", "CC-38", "message: 'the tenant registry did not pass whole-file validation'", "message: 'the door refuses this tenant registry'"),
+  C("a-forged-tenant-registry-is-misnamed", "CC-38", "problems: [{ code: 'CONNECTOR_TENANT_REGISTRY_INVALID',", "problems: [{ code: 'CONNECTOR_REGISTRY_INVALID',"),
+  C("a-shapeless-tenant-registry-throws", "CC-38", "const project = tenants.projects?.[0];", "const project = tenants.projects[0];"),
+  C("an-empty-tenant-registry-binds-nothing", "CC-38", "  if (project === undefined) return null;\n", GONE),
   // CC-24
   T("contract-reads-the-clock", "CC-24", CONTRACT, "const at = readInstant(now);", "const at = Date.now();"),
   T("contract-news-a-date", "CC-24", CONTRACT, "const at = readInstant(now);", "const at = new Date().getTime();"),
@@ -1297,7 +1331,7 @@ const MUTATIONS = [
   T("schema-action-drifts", "CC-26", SCHEMA, '"pattern": "^[a-z][a-z0-9_-]{1,63}$"', '"pattern": "^.+$"'),
   T("schema-evidence-drifts", "CC-26", SCHEMA, '"pattern": "^(?:provider:|commit:|docs/)', '"pattern": "^(?:|provider:|commit:|docs/)'),
   T("schema-raw-run-dropped", "CC-26", SCHEMA, '"pattern": "[A-Za-z0-9]{24,}|/(?:', '"pattern": "x{99}|/(?:'),
-  T("schema-split-run-dropped", "CC-26", SCHEMA, '|/(?:[A-Za-z0-9][._-]?){24,}$|', '|'),
+  T("schema-split-run-dropped", "CC-26", SCHEMA, '|/(?:[A-Za-z0-9][._-]*){24,}(?:/[^/]*)?$|', '|'),
   T("schema-evidence-credential-allowed", "CC-26", SCHEMA, '"pattern": "[A-Za-z0-9]{24,}|[:/](?:', '"pattern": "x{99}|[:/]x(?:'),
   T("schema-prose-may-be-blank", "CC-26", SCHEMA, '"authority": {\n      "type": "string",\n      "minLength": 1,\n      "pattern": "\\\\S"\n    }', '"authority": {\n      "type": "string",\n      "minLength": 1\n    }'),
   T("schema-year-any-length", "CC-26", SCHEMA, '"pattern": "^[0-9]{4}-[0-9]{2}', '"pattern": "^[+0-9]+-[0-9]{2}'),

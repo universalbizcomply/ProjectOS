@@ -119,7 +119,7 @@
           "type": "string",
           "pattern": "^ProjectOS/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(?:development|staging|production)/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
           "not": {
-            "pattern": "[A-Za-z0-9]{24,}|/(?:[A-Za-z0-9][._-]?){24,}$|/(?:sk-|gh[pousr]_|github_pat_|xox[baprs]-|AKIA|eyJ)"
+            "pattern": "[A-Za-z0-9]{24,}|/(?:[A-Za-z0-9][._-]*){24,}(?:/[^/]*)?$|/(?:sk-|gh[pousr]_|github_pat_|xox[baprs]-|AKIA|eyJ)"
           }
         },
         "dataCategories": {

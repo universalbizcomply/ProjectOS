@@ -180,7 +180,7 @@ interface GateRequest {
 }
 
 /** The action registry the first connector phase will commit: reconciliation fails closed without it. */
-const reconcileActions = (): ActionRegistry => actionsWith(CONNECTOR_RECONCILE_ACTION, 'P2');
+const reconcileActions = (): ActionRegistry => actionsWith(CONNECTOR_RECONCILE_ACTION, 'P3');
 
 function gate(over: Partial<GateRequest> = {}): ConnectorAdmission {
   return admitConnectorCall({
@@ -262,6 +262,7 @@ const FAKE_BARE = 'a1B2'.repeat(10);
 const FAKE_JWT = ['eyJ', 'abcdefghij_klmnopqrst', '.', 'b'.repeat(12)].join('');
 const FAKE_UUID = ['550e8400', 'e29b', '41d4', 'a716', '446655440000'].join('-');
 const FAKE_SPLIT = ['abcdefgh', 'ijklmnop', 'qrstuvwx', 'yz012345'].join('-');
+const FAKE_DOUBLE = ['aaaaaaaaaaaa', 'bbbbbbbbbbbb', 'cccccccccccc'].join('--');
 
 function deepFreeze<T>(value: T): T {
   if (typeof value === 'object' && value !== null) {
@@ -406,9 +407,12 @@ describe('what a connector must declare', () => {
     ['a prefixed key as the last segment', `ProjectOS/tenant.agency-business/production/google/${FAKE_PREFIXED}`],
     ['a bare long run as the last segment', `ProjectOS/tenant.agency-business/production/google/${FAKE_BARE}`],
     ['a signed token alone', FAKE_JWT],
+    ['a bare long run alone', FAKE_BARE],
     ['a bare long run in the provider segment', `ProjectOS/tenant.agency-business/production/${FAKE_BARE}/mail-refresh`],
     ['a UUID as the last segment', `ProjectOS/tenant.agency-business/production/google/${FAKE_UUID}`],
     ['a hyphen-split long run as the last segment', `ProjectOS/tenant.agency-business/production/google/${FAKE_SPLIT}`],
+    ['a run split by doubled separators as the last segment', `ProjectOS/tenant.agency-business/production/google/${FAKE_DOUBLE}`],
+    ['a UUID in the provider segment', `ProjectOS/tenant.agency-business/production/${FAKE_UUID}/mail-refresh`],
   ])('%s in the reference field is refused as a raw credential, and not repeated', (_label, value) => {
     const parsed = parseConnectorRegistry(file([entry({ secretReference: value })]), context());
     expect(parsed.ok).toBe(false);
@@ -591,6 +595,21 @@ describe('the action registry', () => {
 
   it('P1 and P2 pass the same door: the positive control', () => {
     expect(codes(file([entry({ idempotency: 'provider-key', actions: ['bridge-read', 'generate_report'] })]))).toEqual([]);
+  });
+
+  it.each([
+    ['a copy of a real one', () => ({ ...tenants() })],
+    ['one with no projects', () => ({ tenants: [], projects: [] })],
+    ['no shape at all', () => ({})],
+  ])('a forged tenant registry, %s, is refused as invalid, in words that say so', (_label, forged) => {
+    for (const connectors of [[entry()], []]) {
+      const parsed = parseConnectorRegistry(file(connectors), { actions: actions(), tenants: forged() as unknown as TenantRegistry });
+      expect(parsed.ok).toBe(false);
+      if (parsed.ok) return;
+      expect(parsed.problems.map((problem) => problem.code)).toEqual(['CONNECTOR_TENANT_REGISTRY_INVALID']);
+      expect(parsed.problems[0]?.message).toContain('tenant registry');
+      expect(parsed.problems[0]?.message).not.toContain('door');
+    }
   });
 
   it('a value that could be a credential is never repeated by a refusal', () => {
@@ -872,6 +891,16 @@ describe('reconciliation', () => {
     expect(reconcile(story([unknown()]), { actions: actions() })).toMatchObject({ ok: false, code: 'RECONCILE_ACTION_UNREGISTERED' });
   });
 
+  it.each(['P1', 'P2'])('a reconcile action registered at %s refuses: an implementer could otherwise answer its own unknown', (cls) => {
+    expect(reconcile(story([unknown()]), { actions: actionsWith(CONNECTOR_RECONCILE_ACTION, cls) })).toMatchObject({ ok: false, code: 'RECONCILE_CLASS_TOO_LOW' });
+  });
+
+  it('an envelope minted under a lower class cannot use a higher registry to pass the floor', () => {
+    const lower = actionsWith(CONNECTOR_RECONCILE_ACTION, 'P2');
+    const envelope = agencyEnvelope({ action: CONNECTOR_RECONCILE_ACTION }, lower);
+    expect(reconcile(story([unknown()]), { envelope })).toMatchObject({ ok: false, code: 'RECONCILE_UNAUTHORISED' });
+  });
+
   it('leaves evidence: what was found, on what, and which admitted envelope said so', () => {
     const envelope = reconciler();
     const result = reconcile(story([unknown()]), { envelope });
@@ -926,6 +955,7 @@ describe('reconciliation', () => {
     ['a copied envelope', () => ({ envelope: { ...reconciler() } })],
     ['a minted envelope the door never saw', () => { const minted = mint(binding(AGENCY_FACTS), { action: CONNECTOR_RECONCILE_ACTION }, reconcileActions()); return { envelope: minted.ok ? minted.envelope : null }; }],
     ['an envelope for another action', () => ({ envelope: agencyEnvelope() })],
+    ['an envelope for another action at the same class', () => ({ envelope: agencyEnvelope({ action: 'fixture-three' }, actionsWith('fixture-three', 'P3')) })],
     ['an envelope of another tenant', () => ({ envelope: ownerEnvelope({ action: CONNECTOR_RECONCILE_ACTION }, reconcileActions()) })],
     ['an expired envelope', () => ({ now: LATER })],
     ['an unreadable time', () => ({ now: 'today' })],

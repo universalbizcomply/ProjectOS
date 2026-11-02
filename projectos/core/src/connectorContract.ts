@@ -14,13 +14,13 @@
  * connector, so a copy answers nothing. The rule is keyed by the idempotency key, so a sibling connector is no way round.
  *
  * PURE, AND THAT IS ITS LIMIT. No I/O, no clock, no dependency. The durable write before acting is the Stage 4 and 5
- * ledger's duty. Until then, a caller passing an empty history defeats the retry rule. See
- * `docs/finish/PROJECTOS-CONNECTOR-CONTRACT1A.md` for what else this does not prove.
+ * ledger's duty, and it must append a start only if `attempt == count + 1`, or two concurrent admits both run. Until
+ * then, a caller passing an empty history defeats the retry rule. See `docs/finish/PROJECTOS-CONNECTOR-CONTRACT1A.md`.
  */
-import { isActionName, resolveAction, type ActionRegistry } from './actionRegistry.js';
+import { classAtMost, isActionName, resolveAction, type ActionRegistry } from './actionRegistry.js';
 import { holdsSecretShape } from './context/redact.js';
 import { admitEnvelope, envelopeExpired, mintEnvelope, recordExecution, type TaskEnvelope } from './taskEnvelope.js';
-import { DOMAINS, isReservedProjectId, isTenantId, resolveTenant, TENANT_CREDENTIAL_PREFIX, type Domain, type TenantRegistry } from './tenant.js';
+import { DOMAINS, isReservedProjectId, isTenantId, resolveTenant, TENANT_CREDENTIAL_PREFIX, type Domain, type TenantBinding, type TenantRegistry } from './tenant.js';
 
 export const CONNECTOR_REGISTRY_SCHEMA_VERSION = '1.0.0';
 export const CONNECTOR_REGISTRY_POLICY = 'connector-registry';
@@ -34,6 +34,8 @@ export const CONNECTOR_MAX_ATTEMPTS = 5;
 
 /** Unregistered in `action-registry.json`, so reconciliation fails closed until the first connector phase adds it. */
 export const CONNECTOR_RECONCILE_ACTION = 'connector-reconcile';
+/** Clearing an unknown opens a retry, so it needs a grant: at P2 an implementer could answer its own attempt. */
+const RECONCILE_CLASS_FLOOR = 'P3';
 
 /** A closed set: an unknown code is refused and is never mapped onto one of these. */
 export const CONNECTOR_ERROR_CODES = ['authentication_required', 'permission_denied', 'rate_limited', 'invalid_input', 'approval_required', 'upstream_unavailable', 'outcome_unknown'] as const;
@@ -122,8 +124,8 @@ const DATA_CATEGORY = /^[a-z][a-z0-9-]{1,63}$/;
 const SECRET_REFERENCE = /^ProjectOS\/([A-Za-z0-9][A-Za-z0-9._-]{0,63})\/(?:development|staging|production)\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 /** A credential name is hyphenated words. A run this long with no separator is a value. */
 const RAW_CREDENTIAL_RUN = /[A-Za-z0-9]{24,}/;
-/** The same run split by single separators, as a UUID is, in the last segment, where the credential's name sits. */
-const SPLIT_CREDENTIAL_RUN = /\/(?:[A-Za-z0-9][._-]?){24,}$/;
+/** The same run split by separators, as a UUID is, in the provider or credential segment: neither is a closed name. */
+const SPLIT_CREDENTIAL_RUN = /\/(?:[A-Za-z0-9][._-]*){24,}(?:\/[^/]*)?$/;
 /** A pointer to evidence, never the evidence: a known kind, and no room for a sentence or a payload. */
 const EVIDENCE = /^(?:provider:|commit:|docs\/)[A-Za-z0-9][A-Za-z0-9._:/#-]{2,240}$/;
 const PROVIDER_RECEIPT = /^provider:/;
@@ -155,7 +157,7 @@ const DOOR_PROBE_NOW = '2000-01-01T00:00:00.000Z';
 const DOOR_PROBE_EXPIRY = '2000-01-01T00:00:01.000Z';
 
 export type ConnectorRegistryCode =
-  | 'CONNECTOR_REGISTRY_INVALID' | 'CONNECTOR_REGISTRY_WILDCARD' | 'CONNECTOR_REGISTRY_DUPLICATE' | 'CONNECTOR_TENANT_MISSING' | 'CONNECTOR_TENANT_UNKNOWN'
+  | 'CONNECTOR_REGISTRY_INVALID' | 'CONNECTOR_REGISTRY_WILDCARD' | 'CONNECTOR_REGISTRY_DUPLICATE' | 'CONNECTOR_TENANT_MISSING' | 'CONNECTOR_TENANT_UNKNOWN' | 'CONNECTOR_TENANT_REGISTRY_INVALID'
   | 'CONNECTOR_SECRET_MISSING' | 'CONNECTOR_SECRET_VALUE' | 'CONNECTOR_SECRET_REFERENCE_INVALID' | 'CONNECTOR_SECRET_WRONG_TENANT'
   | 'CONNECTOR_RELEASE_MISSING' | 'CONNECTOR_RELEASE_NOT_PASSED' | 'CONNECTOR_RELEASE_MISMATCH'
   | 'CONNECTOR_ACTION_UNREGISTERED' | 'CONNECTOR_ACTION_DOOR_REFUSED' | 'CONNECTOR_IDEMPOTENCY_MISMATCH';
@@ -327,19 +329,19 @@ function releaseProblems(entry: Readonly<Record<string, unknown>>, label: string
   ];
 }
 
-/**
- * What the door would answer a connector for this action, or `null`. `taskEnvelope` keeps the rule private, so this
- * asks the door itself, with a port that grants nothing, and throws the envelope away. A tenant registry that did not
- * pass whole-file validation cannot bind one, so its connectors are refused too.
- */
-function doorRefusal(action: string, context: ConnectorContext): string | null {
-  const project = context.tenants.projects[0];
-  if (project === undefined) return 'TENANT_UNKNOWN';
+/** Only `resolveTenant` can bind, and only a registry that passed whole-file validation lets it. A forgery yields `null`. */
+function probeBinding(tenants: TenantRegistry): TenantBinding | null {
+  const project = tenants.projects?.[0];
+  if (project === undefined) return null;
   const { projectId, repository, governedRoot: root } = project;
-  const resolved = resolveTenant(context.tenants, { projectId, repository, root, worktrees: null });
-  if (!resolved.ok) return resolved.code;
+  const resolved = resolveTenant(tenants, { projectId, repository, root, worktrees: null });
+  return resolved.ok ? resolved.binding : null;
+}
+
+/** What the door would answer a connector, or `null`. `taskEnvelope` keeps the rule private, so this asks the door itself, with a port that grants nothing. */
+function doorRefusal(action: string, binding: TenantBinding, actions: ActionRegistry): string | null {
   const minted = mintEnvelope(
-    { binding: resolved.binding, registry: context.actions, principal: 'implementer', actor: DOOR_PROBE_ACTOR, envelopeId: DOOR_PROBE_ID },
+    { binding, registry: actions, principal: 'implementer', actor: DOOR_PROBE_ACTOR, envelopeId: DOOR_PROBE_ID },
     { action, subjectHash: DOOR_PROBE_SUBJECT, scope: [], budget: 1, expiry: DOOR_PROBE_EXPIRY, intentScope: 'connector-registration' },
   );
   const admission = admitEnvelope(minted, DOOR_PROBE_NOW, () => true, () => false);
@@ -347,15 +349,15 @@ function doorRefusal(action: string, context: ConnectorContext): string | null {
 }
 
 /** Registered, then what the door allows, then `read-only` checked against the class. Refusals name a position: an action name is free text until it has passed. */
-function actionProblems(entry: Readonly<Record<string, unknown>>, context: ConnectorContext, label: string): readonly ConnectorProblem[] {
+function actionProblems(entry: Readonly<Record<string, unknown>>, actions: ActionRegistry, binding: TenantBinding, label: string): readonly ConnectorProblem[] {
   const named = textsOf(entry['actions']).filter(isActionName);
   return [
     ...listProblems(entry['actions'], 'actions', isActionName, label),
     ...named.flatMap((action, index): readonly ConnectorProblem[] => {
-      const resolved = resolveAction(context.actions, action);
+      const resolved = resolveAction(actions, action);
       const at = `${label}.actions[${index}]`;
       if (!resolved.registered) return [{ code: 'CONNECTOR_ACTION_UNREGISTERED', message: `${at} is not in the action registry, so it is ${resolved.actionClass} and refused` }];
-      const refusal = doorRefusal(action, context);
+      const refusal = doorRefusal(action, binding, actions);
       if (refusal !== null) return [{ code: 'CONNECTOR_ACTION_DOOR_REFUSED', message: `the door refuses ${at} to a connector: ${refusal}` }];
       return entry['idempotency'] === 'read-only' && resolved.actionClass !== READ_ONLY_CLASS
         ? [{ code: 'CONNECTOR_IDEMPOTENCY_MISMATCH', message: `${label} says read-only, and ${at} is ${resolved.actionClass}` }]
@@ -364,7 +366,7 @@ function actionProblems(entry: Readonly<Record<string, unknown>>, context: Conne
   ];
 }
 
-function entryProblems(raw: unknown, index: number, context: ConnectorContext): readonly ConnectorProblem[] {
+function entryProblems(raw: unknown, index: number, context: ConnectorContext, binding: TenantBinding): readonly ConnectorProblem[] {
   const label = `connectors[${index}]`;
   const entry = asRecord(raw);
   if (entry === null) return [invalid(`${label} is not an object`)];
@@ -378,7 +380,7 @@ function entryProblems(raw: unknown, index: number, context: ConnectorContext): 
     ...secretProblems(entry, context.tenants, label),
     ...listProblems(entry['dataCategories'], 'dataCategories', (item) => DATA_CATEGORY.test(item), label),
     ...((CONNECTOR_IDEMPOTENCY as readonly unknown[]).includes(entry['idempotency']) ? [] : [invalid(`${label} declares no known idempotency`)]),
-    ...actionProblems(entry, context, label),
+    ...actionProblems(entry, context.actions, binding, label),
     ...(readInstant(entry['lastAcceptanceDate']) !== null ? [] : [invalid(`${label} has no readable lastAcceptanceDate`)]),
     ...releaseProblems(entry, label),
   ];
@@ -413,13 +415,15 @@ function connectorOf(raw: unknown): ConnectorEntry {
 
 /** Every problem is reported, and any problem refuses all of it. An empty list is valid: that is today's file. */
 export function parseConnectorRegistry(raw: unknown, context: ConnectorContext): ConnectorRegistryResult {
+  const binding = probeBinding(context.tenants);
+  if (binding === null) return { ok: false, problems: [{ code: 'CONNECTOR_TENANT_REGISTRY_INVALID', message: 'the tenant registry did not pass whole-file validation' }] };
   const root = asRecord(plainCopy(raw));
   if (root === null) return { ok: false, problems: [invalid('the connector registry is not an object')] };
   const connectors = itemsOf(root['connectors']);
   const problems: readonly ConnectorProblem[] = [
     ...headerProblems(root),
     ...(connectors === null ? [invalid('the connector registry declares no connectors list')] : []),
-    ...(connectors ?? []).flatMap((entry, index) => entryProblems(entry, index, context)),
+    ...(connectors ?? []).flatMap((entry, index) => entryProblems(entry, index, context, binding)),
     ...duplicateProblems(connectors ?? []),
   ];
   if (problems.length > 0) return { ok: false, problems };
@@ -698,7 +702,7 @@ export interface ConnectorReconciliationRequest {
   readonly now: string;
 }
 
-export type ConnectorReconciliationCode = 'RETRY_HISTORY_INVALID' | 'RECONCILE_ACTION_UNREGISTERED' | 'RECONCILE_UNAUTHORISED' | 'RECONCILE_NOTHING_OPEN' | 'RECONCILE_EVIDENCE_REQUIRED' | 'RECONCILE_INVALID';
+export type ConnectorReconciliationCode = 'RETRY_HISTORY_INVALID' | 'RECONCILE_ACTION_UNREGISTERED' | 'RECONCILE_CLASS_TOO_LOW' | 'RECONCILE_UNAUTHORISED' | 'RECONCILE_NOTHING_OPEN' | 'RECONCILE_EVIDENCE_REQUIRED' | 'RECONCILE_INVALID';
 
 export type ConnectorReconciliationResult = { readonly ok: true; readonly record: ConnectorReconciliation; readonly history: readonly unknown[] } | { readonly ok: false; readonly code: ConnectorReconciliationCode; readonly reasons: readonly string[] };
 
@@ -709,11 +713,13 @@ function reconciliationRefused(code: ConnectorReconciliationCode, reason: string
 /** Answers the oldest open attempt, in a new history. Until the caller stores it, nothing has been reconciled. */
 export function reconcileConnectorOutcome(history: unknown, request: ConnectorReconciliationRequest): ConnectorReconciliationResult {
   const { idempotencyKey, finding, evidence, envelope, actions, now } = request;
-  if (!resolveAction(actions, CONNECTOR_RECONCILE_ACTION).registered) return reconciliationRefused('RECONCILE_ACTION_UNREGISTERED', `'${CONNECTOR_RECONCILE_ACTION}' is not in the action registry yet`);
+  const resolved = resolveAction(actions, CONNECTOR_RECONCILE_ACTION);
+  if (!resolved.registered) return reconciliationRefused('RECONCILE_ACTION_UNREGISTERED', `'${CONNECTOR_RECONCILE_ACTION}' is not in the action registry yet`);
+  if (!classAtMost(RECONCILE_CLASS_FLOOR, resolved.actionClass)) return reconciliationRefused('RECONCILE_CLASS_TOO_LOW', `'${CONNECTOR_RECONCILE_ACTION}' must be ${RECONCILE_CLASS_FLOOR} or higher, and is ${resolved.actionClass}`);
   const lines = parseHistory(history);
   if (lines === null) return reconciliationRefused('RETRY_HISTORY_INVALID', 'the attempt history cannot be trusted');
   const foreign = lines.some((line) => line.idempotencyKey === idempotencyKey && line.tenant !== envelope.tenant);
-  if (!admittedAtTheDoor(envelope, now) || envelopeExpired(envelope, now) || envelope.action !== CONNECTOR_RECONCILE_ACTION || foreign) {
+  if (!admittedAtTheDoor(envelope, now) || envelopeExpired(envelope, now) || envelope.action !== CONNECTOR_RECONCILE_ACTION || envelope.actionClass !== resolved.actionClass || foreign) {
     return reconciliationRefused('RECONCILE_UNAUTHORISED', 'a reconciliation comes through an admitted, unexpired reconcile envelope of the same tenant');
   }
   const state = stateOfKey(lines, idempotencyKey, envelope.tenant);
