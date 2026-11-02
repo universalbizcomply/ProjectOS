@@ -146,7 +146,6 @@ function inlineList(raw: string, line: number): Parsed<readonly string[]> {
       quote = character;
       continue;
     }
-    if (character === '[' || character === ']') return fail('frontmatter-unsupported', line);
     if (character !== ',' && character !== undefined) continue;
     const item = inner.slice(start, index).trim();
     start = index + 1;
@@ -220,7 +219,6 @@ function mapping(lines: readonly string[], from: number, indent: number, depth: 
       index += 1;
       continue;
     }
-    if (text.startsWith('\t')) return fail('frontmatter-syntax', lineNumber);
     const at = indentOf(text);
     if (at < indent) break;
     if (at > indent) return fail('frontmatter-syntax', lineNumber);

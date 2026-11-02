@@ -63,9 +63,7 @@ function hiddenInLine(path: string, line: string, lineNumber: number, markdown: 
       ? [blockingFinding('hidden-markdown-comment', path, lineNumber, 'A link reference used as a comment holds text a rendered view does not show.')]
       : []),
     ...(markdown && REFERENCE_WITH_TITLE.test(line) ? [blockingFinding('hidden-link-title', path, lineNumber, 'A link reference title is text a rendered view does not show.')] : []),
-    ...(markdown && RENDERER_DROPS.test(line) && !HTML_COMMENT.test(line)
-      ? [blockingFinding('hidden-html-declaration', path, lineNumber, 'A processing instruction or declaration is text a rendered view drops.')]
-      : []),
+    ...(markdown && RENDERER_DROPS.test(line) ? [blockingFinding('hidden-html-declaration', path, lineNumber, 'A processing instruction or declaration is text a rendered view drops.')] : []),
     ...(markdown && HIDDEN_ELEMENT.test(line) ? [blockingFinding('hidden-element', path, lineNumber, 'This element is hidden from a rendered view.')] : []),
   ];
 }

@@ -28,7 +28,7 @@ const DIGIT = /[0-9]/;
 const STRING_PREFIX = /^(?:[rRbBuU]|[rR][bB]|[bB][rR])$/;
 const FORMATTED_PREFIX = /^(?:[fF]|[rR][fF]|[fF][rR]|[tT]|[rR][tT]|[tT][rR])$/;
 /** How far one import statement is read, so `import:import:import` stays linear. */
-const MAX_IMPORT_TOKENS = 1_024;
+const MAX_IMPORT_TOKENS = 256;
 const OPENERS: Readonly<Record<string, string>> = { '(': ')', '[': ']', '{': '}' };
 const CLOSERS = new Set(Object.values(OPENERS));
 /** Which argument of each builtin must be literal, as upstream lists them. */

@@ -250,5 +250,7 @@ export function rejectSkillProposal(sys: System, root: string, caller: SkillActo
 export function loadSkillBlock(sys: System, root: string, name: string): SkillResult<SkillPromptBlock> {
   const loaded = loadPromotedSkill(sys, root, name);
   if (!loaded.ok) return loaded;
-  return loaded.value === null ? skillRefused('SKILL_NOT_FOUND', `There is no promoted skill ${name}.`) : renderSkillBlock(loaded.value);
+  if (loaded.value === null) return skillRefused('SKILL_NOT_FOUND', `There is no promoted skill ${name}.`);
+  // A record is only a file, and core cannot run this check. The memory review asked for it at the prompt too.
+  return credentialRefusal(loaded.value.files) ?? renderSkillBlock(loaded.value);
 }

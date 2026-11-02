@@ -85,6 +85,10 @@ const extensionOf = (path: string): string => {
   return dot <= 0 ? '' : name.slice(dot).toLowerCase();
 };
 
+/** The request reaches here from outside the type system, so its shape is asked before its lengths. */
+const isFileList = (files: unknown): files is readonly SkillFile[] =>
+  Array.isArray(files) && files.every((file: unknown) => typeof (file as SkillFile | null)?.path === 'string' && typeof (file as SkillFile | null)?.text === 'string');
+
 function capFindings(files: readonly SkillFile[]): readonly SkillFinding[] {
   const whole = '(package)';
   const total = files.reduce((sum, file) => sum + file.text.length, 0);
@@ -164,6 +168,7 @@ const failed = (blocking: readonly SkillFinding[]): SkillValidation => ({
  * needs an independent review over this exact hash.
  */
 export function validateSkillPackage(files: readonly SkillFile[]): SkillValidation {
+  if (!isFileList(files)) return failed([blockingFinding('not-a-package', '(package)', 0, 'A package is a list of files, each with a path and text.')]);
   const caps = capFindings(files);
   if (caps.length > 0) return failed(caps);
   const shape = shapeFindings(files);

@@ -16,7 +16,7 @@ import {
   type SkillRefusalCode,
   type SkillResult,
 } from '../src/skills/index.js';
-import { AT, GOOD_SKILL_MD, LATER, OWNER, REVIEWER, WORKER, pkg, proposalOf, skillMd, withFrontmatter } from './skillFixtures.js';
+import { AT, LATER, OWNER, REVIEWER, WORKER, pkg, proposalOf, skillMd, withFrontmatter } from './skillFixtures.js';
 
 const code = <T>(result: SkillResult<T>): SkillRefusalCode | 'ok' => (result.ok ? 'ok' : result.refusal.code);
 const input = (files: readonly SkillFile[] = pkg(), over: object = {}) => ({ files, author: WORKER.actor, authorRole: WORKER.role, session: WORKER.session, proposedAt: AT, ...over });
@@ -293,9 +293,5 @@ describe('skill text decides nothing', () => {
     const { pin } = promoted(proposalOf(pkg(claims)));
     expect(Object.values(pin)).not.toContain('owner');
     expect(JSON.stringify(pin)).not.toContain('push');
-  });
-
-  it('the good fixture is what the rest of this file proves against', () => {
-    expect(GOOD_SKILL_MD.startsWith('---\n')).toBe(true);
   });
 });

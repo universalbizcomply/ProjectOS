@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSkillProposal, type PromotedSkill, type SkillActor, type SkillFile, type SkillProposal, type SkillRefusalCode, type SkillResult } from '@projectos/core';
+import { buildSkillProposal, skillPackageHash, type PromotedSkill, type SkillActor, type SkillFile, type SkillProposal, type SkillRefusalCode, type SkillResult } from '@projectos/core';
 import type { System } from '../src/system.js';
 import {
   listPendingSkillProposals,
@@ -299,6 +299,18 @@ describe('credentials never enter a skill', () => {
     sys.files.set(proposalFile(forged), JSON.stringify(forged));
     expect(codeOf(review(sys, forged))).toBe('SKILL_CREDENTIAL');
     expect(sys.files.has(PROMOTED)).toBe(false);
+  });
+
+  it('refused at the prompt for a record that reached the store around the queue', () => {
+    const sys = fakeSystem();
+    const clean = promoted(sys);
+    const files = withBody(shaped);
+    const forged = { ...clean, files, pin: { ...clean.pin, packageHash: skillPackageHash(files) } };
+    sys.files.set(PROMOTED, JSON.stringify(forged));
+    expect(codeOf(loadPromotedSkill(sys, ROOT, NAME))).toBe('ok');
+    const result = loadSkillBlock(sys, ROOT, NAME);
+    expect(codeOf(result)).toBe('SKILL_CREDENTIAL');
+    expect(JSON.stringify(result)).not.toContain('abcd1234');
   });
 
   it('ordinary text is not a credential: the positive control', () => {

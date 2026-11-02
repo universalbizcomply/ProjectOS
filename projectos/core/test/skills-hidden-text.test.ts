@@ -10,6 +10,7 @@ const CHARACTERS: readonly (readonly [string, number])[] = [
   ['a tag character', 0xe0041],
   ['a zero-width space', 0x200b],
   ['a soft hyphen', 0xad],
+  ['an interlinear annotation', 0xfff9],
   ['a right-to-left override', 0x202e],
   ['a variation selector', 0xfe0f],
   ['the grapheme joiner', 0x34f],
@@ -68,6 +69,10 @@ describe('text a rendered view drops', () => {
 
   it.each(['[//]: # (a note)', '[x]: <>', "[x]: # 'a note'", '[ // ]: #', '[comment]: <> (a note)', '[x]: <#>'])('refuses the comment idiom %s', (line) => {
     expect(rules(line)).toContain('hidden-markdown-comment');
+  });
+
+  it('the comment form is refused outside Markdown too', () => {
+    expect(rules('[//]: # (a note)', 'references/a.txt')).toContain('hidden-markdown-comment');
   });
 
   it('refuses a link reference with a title', () => {

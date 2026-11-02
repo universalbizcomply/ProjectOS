@@ -12,7 +12,7 @@
  * WHAT THE TRANSLATION HAD TO CHANGE. Python's `\w` is Unicode-aware and JavaScript's is ASCII, so the word
  * fillers use `WORD`, or a filler in another script would pass. JavaScript has no regex conditional. Every
  * `*` and `+` over text is bounded, because the whole file is one haystack here and `.*` after a repeated
- * word is quadratic. `^\s*` became `^[ \t]*` for the same reason: under the `m` flag `\s` crosses lines, and a
+ * word is quadratic. `^\s*` became a bounded `[ \t]` run for the same reason: under the `m` flag `\s` crosses lines, and a
  * file of blank lines would make it quadratic.
  *
  * WHAT A CLEAN RESULT MEANS. Nothing: a pattern list cannot prove text is safe. A hit stops or informs a
@@ -74,7 +74,7 @@ function shellWrite(file: string): string {
 
 function proseModify(file: string): string {
   return (
-    String.raw`^[ \t]*(?:[-*+]\s+|\d+[.)]\s+)?${MODIFY_VERB}[^\n,]{0,80}?${file}\b` +
+    String.raw`^[ \t]{0,64}(?:[-*+]\s+|\d{1,9}[.)]\s+)?${MODIFY_VERB}[^\n,]{0,80}?${file}\b` +
     String.raw`|(?:\byou\s+(?:must|should|need\s+to)\s+|\bplease\s+|\bmake\s+sure\s+(?:to\s+|you\s+)|\bbe\s+sure\s+to\s+)` +
     String.raw`${MODIFY_VERB}[^\n,]{0,80}?${file}\b`
   );
@@ -120,14 +120,14 @@ export const SKILL_THREAT_PATTERNS: readonly SkillThreatPattern[] = [
   row('python_os_environ', 'high', 'exfiltration', String.raw`^[^#\n]*os\.environ\b(?!\s*\.get\s*\()`, 'accesses os.environ outside a comment'),
   row('python_environ_get_secret', 'medium', 'exfiltration', String.raw`os\.environ\s*\.get\s*\(\s*["'][^"'\n]{0,128}${SECRET_NAME}`, 'reads a secret via os.environ.get()'),
   row('python_getenv_secret', 'medium', 'exfiltration', String.raw`os\.getenv\s*\(\s*[^)\n]{0,256}${SECRET_NAME}`, 'reads a secret via os.getenv()'),
-  row('node_process_env', 'high', 'exfiltration', String.raw`process\.env\[`, 'accesses process.env'),
+  row('node_process_env', 'high', 'exfiltration', String.raw`process\.env\[`, 'reads the Node.js environment table'),
   row('ruby_env_secret', 'critical', 'exfiltration', String.raw`(?-i:ENV)\[${ANY}${SECRET_NAME_SHORT}`, 'reads a secret via Ruby ENV[]'),
   // Exfiltration: DNS and staging. Data travels in the queried name, as a subdomain of the attacker's domain.
   row(
     'dns_exfil',
     'critical',
     'exfiltration',
-    String.raw`(?<![-/])\b(?:dig|nslookup)\s+${DNS_FLAGS}["']?[^\s"'$()]{0,256}${DNS_VAR}[\w-]{0,128}["']?\.[a-z]|(?<![-/])\bhost\s+${DNS_FLAGS}["']?[^\s"'$()]{0,256}${DNS_VAR}[\w-]{0,128}\.[a-z]|(?:^|[;&|]|\$\(|\b(?:do|then|else)\b)[ \t]*host\s+${DNS_FLAGS}["']?\$`,
+    String.raw`(?<![-/])\b(?:dig|nslookup)\s+${DNS_FLAGS}["']?[^\s"'$()]{0,256}${DNS_VAR}[\w-]{0,128}["']?\.[a-z]|(?<![-/])\bhost\s+${DNS_FLAGS}["']?[^\s"'$()]{0,256}${DNS_VAR}[\w-]{0,128}\.[a-z]|(?:^|[;&|]|\$\(|\b(?:do|then|else)\b)[ \t]{0,64}host\s+${DNS_FLAGS}["']?\$`,
     'DNS lookup with variable interpolation',
   ),
   row('tmp_staging', 'critical', 'exfiltration', String.raw`>\s*/tmp/\S{0,256}\s*&&\s*(?:curl|wget|nc|python)`, 'writes to a temporary path and then sends it'),
@@ -267,7 +267,7 @@ export const SKILL_THREAT_PATTERNS: readonly SkillThreatPattern[] = [
     'hardcoded_secret',
     'critical',
     'credential_exposure',
-    String.raw`(?:api[_-]?key|token|secret|password)\s*[=:]\s*["'](?!(?-i:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)["'])[A-Za-z0-9+/=_-]{20,}`,
+    String.raw`(?:api[_-]?key|token|secret|password)\s*[=:]\s*["'](?!(?-i:[A-Z][A-Z0-9]{0,64}(?:_[A-Z0-9]{1,64}){1,16})["'])[A-Za-z0-9+/=_-]{20,}`,
     'possible hardcoded API key, token or secret',
   ),
   row('embedded_private_key', 'critical', 'credential_exposure', String.raw`(?-i:-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----)`, 'embedded private key'),
