@@ -41,12 +41,14 @@ import {
   promoteSkill,
   readSkillProposal,
   renderSkillBlock,
+  skillNameProblem,
   skillOk,
   skillRefused,
   type PromotedSkill,
   type SkillActor,
   type SkillDecisionOutcome,
   type SkillFile,
+  type SkillOrigin,
   type SkillPromptBlock,
   type SkillProposal,
   type SkillRefused,
@@ -54,14 +56,15 @@ import {
 } from '@projectos/core';
 import { containsSecret } from '../authoringEvidence.js';
 import { join, projectopsDir } from '../context.js';
+import { writeFileAtomically } from '../memory/memoryFiles.js';
 import type { System } from '../system.js';
 
 const LOCK_FILENAME = '.skills.lock';
 const PROPOSAL_ID = /^skl-[0-9a-f]{24}$/;
-/** The name rule in the linter, asked again here because this value becomes a path. */
-const SKILL_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** What may wait for review at once, so a loop cannot bury the queue a reviewer has to read. */
 const MAX_PENDING_PROPOSALS = 50;
+/** What one author may hold of that, so one agent cannot fill the queue for the others. */
+const MAX_PENDING_PER_AUTHOR = 10;
 
 export function skillsDir(root: string): string {
   return join(projectopsDir(root), 'skills');
@@ -85,18 +88,9 @@ function parsedJson(text: string): unknown {
   }
 }
 
-/** Temp file and rename, so a reader never sees a partial file. */
+/** The memory write, with its temporary path cleared first, because a link left there would be written through. */
 function writeWhole(sys: System, path: string, content: string): boolean {
-  const temporary = `${path}.tmp`;
-  try {
-    sys.writeText(temporary, content);
-  } catch {
-    sys.removeFile(temporary);
-    return false;
-  }
-  if (sys.renameFile(temporary, path)) return true;
-  sys.removeFile(temporary);
-  return false;
+  return sys.removeFile(`${path}.tmp`) && writeFileAtomically(sys, path, content);
 }
 
 /** Do one read-check-write with nobody else inside. The body's answer stands if the lock will not release. */
@@ -119,7 +113,7 @@ function underSkillLock<T>(sys: System, root: string, body: () => SkillResult<T>
 
 /** The promoted skill by this name, as it stands, or null when there is none. Stale text is refused, not null. */
 export function loadPromotedSkill(sys: System, root: string, name: string): SkillResult<PromotedSkill | null> {
-  if (!SKILL_NAME.test(name)) return skillRefused('SKILL_NOT_FOUND', 'That is not a skill name.');
+  if (skillNameProblem(name) !== null) return skillRefused('SKILL_NOT_FOUND', 'That is not a skill name.');
   const path = promotedSkillPath(root, name);
   const text = sys.readText(path);
   if (text === null) return sys.exists(path) ? skillRefused('SKILL_UNREADABLE', `${path} exists but could not be read.`) : skillOk(null);
@@ -146,14 +140,21 @@ function activeHash(sys: System, root: string, name: string): SkillResult<string
 export interface SkillProposalRequest {
   /** The whole package, `SKILL.md` first or last. Imported text arrives the same way. */
   readonly files: readonly SkillFile[];
+  /** `imported` when the text came from outside, which only the owner may do. A proposal by default. */
+  readonly origin?: SkillOrigin;
 }
 
 /** Record a proposed skill for review. Nothing that is read as a skill is touched. */
 export function proposeSkill(sys: System, root: string, caller: SkillActor, request: SkillProposalRequest): SkillResult<SkillProposal> {
-  if (listPendingSkillProposals(sys, root).pending.length >= MAX_PENDING_PROPOSALS) {
+  const { pending } = listPendingSkillProposals(sys, root);
+  if (pending.length >= MAX_PENDING_PROPOSALS) {
     return skillRefused('SKILL_QUEUE_FULL', `${MAX_PENDING_PROPOSALS} proposals are already waiting for review. Nothing was proposed.`);
   }
-  const input = { files: request.files, author: caller.actor, authorRole: caller.role, session: caller.session, proposedAt: sys.now() };
+  const mine = pending.filter((proposal) => proposal.provenance.author.toLowerCase() === caller.actor.toLowerCase());
+  if (mine.length >= MAX_PENDING_PER_AUTHOR) {
+    return skillRefused('SKILL_QUEUE_FULL', `${caller.actor} already has ${MAX_PENDING_PER_AUTHOR} proposals waiting for review. Nothing was proposed.`);
+  }
+  const input = { files: request.files, origin: request.origin ?? 'proposed', author: caller.actor, authorRole: caller.role, session: caller.session, proposedAt: sys.now() };
   const probe = buildSkillProposal(input, null);
   if (!probe.ok) return probe;
   const credential = credentialRefusal(request.files);
@@ -206,7 +207,8 @@ export interface SkillReviewRequest {
 function decided(sys: System, root: string, caller: SkillActor, request: SkillReviewRequest, outcome: SkillDecisionOutcome): SkillResult<SkillProposal> {
   const proposal = loadSkillProposal(sys, root, request.id);
   if (!proposal.ok) return proposal;
-  const active = activeHash(sys, root, proposal.value.name);
+  // A rejection changes nothing the active skill holds, so a corrupt active record must not stop one.
+  const active = outcome === 'approved' ? activeHash(sys, root, proposal.value.name) : skillOk(proposal.value.supersedes);
   if (!active.ok) return active;
   return decideSkillProposal(proposal.value, outcome, caller, sys.now(), request.reviewedHash, active.value);
 }

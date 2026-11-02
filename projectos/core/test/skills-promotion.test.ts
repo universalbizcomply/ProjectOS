@@ -19,7 +19,7 @@ import {
 import { AT, LATER, OWNER, REVIEWER, WORKER, pkg, proposalOf, skillMd, withFrontmatter } from './skillFixtures.js';
 
 const code = <T>(result: SkillResult<T>): SkillRefusalCode | 'ok' => (result.ok ? 'ok' : result.refusal.code);
-const input = (files: readonly SkillFile[] = pkg(), over: object = {}) => ({ files, author: WORKER.actor, authorRole: WORKER.role, session: WORKER.session, proposedAt: AT, ...over });
+const input = (files: readonly SkillFile[] = pkg(), over: object = {}) => ({ files, origin: 'proposed' as const, author: WORKER.actor, authorRole: WORKER.role, session: WORKER.session, proposedAt: AT, ...over });
 const decide = (proposal: SkillProposal, reviewer: SkillActor = REVIEWER, hash: string = proposal.proposalHash, active: string | null = proposal.supersedes) =>
   decideSkillProposal(proposal, 'approved', reviewer, LATER, hash, active);
 
@@ -38,7 +38,7 @@ function promoted(proposal: SkillProposal = proposalOf()): PromotedSkill {
 /** What a process that can write the queue can do: the hash detects a change, and it is not a signature. */
 function resealed(proposal: SkillProposal): SkillProposal {
   const { provenance: v } = proposal;
-  const fields = ['projectos.skill-proposal/1', proposal.name, proposal.description, proposal.version, proposal.packageHash, proposal.supersedes, proposal.advisories, proposal.rulesVersion, v.author, v.authorRole, v.session, v.proposedAt];
+  const fields = ['projectos.skill-proposal/1', proposal.name, proposal.description, proposal.version, proposal.packageHash, proposal.supersedes, proposal.advisories, proposal.rulesVersion, proposal.origin, v.author, v.authorRole, v.session, v.proposedAt];
   const hex = createHash('sha256').update(JSON.stringify(fields), 'utf8').digest('hex');
   return { ...proposal, proposalHash: `sha256:${hex}`, id: `skl-${hex.slice(0, 24)}` };
 }
@@ -69,7 +69,8 @@ describe('an agent only proposes', () => {
     expect(skill.pin.packageHash).toBe(skillPackageHash(pkg()));
     expect(skill.pin.author).toBe(WORKER.actor);
     expect(skill.pin.reviewedBy).toBe(REVIEWER.actor);
-    expect(skill.pin.reviewerRole).toBe('advisor');
+    expect(skill.pin.reviewerRole).toBe('owner');
+    expect(skill.pin.origin).toBe('proposed');
     expect(skill.pin.reviewerSession).toBe(REVIEWER.session);
     expect(skill.pin.reviewedAt).toBe(LATER);
     expect(isSkillPin(skill.pin)).toBe(true);
@@ -119,7 +120,7 @@ describe('the review is independent', () => {
   });
 
   it('the author does not review, in any case and in any role', () => {
-    expect(code(decide(proposalOf(), { actor: WORKER.actor, role: 'advisor', session: 'sess-9' }))).toBe('SKILL_NOT_INDEPENDENT');
+    expect(code(decide(proposalOf(), { actor: WORKER.actor, role: 'owner', session: 'sess-9' }))).toBe('SKILL_NOT_INDEPENDENT');
     expect(code(decide(proposalOf(), { actor: 'WORKER-1', role: 'owner', session: 'sess-9' }))).toBe('SKILL_NOT_INDEPENDENT');
   });
 
@@ -130,11 +131,15 @@ describe('the review is independent', () => {
   });
 
   it('a second label in the session that proposed is not a second reviewer', () => {
-    expect(code(decide(proposalOf(), { actor: 'other', role: 'advisor', session: WORKER.session }))).toBe('SKILL_NOT_INDEPENDENT');
-    expect(code(decide(proposalOf(), { actor: 'other', role: 'advisor', session: 'SESS-1' }))).toBe('SKILL_NOT_INDEPENDENT');
+    expect(code(decide(proposalOf(), { actor: 'other', role: 'owner', session: WORKER.session }))).toBe('SKILL_NOT_INDEPENDENT');
+    expect(code(decide(proposalOf(), { actor: 'other', role: 'owner', session: 'SESS-1' }))).toBe('SKILL_NOT_INDEPENDENT');
   });
 
-  it('an advisor and the owner each may review: the positive controls', () => {
+  it('an advisor does not review until the actor is issued by the kernel: a self-chosen label is no proof', () => {
+    expect(code(decide(proposalOf(), { actor: 'fresh-advisor', role: 'advisor', session: 'sess-fresh' }))).toBe('SKILL_NOT_INDEPENDENT');
+  });
+
+  it('only the owner role reviews: the positive controls', () => {
     expect(code(decide(proposalOf(), REVIEWER))).toBe('ok');
     expect(code(decide(proposalOf(), OWNER))).toBe('ok');
   });
@@ -157,6 +162,7 @@ describe('the review is independent', () => {
     expect(isSkillPin({ ...pin, reviewedBy: pin.author })).toBe(false);
     expect(isSkillPin({ ...pin, reviewerSession: pin.authorSession })).toBe(false);
     expect(isSkillPin({ ...pin, reviewerRole: 'implementer' })).toBe(false);
+    expect(isSkillPin({ ...pin, reviewerRole: 'advisor' })).toBe(false);
   });
 });
 
@@ -199,6 +205,55 @@ describe('one changed byte is stale', () => {
 
   it('a proposal already decided cannot be decided again', () => {
     expect(code(decide(approved()))).toBe('SKILL_ALREADY_DECIDED');
+  });
+});
+
+describe('where a skill came from', () => {
+  const imported = (over: object = {}) => buildSkillProposal(input(pkg(), { origin: 'imported', ...over }), null);
+  const asOwner = { author: 'owner-1', authorRole: 'owner', session: 'sess-a' };
+
+  it('an agent may not import a skill: the text it brings is not its own to propose', () => {
+    expect(code(imported())).toBe('SKILL_NOT_OWNER');
+  });
+
+  it('the owner may: the positive control', () => {
+    const built = imported(asOwner);
+    expect(code(built)).toBe('ok');
+    if (built.ok) expect(built.value.origin).toBe('imported');
+  });
+
+  it('a known origin is required', () => {
+    expect(code(buildSkillProposal(input(pkg(), { origin: 'hub' }), null))).toBe('SKILL_PROVENANCE');
+  });
+
+  it('the origin is inside the hash: an edit is refused, and an agent cannot reseal an import', () => {
+    const proposal = proposalOf();
+    expect(proposalOf().proposalHash).not.toBe(resealed({ ...proposal, origin: 'imported' }).proposalHash);
+    expect(code(readSkillProposal({ ...proposal, origin: 'imported' }))).toBe('SKILL_TAMPERED');
+    expect(code(checkSkillProposal(resealed({ ...proposal, origin: 'imported' }), null))).toBe('SKILL_TAMPERED');
+  });
+
+  it('a pin keeps the origin, and an import by anyone else is not a pin', () => {
+    const { pin } = promoted();
+    expect(isSkillPin({ ...pin, origin: 'hub' })).toBe(false);
+    expect(isSkillPin({ ...pin, origin: 'imported' })).toBe(false);
+    expect(isSkillPin({ ...pin, origin: 'imported', authorRole: 'owner' })).toBe(true);
+  });
+});
+
+describe('caps are asked before a hash', () => {
+  const huge = [{ path: 'SKILL.md', text: 'a'.repeat(200_000) }];
+
+  it('a promoted record over the caps is refused by the cap, and not hashed first', () => {
+    const result = checkPromotedSkill({ ...promoted(), files: huge });
+    expect(code(result)).toBe('SKILL_FAILED_VALIDATION');
+    expect(result.ok ? '' : result.refusal.named).toBe('file-too-large');
+  });
+
+  it('a proposal over the caps says so', () => {
+    const result = readSkillProposal({ ...proposalOf(), files: huge });
+    expect(code(result)).toBe('SKILL_TAMPERED');
+    expect(result.ok ? '' : result.refusal.message).toContain('over the caps');
   });
 });
 
@@ -291,7 +346,7 @@ describe('skill text decides nothing', () => {
 
   it('the name and description are the only frontmatter a pin keeps', () => {
     const { pin } = promoted(proposalOf(pkg(claims)));
-    expect(Object.values(pin)).not.toContain('owner');
+    expect(pin.reviewedBy).toBe(REVIEWER.actor);
     expect(JSON.stringify(pin)).not.toContain('push');
   });
 });

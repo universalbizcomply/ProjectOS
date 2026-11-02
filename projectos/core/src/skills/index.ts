@@ -9,6 +9,7 @@ export { auditPythonSource } from './sourceAudit.js';
 export { MAX_SKILL_DESCRIPTION_CHARS, MAX_SKILL_NAME_CHARS, SKILL_MD, lintSkill, skillNameProblem, type SkillLintInput } from './linter.js';
 export * from './skillPackage.js';
 export {
+  SKILL_ORIGINS,
   SKILL_PROPOSAL_STATES,
   SKILL_REVIEWER_ROLES,
   buildSkillProposal,
@@ -21,6 +22,7 @@ export {
   type PromotedSkill,
   type SkillActor,
   type SkillDecisionOutcome,
+  type SkillOrigin,
   type SkillPin,
   type SkillProposal,
   type SkillProposalInput,

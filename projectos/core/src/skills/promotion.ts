@@ -4,7 +4,7 @@
 // Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: ADAPT
-// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: adapted through the memory proposal rules, which carry this credit; every write staged and decided, now by an independent reviewer rather than the owner alone, over a package and not an entry
+// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: adapted through the memory proposal rules, which carry this credit; every write staged and decided by the owner, as an actor other than the author, over a package and not an entry
 // SPDX-License-Identifier: MIT
 // Ported-From: oh-my-hermes https://github.com/rlaope/oh-my-hermes
 // Source-Path: src/plugin_bundle/omh/memory_admission.py
@@ -20,7 +20,8 @@
  * an agent may only propose. Promotion needs three things, and none stands in for another:
  *
  *  1. A validator pass, over the exact text, at proposal and again at promotion.
- *  2. An independent review: an advisor or the owner, as a different actor, in a different session.
+ *  2. An independent review: the owner, as a different actor, in a different session. Only the owner, because an
+ *     actor is a label until the kernel issues it, and a self-chosen `advisor` with a new session is no one.
  *  3. A hash pin. The review names the hash it read, and the pin names the package it promoted, so one
  *     changed byte anywhere is stale.
  *
@@ -38,14 +39,18 @@ import { createHash } from 'node:crypto';
 import { ROLES, type Role } from '../types.js';
 import type { HashPinnedOutcome, HashPinnedProposal } from '../memory/hashPinned.js';
 import { skillOk, skillRefused, type SkillRefused, type SkillResult } from './refusal.js';
-import { skillPackageHash, validateSkillPackage, type SkillFile, type SkillValidation } from './skillPackage.js';
+import { skillPackageHash, skillPackageOverCaps, validateSkillPackage, type SkillFile, type SkillValidation } from './skillPackage.js';
 
 export const SKILL_PROPOSAL_STATES = ['pending', 'approved', 'promoted', 'rejected'] as const;
 export type SkillProposalState = (typeof SKILL_PROPOSAL_STATES)[number];
 export type SkillDecisionOutcome = HashPinnedOutcome;
 
-/** Who may review. An implementer never does, whoever it is. */
-export const SKILL_REVIEWER_ROLES: readonly Role[] = ['advisor', 'owner'];
+/** Who may review. Owner-only until the actor is kernel-issued; the plan's D11 reviewer roles wait for that. */
+export const SKILL_REVIEWER_ROLES: readonly Role[] = ['owner'];
+
+/** Where the text came from. An import is text from outside, so only the owner may bring one in. */
+export const SKILL_ORIGINS = ['proposed', 'imported'] as const;
+export type SkillOrigin = (typeof SKILL_ORIGINS)[number];
 
 const SKILL_PROPOSAL_SCHEMA = 'projectos.skill-proposal/1';
 const PROMOTED_SKILL_SCHEMA = 'projectos.promoted-skill/1';
@@ -80,6 +85,7 @@ interface SkillProposalBody {
   /** What the validator wants the reviewer to read. Recomputed, never trusted from a file. */
   readonly advisories: readonly string[];
   readonly rulesVersion: string;
+  readonly origin: SkillOrigin;
   readonly provenance: SkillProvenance;
 }
 
@@ -90,6 +96,7 @@ export interface SkillProposal extends SkillProposalBody, HashPinnedProposal<Ski
 /** The record of one promotion. A skill with no whole pin is not promoted. */
 export interface SkillPin {
   readonly name: string;
+  readonly origin: SkillOrigin;
   readonly packageHash: string;
   readonly rulesVersion: string;
   readonly supersedes: string | null;
@@ -115,6 +122,7 @@ export interface PromotedSkill {
 
 export interface SkillProposalInput {
   readonly files: readonly SkillFile[];
+  readonly origin: SkillOrigin;
   readonly author: string;
   readonly authorRole: Role;
   readonly session: string;
@@ -126,6 +134,7 @@ const isHash = (value: unknown): value is string => isText(value) && HASH.test(v
 const isRole = (value: unknown): value is Role => isText(value) && (ROLES as readonly string[]).includes(value);
 const isActor = (value: unknown): value is string => isText(value) && ACTOR_LABEL.test(value);
 const isInstant = (value: unknown): value is string => isText(value) && ISO_INSTANT.test(value);
+const isOrigin = (value: unknown): value is SkillOrigin => isText(value) && (SKILL_ORIGINS as readonly string[]).includes(value);
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const orderedFiles = (files: readonly SkillFile[]): readonly SkillFile[] => [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 /** Labels are compared the way a person reads them, so a change of case is not a second reviewer. */
@@ -142,6 +151,7 @@ function hashBody(body: SkillProposalBody): string {
     body.supersedes,
     body.advisories,
     body.rulesVersion,
+    body.origin,
     body.provenance.author,
     body.provenance.authorRole,
     body.provenance.session,
@@ -169,6 +179,8 @@ function validationRefusal(validation: SkillValidation): SkillRefused {
 export function buildSkillProposal(input: SkillProposalInput, activeHash: string | null): SkillResult<SkillProposal> {
   const missing = provenanceProblem(input);
   if (missing !== null) return skillRefused('SKILL_PROVENANCE', `A skill proposal must name ${missing}.`);
+  if (!isOrigin(input.origin)) return skillRefused('SKILL_PROVENANCE', 'A skill proposal must name a known origin.');
+  if (input.origin === 'imported' && input.authorRole !== 'owner') return skillRefused('SKILL_NOT_OWNER', 'Only the owner brings a skill in from outside.');
   const validation = validateSkillPackage(input.files);
   if (!validation.passed) return validationRefusal(validation);
   const body: SkillProposalBody = {
@@ -180,6 +192,7 @@ export function buildSkillProposal(input: SkillProposalInput, activeHash: string
     supersedes: activeHash,
     advisories: advisoriesOf(validation),
     rulesVersion: validation.rulesVersion,
+    origin: input.origin,
     provenance: { author: input.author, authorRole: input.authorRole, session: input.session, proposedAt: input.proposedAt },
   };
   const proposalHash = hashBody(body);
@@ -189,6 +202,8 @@ export function buildSkillProposal(input: SkillProposalInput, activeHash: string
 /** Null when this proposal is what it says it is. It says nothing about whether it still passes. */
 function integrityProblem(proposal: SkillProposal): string | null {
   if (proposal.schema !== SKILL_PROPOSAL_SCHEMA) return 'its schema is not one this version reads';
+  if (skillPackageOverCaps(proposal.files)) return 'it is over the caps';
+  if (proposal.origin === 'imported' && proposal.provenance.authorRole !== 'owner') return 'only the owner brings a skill in from outside';
   if (proposal.packageHash !== skillPackageHash(proposal.files)) return 'its pin is not the hash of its files';
   if (proposal.proposalHash !== hashBody(proposal)) return 'its hash does not match what it says';
   if (proposal.id !== idOf(proposal.proposalHash)) return 'its id does not match its hash';
@@ -242,7 +257,7 @@ export function readSkillProposal(raw: unknown): SkillResult<SkillProposal> {
   const missing = provenanceProblem({ author, authorRole, session, proposedAt });
   if (missing !== null) return refuse(`it does not name ${missing}`);
   const files = filesFrom(raw['files']);
-  const { id, name, description, version, packageHash, supersedes, advisories, rulesVersion, proposalHash, state } = raw;
+  const { id, name, description, version, packageHash, supersedes, advisories, rulesVersion, origin, proposalHash, state } = raw;
   if (
     raw['schema'] !== SKILL_PROPOSAL_SCHEMA ||
     files === null ||
@@ -256,6 +271,7 @@ export function readSkillProposal(raw: unknown): SkillResult<SkillProposal> {
     !(supersedes === null || isHash(supersedes)) ||
     !isTextList(advisories) ||
     !isText(rulesVersion) ||
+    !isOrigin(origin) ||
     !isText(state) ||
     !(SKILL_PROPOSAL_STATES as readonly string[]).includes(state)
   ) {
@@ -275,6 +291,7 @@ export function readSkillProposal(raw: unknown): SkillResult<SkillProposal> {
     supersedes,
     advisories,
     rulesVersion,
+    origin,
     provenance: { author: author as string, authorRole: authorRole as Role, session: session as string, proposedAt: proposedAt as string },
   };
   const problem = integrityProblem(proposal);
@@ -346,6 +363,7 @@ export function promoteSkill(proposal: SkillProposal, activeHash: string | null)
     files: proposal.files,
     pin: {
       name: proposal.name,
+      origin: proposal.origin,
       packageHash: proposal.packageHash,
       rulesVersion: proposal.rulesVersion,
       supersedes: proposal.supersedes,
@@ -366,9 +384,11 @@ export function promoteSkill(proposal: SkillProposal, activeHash: string | null)
 /** Whether this is a whole pin, every field, naming a review that was independent. */
 export function isSkillPin(value: unknown): value is SkillPin {
   if (!isRecord(value)) return false;
-  const { name, packageHash, rulesVersion, supersedes, proposalId, proposalHash, author, authorRole, authorSession, proposedAt, reviewedBy, reviewerRole, reviewerSession, reviewedAt } = value;
+  const { name, origin, packageHash, rulesVersion, supersedes, proposalId, proposalHash, author, authorRole, authorSession, proposedAt, reviewedBy, reviewerRole, reviewerSession, reviewedAt } = value;
   if (
     !isText(name) ||
+    !isOrigin(origin) ||
+    !(origin !== 'imported' || authorRole === 'owner') ||
     !isHash(packageHash) ||
     !isText(rulesVersion) ||
     !(supersedes === null || isHash(supersedes)) ||
@@ -401,6 +421,7 @@ export function checkPromotedSkill(raw: unknown): SkillResult<PromotedSkill> {
   const files = filesFrom(raw['files']);
   const { pin, description, version } = raw;
   if (files === null || !isSkillPin(pin) || !isText(description) || !isNullableText(version)) return refuse('it has no whole, independent pin');
+  if (skillPackageOverCaps(files)) return validationRefusal(validateSkillPackage(files));
   if (skillPackageHash(files) !== pin.packageHash) {
     return skillRefused('SKILL_STALE', `Skill ${pin.name} is not the text that was promoted. It is not read. Propose the change.`);
   }

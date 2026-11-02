@@ -36,6 +36,8 @@ const HIDDEN_CHARACTER = new RegExp(
   'u',
 );
 const HTML_COMMENT = /<!--/;
+/** The tags that fence untrusted text in a prompt. Text that quotes one is trying to leave its fence. */
+const FENCE_FORGERY = /<\s*\/?\s*untrusted-(?:skill|memory)\b/i;
 const MARKDOWN_COMMENT_ANYWHERE = /\[\/\/\]:/;
 const RENDERER_DROPS = /<\?|<!\[|<![A-Za-z]/;
 /** `[label]: <>` and `[label]: #`, the comment idiom, with or without text after it. */
@@ -58,6 +60,7 @@ function hiddenInLine(path: string, line: string, lineNumber: number, markdown: 
   const character = HIDDEN_CHARACTER.exec(line)?.[0];
   return [
     ...(character === undefined ? [] : [blockingFinding('hidden-character', path, lineNumber, `Line ${lineNumber} holds U+${hex(character)}, which a reviewer would not see.`)]),
+    ...(FENCE_FORGERY.test(line) ? [blockingFinding('fence-forgery', path, lineNumber, 'This text writes the tag that fences untrusted text in a prompt.')] : []),
     ...(HTML_COMMENT.test(line) ? [blockingFinding('hidden-html-comment', path, lineNumber, 'An HTML comment holds text a rendered view does not show.')] : []),
     ...(MARKDOWN_COMMENT_ANYWHERE.test(line) || (markdown && REFERENCE_AS_COMMENT.test(line))
       ? [blockingFinding('hidden-markdown-comment', path, lineNumber, 'A link reference used as a comment holds text a rendered view does not show.')]

@@ -12,7 +12,7 @@
  * WHAT THE TRANSLATION HAD TO CHANGE. Python's `\w` is Unicode-aware and JavaScript's is ASCII, so the word
  * fillers use `WORD`, or a filler in another script would pass. JavaScript has no regex conditional. Every
  * `*` and `+` over text is bounded, because the whole file is one haystack here and `.*` after a repeated
- * word is quadratic. `^\s*` became a bounded `[ \t]` run for the same reason: under the `m` flag `\s` crosses lines, and a
+ * word is quadratic. Two wide repeats in one pattern multiply, so a pattern that needs two uses the narrow gap. `^\s*` became a bounded `[ \t]` run for the same reason: under the `m` flag `\s` crosses lines, and a
  * file of blank lines would make it quadratic.
  *
  * WHAT A CLEAN RESULT MEANS. Nothing: a pattern list cannot prove text is safe. A hit stops or informs a
@@ -36,6 +36,8 @@ const WORD = String.raw`[\p{L}\p{N}_]`;
 const FILLER = String.raw`(?:${WORD}{1,64}\s+){0,8}`;
 /** The rest of one line, bounded. */
 const ANY = String.raw`[^\n]{0,512}`;
+/** The gap when a pattern needs two repeats. Their product is what a hostile line costs at each start. */
+const NEAR = String.raw`[^\n]{0,64}`;
 const TICK = '`';
 const NOT_LOOPBACK = String.raw`(?!${ANY}https?://(?:localhost|127\.0\.0\.1|\[::1\]))`;
 const SECRET_NAME = '(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)';
@@ -46,14 +48,14 @@ const SHELLS = String.raw`(?:bash|sh|zsh|ksh|dash)\b`;
 const SUDO = String.raw`(?:sudo\s+(?:-\S{1,16}\s+){0,4})?`;
 
 const CRED_FILE = String.raw`(?:\.ssh[/\\]id_(?:rsa|ed25519|ecdsa|dsa)(?!\.pub)|\.env\b|credentials\b|\.netrc\b|\.pgpass\b|\.npmrc\b|\.pypirc\b)`;
-const CRED_FILE_LITERAL = String.raw`["'][^"'\n]{0,256}${CRED_FILE}[^"'\n]{0,256}["']`;
+const CRED_FILE_LITERAL = String.raw`["'][^"'\n]{0,64}${CRED_FILE}[^"'\n]{0,64}["']`;
 const PY_CRED_FILE_ARG = String.raw`(?:os\.path\.expanduser\s*\(\s*)?${CRED_FILE_LITERAL}\s*\)?`;
 
-const DNS_FLAGS = String.raw`(?:[-+@]\S{0,128}(?:\s+[^\s$"'-][^\s$]{0,128})?\s+){0,8}`;
-const DNS_VAR = String.raw`\$(?:\{[^}\s]{0,128}\}|\([^\n]{0,256}?\)+|\w{1,64})`;
+const DNS_FLAGS = String.raw`(?:[-+@]\S{0,16}(?:\s+[^\s$"'-][^\s$]{0,16})?\s+){0,8}`;
+const DNS_VAR = String.raw`\$(?:\{[^}\s]{0,16}\}|\([^\n]{0,64}?\)+|\w{1,64})`;
 
 const TEMP_ROOTS = '(?:tmp|var/tmp|dev/shm|run|var/lib/apt/lists|var/cache/(?:apt|apk|yum|dnf))';
-const RM_ROOT_TAIL = String.raw`(?:(?!${TEMP_ROOTS}(?:\b|/))|${TEMP_ROOTS}/(?:[^/\s]{0,128}/){0,16}\.\.(?=/|[\s;&|]|$))`;
+const RM_ROOT_TAIL = String.raw`(?:(?!${TEMP_ROOTS}(?:\b|/))|${TEMP_ROOTS}/(?:[^/\s]{0,64}/){0,16}\.\.(?=/|[\s;&|]|$))`;
 
 const MODIFY_VERB =
   String.raw`(?:\bwrit(?:e|es|ing)\b|\bwritten\b|\bedit(?:s|ed|ing)?\b|\bmodif(?:y|ies|ied|ying|ication)s?\b|\bupdat(?:e|es|ed|ing)\b` +
@@ -66,9 +68,9 @@ const OTHER_AGENT_FILES = String.raw`\.(?:claude/settings|codex/config)[\w.]{0,6
 function shellWrite(file: string): string {
   return [
     String.raw`(?:>>|[\w"'${TICK})\]]\s*>)\s*[~\w./-]{0,256}${file}(?!\.?\w)`,
-    String.raw`\bsed\b${ANY}\s(?:-[A-Za-z]{0,8}i[A-Za-z]{0,8}|--in-place)\b${ANY}${file}(?!\.?\w)`,
+    String.raw`\bsed\s+(?:\S{1,64}\s+){0,4}?(?:-[A-Za-z]{0,8}i[A-Za-z]{0,8}|--in-place)\s+${NEAR}${file}(?!\.?\w)`,
     String.raw`\btee\s+(?:-a\s+)?[~\w./"'-]{0,256}${file}(?!\.?\w)`,
-    String.raw`\b(?:cp|mv)\s+[^\s|;&]{1,256}\s+[^\n|;&]{0,40}?${file}(?!\.?\w)`,
+    String.raw`\b(?:cp|mv)\s+[^\s|;&]{1,64}\s+[^\n|;&]{0,40}?${file}(?!\.?\w)`,
   ].join('|');
 }
 
@@ -117,7 +119,7 @@ export const SKILL_THREAT_PATTERNS: readonly SkillThreatPattern[] = [
   ),
   // Exfiltration: programmatic environment access.
   row('dump_all_env', 'high', 'exfiltration', String.raw`printenv|(?<![A-Za-z0-9_])env\s*\|(?!\|)(?!\s*[{(])`, 'dumps all environment variables'),
-  row('python_os_environ', 'high', 'exfiltration', String.raw`^[^#\n]*os\.environ\b(?!\s*\.get\s*\()`, 'accesses os.environ outside a comment'),
+  row('python_os_environ', 'high', 'exfiltration', String.raw`^[^#\n]{0,4096}os\.environ\b(?!\s*\.get\s*\()`, 'accesses os.environ outside a comment'),
   row('python_environ_get_secret', 'medium', 'exfiltration', String.raw`os\.environ\s*\.get\s*\(\s*["'][^"'\n]{0,128}${SECRET_NAME}`, 'reads a secret via os.environ.get()'),
   row('python_getenv_secret', 'medium', 'exfiltration', String.raw`os\.getenv\s*\(\s*[^)\n]{0,256}${SECRET_NAME}`, 'reads a secret via os.getenv()'),
   row('node_process_env', 'high', 'exfiltration', String.raw`process\.env\[`, 'reads the Node.js environment table'),
@@ -127,11 +129,11 @@ export const SKILL_THREAT_PATTERNS: readonly SkillThreatPattern[] = [
     'dns_exfil',
     'critical',
     'exfiltration',
-    String.raw`(?<![-/])\b(?:dig|nslookup)\s+${DNS_FLAGS}["']?[^\s"'$()]{0,256}${DNS_VAR}[\w-]{0,128}["']?\.[a-z]|(?<![-/])\bhost\s+${DNS_FLAGS}["']?[^\s"'$()]{0,256}${DNS_VAR}[\w-]{0,128}\.[a-z]|(?:^|[;&|]|\$\(|\b(?:do|then|else)\b)[ \t]{0,64}host\s+${DNS_FLAGS}["']?\$`,
+    String.raw`(?<![-/])\b(?:dig|nslookup)\s+${DNS_FLAGS}["']?[^\s"'$()]{0,64}${DNS_VAR}[\w-]{0,128}["']?\.[a-z]|(?<![-/])\bhost\s+${DNS_FLAGS}["']?[^\s"'$()]{0,64}${DNS_VAR}[\w-]{0,128}\.[a-z]|(?:^|[;&|]|\$\(|\b(?:do|then|else)\b)[ \t]{0,64}host\s+${DNS_FLAGS}["']?\$`,
     'DNS lookup with variable interpolation',
   ),
   row('tmp_staging', 'critical', 'exfiltration', String.raw`>\s*/tmp/\S{0,256}\s*&&\s*(?:curl|wget|nc|python)`, 'writes to a temporary path and then sends it'),
-  row('md_image_exfil', 'high', 'exfiltration', String.raw`!\[[^\]\n]{0,256}\]\(https?://[^)\n]{0,512}\$\{?`, 'markdown image URL with variable interpolation'),
+  row('md_image_exfil', 'high', 'exfiltration', String.raw`!\[[^\]\n]{0,64}\]\(https?://[^)\n]{0,64}\$\{?`, 'markdown image URL with variable interpolation'),
   row('md_link_exfil', 'high', 'exfiltration', String.raw`\]\(https?://[^)\n]{0,512}\$\{?`, 'markdown link with variable interpolation'),
   // Prompt injection.
   row('prompt_injection_ignore', 'critical', 'injection', String.raw`ignore\s+${FILLER}(?:previous|all|above|prior)\s+instructions`, 'prompt injection: ignore previous instructions'),
@@ -149,15 +151,15 @@ export const SKILL_THREAT_PATTERNS: readonly SkillThreatPattern[] = [
   row('leak_system_prompt', 'high', 'injection', String.raw`output\s+${FILLER}(?:system|initial)\s+prompt`, 'attempts to extract the system prompt'),
   row('conditional_deception', 'high', 'injection', String.raw`(?:when|if)\s+no\s*one\s+is\s+(?:watching|looking)`, 'conditional instruction to behave differently when unobserved'),
   row('bypass_restrictions', 'critical', 'injection', String.raw`act\s+as\s+(?:if|though)\s+${FILLER}you\s+${FILLER}(?:have\s+no|don't\s+have)\s+${FILLER}(?:restrictions|limits|rules)`, 'instructs the reader to act without restrictions'),
-  row('translate_execute', 'critical', 'injection', String.raw`translate\s+${ANY}\s+into\s+${ANY}\s+and\s+(?:execute|run|eval)`, 'translate-then-execute evasion'),
+  row('translate_execute', 'critical', 'injection', String.raw`translate\s+${ANY}\s+into\s+${WORD}{1,64}(?:[\s-]{1,8}${WORD}{1,64}){0,2}\s+and\s+(?:execute|run|eval)\b`, 'translate-then-execute evasion'),
   row('hidden_div', 'high', 'injection', String.raw`<\s*div\s+style\s*=\s*["'][^>\n]{0,512}display\s*:\s*none`, 'hidden HTML div'),
   // Destructive operations. Cleanup under the standard temporary roots is routine; a climb out of them is not.
-  row('destructive_root_rm', 'critical', 'destructive', String.raw`rm\s+-rf\s+(?:/|(?:[^\s;&|<>#][^\s;&|<>]{0,256}\s+){1,32}?/(?!/(?:\s|$)))${RM_ROOT_TAIL}`, 'recursive delete from root'),
-  row('destructive_home_rm', 'critical', 'destructive', String.raw`(?<![A-Za-z0-9])rm\s+(?:-\S{0,32})?r${ANY}(?:\$HOME|~[/\s*]|~$)|(?<![A-Za-z0-9])rmdir\s+${ANY}(?:\$HOME|~[/\s*]|~$)`, 'recursive delete targeting the home directory'),
+  row('destructive_root_rm', 'critical', 'destructive', String.raw`rm\s+-rf\s+(?:/|(?:[^\s;&|<>#][^\s;&|<>]{0,64}\s+){1,32}?/(?!/(?:\s|$)))${RM_ROOT_TAIL}`, 'recursive delete from root'),
+  row('destructive_home_rm', 'critical', 'destructive', String.raw`(?<![A-Za-z0-9])rm\s+(?:-\S{0,16})?r${ANY}(?:\$HOME|~[/\s*]|~$)|(?<![A-Za-z0-9])rmdir\s+${ANY}(?:\$HOME|~[/\s*]|~$)`, 'recursive delete targeting the home directory'),
   row('insecure_perms', 'medium', 'destructive', String.raw`chmod\s+777`, 'sets world-writable permissions'),
   row('system_overwrite', 'critical', 'destructive', String.raw`>\s*/etc/`, 'overwrites a system configuration file'),
   row('format_filesystem', 'critical', 'destructive', String.raw`\bmkfs\b`, 'formats a filesystem'),
-  row('disk_overwrite', 'critical', 'destructive', String.raw`\bdd\s+${ANY}if=${ANY}of=/dev/`, 'raw disk write'),
+  row('disk_overwrite', 'critical', 'destructive', String.raw`\bdd\s+(?=${NEAR}\bif=)${NEAR}\bof=/dev/`, 'raw disk write'),
   row('python_rmtree', 'high', 'destructive', String.raw`shutil\.rmtree\s*\(\s*["'/]`, 'Python rmtree on an absolute or root-relative path'),
   row('truncate_system', 'critical', 'destructive', String.raw`truncate\s+-s\s*0\s+/`, 'truncates a system file to zero bytes'),
   // Persistence.
@@ -186,10 +188,10 @@ export const SKILL_THREAT_PATTERNS: readonly SkillThreatPattern[] = [
     'base64_decode_pipe',
     'high',
     'obfuscation',
-    String.raw`(?:\bbase64\s+(?:-[^\s|]{1,16}\s+){0,4}?(?:-[a-z]{0,8}d[a-z]{0,8}|--decode)\b|\bopenssl\s+(?:base64|enc)\b[^|;&\n]{0,256}?\s-d\b)[^\n]{0,256}?(?:\||;|&&)\s*(?:\w{1,64}=\S{0,128}\s+){0,4}(?:\S{0,128}/)?(?:sh|bash|zsh|ksh|dash|fish|python[\d.]{0,8}|perl|ruby|node|nodejs|php|eval|source|exec|xargs|env|sudo|iex|pwsh|powershell|tar|bsdtar|unzip|cpio|gunzip|gzip|zcat|xz|unxz|bunzip2|\.(?=\s))(?![\w.-])|\b(?:eval|source|iex|exec)\b${ANY}\bbase64\s+(?:-[^\s|]{1,16}\s+){0,4}?(?:-[a-z]{0,8}d[a-z]{0,8}|--decode)\b`,
+    String.raw`(?:\bbase64\s+(?:-[^\s|]{1,16}\s+){0,4}?(?:-[a-z]{0,8}d[a-z]{0,8}|--decode)\b|\bopenssl\s+(?:base64|enc)\b[^|;&\n]{0,64}?\s-d\b)[^\n]{0,64}?(?:\||;|&&)\s*(?:\w{1,64}=\S{0,16}\s+){0,4}(?:\S{0,16}/)?(?:sh|bash|zsh|ksh|dash|fish|python[\d.]{0,8}|perl|ruby|node|nodejs|php|eval|source|exec|xargs|env|sudo|iex|pwsh|powershell|tar|bsdtar|unzip|cpio|gunzip|gzip|zcat|xz|unxz|bunzip2|\.(?=\s))(?![\w.-])|\b(?:eval|source|iex|exec)\b${ANY}\bbase64\s+(?:-[^\s|]{1,16}\s+){0,4}?(?:-[a-z]{0,8}d[a-z]{0,8}|--decode)\b`,
     'base64 decodes and pipes to execution',
   ),
-  row('hex_encoded_string', 'medium', 'obfuscation', String.raw`\\x[0-9a-f]{2}${ANY}\\x[0-9a-f]{2}${ANY}\\x[0-9a-f]{2}`, 'hex-encoded string'),
+  row('hex_encoded_string', 'medium', 'obfuscation', String.raw`\\x[0-9a-f]{2}${NEAR}\\x[0-9a-f]{2}${NEAR}\\x[0-9a-f]{2}`, 'hex-encoded string'),
   row('eval_string', 'high', 'obfuscation', String.raw`\beval\s*\(\s*["']`, 'eval() with a string argument'),
   row(
     'exec_string',
@@ -199,7 +201,7 @@ export const SKILL_THREAT_PATTERNS: readonly SkillThreatPattern[] = [
     'exec() with a string argument',
   ),
   row('echo_pipe_exec', 'critical', 'obfuscation', String.raw`echo\s+${ANY}\|\s*(?:${SHELLS}|python|perl|ruby|node)`, 'echo piped to an interpreter'),
-  row('python_compile_exec', 'high', 'obfuscation', String.raw`compile\s*\(\s*[^)\n]{1,256},\s*["']${ANY}["']\s*,\s*["']exec["']\s*\)`, 'Python compile() with exec mode'),
+  row('python_compile_exec', 'high', 'obfuscation', String.raw`compile\s*\(\s*[^)\n]{1,64},\s*["'][^"'\n]{0,64}["']\s*,\s*["']exec["']\s*\)`, 'Python compile() with exec mode'),
   row('python_getattr_builtins', 'high', 'obfuscation', String.raw`getattr\s*\(\s*__builtins__`, 'dynamic access to Python builtins'),
   row('python_import_os', 'high', 'obfuscation', String.raw`__import__\s*\(\s*["']os["']\s*\)`, 'dynamic import of the os module'),
   row('python_codecs_decode', 'medium', 'obfuscation', String.raw`codecs\.decode\s*\(\s*["']`, 'codecs.decode, possible ROT13'),
@@ -207,14 +209,14 @@ export const SKILL_THREAT_PATTERNS: readonly SkillThreatPattern[] = [
   row('js_base64', 'medium', 'obfuscation', String.raw`atob\s*\(|btoa\s*\(`, 'JavaScript base64 encode or decode'),
   row('string_reversal', 'low', 'obfuscation', String.raw`\[::-1\]`, 'string reversal'),
   row('chr_building', 'high', 'obfuscation', String.raw`chr\s*\(\s*\d{1,8}\s*\)\s*\+\s*chr\s*\(\s*\d`, 'building a string from chr() calls'),
-  row('unicode_escape_chain', 'medium', 'obfuscation', String.raw`\\u[0-9a-f]{4}${ANY}\\u[0-9a-f]{4}${ANY}\\u[0-9a-f]{4}`, 'chain of unicode escapes'),
+  row('unicode_escape_chain', 'medium', 'obfuscation', String.raw`\\u[0-9a-f]{4}${NEAR}\\u[0-9a-f]{4}${NEAR}\\u[0-9a-f]{4}`, 'chain of unicode escapes'),
   // Process execution in scripts.
   row('python_subprocess', 'medium', 'execution', String.raw`subprocess\.(?:run|call|Popen|check_output)\s*\(`, 'Python subprocess execution'),
   row('python_os_system', 'high', 'execution', String.raw`os\.system\s*\(`, 'os.system(), unguarded shell execution'),
   row('python_os_popen', 'high', 'execution', String.raw`os\.popen\s*\(`, 'os.popen(), shell pipe execution'),
   row('node_child_process', 'high', 'execution', String.raw`child_process\.(?:exec|spawn|fork)\s*\(`, 'Node.js child_process execution'),
   row('java_runtime_exec', 'high', 'execution', String.raw`Runtime\.getRuntime\(\)\.exec\(`, 'Java Runtime.exec(), shell execution'),
-  row('backtick_subshell', 'medium', 'execution', `${TICK}[^${TICK}\\n]{0,512}\\$\\([^)\\n]{1,256}\\)[^${TICK}\\n]{0,512}${TICK}`, 'backtick string with command substitution'),
+  row('backtick_subshell', 'medium', 'execution', `${TICK}[^${TICK}\\n]{0,64}\\$\\([^)\\n]{1,16}\\)[^${TICK}\\n]{0,16}${TICK}`, 'backtick string with command substitution'),
   row('inline_shell_exec', 'high', 'execution', `!${TICK}[^${TICK}\\s][^${TICK}\\n]{0,512}${TICK}`, 'inline shell snippet, which upstream expands on load'),
   // Path traversal.
   row('path_traversal_deep', 'high', 'traversal', String.raw`\.\./\.\./\.\.`, 'deep relative path traversal'),

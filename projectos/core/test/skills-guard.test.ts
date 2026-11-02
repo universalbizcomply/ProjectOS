@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SKILL_THREAT_PATTERNS, SKILL_THREAT_PATTERN_IDS, skillThreatFindings, type SkillFinding } from '../src/skills/index.js';
+import { SKILL_THREAT_PATTERNS, SKILL_THREAT_PATTERN_IDS, skillThreatFindings, type SkillFinding, type SkillThreatPattern } from '../src/skills/index.js';
 import { threatSamples } from './skillFixtures.js';
 
 /** Spelled in two parts, so no scanner reads this fake key as a real one. */
@@ -110,6 +110,37 @@ describe('nothing earns a skip, as upstream allowed', () => {
     expect(finding?.line).toBe(3);
     expect(JSON.stringify(scan(FAKE_KEY))).not.toContain(FAKE_KEY);
   });
+});
+
+describe('hostile input, one pattern at a time', () => {
+  const SHAPES = ['sed -i ', 'dd if= ', 'curl ', 'wget ', 'cp a ', 'tee ', 'rm -rf x ', 'rmdir ', 'base64 -d ', 'base64 ', '[a](http://', '![a](http://', 'cat ', 'dig -a ', 'translate a into ', 'ignore a ', '\\x41 ', '\\u0041 ', 'compile(a, "', "open('.env", "readFile('.env", 'share a a a ', 'a > ', 'send a ', 'echo a ', 'socat tcp ', 'systemd ', 'developer mode ', 'hypothetical scenario ', 'do not tell '];
+  const BUDGET_MS = 500;
+  const SIZE = 90_000;
+  const fileOf = (shape: string): string => {
+    const line = shape.repeat(Math.max(1, Math.floor(3_900 / shape.length)));
+    return `${line}\n`.repeat(Math.ceil(SIZE / (line.length + 1)));
+  };
+  const slowOn = (text: string, patterns: readonly SkillThreatPattern[]): readonly string[] =>
+    patterns.flatMap((pattern) => {
+      const regex = new RegExp(pattern.source, 'imu');
+      const started = performance.now();
+      regex.exec(text);
+      return performance.now() - started < BUDGET_MS ? [] : [pattern.id];
+    });
+
+  it.each(SHAPES)('no pattern is slow on a file of %j', (shape) => {
+    expect(slowOn(fileOf(shape), SKILL_THREAT_PATTERNS)).toEqual([]);
+  }, 60_000);
+
+  it('no pattern is slow on its own sample, cut short and repeated', () => {
+    for (const [id, sample] of threatSamples()) {
+      const pattern = SKILL_THREAT_PATTERNS.filter((one) => one.id === id);
+      const words = sample.split(' ');
+      for (let keep = 1; keep < Math.max(words.length, 2); keep += 1) {
+        expect(slowOn(fileOf(`${words.slice(0, keep).join(' ')} `), pattern), id).toEqual([]);
+      }
+    }
+  }, 60_000);
 });
 
 describe('hostile input', () => {

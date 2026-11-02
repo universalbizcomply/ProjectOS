@@ -47,7 +47,7 @@ describe('reading a SKILL.md', () => {
     expect(map('a: |\n  one\n  two').get('a')).toBe('one\ntwo');
     expect(map('a: >-\n  one\n  two').get('a')).toBe('one two');
     expect(map("a: 'it''s'").get('a')).toBe("it's");
-    expect(map('a: "x\\ty\\n"').get('a')).toBe('x\ty\n');
+    expect(map('a: "x\\"y\\\\"').get('a')).toBe('x"y\\');
     expect(map('a:\n  - one\n  - two').get('a')).toEqual(['one', 'two']);
     expect(map('a:\n- one\nb: two').get('a')).toEqual(['one']);
     expect(map("a: [one, 'two, three', \"four\"]").get('a')).toEqual(['one', 'two, three', 'four']);
@@ -89,7 +89,7 @@ describe('what is refused, by name', () => {
   });
 
   it('refuses the YAML forms that multiply text or run it', () => {
-    for (const block of ['a: &anchor value', 'a: *alias', 'a: !!python/object x', 'a: {b: c}', '<<: *base', 'a: |+\n  x', 'a: |2\n  x', 'a: [[x]]', 'a: "\\u001b"', 'a: "\\e"', 'a:\n  - b: c', 'a:\n  - - b']) {
+    for (const block of ['a: &anchor value', 'a: *alias', 'a: !!python/object x', 'a: {b: c}', '<<: *base', 'a: |+\n  x', 'a: |2\n  x', 'a: [[x]]', 'a: "\\u001b"', 'a: "\\e"', 'a: "x\\ny"', 'a: "x\\ty"', 'a:\n  - b: c', 'a:\n  - - b']) {
       expect(rule(block), block).toBe('frontmatter-unsupported');
     }
   });

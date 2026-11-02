@@ -13,6 +13,10 @@
  * file reads no disk: the agent hands it what it holds, so symbolic links and directory walks have no place to
  * enter. `validateSkillPackage` is one function, called at proposal, at promotion and again before a prompt.
  *
+ * THE DELIVERED TEXT IS SCANNED TOO. Frontmatter is parsed, so a folded description is not the text on disk, and a
+ * pattern that stops at a line end would miss what a model reads as one line. `deliveredSkillText` is the string
+ * the prompt sends, and it goes through the same scan as the file.
+ *
  * THE ORDER IS THE POINT. Counts and sizes are asked first, from lengths alone, so a hostile package costs
  * what the caps allow and no more. Nothing looks at the text until every cap has passed. A failed cap ends the
  * pass, and the report says only that.
@@ -102,6 +106,9 @@ function capFindings(files: readonly SkillFile[]): readonly SkillFinding[] {
   ];
 }
 
+/** Whether a package is past a cap. Asked before a hash, so a rejected package costs what its lengths cost. */
+export const skillPackageOverCaps = (files: readonly SkillFile[]): boolean => !isFileList(files) || capFindings(files).length > 0;
+
 /** What is wrong with one path. The path is not repeated unless it passed, because it is untrusted text. */
 function pathFinding(path: string, position: number): SkillFinding | null {
   const at = `(file ${position + 1})`;
@@ -148,6 +155,9 @@ function lineLengthFinding(path: string, folded: string): SkillFinding | null {
   return null;
 }
 
+/** What the model reads for a skill. The prompt builds it here, so the validator scans this exact string. */
+export const deliveredSkillText = (description: string, body: string): string => `${description}\n\n${body.trim()}`;
+
 /** Hidden text, the threat scan and, for Python, the audit. Every file, with no exception. */
 function textFindings(path: string, folded: string): readonly SkillFinding[] {
   return [...hiddenTextFindings(path, folded), ...skillThreatFindings(path, folded), ...(extensionOf(path) === '.py' ? auditPythonSource(path, folded) : [])];
@@ -185,12 +195,16 @@ export function validateSkillPackage(files: readonly SkillFile[]): SkillValidati
   const lint = parsed.ok
     ? lintSkill({ parsed: parsed.value, files: folded.filter((file) => file.path !== SKILL_MD) })
     : [blockingFinding(parsed.rule, SKILL_MD, parsed.line, `The frontmatter breaks ${parsed.rule}. It must be a closed block of the subset this reads, under ${MAX_FRONTMATTER_CHARS} characters.`)];
-  const findings = [...lint, ...folded.flatMap(({ path, text }) => textFindings(path, text))];
   const frontmatter = parsed.ok ? parsed.value.frontmatter : null;
   const text = (key: string): string | null => {
     const value = frontmatter?.get(key);
     return typeof value === 'string' ? value.trim() : null;
   };
+  const written = folded.flatMap(({ path, text: raw }) => textFindings(path, raw));
+  const seen = new Set(written.filter((finding) => finding.file === SKILL_MD).map((finding) => finding.rule));
+  const delivered = parsed.ok ? textFindings(SKILL_MD, deliveredSkillText(text('description') ?? '', parsed.value.body)) : [];
+  const fresh = delivered.filter((finding) => !seen.has(finding.rule)).map((finding) => ({ ...finding, file: '(delivered text)' }));
+  const findings = [...lint, ...written, ...fresh];
   const blocking = findings.filter((finding) => finding.weight === 'blocking');
   return {
     passed: blocking.length === 0,

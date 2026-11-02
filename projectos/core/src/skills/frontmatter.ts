@@ -16,8 +16,8 @@
  * `- a` lists of scalars, and `|` and `>` block text. Everything is a string: `version: 1.10` stays 1.10, and
  * `no` stays no. Anchors, aliases, tags, merge keys, flow maps and comments are refused, not ignored: the
  * first four can multiply text a reviewer never sees, and a comment is text no parsed view shows. Double
- * quotes know `\\`, `\"`, `\n` and `\t` and refuse every other escape, because `\e` or `\u001b` would put a
- * hidden character past the hidden-text rule, which reads the raw file.
+ * quotes know `\\` and `\"` and refuse every other escape, because a decoded `\e`, `\t` or `\n` is text the raw
+ * file does not hold, so it would reach a reader unscanned.
  *
  * LINEAR ON HOSTILE INPUT. Each line is visited once and no regular expression here can backtrack over more
  * than one line's indent. Depth is capped, so recursion cannot be walked off the stack.
@@ -68,7 +68,7 @@ const KEY = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const UNSUPPORTED_OPENERS = new Set(['{', '&', '*', '!', '%', '@', '`', '?']);
 const BLOCK_SCALAR = /^[|>]-?$/;
 const BLOCK_SCALAR_LOOKALIKE = /^[|>][-+0-9]/;
-const DOUBLE_QUOTE_ESCAPES: Readonly<Record<string, string>> = { '\\': '\\', '"': '"', n: '\n', t: '\t' };
+const DOUBLE_QUOTE_ESCAPES: Readonly<Record<string, string>> = { '\\': '\\', '"': '"' };
 
 function indentOf(line: string): number {
   let index = 0;

@@ -34,11 +34,11 @@ export const withFrontmatter = (extra: string): string => GOOD_SKILL_MD.replace(
 export const pkg = (text: string = GOOD_SKILL_MD, ...more: readonly SkillFile[]): readonly SkillFile[] => [{ path: 'SKILL.md', text }, ...more];
 
 export const WORKER: SkillActor = { actor: 'worker-1', role: 'implementer', session: 'sess-1' };
-export const REVIEWER: SkillActor = { actor: 'reviewer-1', role: 'advisor', session: 'sess-2' };
+export const REVIEWER: SkillActor = { actor: 'reviewer-1', role: 'owner', session: 'sess-2' };
 export const OWNER: SkillActor = { actor: 'owner', role: 'owner', session: 'sess-3' };
 
 export function proposalOf(files: readonly SkillFile[] = pkg(), active: string | null = null): SkillProposal {
-  const built = buildSkillProposal({ files, author: WORKER.actor, authorRole: WORKER.role, session: WORKER.session, proposedAt: AT }, active);
+  const built = buildSkillProposal({ files, origin: 'proposed', author: WORKER.actor, authorRole: WORKER.role, session: WORKER.session, proposedAt: AT }, active);
   if (!built.ok) throw new Error(`could not build: ${built.refusal.code} ${built.refusal.named ?? ''}`);
   return built.value;
 }
