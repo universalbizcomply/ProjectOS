@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-PORT-CONTEXT1A",
+  "project": "ProjectOS",
+  "objective": "Per-agent context monitoring with automatic compaction before a long thread exhausts its window, built from Hermes context code (MIT) and our own. This is one of the feature-parity items in the port delta: built from MIT sources, never from nightly-labs/openbot. Current source and approved decisions outrank any summary.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-02T02:28:20.038Z",
+      "note": "Owner-approved plans v1.30 to v1.34. Implemented by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-02T02:28:20.615Z",
+      "note": "context accounting and compaction that protects decisions, pure core"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-02T02:28:21.216Z",
+      "note": "core 2575/2575, agent 3103/3103, control-center 952/952 at f5c4b43f with normal package resolution. validate-all 163/164 at f5c4b43f; the one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public since 693bc75d in dormant Host code, carried to Stage 4."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-02T02:28:21.774Z",
+      "note": "Evidence: docs/finish/PROJECTOS-PORT-CONTEXT1A.md (f5c4b43f)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-02T02:28:22.370Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY review (one HIGH fixed; recheck: closed, partials fixed in a final bounded round the lead sized by stat and did not read line by line, not re-reviewed); ECC CODE review (APPROVE, MEDIUMs fixed)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-02T02:28:22.989Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
