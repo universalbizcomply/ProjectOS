@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-fe906ff7e7db7b613979a72d",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "ee5a4c2bff7686d00af5a8846efdddfbaf68811b",
+  "draftId": "d84e90689ef56bb8",
+  "planDigest": "sha256:4467f5ca2caaf88e2fff53df4c388cc9824dc5ff3361c1e37263a3b9806b5d97",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-02T03:51:34.352Z",
+  "note": "Owner, 2026-11-01: \"You have full authority\". Reviews found the lead-chosen credential grant too coarse; this amendment adds five write paths and a stricter criterion to PROJECTOS-TENANT-CREDENTIALS1A. It tightens a rule and loosens none.",
+  "recordedBy": "projectos plan decide"
+}
