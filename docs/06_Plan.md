@@ -171,7 +171,8 @@ ECC database-reviewer and security-reviewer.
       agent text is never authority.
 - [ ] 2.3 Per-tenant credential references in the credential router. Personal and business secrets
       are never shared.
-- [ ] 2.4 **[OWNER]** A Tauri CSP (currently `null`).
+- [x] 2.4 (2026-11-02, `b29ac72e`, plan v1.33 29/35: the CSP was proved in a real WebView2 and the bundle scan runs in the
+      build; evidence in `docs/finish/PROJECTOS-TENANT-CSP1A.md`) **[OWNER]** A Tauri CSP (currently `null`).
 - **Exit proof:** two tenants on one machine (owner-personal and agency-business). A cross-tenant
   read is refused by the database **and** by the kernel, and both are tested.
 
@@ -190,16 +191,16 @@ Goal: the continuity problem is solved. Six logical classes map onto existing st
 **Port phases** (`docs/changes/delta_spec_V4_PORTS.md`, owner "Approved" 2026-11-01; in plan v1.31). Each goes through
 the `docs/recon/V4_Port_Map.md` §4 gates and carries the credit in `docs/adr/ADR-P1-port-ownership-and-credit.md`.
 
-- [ ] 3.5 PROJECTOS-PORT-FOUNDATION1A: notices file, file header, credit validator, ADR-P1; older records
+- [x] 3.5 (2026-11-01, `e5940a4e`, credit validator passing; closed, nothing wired in) PROJECTOS-PORT-FOUNDATION1A: notices file, file header, credit validator, ADR-P1; older records
       lined up with ADOPT. Ports no upstream code.
-- [ ] 3.6 PROJECTOS-PORT-SEARCH1A: hybrid search and chunker for cited document and session search (C8, C10).
+- [x] 3.6 (2026-11-01, `2f759e87`, validator and suites passing; closed, not wired in) PROJECTOS-PORT-SEARCH1A: hybrid search and chunker for cited document and session search (C8, C10).
       OpenClaw. Serves 3.4.
-- [ ] 3.7 PROJECTOS-PORT-MEMORY1A: capped memory store and threat scan; every write is a proposal (C8). Hermes,
+- [x] 3.7 (2026-11-01, `06e83225`, validator and suites passing; closed, not wired in) PROJECTOS-PORT-MEMORY1A: capped memory store and threat scan; every write is a proposal (C8). Hermes,
       with oh-my-hermes rules. Serves 3.3.
-- [ ] 3.8 PROJECTOS-PORT-SKILLS1A: skill linter, audit and frontmatter; promotion through a validator (C9). Hermes.
+- [x] 3.8 (2026-11-02, `cf457b67`, validator 440 mutations; closed, not wired in) PROJECTOS-PORT-SKILLS1A: skill linter, audit and frontmatter; promotion through a validator (C9). Hermes.
       Serves 3.2.
-- [ ] 3.9 PROJECTOS-PORT-CONTEXT1A: per-agent context monitoring and compaction. Hermes. Serves 3.3 and 3.4.
-- [ ] 3.10 PROJECTOS-PORT-APPROVALS1A: approval core, taint tracking and "evidence before done" receipts. Rakazo,
+- [x] 3.9 (2026-11-02, `72a8ef3c`, validator 320 mutations; closed, not wired in) PROJECTOS-PORT-CONTEXT1A: per-agent context monitoring and compaction. Hermes. Serves 3.3 and 3.4.
+- [x] 3.10 (2026-11-01, `06dc092d`, validator and suites passing; closed, not wired in) PROJECTOS-PORT-APPROVALS1A: approval core, taint tracking and "evidence before done" receipts. Rakazo,
       oh-my-hermes.
 - **Exit proof:** a fresh session resumes a half-done phase with zero manual context relay.
 
@@ -353,3 +354,7 @@ Forge, the signed installer, and the Host unattended-review route.
 - 2026-11-01: the port delta approved ("Approved"). Plans v1.30 to v1.32 (`25f431a0`, `b0768486`, `14fa45b8`) added the six port phases, a write-path repair, and a Control Center build repair. Owner: "Now use as many as agents possible to complete this project" and "You have full authority".
 - 2026-11-01: PORT-FOUNDATION1A, SEARCH1A, MEMORY1A and APPROVALS1A **CLOSED** owner-direct on that grant, evidence subject `cf5a316d`, `06dc092d`, plan v1.32 28/35. core 1856, agent 3056, control-center 890, validate-all 159/161. None of the ported code is wired into a route yet. Reviews found real defects, fixed: a source file hidden by `.gitignore`, an approval replay, terminal escapes passing a threat scan.
 - 2026-11-01: the Control Center production build has failed since 2026-09-25, hidden behind a known-failure label for `validate-desktop-e2e`. Found by TENANT-CSP1A, repaired there, not yet closed.
+- 2026-11-02: plan v1.33 (`374f9eaf`) repaired reviewed write paths. PROJECTOS-TENANT-CSP1A **CLOSED** owner-direct, `b29ac72e`, 29/35; `validate-desktop-e2e` passes on a real bundle once `npm run build` has run.
+- 2026-11-02: plan v1.34 (`cb3979f5`) added PRINCIPAL1A core test paths. PORT-SKILLS1A and PORT-CONTEXT1A **CLOSED** owner-direct, evidence subject `f5c4b43f`, `cf457b67`, `72a8ef3c`, 31/35. core 2575, agent 3103, control-center 952, validate-all 163/164. The one failure is `val-cd-b4`: `AdmittedRequest::session_digest` is public at `host/core/src/ipc_session.rs:693`, carried to Stage 4.
+- 2026-11-02: PRINCIPAL1A reviewed APPROVE on branch `projectos-tenant-principal1a`, HELD. Merging it before the owner runs `tenant receipt --blob 8f7b7437c648defc54d8d2005ab76691f51948fb` would refuse runs, selection and acting verbs.
+- 2026-11-02: CREDENTIALS1A review BLOCKED the lead's decision to treat a phase's `secrets-handling` gate record as a credential grant: it was too coarse and scoped to another key. Decision withdrawn. Plan v1.35 (`70ffbca8`) widens the phase's paths and adds the criterion that a release needs a committed grant naming project, exact references, action and expiry. Fix round running.
