@@ -13,18 +13,18 @@ describe('the rough count of a text', () => {
   });
 
   it('counts a dense script per character', () => {
-    expect(estimateTextTokens('漢字')).toBe(2);
-    expect(estimateTextTokens('한글')).toBe(2);
-    expect(estimateTextTokens('Ａ')).toBe(1);
+    expect(estimateTextTokens('\u6f22\u5b57\u6f22\u5b57')).toBe(4);
+    expect(estimateTextTokens('\ud55c\uae00\ud55c\uae00')).toBe(4);
+    expect(estimateTextTokens('\uff21\uff21\uff21\uff21')).toBe(4);
   });
 
   it('counts other scripts by their bytes, not their characters', () => {
     // Twelve bytes in six Cyrillic letters: chars/4 would call this two.
-    expect(estimateTextTokens('привет')).toBe(3);
+    expect(estimateTextTokens('\u043f\u0440\u0438\u0432\u0435\u0442')).toBe(3);
   });
 
   it('counts a mix of the two, each its own way', () => {
-    expect(estimateTextTokens('漢abcde')).toBe(3);
+    expect(estimateTextTokens('\u6f22abcde')).toBe(3);
   });
 
   it('counts a broken surrogate instead of failing on it', () => {

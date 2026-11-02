@@ -71,13 +71,15 @@ describe('who is trusted', () => {
 
 describe('a turn that is not what it says', () => {
   const add = (turn: ReturnType<typeof turnOf>): string => codeOf(appendContextTurn(threadOf([]), turn));
+  /** With the call each row could answer, so only the rule about the row itself can refuse it. */
+  const addAnswer = (turn: ReturnType<typeof turnOf>): string => codeOf(appendContextTurn(threadOf([callTurn('c0', 'c')]), turn));
 
   it('refuses web text posing as the system', () => {
     expect(add(turnOf('x', 'system', 'web', 'hello'))).toBe('CONTEXT_TURN_INVALID');
   });
 
   it('refuses a tool row posing as the owner', () => {
-    expect(add(turnOf('x', 'tool', 'owner', 'hello', { toolCallId: 'c' }))).toBe('CONTEXT_TURN_INVALID');
+    expect(addAnswer(turnOf('x', 'tool', 'owner', 'hello', { toolCallId: 'c' }))).toBe('CONTEXT_TURN_INVALID');
   });
 
   it('refuses a user row from the kernel, and an assistant row from the owner', () => {
@@ -92,8 +94,8 @@ describe('a turn that is not what it says', () => {
   it('refuses an id, a source or a tool call that would reach a prompt unchecked', () => {
     expect(add(turnOf('a b', 'user', 'owner', 'hello'))).toBe('CONTEXT_TURN_INVALID');
     expect(add(turnOf('x', 'tool', 'web', 'hello', { toolCallId: 'c"', source: null }))).toBe('CONTEXT_TURN_INVALID');
-    expect(add(turnOf('x', 'tool', 'web', 'hello', { toolCallId: 'c', source: { sourceId: 'a b', contentHash: memoryEntryHash('x') } }))).toBe('CONTEXT_TURN_INVALID');
-    expect(add(turnOf('x', 'tool', 'web', 'hello', { toolCallId: 'c', source: { sourceId: 'a', contentHash: 'nope' } }))).toBe('CONTEXT_TURN_INVALID');
+    expect(addAnswer(turnOf('x', 'tool', 'web', 'hello', { toolCallId: 'c', source: { sourceId: 'a b', contentHash: memoryEntryHash('x') } }))).toBe('CONTEXT_TURN_INVALID');
+    expect(addAnswer(turnOf('x', 'tool', 'web', 'hello', { toolCallId: 'c', source: { sourceId: 'a', contentHash: 'nope' } }))).toBe('CONTEXT_TURN_INVALID');
     expect(add(turnOf('x', 'assistant', 'agent', 'hello', { toolCalls: [{ id: 'a b', name: 'n', args: '' }] }))).toBe('CONTEXT_TURN_INVALID');
     expect(add(turnOf('x', 'assistant', 'agent', 'hello', { toolCalls: [{ id: 'a', name: 'n n', args: '' }] }))).toBe('CONTEXT_TURN_INVALID');
     expect(add(turnOf('x', 'assistant', 'agent', 'hello', { toolCalls: [{ id: 'a', name: 'n', args: 7 as never }] }))).toBe('CONTEXT_TURN_INVALID');
@@ -108,7 +110,11 @@ describe('a turn that is not what it says', () => {
   });
 
   it('refuses a tool result id on anything but a tool turn', () => {
-    expect(add(turnOf('x', 'assistant', 'agent', 'hello', { toolCallId: 'c' }))).toBe('CONTEXT_TURN_INVALID');
+    expect(addAnswer(turnOf('x', 'assistant', 'agent', 'hello', { toolCallId: 'c' }))).toBe('CONTEXT_TURN_INVALID');
+  });
+
+  it('refuses a tool turn that names no call', () => {
+    expect(addAnswer(turnOf('x', 'tool', 'web', 'hello'))).toBe('CONTEXT_TURN_INVALID');
   });
 
   it('refuses a source on anything but a tool turn', () => {
@@ -152,7 +158,7 @@ describe('source text through compaction', () => {
     const { record } = compact(webThread());
     const web = record.covered.find((mark) => mark.turnId === 't1');
     expect(web).toMatchObject({ origin: 'web', trust: 'untrusted', textKey: textKey(PAGE) });
-    expect(record.carriedOrigins).toEqual(['agent', 'document', 'tool', 'web'].filter((origin) => origin !== 'tool'));
+    expect(record.carriedOrigins).toEqual(['agent', 'document', 'web']);
     expect(record.carriedSources).toEqual([{ sourceId: SOURCE, contentHash: memoryEntryHash(DOC) }]);
   });
 

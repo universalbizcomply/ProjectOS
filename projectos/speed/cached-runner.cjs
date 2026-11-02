@@ -179,7 +179,9 @@ const MODULES = [
   // PROJECTOS-TENANT-CSP1A — the strict Control Center CSP and narrowed window capability, proved in a real webview.
   "val-projectos-tenant-csp1a",
   // PROJECTOS-PORT-SKILLS1A — skill rules: an agent only proposes; a validator pass, an independent review and a hash pin promote.
-  "val-projectos-port-skills1a"
+  "val-projectos-port-skills1a",
+  // PROJECTOS-PORT-CONTEXT1A — context accounting and compaction: decisions kept, source text stays untrusted.
+  "val-projectos-port-context1a"
 ];
 
 const REGISTERED_MODULE_COUNT = MODULES.length;

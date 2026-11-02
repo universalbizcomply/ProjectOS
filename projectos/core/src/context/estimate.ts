@@ -22,7 +22,7 @@ export const CHARS_PER_TOKEN = 4;
 export const TURN_OVERHEAD_TOKENS = 10;
 
 /** Hangul, CJK, Kana and full-width forms, all in the basic plane, so one match is one UTF-16 unit. */
-const TOKEN_DENSE = /[ᄀ-ᇿ⺀-鿿ꥠ-꥿가-힯豈-﫿＀-￯]/gu;
+const TOKEN_DENSE = /[\u1100-\u11ff\u2e80-\u9fff\ua960-\ua97f\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/gu;
 const UTF8 = new TextEncoder();
 
 export function estimateTextTokens(text: string): number {
