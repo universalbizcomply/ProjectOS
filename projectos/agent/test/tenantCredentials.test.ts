@@ -116,15 +116,14 @@ describe('the requester is a kernel-issued run handle', () => {
   });
 
   it.each([
-    ['a project id', 'alpha'],
-    ['a tenant id', OWNER_TENANT],
-    ['a JWT', ['eyJ', 'hbGciOiJIUzI1NiJ9', '.', 'eyJzdWIiOiJvd25lciJ9', '.', 'c2lnbmF0dXJl'].join('')],
-    ['an OAuth bearer', 'Bearer synthetic-oauth-identity'],
-    ['a handle shape with no line', `ENV-${'0'.repeat(24)}`],
-  ])('refuses %s as a handle', (_label, handle) => {
+    ['a project id', 'alpha', 'REQUESTER_REQUIRED'],
+    ['a tenant id', OWNER_TENANT, 'REQUESTER_REQUIRED'],
+    ['a JWT', ['eyJ', 'hbGciOiJIUzI1NiJ9', '.', 'eyJzdWIiOiJvd25lciJ9', '.', 'c2lnbmF0dXJl'].join(''), 'REQUESTER_REQUIRED'],
+    ['an OAuth bearer', 'Bearer synthetic-oauth-identity', 'REQUESTER_REQUIRED'],
+    ['a handle shape with no line', `ENV-${'0'.repeat(24)}`, 'RUN_HANDLE_UNKNOWN'],
+  ])('refuses %s as a handle', (_label, handle, code) => {
     const w = credentialWorld(made, sys);
-    const refused = refusalOf(() => w.authority.fromRun(handle));
-    expect(refused.code === 'REQUESTER_REQUIRED' || refused.code === 'RUN_HANDLE_UNKNOWN').toBe(true);
+    expect(refusalOf(() => w.authority.fromRun(handle)).code).toBe(code);
   });
 
   it('refuses a plain string and a perfect copy at every door, and a live requester passes', () => {
@@ -829,7 +828,7 @@ describe('the credential router', () => {
   it('refuses every requester-bound verb with no terminal and no handle, before any store is reached', async () => {
     const w = credentialWorld(made, sys);
     const untouched = { set: () => { throw new Error('reached'); }, get: () => { throw new Error('reached'); }, exists: () => { throw new Error('reached'); }, del: () => { throw new Error('reached'); }, list: () => [] };
-    const deps = { store: untouched, stateDir: join(w.stateDir, 'vault'), authority: w.authority, terminal: quiet };
+    const deps = { store: untouched, stateDir: join(w.stateDir, 'vault'), nowMs, authority: w.authority, terminal: quiet };
     process.env['PROJECTOS_CREDENTIAL_VALUE'] = VALUE;
     await expect(cli.main(['credentials', 'set', '--ref', ALPHA_GH, '--from-env', '--project', 'alpha'], deps)).rejects.toMatchObject({ code: 'REQUESTER_REQUIRED' });
     delete process.env['PROJECTOS_CREDENTIAL_VALUE'];
