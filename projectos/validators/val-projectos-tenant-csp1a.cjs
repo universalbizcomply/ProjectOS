@@ -30,6 +30,8 @@
  *   CSP-21 "the proof has its own little shim"      — and the build that ships is one nobody proved
  *   CSP-22 "one constant at the top is harmless"    — and every core module is bound into the webview
  *   CSP-23 "it built on my checkout"                — and a linked package hid what a clean clone would do
+ *   CSP-24 "the source is clean"                    — and the bundle came from a stale core/dist
+ *   CSP-25 "the CSP covers it"                      — and nobody wrote down what it is covering
  *   CSP-T  "the tests exist"                        — and `.skip` keeps the proof while dropping the run
  *
  * `selfTest` applies each named mutation in memory and counts it killed only when ITS OWN rule fires.
@@ -39,6 +41,8 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { scanChunks } = require("../control-center/test/csp-webview/scan-bundle.cjs");
+const { registeredCommands, surfaceHash } = require("../control-center/test/csp-webview/frontend-surface.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const THIS_VALIDATOR = "val-projectos-tenant-csp1a";
@@ -53,10 +57,19 @@ const BUILD_REL = `${CC}/test/csp-webview/build-variant.mjs`;
 const TEST_REL = `${CC}/test/cspPolicy.test.ts`;
 const BOOT_TEST_REL = `${CC}/test/coreBrowserLoad.test.ts`;
 const WIRE_TEST_REL = "projectos/core/test/host-wire-constants.test.ts";
+const SCAN_TEST_REL = `${CC}/test/bundleScan.test.ts`;
 const VITE_REL = `${CC}/vite.config.ts`;
 const CRYPTO_STUB_REL = `${CC}/src/shims/nodeCryptoStub.ts`;
 const BUFFER_STUB_REL = `${CC}/src/shims/nodeBufferStub.ts`;
 const WIRE_REL = "projectos/core/src/hostReviewWire.ts";
+const PKG_REL = `${CC}/package.json`;
+const SCAN_REL = `${CC}/test/csp-webview/scan-bundle.cjs`;
+const SURFACE_REL = `${CC}/test/csp-webview/frontend-surface.cjs`;
+const APP_RS_REL = `${CC}/src-tauri/src/app.rs`;
+const INDEX_REL = `${CC}/index.html`;
+const STYLES_REL = `${CC}/src/styles.css`;
+/** A pseudo-file: every built chunk on disk, or null when nothing is built. */
+const BUNDLE = "<the built chunks in dist/assets>";
 const CORE_ROOT = "projectos/core/src";
 /** Fewer files than this means the walk went wrong, not that core shrank. */
 const CORE_MODULE_FLOOR = 38;
@@ -69,8 +82,9 @@ const VA_REL = "projectos/validators/validate-all.cjs";
 const CR_REL = "projectos/speed/cached-runner.cjs";
 const SRC_ROOT = `${CC}/src`;
 const SOURCES = [
-  CONF_REL, CAP_REL, VERDICT_REL, RUN_REL, VARIANTS_REL, BUILD_REL, TEST_REL, BOOT_TEST_REL, WIRE_TEST_REL,
+  CONF_REL, CAP_REL, VERDICT_REL, RUN_REL, VARIANTS_REL, BUILD_REL, TEST_REL, BOOT_TEST_REL, WIRE_TEST_REL, SCAN_TEST_REL,
   VITE_REL, CRYPTO_STUB_REL, BUFFER_STUB_REL, WIRE_REL, EVIDENCE_REL, FINISH_REL, VA_REL, CR_REL,
+  PKG_REL, SCAN_REL, SURFACE_REL, APP_RS_REL, INDEX_REL, STYLES_REL,
 ];
 const BUILD_SOURCES = [VITE_REL, CRYPTO_STUB_REL, BUFFER_STUB_REL, WIRE_REL];
 
@@ -95,8 +109,10 @@ const PERMISSIONS = ["core:event:allow-listen", "core:event:allow-unlisten"];
 const TAURI_MODULES = ["@tauri-apps/api/core", "@tauri-apps/api/event"];
 const REMOVED_DANGERS = ["dangerousDisableAssetCspModification", "dangerousRemoteDomainIpcAccess", "assetProtocol", "pattern"];
 
-const INLINE_ROUTES = /<style[\s>]|dangerouslySetInnerHTML|setAttribute\(\s*['"]style|document\.write|\binsertAdjacentHTML\b|\.innerHTML\s*=|\beval\(|new Function\(/;
-const OWN_CONNECTIONS = /\bfetch\(|new WebSocket\(|new EventSource\(|new XMLHttpRequest\(|navigator\.sendBeacon\(/;
+const INLINE_ROUTES = /<style[\s>]|dangerouslySetInnerHTML|setAttribute\(\s*['"]style|document\.write|\binsertAdjacentHTML\b|\.(?:inner|outer)HTML\s*\+?=|\bsrcdoc\b|\beval\(|new Function\(/;
+const OWN_CONNECTIONS = /\bfetch\(|new WebSocket\(|new EventSource\(|new XMLHttpRequest\(|navigator\.sendBeacon\(|new (?:Shared)?Worker\(|importScripts\(|serviceWorker\.register\(/;
+/** Markup that loads a remote resource. The CSP would refuse it, and the app would quietly show nothing. */
+const REMOTE_MARKUP = /<(?:img|script|link|iframe|audio|video|source|object|embed)\b[^>]*\b(?:src|href|data|srcSet)=\{?["'`]https?:/;
 
 /** The check each rule removal has to break. `strict` runs must pass every one of these. */
 const CONTROLS = {
@@ -159,7 +175,14 @@ const SIGN_IN_PINS = [
   ["an invented address", "const INVENTED_ADDRESS = 'csp-proof-no-such-user@example.com';"],
 ];
 /** Where the MSI line and the owner check must be stated. */
+const BUILD_SCRIPT = "npm --prefix ../core run build && npm run build:renderer && node test/csp-webview/scan-bundle.cjs";
+const RENDERER_SCRIPT = "tsc -p tsconfig.json && vite build";
 const FINISH_CLAIMS = {
+  notBaseline: "is no longer a meaningful known baseline",
+  howToRun: "`npm run build` in `projectos/control-center`, then `node projectos/validators/validate-desktop-e2e.cjs`",
+  staleDist: "A stale `core/dist` can no longer reach the bundle through `npm run build`.",
+  dynamicProof: "`coreBrowserLoad.test.ts` is the proof, and CSP-22 is the fast check in front of it.",
+  commandManifest: "Carried: a real command manifest",
   msi: "The installed app gets this policy only when the MSI is next rebuilt.",
   bundleBroken: "`npm run build` failed from 2026-09-25 until this phase",
   freshWorktree: "`validate-desktop-e2e` cannot pass in a fresh worktree until a bundle is built.",
@@ -178,16 +201,37 @@ function withoutStrings(text) {
   return text.replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\[\s\S])*`/g, "''");
 }
 
-/** The Node globals a module touches while it loads. */
+/**
+ * The Node globals a module touches while it loads. Only a function body is deferred: an object literal, a
+ * class field and an immediately invoked function all run at load. This reads text, not a syntax tree, so it
+ * is the fast check in front of coreBrowserLoad.test.ts, which runs the modules and is the proof. It cannot
+ * see inside a top-level `if` block, for one.
+ */
 function loadTimeUses(text) {
   const source = withoutStrings(code(text));
-  let depth = 0;
-  let top = "";
-  for (const c of source) {
-    if (c === "{") depth += 1;
-    else if (c === "}") depth -= 1;
-    else if (depth === 0) top += c;
+  const opens = [];
+  const deferred = [];
+  // Where the last inline return type closed: `): { a: T; b: U } | null {` opens a body after it.
+  let returnTypeEnd = -1;
+  for (let i = 0; i < source.length; i += 1) {
+    if (source[i] === "{") {
+      const before = source.slice(Math.max(0, i - 400), i).trimEnd();
+      const afterReturnType = returnTypeEnd >= 0 && /^[\s|&\w<>[\]]*$/.test(source.slice(returnTypeEnd + 1, i));
+      const body = before.endsWith(")") || before.endsWith("=>") || /\)\s*:\s*[^;=]*$/.test(before) || afterReturnType;
+      opens.push({ at: i, body, returnType: /\)\s*:\s*$/.test(before) });
+    } else if (source[i] === "}") {
+      const open = opens.pop();
+      if (open === undefined) continue;
+      if (open.returnType) {
+        returnTypeEnd = i;
+        continue;
+      }
+      if (open.body && !/^\s*\)?\s*\(/.test(source.slice(i + 1, i + 40))) deferred.push([open.at, i]);
+    }
   }
+  const inside = new Uint8Array(source.length + 1);
+  for (const [from, to] of deferred) inside.fill(1, from, to + 1);
+  const top = [...source].map((c, i) => (inside[i] === 1 ? " " : c)).join("");
   return [...top.matchAll(NODE_GLOBAL_USE)].map((m) => m[1]);
 }
 
@@ -195,6 +239,12 @@ const FORBIDDEN_IN_EVIDENCE = /apikey|authorization|bearer|eyJ[A-Za-z0-9_-]{10,}
 
 /** A proof that does not run proves nothing, and its name still satisfies a needle. */
 const NOT_RUN = /\b(?:it|test|describe|suite|bench)\.(?:skip|only|todo|fails|skipIf|runIf)\b|\.(?:skip|only)\(|\b(?:xit|fit|xdescribe|fdescribe)\(/;
+const SCAN_TESTS = [
+  "a bare %s is refused, by name",
+  "the stale core chunk that blanked the app is refused",
+  "a guard far away is no guard",
+  "a missing bundle is an error, not a pass",
+];
 const BOOT_TESTS = [
   "the whole barrel evaluates, with tree-shaking off",
   "the positive control: one top-level %s beside the barrel fails, so the pass above means something",
@@ -390,8 +440,14 @@ function check(raw) {
       "remote" in (capability ?? {})) {
     E("CSP-9", "the window capability is not exactly the two event permissions on the main window");
   }
+  // CSP-9 (the words): the capability must not imply a check that does not exist.
+  const description = String(capability?.description);
+  if (/own Rust handlers/.test(description) || !description.includes("the CSP") ||
+      !["set_credential", "register_project", "import_project_file"].every((name) => description.includes(name))) {
+    E("CSP-9", "the capability description implies a caller check, or no longer names what the CSP protects");
+  }
   // CSP-10: nothing in the frontend reaches past what the window was left with.
-  const srcCode = Object.entries(raw).filter(([rel]) => rel.startsWith(`${SRC_ROOT}/`)).map(([rel, text]) => [rel, code(text)]);
+  const srcCode = Object.entries(raw).filter(([rel]) => rel.startsWith(`${SRC_ROOT}/`) && /\.tsx?$/.test(rel)).map(([rel, text]) => [rel, code(text)]);
   if (srcCode.length === 0) E("CSP-10", "the frontend source was not read");
   for (const [rel, text] of srcCode) {
     for (const m of text.matchAll(/['"](@tauri-apps\/[^'"]+)['"]/g)) {
@@ -402,7 +458,15 @@ function check(raw) {
     if (INLINE_ROUTES.test(text)) E("CSP-11", `${rel} writes inline style or script: ${INLINE_ROUTES.exec(text)[0]}`);
     // CSP-12: the policy names Supabase and the IPC, so nothing else may open a connection.
     if (OWN_CONNECTIONS.test(text)) E("CSP-12", `${rel} opens its own connection: ${OWN_CONNECTIONS.exec(text)[0]}`);
+    if (REMOTE_MARKUP.test(text)) E("CSP-12", `${rel} loads a remote resource: ${REMOTE_MARKUP.exec(text)[0]}`);
   }
+  // CSP-12 (the rest of the page): one module script, nothing remote, and no remote stylesheet.
+  const shell = raw[INDEX_REL].replace(/<!--[\s\S]*?-->/g, "");
+  const scripts = shell.match(/<script\b[^>]*>/g) || [];
+  if (JSON.stringify(scripts) !== JSON.stringify(['<script type="module" src="/src/main.tsx">']) || /https?:/.test(shell)) {
+    E("CSP-12", "index.html carries a script or a remote reference beyond the one module entry");
+  }
+  if (/@import\b|url\(\s*['"]?https?:/.test(raw[STYLES_REL])) E("CSP-12", "styles.css loads something remote");
 
   // CSP-13: the judge cannot pass silence, and the harness watches boot under the real policy.
   const verdict = code(raw[VERDICT_REL]);
@@ -437,6 +501,15 @@ function check(raw) {
     if (evidence.policySha256 !== sha256(security.csp) || evidence.devPolicySha256 !== sha256(security.devCsp) ||
         evidence.capabilityPermissionsSha256 !== sha256(JSON.stringify(capability?.permissions))) {
       E("CSP-16", "the webview evidence was taken under a different policy or capability");
+    }
+    const surface = surfaceHash({
+      appRs: raw[APP_RS_REL],
+      sources: srcCode.map(([, text]) => text),
+      packageJson: raw[PKG_REL],
+      indexHtml: raw[INDEX_REL],
+    });
+    if (evidence.frontendSurfaceSha256 !== surface) {
+      E("CSP-16", "the frontend surface changed since the webview proof ran: a Tauri module, a command, a build script or the page shell. Rerun it");
     }
     const byName = Object.fromEntries(evidence.runs.map((r) => [r.variant, r]));
     for (const [name, checks] of Object.entries(MUST_PASS)) {
@@ -542,6 +615,39 @@ function check(raw) {
   const eager = evidence?.runs?.find((r) => r.variant === "control-eager-node-global");
   if (!String(eager?.loadError).includes("Buffer is not defined")) E("CSP-23", "the restored bug did not blank the app with its own error, so the control proves nothing");
 
+  // CSP-24: the bundle is judged, whatever the source says.
+  const pkg = jsonOf(raw[PKG_REL]);
+  if (pkg?.scripts?.build !== BUILD_SCRIPT || pkg?.scripts?.["build:renderer"] !== RENDERER_SCRIPT || !String(pkg?.scripts?.["release:prepare"]).startsWith("npm run build &&")) {
+    E("CSP-24", "the build no longer rebuilds core first and scans what it built");
+  }
+  for (const pin of ["\\b(?:Buffer|process)\\.\\w+", "\\b__dirname\\b", "\\brequire(?=\\()", "\\bsetImmediate(?=", "if (names.length === 0) throw new Error(", "process.exit(1);"]) {
+    if (!raw[SCAN_REL].includes(pin)) E("CSP-24", `scan-bundle.cjs lost: ${pin}`);
+  }
+  if (typeof raw[BUNDLE] === "string") {
+    const { bare } = scanChunks([raw[BUNDLE]]);
+    if (Object.keys(bare).length > 0) E("CSP-24", `the built bundle on disk needs Node, whatever the source says: ${Object.keys(bare).join(", ")}. Run npm run build`);
+  }
+  if (build?.staleCoreDist?.status !== 0 || JSON.stringify(build?.staleCoreDist?.bareAfterRebuild) !== "{}") {
+    E("CSP-24", "the evidence does not show npm run build replacing a stale core/dist");
+  }
+  if (!(build?.scanAloneOnStaleChunks?.status > 0) || build?.scanAloneOnStaleChunks?.namesBuffer !== true) {
+    E("CSP-24", "the evidence does not show the scan refusing stale chunks by name");
+  }
+  if (!(build?.eagerSource?.status > 0) || build?.eagerSource?.namesBuffer !== true) {
+    E("CSP-24", "the evidence does not show the build refusing a load-time Buffer in the source");
+  }
+
+  // CSP-25: every command is named, with what stands in front of it.
+  const named = [...raw[SURFACE_REL].matchAll(/\{ command: '([a-z_]+)',/g)].map((m) => m[1]).sort();
+  const registered = registeredCommands(raw[APP_RS_REL]).sort();
+  if (registered.length === 0 || JSON.stringify(named) !== JSON.stringify(registered)) {
+    E("CSP-25", `the command manifest and generate_handler! disagree: ${registered.filter((c) => !named.includes(c)).concat(named.filter((c) => !registered.includes(c))).join(", ")}`);
+  }
+  const recorded = (evidence?.commandManifest ?? []).map((c) => c.command).sort();
+  if (JSON.stringify(recorded) !== JSON.stringify(named) || (evidence?.commandManifest ?? []).some((c) => c.callerCheck !== false)) {
+    E("CSP-25", "the evidence does not carry the command manifest, or claims a caller check");
+  }
+
   // CSP-19: what this does not do, stated.
   const finish = raw[FINISH_REL].replace(/\s+/g, " ");
   for (const [key, claim] of Object.entries(FINISH_CLAIMS)) {
@@ -556,7 +662,7 @@ function check(raw) {
   const test = code(raw[TEST_REL]);
   for (const needle of TESTS) if (!test.includes(needle)) E("CSP-T", `cspPolicy.test.ts no longer proves "${needle}"`);
   if (NOT_RUN.test(test)) E("CSP-T", `cspPolicy.test.ts skips or isolates a test: ${NOT_RUN.exec(test)[0]}`);
-  for (const [rel, needles] of [[BOOT_TEST_REL, BOOT_TESTS], [WIRE_TEST_REL, WIRE_TESTS]]) {
+  for (const [rel, needles] of [[BOOT_TEST_REL, BOOT_TESTS], [WIRE_TEST_REL, WIRE_TESTS], [SCAN_TEST_REL, SCAN_TESTS]]) {
     const proof = code(raw[rel]);
     for (const needle of needles) if (!proof.includes(needle)) E("CSP-T", `${rel} no longer proves "${needle}"`);
     if (NOT_RUN.test(proof)) E("CSP-T", `${rel} skips or isolates a test: ${NOT_RUN.exec(proof)[0]}`);
@@ -620,6 +726,30 @@ const MUTATIONS = [
   { name: "a key in the evidence", rule: "CSP-18", rel: EVIDENCE_REL, from: "\"phase\":", to: "\"apikey\": \"x\",\n  \"phase\":" },
   { name: "the MSI line is dropped", rule: "CSP-19", rel: FINISH_REL, from: "The installed app gets this policy only when the MSI is next rebuilt.", to: "The installed app has this policy." },
   { name: "the owner check is dropped", rule: "CSP-19", rel: FINISH_REL, from: "A successful sign-in remains an owner check.", to: "Sign-in works." },
+  { name: "markup appended to innerHTML", rule: "CSP-11", rel: SRC_PROBE, from: "import React from 'react';", to: "document.body.innerHTML += '<b>';\nimport React from 'react';" },
+  { name: "a worker of its own", rule: "CSP-12", rel: SRC_PROBE, from: "import React from 'react';", to: "new Worker('/x.js');\nimport React from 'react';" },
+  { name: "a remote image in markup", rule: "CSP-12", rel: SRC_PROBE, from: "<App />", to: "<img src=\"https://example.com/x.png\" />" },
+  { name: "a remote import in the stylesheet", rule: "CSP-12", rel: STYLES_REL, from: "@font-face", to: "@import url(https://example.com/x.css);\n@font-face" },
+  { name: "a script in the page shell", rule: "CSP-12", rel: INDEX_REL, from: "<title>", to: "<script>1</script><title>" },
+  { name: "the capability claims a caller check", rule: "CSP-9", rel: CAP_REL, from: "the CSP", to: "their own Rust handlers" },
+  { name: "the build stops rebuilding core", rule: "CSP-24", rel: PKG_REL, from: "npm --prefix ../core run build && ", to: "" },
+  { name: "the build stops scanning", rule: "CSP-24", rel: PKG_REL, from: " && node test/csp-webview/scan-bundle.cjs", to: "" },
+  { name: "the scan runs before the bundle exists", rule: "CSP-24", rel: PKG_REL, from: "npm --prefix ../core run build && npm run build:renderer && node test/csp-webview/scan-bundle.cjs", to: "npm --prefix ../core run build && node test/csp-webview/scan-bundle.cjs && npm run build:renderer" },
+  { name: "the scanner stops looking at Buffer", rule: "CSP-24", rel: SCAN_REL, from: "(?:Buffer|process)", to: "(?:process)" },
+  { name: "a stale bundle on disk", rule: "CSP-24", rel: BUNDLE, from: "const ok = 1;", to: "Buffer.from('POS1', 'ascii');" },
+  { name: "the record no longer shows a stale dist being rebuilt", rule: "CSP-24", rel: EVIDENCE_REL, from: "\"staleCoreDist\": {\n      \"status\": 0,", to: "\"staleCoreDist\": {\n      \"status\": 1," },
+  { name: "the build no longer refuses an eager source", rule: "CSP-24", rel: EVIDENCE_REL, from: "\"eagerSource\": {\n      \"status\": 1,", to: "\"eagerSource\": {\n      \"status\": 0," },
+  { name: "the scan never caught a stale chunk", rule: "CSP-24", rel: EVIDENCE_REL, from: "\"namesBuffer\": true", to: "\"namesBuffer\": false" },
+  { name: "a command the manifest does not name", rule: "CSP-25", rel: APP_RS_REL, from: "daemon_status,", to: "daemon_status,\n            new_command," },
+  { name: "the manifest drops a command", rule: "CSP-25", rel: SURFACE_REL, from: "{ command: 'set_credential',", to: "{ command: 'set_credential_gone'," },
+  { name: "the evidence predates the frontend surface", rule: "CSP-16", rel: EVIDENCE_REL, from: "\"frontendSurfaceSha256\": \"", to: "\"frontendSurfaceSha256\": \"0" },
+  { name: "the frontend gains a Tauri module", rule: "CSP-16", rel: SRC_PROBE, from: "import { App } from './App';", to: "import { App } from './App';\nimport { x } from '@tauri-apps/api/window';" },
+  { name: "the page shell changes", rule: "CSP-16", rel: INDEX_REL, from: "<title>", to: "<meta name=\"x\" /><title>" },
+  { name: "the desktop note is dropped", rule: "CSP-19", rel: FINISH_REL, from: "is no longer a meaningful known baseline", to: "is a known baseline" },
+  { name: "a Buffer call in an object literal", rule: "CSP-22", rel: "projectos/core/src/hostIdentityDigests.ts", from: "import { createHash } from 'node:crypto';", to: "import { createHash } from 'node:crypto';\nexport const TABLE = { magic: Buffer.from('x') };" },
+  { name: "an immediately invoked arrow", rule: "CSP-22", rel: "projectos/core/src/hostIdentityDigests.ts", from: "import { createHash } from 'node:crypto';", to: "import { createHash } from 'node:crypto';\nexport const VALUE = (() => { return Buffer.from('x'); })();" },
+  { name: "an immediately invoked function", rule: "CSP-22", rel: "projectos/core/src/tenant.ts", from: "export const TENANT_CREDENTIAL_PREFIX = 'tenant.';", to: "export const TENANT_CREDENTIAL_PREFIX = 'tenant.';\n(function () { void process.env.X; })();" },
+  { name: "a manifest entry claims a caller check", rule: "CSP-25", rel: EVIDENCE_REL, from: "\"callerCheck\": false", to: "\"callerCheck\": true" },
   { name: "the node:buffer alias removed", rule: "CSP-21", rel: VITE_REL, from: "'node:buffer': fileURLToPath(new URL('./src/shims/nodeBufferStub.ts', import.meta.url)),", to: "" },
   { name: "a third alias slips in", rule: "CSP-21", rel: VITE_REL, from: "      'node:buffer':", to: "      'node:fs': 'x',\n      'node:buffer':" },
   { name: "a transform in the production config", rule: "CSP-21", rel: VITE_REL, from: "plugins: [react()],", to: "plugins: [react(), { name: 'x', transform(c) { return c; } }]," },
@@ -654,18 +784,20 @@ const MUTATIONS = [
 function selfTest(raw) {
   const errors = [];
   for (const m of MUTATIONS) {
-    const text = raw[m.rel];
+    // Nothing need be built for this one: the rule is about what a chunk on disk would do.
+    const base = m.rel === BUNDLE ? { ...raw, [BUNDLE]: "const ok = 1;" } : raw;
+    const text = base[m.rel];
     if (text === null || text === undefined || !text.includes(m.from)) {
       errors.push(`CSP-M: mutation '${m.name}' no longer applies to ${m.rel}; update the mutation with the rule`);
       continue;
     }
-    const fired = check({ ...raw, [m.rel]: text.replace(m.from, m.to) }).map(([rule]) => rule);
+    const fired = check({ ...base, [m.rel]: text.replace(m.from, m.to) }).map(([rule]) => rule);
     if (!fired.includes(m.rule)) errors.push(`CSP-M: mutation '${m.name}' survived; ${m.rule} did not fire`);
   }
   const names = MUTATIONS.map((m) => m.name);
   if (new Set(names).size !== names.length) errors.push("CSP-M: two mutations share a name");
   const rules = new Set(MUTATIONS.map((m) => m.rule));
-  for (const rule of [...Array.from({ length: 23 }, (_, i) => `CSP-${i + 1}`), "CSP-T"]) {
+  for (const rule of [...Array.from({ length: 25 }, (_, i) => `CSP-${i + 1}`), "CSP-T"]) {
     if (!rules.has(rule)) errors.push(`CSP-M: rule ${rule} has no named mutation`);
   }
   return errors;
@@ -675,6 +807,9 @@ function run() {
   const raw = { ...sourceTree(SRC_ROOT), ...sourceTree(CORE_ROOT) };
   for (const rel of SOURCES) raw[rel] = read(rel);
   raw[LISTING] = fs.readdirSync(path.join(ROOT, HARNESS_DIR)).join("\n");
+  const assets = path.join(ROOT, CC, "dist", "assets");
+  const chunks = fs.existsSync(assets) ? fs.readdirSync(assets).filter((name) => name.endsWith(".js")) : [];
+  raw[BUNDLE] = chunks.length > 0 ? chunks.map((name) => fs.readFileSync(path.join(assets, name), "utf8")).join("\n") : null;
   const errors = check(raw).map(([, msg]) => msg);
   if (errors.length === 0) errors.push(...selfTest(raw));
   return errors;

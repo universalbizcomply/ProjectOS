@@ -7,17 +7,98 @@
     "projectos/control-center/vite.config.ts": "89ba5129aace0f9958c80ad2708d4531c6b86c8888cb7c66a0f9727e0a1b8660",
     "projectos/control-center/src/shims/nodeCryptoStub.ts": "96d2ad14d7a777a28dec0ead4b2a63e3031090cfe0ab8de39c81fa8e45ef75ab",
     "projectos/control-center/src/shims/nodeBufferStub.ts": "df31e27e8d194341620977d4182925e742b4d0ab7a2839308f747bc9cc45a371",
-    "projectos/core/src/hostReviewWire.ts": "619299b495059f21415bcf459f0815c1fcfacad90bd02afbd0517d78b4312ec8"
+    "projectos/core/src/hostReviewWire.ts": "c8ec4bb0c4078f6ece8d926b7d746ec755aef77bb6a44b455fc3b55400191aa4"
   },
+  "frontendSurfaceSha256": "ff86bcfb0d55483379368bcf52122b00200cabc3fe591fd641f46d7c75df0d7f",
+  "commandManifest": [
+    {
+      "command": "daemon_request_snapshot",
+      "effect": "read",
+      "callerCheck": false,
+      "ownerStep": "none"
+    },
+    {
+      "command": "daemon_governed_command",
+      "effect": "forwards a verb to the sidecar, which validates it",
+      "callerCheck": false,
+      "ownerStep": "none"
+    },
+    {
+      "command": "daemon_status",
+      "effect": "read",
+      "callerCheck": false,
+      "ownerStep": "none"
+    },
+    {
+      "command": "identity_status",
+      "effect": "read",
+      "callerCheck": false,
+      "ownerStep": "none"
+    },
+    {
+      "command": "installed_host_status",
+      "effect": "read",
+      "callerCheck": false,
+      "ownerStep": "none"
+    },
+    {
+      "command": "register_project",
+      "effect": "writes the protected registry through an elevated helper",
+      "callerCheck": false,
+      "ownerStep": "UAC prompt"
+    },
+    {
+      "command": "set_credential",
+      "effect": "writes a credential",
+      "callerCheck": false,
+      "ownerStep": "none"
+    },
+    {
+      "command": "pick_folder",
+      "effect": "read",
+      "callerCheck": false,
+      "ownerStep": "native dialog"
+    },
+    {
+      "command": "pick_file",
+      "effect": "read",
+      "callerCheck": false,
+      "ownerStep": "native dialog"
+    },
+    {
+      "command": "inspect_folder",
+      "effect": "reads a named folder",
+      "callerCheck": false,
+      "ownerStep": "none"
+    },
+    {
+      "command": "prepare_folder",
+      "effect": "adds files to a named folder",
+      "callerCheck": false,
+      "ownerStep": "none"
+    },
+    {
+      "command": "import_project_file",
+      "effect": "copies a file into a registered project",
+      "callerCheck": false,
+      "ownerStep": "none"
+    },
+    {
+      "command": "list_project_files",
+      "effect": "read",
+      "callerCheck": false,
+      "ownerStep": "none"
+    }
+  ],
   "build": {
     "checkout": "fresh git clone with its own npm ci",
-    "commit": "0c3e6ad883e6cb702c459d310188f51e1c2a1f07",
+    "commit": "44f3a0c16193274f9cb71924266aadc31c363845",
     "script": "npm run build",
     "extraConfig": false,
     "status": 0,
     "bundle": {
       "chunks": 3,
-      "bytes": 557020,
+      "bytes": 561891,
       "guardedNodeGlobalUses": {
         "setImmediate": 1,
         "Buffer.from": 1,
@@ -31,6 +112,19 @@
     "noBufferAlias": {
       "status": 1,
       "namesIsUtf8": true
+    },
+    "staleCoreDist": {
+      "status": 0,
+      "bareAfterRebuild": {}
+    },
+    "scanAloneOnStaleChunks": {
+      "rendererBuildStatus": 0,
+      "status": 1,
+      "namesBuffer": true
+    },
+    "eagerSource": {
+      "status": 1,
+      "namesBuffer": true
     },
     "desktopE2e": {
       "withoutBundle": [
@@ -395,7 +489,7 @@
         "setImmediate": "undefined"
       },
       "loadError": null,
-      "ipcNative": 14,
+      "ipcNative": 16,
       "abortedByReload": 0,
       "violationsInUse": 0,
       "consoleRefusalsInUse": 0,
@@ -477,8 +571,8 @@
         "setImmediate": "undefined"
       },
       "loadError": null,
-      "ipcNative": 18,
-      "abortedByReload": 1,
+      "ipcNative": 16,
+      "abortedByReload": 0,
       "violationsInUse": 0,
       "consoleRefusalsInUse": 0,
       "blockedDirectives": [
@@ -530,9 +624,9 @@
       "elements": 74,
       "sidecar": {
         "state": "RUNNING_READ_ONLY",
-        "messages": 8,
+        "messages": 4,
         "kinds": {
-          "untyped": 8
+          "untyped": 4
         }
       },
       "walked": [
@@ -561,9 +655,9 @@
       },
       "loadError": null,
       "ipcNative": 0,
-      "abortedByReload": 0,
+      "abortedByReload": 1,
       "violationsInUse": 1,
-      "consoleRefusalsInUse": 3,
+      "consoleRefusalsInUse": 5,
       "blockedDirectives": [
         "base-uri",
         "connect-src",
@@ -616,9 +710,9 @@
       "elements": 74,
       "sidecar": {
         "state": "RUNNING_READ_ONLY",
-        "messages": 4,
+        "messages": 8,
         "kinds": {
-          "untyped": 4
+          "untyped": 8
         }
       },
       "walked": [
@@ -641,7 +735,7 @@
         "setImmediate": "undefined"
       },
       "loadError": null,
-      "ipcNative": 22,
+      "ipcNative": 20,
       "abortedByReload": 0,
       "violationsInUse": 5,
       "consoleRefusalsInUse": 10,
@@ -839,8 +933,8 @@
         "setImmediate": "undefined"
       },
       "loadError": null,
-      "ipcNative": 18,
-      "abortedByReload": 1,
+      "ipcNative": 15,
+      "abortedByReload": 0,
       "violationsInUse": 0,
       "consoleRefusalsInUse": 0,
       "blockedDirectives": [

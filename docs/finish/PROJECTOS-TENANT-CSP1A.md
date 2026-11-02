@@ -1,16 +1,31 @@
 # PROJECTOS-TENANT-CSP1A — evidence
 
-**Phase:** PROJECTOS-TENANT-CSP1A, phase 5 of V4 Stage 2, plan v1.32. Owner decision D6: "Approve strict policy
+**Phase:** PROJECTOS-TENANT-CSP1A, phase 5 of V4 Stage 2, plan v1.33. Owner decision D6: "Approve strict policy
 (Recommended)".
-**Branch:** `projectos-tenant-csp1a`, on `14fa45b8`.
+**Branch:** `projectos-tenant-csp1a`, rebased on `projectos-autonomy-bootstrap1a` at `374f9eaf`.
 **Route:** built by a Claude subagent in its own worktree, under the lead. This document claims no gatekeeper ruling
-and no closure. The required ECC SECURITY review has not happened yet.
+and no closure. ECC SECURITY reviewed `509bda25`: APPROVE WITH CHANGES, no CRITICAL. The changes below answer it. They
+have not themselves been reviewed.
 **Boundary:** debug builds only. No MSI, no release build, no install, no service, no ACL or registry change, no
 deployment, no push. One request went to Supabase, on the earlier build, described below.
 
 **The installed app gets this policy only when the MSI is next rebuilt.** The rebuild is no longer blocked by the
 frontend build. It has not been attempted: `npm run build` passes, and the packaging steps after it
 (`release:payload`, `release:register-helper`, the bundle) were not run.
+
+## ECC SECURITY review
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| A stale `core/dist` reproduces the blank window with a passing build | MEDIUM | Fixed. `npm run build` rebuilds core first and scans the chunks it built. See "A stale dist" below |
+| CSP-22 misses `{ magic: Buffer.from() }` and immediately invoked functions | LOW | Fixed. Only a function body is deferred now, with four new mutations. `coreBrowserLoad.test.ts` is the proof, and CSP-22 is the fast check in front of it. CSP-22 reads text, so it cannot see inside a top-level `if`, for one. The test runs the modules, so it can |
+| CSP-11 and CSP-12 miss `<img src=https`, `new Worker` and `.innerHTML +=` | LOW | Fixed. Both rules now cover them, plus workers of any kind, remote markup, `index.html` and `styles.css` |
+| The evidence can go stale silently | LOW | Fixed where cheap. See "What the evidence is bound to" below |
+| The capability description says commands are "authorised by their own Rust handlers" | LOW | Fixed. It said something untrue. It now says they have no caller check and the CSP is the barrier. CSP-9 pins that |
+| No command manifest; `ipc:`; the latch under `target/` | LOW | Carried, see the end. The commands are listed in full below and in the evidence |
+
+Each fix was written test first. The tests were run and seen to fail, including the reviewer's three misses surviving as named
+mutants, before the code changed.
 
 ## The build defect this phase found and fixed
 
@@ -44,6 +59,20 @@ barrel reaches with tree-shaking off and evaluates the result in a bare context 
 `Buffer`, `process`, `global`, `__dirname` or `setImmediate` placed beside the barrel fails it, by name. Rule CSP-22 holds the
 same line statically over every file in `core/src`.
 
+### A stale dist
+
+The renderer bundles core from `dist`, not source, and `npm run build` never built it. `release:prepare` runs `npm run build`,
+so a release could ship whatever `core/dist` happened to hold. The main checkout's old `dist` still had the load-time `Buffer`, so
+clean source gave a passing build and a blank window.
+
+**A stale `core/dist` can no longer reach the bundle through `npm run build`.** `build` is now three steps: `npm --prefix ../core run
+build`, then `npm run build:renderer`, then `node test/csp-webview/scan-bundle.cjs`. The scan reads the built chunks and fails, naming
+what it found, on any Node global with no `typeof` guard beside it, whatever the source says. Rule CSP-24 runs the same scan over any
+bundle on disk, so a stale `dist` fails the validator as well. It is stricter than load time, because a bare use inside a function fails
+too. It cannot see a global reached indirectly, such as `globalThis['Buf' + 'fer']`; the webview run covers that.
+
+`build:renderer` alone skips both safeguards. Only the control that restores the bug uses it.
+
 In the production bundle, the scan finds no bare use of a Node global. Four guarded uses remain, each read in place: React's
 scheduler choosing a timer (`setImmediate`), supabase-js choosing an encoder (`Buffer.from`), and two `process` reads behind
 `typeof process`. The page itself reports `Buffer`, `process`, `global`, `require` and `setImmediate` as `undefined`, so an app
@@ -60,12 +89,23 @@ core.** The proof therefore ran in a fresh `git clone` with its own `npm ci` for
 | `validate-desktop-e2e` with no bundle | Fails at check 5, by design |
 | `npm run build` with the `node:buffer` alias removed | Fails, naming `isUtf8` |
 | `npm run build` as committed, with nothing extra | Passes |
-| `validate-desktop-e2e` on that real bundle | Passes |
+| `core/dist` made stale with a load-time `Buffer`, then `npm run build` | Passes, and the bundle is clean: the rebuild replaced it |
+| The same stale `dist`, with the renderer built alone, then the scan | The renderer build passes, and the scan refuses it, naming `Buffer.from` |
+| A load-time `Buffer` in the source, then `npm run build` | Fails, naming `Buffer.from` |
+| `validate-desktop-e2e` on the real bundle | Passes |
 
-**`validate-desktop-e2e` cannot pass in a fresh worktree until a bundle is built.** Check 5 reads `dist/assets`, `dist` is
-gitignored, and the check fails closed by design. So a fresh `validate-all` needs `npm run build` first. That now works, which
-it did not before, but it is still a step someone has to run. `control-center/package.json`'s `build` needs `core` built first
-too. This phase did not change that check.
+### Running `validate-desktop-e2e`
+
+**`validate-desktop-e2e` cannot pass in a fresh worktree until a bundle is built.** Check 5 reads `dist/assets`, `dist` is gitignored,
+and the check fails closed by design. This phase did not change that check.
+
+**Once this lands it is no longer a meaningful known baseline.** It failed for a real reason from 2026-09-25, because no bundle could be
+built, and anything treating that failure as expected would now hide a real one. A failure at check 5 means nobody ran the build. Any other
+failure is real. Retire the label rather than carry it forward.
+
+**How to run it:** `npm ci` in `projectos/core` and `projectos/control-center`, then `npm run build` in `projectos/control-center`, then `node projectos/validators/validate-desktop-e2e.cjs`
+from the repository root, or `validate-all`. Use a real checkout: in a worktree whose `node_modules` is a link to another worktree, the
+bundle comes from that worktree's `core`, which is what hid this. The scan still judges that bundle, but it is not this checkout's code.
 
 ## What changed for the policy
 
@@ -99,9 +139,34 @@ Vite.
 | `core:event:default` (adds emit) | The window never emits; Rust does | As above |
 | `opener:*` | Nothing imports `@tauri-apps/plugin-opener`, and no link has `target="_blank"`. The "ChatGPT hand-off" in the old description no longer exists in the source | Same scan. A call to `plugin:opener\|open_url` is now refused |
 
-App commands such as `daemon_status` are not gated by this list, because the app defines no command manifest. The narrowing is
-about plugin and core commands. `tauri_plugin_opener::init()` stays in `app.rs` and `Cargo.toml`, unused and now unreachable
-from the window. Removing it is a LOW, outside this phase's write paths.
+**This list does not gate app commands.** The app defines no command manifest, so the window may call every command in
+`generate_handler!`, and none of them checks its caller. Script running in the window can reach all of them, so the CSP is the barrier
+that keeps injected script out. That is the job the policy is doing:
+
+| Command | Effect | Owner step |
+|---|---|---|
+| `daemon_status`, `identity_status`, `installed_host_status`, `daemon_request_snapshot`, `list_project_files` | Read | None |
+| `pick_folder`, `pick_file` | Read | Native dialog |
+| `inspect_folder` | Reads a named folder | None |
+| `daemon_governed_command` | Forwards a verb to the sidecar, which validates it | None |
+| `prepare_folder` | Adds files to a named folder | None |
+| `import_project_file` | Copies a file into a registered project | None |
+| `register_project` | Writes the protected registry through an elevated helper | UAC prompt |
+| `set_credential` | Writes a credential | None |
+
+Rule CSP-25 holds this list equal to `generate_handler!`, so a new command fails until someone says what it does.
+`tauri_plugin_opener::init()` stays in `app.rs` and `Cargo.toml`, unused and now unreachable from the window. Removing it is a LOW,
+outside this phase's write paths.
+
+## What the evidence is bound to
+
+The webview evidence holds hashes of the policy, the `devCsp`, the capability's permissions, the build sources and the frontend surface.
+Change one and CSP-16 or CSP-23 fails, naming it, until the proof is rerun.
+
+The surface covers what the proof depends on: which Tauri modules the frontend imports, which commands exist, the build scripts and the page
+shell. **It does not cover every frontend file, on purpose.** That would turn each UI commit red until a webview rerun, and a check that is
+always red gets ignored. Rules CSP-10 to CSP-12 judge the rest of the source on every run. So an ordinary UI change does not rerun the proof.
+If the owner wants that, it is one line, and the cost is a rerun of about 15 minutes per change.
 
 ## The webview proof
 
@@ -133,7 +198,7 @@ named check while still passing what it should leave alone.
 
 | Control | Removes | Fails at | Still passes |
 |---|---|---|---|
-| `control-eager-node-global` | Restores the bug: one `Buffer.from` at load in `hostReviewWire.ts`. `npm run build` still passes | `app-loaded`: a blank window, with `ReferenceError: Buffer is not defined` | Served policy, no Node global on the page |
+| `control-eager-node-global` | Restores the bug: one `Buffer.from` at load in `hostReviewWire.ts`, built with `build:renderer`, because `npm run build` now refuses it | `app-loaded`: a blank window, with `ReferenceError: Buffer is not defined` | Served policy, no Node global on the page |
 | `control-no-policy` | The whole policy | `served-policy`, and every probe: the inline script and `eval` ran, and the fetch, image, object and form reached the listener. The sibling-project probe is skipped on purpose, because here it would really reach Supabase | App, fonts, sidecar |
 | `control-loose-script-style` | Adds `unsafe-eval` and `unsafe-inline` | `eval-blocked`, `inline-style-blocked`, `style-attribute-blocked` | `inline-script-blocked`, see the first note |
 | `control-no-ipc` | `ipc:` and `http://ipc.localhost` | `no-violation`, `ipc-native` | Sidecar, through Tauri's silent `postMessage` fallback |
@@ -144,8 +209,8 @@ named check while still passing what it should leave alone.
 
 Notes from those runs:
 
-- **`npm run build` passing does not prove the app is not blank.** `control-eager-node-global` builds fine and renders nothing.
-  Only the webview run, `coreBrowserLoad.test.ts` and rule CSP-22 catch that. This is how the defect stayed hidden.
+- **A renderer build passing does not prove the app is not blank.** `control-eager-node-global` builds fine with `build:renderer`
+  and renders nothing. That is how the defect stayed hidden, and why `npm run build` now ends with the scan.
 - **`'unsafe-inline'` in `script-src` is inert here.** Tauri adds one `sha256` hash per bundled `.js` file to the served
   `script-src`, and a browser ignores `'unsafe-inline'` once a hash is present. That control was first written to fail at the
   inline script, and it did not, so it now names `eval-blocked`. The observation did not change, only the expectation.
@@ -200,6 +265,13 @@ it slower, and what sets the time was not established.
 
 The limit is now 180 seconds. The check stays strict, because the profile folder cannot be removed until the handles close.
 
+## One unexplained sidecar crash
+
+One `strict-shell` run, on the first clean clone after the rebase, ended with the sidecar `CRASHED`. The policy side of that run was clean:
+every probe was blocked, with no violation. The harness did not then record the status's `failure` field, so **the cause is unknown**. Run by
+itself the sidecar started and stayed up, a first launch from a second fresh clone reached it, and so did every shell run in the evidence. The
+field is recorded now, so a repeat will name itself. It is not known to be a CSP matter, and it is not known not to recur.
+
 ## Defects the proof found in itself
 
 Each is fixed, and each is now a rule or a test.
@@ -208,8 +280,9 @@ Each is fixed, and each is now a rule or a test.
   control must now also pass what it should leave alone (`mustStillPass`).
 - **The reload could cancel the app's own first navigation,** leaving `about:blank`. It now waits for the first load.
 - **The reload aborts in-flight IPC,** which logs Tauri's fallback line. A timing rule misjudged this on the real build, so the line now
-  counts unless its execution context is not the document under test. Real runs confirm it: two controls logged the line from the
-  discarded document while the new one carried on over the custom protocol, and `ipc-native` checks that positively.
+  counts unless its execution context is not the document under test. An earlier run confirmed it on real data: two controls logged
+  the line from the discarded document while the new one carried on over the custom protocol. No passing run in this evidence has
+  the line at all, and `ipc-native` checks the new document positively.
 - **A WebView2 browser outlives `taskkill /T`.** The harness also stops whatever names its own profile, and checks that nothing remains,
   by profile and never by name.
 - **The font record overstated:** a CSP-blocked file appears in Resource Timing with status 0. Only status 200 counts now.
@@ -217,14 +290,14 @@ Each is fixed, and each is now a rule or a test.
 
 ## Validators and tests
 
-- `val-projectos-tenant-csp1a`, registered in `validate-all` and `cached-runner`: 23 rules plus CSP-T, with named mutations, each killed
+- `val-projectos-tenant-csp1a`, registered in `validate-all` and `cached-runner`: 25 rules plus CSP-T, with named mutations, each killed
   by its own rule. **CSP-21 fails by name when the production build needs a shim:** an alias beyond the two, a plugin, transform or
   `define` in `vite.config.ts`, a stub that answers instead of throwing, a Vite or stub file beside the proof, or a harness that stops
   using `npm run build`. CSP-22 fails on any load-time Node global in any core module. CSP-23 requires the clean-checkout record, and
   CSP-16 and CSP-23 bind the evidence to the hashes of the policy, capability and build sources.
 - `projectos/control-center/test/cspPolicy.test.ts`, `coreBrowserLoad.test.ts`, `projectos/core/test/host-wire-constants.test.ts`.
 - `docs/finish/PROJECTOS-TENANT-CSP1A.webview-evidence.json`: 11 runs, all proved, with no console text, header or body.
-- In the clean clone: control-center 932 tests in 68 files, core 1,195, the agent's host tests 105, and `tsc` clean. The cleanup flake
+- In the clean clone: control-center 952 tests in 69 files, core 1865, and `tsc` clean. The agent's host tests, 105, last ran before the rebase. The cleanup flake
   in `offLoopGovernedCommand.test.ts` seen earlier did not recur.
 
 Full `validate-all` was not run, by instruction: the lead runs it.
@@ -249,9 +322,15 @@ was removed when finished, along with every target directory. Nothing later need
 ## Carried, not done
 
 - `INSTALLED_HOST_RUN_ID` is not lazy, see above. LOW.
+- Carried: a real command manifest. `tauri_build::AppManifest` in `build.rs` would let the capability gate app commands, so `set_credential`
+  stops being reachable by default. `build.rs` is outside the write paths. It is the proper fix for the barrier being a single layer. LOW.
+- `ipc:` in `connect-src`. Windows uses `http://ipc.localhost`, so `ipc:` serves platforms this app does not ship on. It stays because
+  the owner approved the policy as written. Dropping it is a one-word change and a rerun. LOW.
+- The sign-in latch sits under `target/`, so removing the target directory forgets it. The one-request limit holds by instruction, not by
+  that file, after a clean. Keeping it outside `target/` is a small change. LOW.
 - `src-tauri/Cargo.lock` is stale: it lacks three path crates, and `cargo --locked` refuses it. A normal build rewrites 32 lines. Those were
   not committed, as the file is outside the write paths. LOW.
 - `tauri_plugin_opener` stays registered in `app.rs`, unused. LOW.
 - `devCsp` is not enforced under `tauri dev`, see above. LOW.
 - The live sign-in on the production build: the lead's decision.
-- ECC SECURITY review, required by the plan and not yet run.
+- A recheck of the changes above, if the lead wants one.
