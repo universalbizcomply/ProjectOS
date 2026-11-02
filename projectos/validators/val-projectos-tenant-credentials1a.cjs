@@ -141,7 +141,7 @@ const NOT_RUN = /\b(?:it|test|describe)\.(?:skip|only|todo|fails)\b|\b(?:xit|xde
 
 /** What the evidence must keep saying, in plain words, for a later reader. */
 const EVIDENCE_NEEDLES = [
-  "for the owner to overrule",
+  "The lead's remaining decisions, for the owner to overrule",
   "The lead's first grant decision is WITHDRAWN",
   "No grant exists yet, so operation release fails closed",
   "Creating one is an owner act",
@@ -480,7 +480,7 @@ const MUTATIONS = [
   M("operation-not-asked-fitness", "TCR-11", VAULT_REL, 'const unfit = fitnessRefusal(ref, requester, "operation");', "const unfit = null;"),
   M("pat-reads-as-project-reach", "TCR-11", REF_REL, 'const ACCOUNT_WIDE_CREDENTIALS = Object.freeze(["supabase-access-token"]);', "const ACCOUNT_WIDE_CREDENTIALS = Object.freeze([]);"),
   M("profile-offers-the-pat", "TCR-11", PROFILES_REL, 'credentials: ["gh-token", "vercel-token"],', 'credentials: ["gh-token", "supabase-access-token", "vercel-token"],'),
-  M("reach-inherited-on-replace", "TCR-11", META_REL, "...statedReach(record),\n    };\n    writeAll(all);", "reach: previous ? previous.reach : null,\n      reachTenants: previous ? previous.reachTenants : null,\n    };\n    writeAll(all);"),
+  M("reach-inherited-on-replace", "TCR-11", META_REL, "...statedReach(record),\n    };\n    writeAll(all);", 'reach: typeof record.reach === "string" ? record.reach : previous ? previous.reach : null,\n      reachTenants: typeof record.reach === "string" ? record.reachTenants || null : previous ? previous.reachTenants : null,\n    };\n    writeAll(all);'),
   // TCR-12
   M("provision-unbound", "TCR-12", VAULT_REL, 'const ref = requireMutator(input, "provision");', 'const ref = requireRef((input || {}).reference, "provision");'),
   M("remove-unbound", "TCR-12", VAULT_REL, 'const ref = requireMutator(input, "delete");', 'const ref = requireRef((input || {}).reference, "delete");'),
@@ -609,7 +609,7 @@ const MUTATIONS = [
   M("validate-all-omits-this-validator", "TCR-20", VA_REL, `"${THIS_VALIDATOR}"`, '"val-projectos-tenant-removed"'),
   M("cached-runner-omits-this-validator", "TCR-20", CR_REL, `"${THIS_VALIDATOR}"`, '"val-projectos-tenant-removed"'),
   // TCR-21
-  M("evidence-hides-whose-decision", "TCR-21", EVIDENCE_REL, "for the owner to overrule", "decided"),
+  M("evidence-hides-whose-decision", "TCR-21", EVIDENCE_REL, "The lead's remaining decisions, for the owner to overrule", "decided"),
   M("evidence-keeps-the-withdrawn-grant", "TCR-21", EVIDENCE_REL, "The lead's first grant decision is WITHDRAWN", "The grant decision stands"),
   M("evidence-says-a-grant-exists", "TCR-21", EVIDENCE_REL, "No grant exists yet, so operation release fails closed", "A grant exists"),
   M("evidence-lets-an-agent-grant", "TCR-21", EVIDENCE_REL, "Creating one is an owner act", "Creating one is routine"),

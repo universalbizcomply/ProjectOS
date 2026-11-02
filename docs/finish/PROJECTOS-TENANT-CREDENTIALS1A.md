@@ -1,61 +1,120 @@
 # PROJECTOS-TENANT-CREDENTIALS1A — who may have a credential, asked of a run handle
 
-**Phase:** PROJECTOS-TENANT-CREDENTIALS1A, plan v1.34, under `docs/changes/delta_spec.md`.
+**Phase:** PROJECTOS-TENANT-CREDENTIALS1A, plan v1.35 (activated at `70ffbca8`), under `docs/changes/delta_spec.md`.
 **Branch:** `projectos-tenant-credentials1a`, worktree `C:/dev/ProjectOS-worktrees/tenant-credentials1a`, based on the
 reviewed but unmerged `projectos-tenant-principal1a` at `0c50ebbf`. Not pushed, not merged, phase not closed, no phase
 record created.
-**State:** implementation complete, **not yet reviewed**. The plan requires ECC SECURITY and Agency
-`secrets-credential-hygiene-engineer`. Nothing here touched a live service, a provider, spend, a real stored secret or
-the real Windows Credential Manager: every store is a test double and every value is synthetic.
+**State:** implementation complete, and every finding of the review round at `151bfd8b` is answered below. That round was
+not re-reviewed. Nothing here touched a live service, a provider, spend, a real stored secret or the real Windows
+Credential Manager: every store is a test double, every value and every grant is synthetic.
 
-## Decided by the lead, for the owner to overrule
+## The lead's first grant decision is WITHDRAWN
 
-Each of these is the lead's decision for the owner to overrule, taken under the owner's full authority because it is
-reversible:
+**At `151bfd8b` the grant for an operation release was the phase's committed `secrets-handling` gate. That was the
+lead's decision, and it was wrong.** Both reviewers reproduced it: any `APPROVE` record for a caller-named phase released
+a production credential, and those records are scoped to the gatekeeper key. A gatekeeper `secrets-handling` gate is
+never a credential grant now.
 
-1. **`credential-release` stays P5.** The operation grant source is the phase's committed
-   `.projectops/gates/<PHASE>.secrets-handling.json` owner record, the route the broker already uses, read from
-   committed bytes at the project's registered root.
-2. **Session auto-load is kept for PROJECT-class credentials only,** for their own project in their own tenant, and
-   each load is recorded through an envelope. It has no owner step today. It never releases a tenant-class or
-   platform-class credential, and an account-wide token is never projected into another tenant's session.
+**A release needs a committed `credential-release` grant. No grant exists yet, so operation release fails closed.
+Creating one is an owner act,** and nothing here writes one. Only synthetic grants in throwaway test installations exist.
+
+The record, at `projectos/security/credential-grants/<PHASE>.credential-release.json` in the installation:
+
+```json
+{
+  "schemaVersion": "1.0.0",
+  "kind": "credential-release-grant",
+  "phaseId": "<the phase the permit names>",
+  "projectId": "<the requester's project>",
+  "references": ["ProjectOS/<project>/<environment>/<provider>/<credential>"],
+  "action": "<the provider action, as the permit names it>",
+  "expiresAt": "2027-01-01T00:00:00.000Z",
+  "grantedBy": "<who granted it>"
+}
+```
+
+Exactly those fields. It is read from committed bytes at the installation's HEAD, unmodified, with replacement objects off
+and hashed to its blob. A record for another phase, project, credential or action, a stale or unreadable date, a missing
+or extra field, an uncommitted file, or one committed only in the project releases nothing, each by test. It sits in the
+installation rather than in the project because a project's work can write its own repository (F8). This location is my
+reading of "committed": say if you want it elsewhere. A phase id containing `token` or `secret` would be ignored by
+`.gitignore`, so such a grant needs `git add -f`, and until then it fails closed.
+
+## The lead's remaining decisions, for the owner to overrule
+
+1. **`credential-release` stays P5.**
+2. **Session auto-load is kept for PROJECT-class credentials only,** for their own project in their own tenant, with
+   project reach, recorded through an envelope. It has no owner step. It never releases a tenant-class or platform-class
+   credential, and an account-wide token is never projected into a session.
 3. **A platform credential serves every tenant through the broker and is released to none.**
 
-ADR-T1 §6 still says OPEN, and the `credential-release` note in `action-registry.json` says the same. Neither file is in
-this phase's writePaths. The fix is one line in each, once the owner has seen the decision.
+ADR-T1 §6 and §10 and `action-registry.json` now record this. **Only provider-side scope, expiry and revocation are real
+boundaries.** The rest prevents accidents until Stage 4.
 
-## What this phase needed that the plan's writePaths do not hold
+## Review round, at `151bfd8b`
 
-**The binding terms are met for the requester and not yet wired to a running worker.** `projectos/agent/src` and
-`projectos/core/src` are outside this phase, so three things stop short, each with its fix:
+- **Agency `secrets-credential-hygiene-engineer`: BLOCK.**
+- **ECC SECURITY: APPROVE WITH CHANGES.**
+
+Findings as relayed by the lead, who decided them. This file does not hold the reviewers' own reports. Both reproduced the
+CRITICAL, and the fault was the lead's grant decision, not the build.
+
+**Fail-first:** `tenantCredentialsReview.test.ts` was written before any fix and run at `151bfd8b`, with its fixtures and
+the test-only grant helper: **39 of 46 failed, 7 passed.** Some failed only because `endAdmittedRuns` or a new field did
+not exist. The grant, replace-ref, console, reach, expiry, budget and audit tests failed on behaviour. Of the 7, one was
+undiscriminating (masking, with no audit line at all), so it now also asserts the mask is written; the others are positive
+controls and the zero-budget defaults, which pin behaviour that must stay.
+
+| # | Finding | Disposition |
+|---|---|---|
+| CRITICAL 1 | The grant was any phase's `APPROVE` | **Withdrawn and replaced,** above. `operationGrantRefusal`, TCR-26 |
+| HIGH 2 | The broker's `git()` allowed replace refs, so a replace ref plus a matching file forged `ownerApproved`, `authoringPermitted` and `installationAllows` | **Fixed.** `--no-replace-objects` on the one spawn, and `readCommitted` hashes bytes to their blob, so `readCommittedBlob` is gone. Tests plant the real forgery, with a positive control. See the sweep below |
+| HIGH 3 | `--run` gave console authority with no terminal, and `--owner-confirm` needed none | **Fixed.** Console authority is held in memory by the process that minted it, set only by `issueConsoleRun`, and a console handle is refused by `fromRun` (`RUN_HANDLE_CONSOLE_ONLY`). `--owner-confirm` needs a TTY on both ends on all four verbs. The vault reads that bit, not `via` |
+| HIGH 4 | Reach survived `--replace` | **Fixed.** A provision records only what it states, so a new value clears reach. A metadata-only rotation keeps it |
+| HIGH 5 | The operation path skipped reach and expiry; auto-load admitted tenant and account reach | **Fixed.** `fitnessRefusal` on both paths. Auto-load takes project reach only. An operation refuses a reach outside the requester's tenant. A Supabase personal access token is account-wide whatever it declares: it moved to operation class and off `staging-writer`, because the profile table may not offer an operation-class credential |
+| HIGH 6 | Handles never ended | **Fixed.** An exit hook writes the `run-start` execution line, proved by a real process through vite-node, so a kernel handle lasts as long as its run. **A process killed outright writes nothing, and that handle lasts to its 12-hour expiry.** The code and ADR-T1 now say what a console line is worth, below |
+| HIGH 7 | The audit lacked command, exit, session id and reach change | **Fixed.** `operation-start` and `operation-end` lines, the session id, `reachBefore` and `reachAfter`. A credential-shaped argument is masked. A failed start line stops the command. A failed end line is reported as `AUDIT_NOT_RECORDED`, because the command has already run |
+| MEDIUM 8 | `run-start` had a budget of zero | **Fixed.** The committed `phaseHardStopAtMicroUsd` from `.projectops/gatekeeper.json` at the checkout's HEAD, with replacement objects off. No committed cap is zero |
+| MEDIUM 9 | `tenantRegistryProblem` lacked the core's checks | **Fixed.** Tenant id shape and domain, tested |
+| 10 | Add credential gave a generic failure; the host fixture had no registry | **Fixed.** `refusal_sentence` shows the router's first stderr line, never the value, bounded. The host's `the_real_broker_…` test ran and passes |
+| 11 | Comments overclaimed | **Fixed.** `vault.cjs` and `operation-gate.cjs` headers, ADR-T1 §6 and §10, `action-registry.json`. TCR-25 |
+| CARRY | `status` leaks reference names and fingerprints | Accepted under D4, in ADR-T1 §10. Stage 4 owes mandatory expiry, an owner, a revocation path and service custody |
+
+### The committed-bytes sweep (finding 2)
+
+| Where | Reader | State |
+|---|---|---|
+| `projectos/security/gatekeeper-transport-broker.cjs` | `git()`, `readCommitted` | **Fixed** |
+| `projectos/credentials/credential-metadata.cjs` | `git`, `readCommitted` | Already had both |
+| `projectos/security/broker.cjs`, `operation-broker.cjs`; the rest of `projectos/credentials/` | No git read | Nothing to fix |
+| `projectos/scripts/_watchdog-lib.cjs:64`, `watchdog-sentinel-package.cjs:32` | Plain `git show` | **Same class, not fixed: outside writePaths.** They copy watchdog source into products and decide no credential. One flag each |
+| `projectos/agent/src`: `planApproval.ts:1282`, `ownerGateReceipts.ts`, `verifiedBrokerSource` | Plain `git show` | **Same class, outside the sweep's directories and writePaths.** The broker's bytes are verified through one of these. A later phase should take them |
+
+## What stays unwired
+
+`projectos/core/src` and most of `projectos/agent/src` are outside this phase:
 
 | Item | State | Fix, who, cost |
 |---|---|---|
-| **`run-start` still has a budget of zero** | A binding term, and **unmet**. `admitBoundary` passes `budget: 0`, in `agent/src/governedContext.ts`. It blocks nothing here, because `credential-release` is unpaid, but `mintCrossing` would refuse a paid `broker-call` from such a run | A grant for `governedContext.ts`: `BoundaryRequest` gains `budget`, `runStartTenantRefusal` passes it. The owner names the figure, because a figure here would be invented. Three lines and a test |
 | **No worker receives a handle** | The handle exists and survives: it is the run-start envelope's id, on the kernel's own durable line. Nothing passes it to a child, and nothing a worker does calls the credential router today | `commands/run.ts` and `loop/workers.ts` are protected (Zone 3). When a worker first needs a credential, pass `admittedRunEnvelopeOf(ctx).envelopeId` to it |
 | **The broker cannot tell which run asked** | The request carries no handle, so the check is on the project, not on the requester. A run bound to one tenant can still name another tenant's allowlisted project, as far as this check goes. Only `projectos` is allowlisted today | `brokeredHttpPort.ts` and `host_ports.rs` send the handle, and the broker reads the line from `TRUSTED_STATE_DIR` as `fromRun` does. Both callers are outside this phase |
 
 ## Behaviour that changes at merge
 
 - **the Control Center's Add credential is refused.** `set_credential.rs` runs `credentials set --from-env` with no
-  terminal and no handle, so it gets `REQUESTER_REQUIRED`, and the Rust prints its generic "may already exist" sentence.
-  Allowing it would be the unbound write this phase exists to stop: any process can set an environment variable. The
-  route that works today is a real terminal with `--project`. The fix is in `control-center/src-tauri`, outside this
-  phase: the host needs a run to pass, and a sentence that names the refusal.
+  terminal and no handle, so it gets `REQUESTER_REQUIRED`, and it now shows that sentence, which says to use a real
+  terminal. Allowing it would be the unbound write this phase exists to stop: any process can set an environment
+  variable. Giving the host a run to pass is the later fix.
 - **`credentials set`, `delete`, `reach`, `session start` and `operation run` need `--run <handle>`, or a real terminal
-  on both ends and `--project <id>`.** `operation run` also needs `--phase`.
-- **Every session credential needs a declared reach, or no session loads it.** Nothing stored has one, so every session
-  with a credential stops with `REACH_UNDECLARED` until the owner runs, once per credential, at a console:
+  on both ends and `--project <id>`.** `operation run` also needs `--phase`, and `--owner-confirm` needs a real terminal on every verb, `projects` included.
+- **Every credential a release touches needs a declared reach, or nothing releases it.** Nothing stored has one, so every
+  session with a credential stops with `REACH_UNDECLARED` until the owner runs, once per credential, at a console:
   `projectos credentials reach --ref <reference> --project <id> --reach project|tenant|account [--reach-tenants a,b]`.
-  No secret is re-entered. `credentials doctor` lists each one. This is my reading of "declared rather than assumed".
-- **`operation run` needs a committed `secrets-handling` record** for the named phase.
+  No secret is re-entered. `credentials doctor` lists each one. Replacing a value clears it.
+- **A Supabase personal access token no longer loads into any session,** so a session's Supabase MCP server has no token.
+  `staging-writer.template.json` and `docs/credential-router.md` still list it, and are outside the writePaths.
+- **Operation release fails closed** until the owner commits a grant.
 - **The tenant registry needs its receipt** on this route too, the one PRINCIPAL1A's evidence asks for before merge.
-- **A Rust test will fail until its fixture is updated.**
-  `the_real_broker_accepts_the_host_authored_request_up_to_its_credential_stage`, in
-  `projectos/host/gatekeeper-review-composition/src/host_ports_tests.rs`, runs the real broker in a fixture with an
-  allowlist and no tenant registry, so the broker now stops at `TENANT_REGISTRY_UNREADABLE` before its credential stage.
-  `projectos/host/**` is protected. The fix is one `write(...)` of a registry line in that fixture. **I read this and did
-  not run it**: no Rust was built. `agent/test`'s three broker test files had the same gap and are updated.
 
 ## How the requester works
 
@@ -68,7 +127,7 @@ holds the handle is that run, proved by a real second process standing in `gamma
 
 **A command with no run mints one,** as CONTRACT1A requires. `issueConsoleRun` writes a real `run-start` line under the
 kernel's lock, `via: console`, and goes through `fromRun`, so one route reads every requester. It is reached only after
-the router sees a TTY on both ends. It shows what a tenant receipt shows: a person or a process at a console.
+the router sees a TTY on both ends. The authority dies with that process, and `fromRun` refuses a console handle. **`via: console` is a label under F7**: it shows what a tenant receipt shows, a person or a process at a console.
 
 **the handle names a record and is not a secret.** The line can be read by any process of this Windows user, which can
 also copy another tenant's handle or write a line. That is ADR-T1 §10's first limit. Stage 2 stops the kernel's routes being told who is
@@ -86,23 +145,23 @@ in its own module.
 | Term | How it is met |
 |---|---|
 | A run handle that survives process boundaries, never cwd | Above. TCR-2 refuses `process.cwd()` in every function on the route |
-| A linked-worktree binding alone releases nothing | `via: linked-worktree` is refused for auto-load by name. An operation still needs its grant, read at the registered root, so the worktree's own commit grants nothing. Real `git worktree add`, real kernel run |
-| A receipt is never a credential-release grant | The receipt is a precondition of reading the registry. With a receipt, a good permit and no gate record, nothing is released, by test. The broker reads no receipt |
+| A linked-worktree binding alone releases nothing | `via: linked-worktree` is refused for auto-load by name. An operation still needs its grant, read from the installation, so the worktree's own commit grants nothing. Real `git worktree add`, real kernel run |
+| A receipt is never a credential-release grant | The receipt is a precondition of reading the registry. With a receipt, a good permit and no grant, nothing is released, by test. The broker reads no receipt |
 | No JWT or OAuth requester | `RUN_HANDLE_RE` refuses both shapes, by test. TCR-18 refuses the words on this path |
-| `run-start` has a budget | **Not met.** See the table above |
+| `run-start` has a budget | Met in review: the committed per-phase cap |
 | A crossing cannot reach the broker, so the broker has its own check | `tenantOfProject`, on both request kinds |
 
 ## Delivered
 
 | Commit | Content |
 |---|---|
-| `4dd636fa` | `reference.cjs`, `credential-metadata.cjs`, `vault.cjs`, `operation-gate.cjs`, `session-router/router.cjs`, `projectos-credential-router.cjs` |
-| `a8bd6704` | `gatekeeper-transport-broker.cjs` |
-| `bfde8cd7` | The three older validators, `val-projectos-tenant-credentials1a`, registration, the tests and test worlds |
-| `0e87f0ad` | Two proofs the sweep showed to be weak |
-| _this commit_ | This file |
-
-`session-profiles.cjs` is in the writePaths and did not need changing: reach is judged in the vault, on the credential.
+| `4dd636fa`, `a8bd6704`, `bfde8cd7`, `0e87f0ad`, `151bfd8b` | The first build, as reviewed |
+| `0a8651d0` | The grant, console authority, reach, expiry, audit: `credentials/*`, the router, `session-profiles.cjs` |
+| `7610dd9d` | The broker: replace refs, hashing, the registry's shape checks |
+| `71375c9b` | `governedContext.ts`: the end line and the budget |
+| `b77fad6b` | `set_credential.rs`, the host fixture, `action-registry.json`, ADR-T1 |
+| `84513641` | `tenantCredentialsReview.test.ts`, `runEndChild.ts`, the older tests and validators |
+| _this commit_ | This file, and the validator's evidence pin |
 
 ## Acceptance criteria
 
@@ -112,17 +171,19 @@ in its own module.
    project id, a tenant id, a copy, a JSON round trip, `null` and `undefined`. The live requester passes in the same test.
 3. **A tenant secret is released to a second project in the same tenant and refused across tenants; only the tenant
    rule can decide this:** met. It runs on the operation path, because auto-load never releases one. A tenant-class
-   credential has no project, so nothing else can decide. All three requesters are real kernel runs.
+   credential has no project, and the other tenant holds a grant naming it, so only the tenant rule is left.
 4. **A project id starting with `tenant.`, in any case, is refused, and provision, remove and present are bound, tested
    with synthetic entries:** met. The registry refuses it whole, the router refuses a connection calling itself one, and
    no requester can be minted for one. `rotateMetadata` is bound too.
 5. **The platform credential is released to no tenant session, tested:** met, and asserted by the rule's own code,
    because the operation-class rule would otherwise refuse it first. The operation path is refused too, at the vault,
-   with its own project's run, a good permit and a committed record.
-6. **An account-wide token is not projected into another tenant's session, tested:** met. The owner's account token stored
-   under the agency project's name passes the project check, so only the reach rule stops it. The same shape loads in the
-   one tenant it reaches.
-7. **Validator pin and named mutations, each killed by its own rule:** met, 177 of 177, 23 rules and TCR-T. `behaviour()` also runs the criteria on every pass.
+   with its own project's run, a good permit and a grant naming it.
+6. **An operation release needs a committed grant naming the project, the exact references, the action and an expiry; a
+   record for another phase, project, credential or a stale date releases nothing, tested:** met, above.
+7. **An account-wide token is not projected into another tenant's session, tested:** met. The owner's account token stored
+   under the agency project's name passes the project check, so only the reach rule stops it, and project reach loads.
+8. **Validator pin and named mutations, each killed by its own rule:** met, 235 of 235, 26 rules and TCR-T. `behaviour()` also runs the
+   criteria on every pass.
 
 ### The operation test fails on the old code, on behaviour
 
@@ -142,18 +203,22 @@ The validator's mutations are text pins, so a pass says the pins fire, not that 
 applied to the real source, the proof each should trip was run with an exact filter, the failing test was recorded, and
 the file restored.
 
-- **76 mutations were swept, and 75 are killed by a named behavioural test** that passes unmutated in the full suite
-  below. The kills include the project, tenant, class, reach, worktree, grant, audit, envelope, handle and broker rules.
-  The other 101 have only their text pin. Many are evidence, registration and word pins, but some are real code mutations
-  and were not tried.
-- **`tenant-taken-from-the-line` survives correctly.** The line was already held equal to the registry, so taking either
-  alters nothing, and TCR-2 is its only catch.
-- **The sweep found two weak proofs, both fixed in `0e87f0ad`, each mutation run again and killed.** The handle table
-  accepted either of two refusals, so the shape rule could go unnoticed. The no-terminal test used a real clock with a
-  fixed-clock requester, so with the terminal rule removed it still got `REQUESTER_REQUIRED`, from expiry: it passed for
-  the wrong reason.
-- **A mistake of mine, stated:** I read these files as CRLF from a bad `grep`, and converted them. The first commit check
-  showed whole-file diffs, and they were put back to LF before anything was committed.
+- **107 mutations were swept on the final source. 104 are caught by behaviour:** 103 by a named test, and
+  `profile-offers-the-pat` by `session-profiles.cjs`'s own load-time assertion, which stops the module loading. The other
+  128 have only their text pin. Many are evidence, registration and word pins, but some are real code mutations and
+  were not tried.
+- **Three survive, correctly, and each is pinned by its rule:** `grant-any-gate-file`, because a gate lacks a grant's
+  fields, so reading one still refuses. `console-authority-reads-the-label`, because `fromRun` already refuses console
+  lines, so `via` and the in-memory bit agree on every route today. `broker-reads-through-replace-refs`, because the hash
+  refuses alone: the two are layers, and the fail-first run shows the forgery passing with neither.
+- **The sweeps found six weak proofs, all fixed, each mutation run again and killed.** First build: the handle table
+  accepted either of two refusals, and the no-terminal test passed on an expired clock rather than its rule. Review round:
+  a blank grantor, a date in another format and a phase id climbing to a well-formed record had no test, and my
+  `reach-inherited-on-replace` mutation also stopped the first provision recording reach, so it proved nothing.
+- **Two mistakes of mine, stated.** I read these files as CRLF from a bad `grep` and converted them; the first commit check
+  showed whole-file diffs, and they went back to LF before anything was committed. And the session's scratchpad is shared:
+  another agent's `sweep.cjs` overwrote mine, and I ran it once by name. It stopped at its own control, before any
+  mutation, but it overwrote that agent's `sweep.out`. My later files are in a private folder.
 
 The validator also runs `behaviour()` on every pass: the plan's criteria, over a real git world and in-memory stores.
 
@@ -162,13 +227,15 @@ The validator also runs `behaviour()` on every pass: the plan's criteria, over a
 | Check | Command | Result |
 |---|---|---|
 | Test typecheck | `npx tsc -p tsconfig.test.json --noEmit` in `projectos/agent` | 0 errors |
-| Full agent suite, nothing else running | `vitest run` in `projectos/agent`, the tree of `0e87f0ad` | 107 files, 3333 tests, all pass |
-| This phase's test file | `vitest run test/tenantCredentials.test.ts` | 97 tests, all pass |
-| This phase's validator | `node projectos/validators/val-projectos-tenant-credentials1a.cjs` | PASS, 177 named mutations killed |
-| Validators reading a touched file | Each in its own process through `run()`, nothing else running | 22 PASS, 0 FAIL. Includes the five the plan requires, `val-projectos-trust-boundary1a`, `val-projectos-closure-transport1a`, `val-projectos-kernel-followup1a`, `val-projectos-tenant-principal1a`, `val-projectos-tenant-contract1a` and `val-projectos-tenant-rls1a` |
+| Full agent suite, nothing else running | `vitest run` in `projectos/agent`, at `80b0592b` | 108 files, 3379 tests, all pass |
+| Review tests | `vitest run test/tenantCredentialsReview.test.ts` | 50 tests, all pass; 39 of 46 failed at `151bfd8b` |
+| Host crate | `cargo test the_real_broker_accepts` in `gatekeeper-review-composition`, target directory inside this worktree and removed after | 1 passed. The real broker reaches its credential stage |
+| `refusal_sentence` | `rustc --test` on that function and its tests, extracted | 4 passed. The Control Center crate itself was not built |
+| This phase's validator | `node projectos/validators/val-projectos-tenant-credentials1a.cjs` | PASS, 235 named mutations killed |
+| Validators reading a touched file | Each in its own process through `run()`, nothing else running | 25 PASS, 1 FAIL. Includes the five the plan requires, `val-projectos-trust-boundary1a`, `val-projectos-closure-transport1a`, `val-projectos-kernel-followup1a`, `val-projectos-tenant-principal1a`, `val-projectos-tenant-contract1a`, `val-projectos-tenant-rls1a` and `val-projectos-boot-continue1a`. **The one FAIL is not this phase's:** `val-cd-b4-sealed-expected-window-facts1a` names `fn session_digest` in `ipc_session.rs`, which this branch does not touch. It was run because it mentions `set_credential` |
 
-**Not run:** full `validate-all`, which is the lead's. Any Rust: the one host test named above is expected to fail. Core and
-Control Center suites: nothing in `core` or `control-center` changed. A real kernel run in the installed app.
+**Not run:** full `validate-all`, which is the lead's. Core and Control Center suites: nothing in `core` changed, and the only
+`control-center` change is the Rust above. A real kernel run in the installed app.
 
 `@projectos/core` resolves through a junction to another worktree, as PRINCIPAL1A's evidence says, so these tests ran
 against that tree's core build.
@@ -179,10 +246,11 @@ against that tree's core build.
   `windows-credential-store.*` is unchanged, and TCR-23 holds it to its hash. D4's hard rule stands: no other party's
   data or credentials on this machine until Host service custody and Stage 4.3 isolation are done, and the owner decides.
 - **`status` stays unbound.** It holds no value, and the sidecar calls `credentials status --project <id> --json` with no
-  run, so it still lists every tenant's reference names and their presence. Binding `present` alone does not close that.
-  The fix is in `host.mjs`, outside this phase.
+  run, so it still lists every tenant's reference names and fingerprints. Accepted under D4, carried to Stage 4.
 - **No execution line for a release.** The admission is recorded, with the vault's `use` line. The exit code is not.
 - **A release key is derived and not claimed,** so a duplicate release is not stopped by it.
+- **A killed process leaves a live handle** until its 12-hour expiry, and a line that cannot be written at exit does too.
+- **Budget is a per-call ceiling,** and it is read from the checkout, which a linked worktree can commit.
 - **The broker asks no receipt.** `TRUSTED_STATE_DIR` is where spend is counted and is not always where a receipt lives, and
   a receipt grants nothing. A registry commit alone can change what the broker reads. It moves no spend: the allowlist is
   asked first, and `projectos run` refuses an unconfirmed registry.
@@ -194,23 +262,22 @@ against that tree's core build.
 
 ## Decisions for the lead to challenge
 
-1. **The handle is the existing run-start id, not a new secret token.** It needs no change to `agent/src`, and it is
-   readable by any process of this user. A hash-recorded secret would need the kernel to mint one.
-2. **`status` left open beside a bound `present`.** See above.
-3. **An undeclared reach refuses,** so every session stops until the owner declares each credential once.
-4. **`reach` is a set of tenants for an account,** not a boolean: only "which tenants does this reach" can be judged.
-5. **A run may touch its own credentials; reach and the platform key need a console.** A console is what a tenant receipt
-   shows, nothing more, so a process that drives one passes.
-6. **Add credential breaks at merge.** I refused rather than exempt `--from-env`.
-7. **`--project` at a console may name any listed project.** The owner holds both tenants. An agent with a real console is
-   the same limit as the receipt.
-8. **The vault audit is append-only, not `appendDurableLine`.** It has its own file, so nothing rewrites it. The envelope
-   record does take the kernel's lock, because the kernel replaces that file.
+1. **The grant lives in the installation,** not beside the gates in `.projectops`.
+2. **A grant names one phase and one project.** A tenant secret needs a grant per project using it.
+3. **The handle is the existing run-start id, not a new secret token.** It is readable by any process of this user.
+4. **A killed run's handle lasts 12 hours.** The window is pinned by earlier tests, and I left it.
+5. **Moving the Supabase token to operation class** is how "account-wide" reached the profile table, and it costs sessions
+   their Supabase MCP token.
+6. **An undeclared reach refuses,** on both paths.
+7. **A run may touch its own credentials; reach and the platform key need a console.**
+8. **`--project` at a console may name any listed project.** The owner holds both tenants.
 9. **Three copies of the whole-file rule.** The broker cannot load a shared one. Tests hold them together.
 
 ## Carried forward
 
-- **ADR-T1 §6 and §10, `action-registry.json`'s note:** record the lead's decision once the owner has seen it.
+- **The agent's committed readers** in the sweep table, and the watchdog scripts, for replace refs.
+- **`val-projectos-tenant-contract1a` pins ADR-T1 §6's "OPEN" line,** so it stays and reads as history, followed by what
+  decided it. The fix, when that validator is next granted, is to pin the new wording.
 - **`docs/06_Plan.md`** is the lead's.
 - **`speed/input-map.cjs`** has no entry for this validator, like the two before it. It maps the three older validators
   to `projectos/credentials` only, so a change to `session-router` or the broker does not invalidate them. The fix is a
