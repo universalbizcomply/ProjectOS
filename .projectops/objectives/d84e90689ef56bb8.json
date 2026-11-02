@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "d84e90689ef56bb8",
+  "objective": "Plan v1.35: PROJECTOS-TENANT-CREDENTIALS1A gains five write paths and one acceptance criterion from its independent reviews; no other phase changes.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "495b8eb34391441a40b3ce1bdfeae9e9c1358372",
+  "submittedAt": "2026-11-02T03:51:28.251Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
