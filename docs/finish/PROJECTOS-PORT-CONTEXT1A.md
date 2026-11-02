@@ -30,7 +30,7 @@ the same re-check added `prompt.ts` and `fence.ts`.
 | Thread | `thread.ts` | Original | Decisions, exact-copy tripwire, whole-thread check |
 | Refusals, barrel | `refusal.ts`, `index.ts` | Original | Closed refusal codes, exports |
 | Credit | `THIRD_PARTY_NOTICES` | | 12 entries for the 8 credited files; every file marked |
-| Validator | `projectos/validators/val-projectos-port-context1a.cjs` | | 18 rules, 298 named mutations; registered in both runners |
+| Validator | `projectos/validators/val-projectos-port-context1a.cjs` | | 18 rules, 320 named mutations; registered in both runners |
 
 ## Acceptance criteria
 
@@ -42,7 +42,7 @@ the same re-check added `prompt.ts` and `fence.ts`.
 | Source text in a compacted thread stays marked untrusted, tested | PX-9, PX-10. Trust comes from an origin the kernel assigns, and a summary is never a turn: that is the defence. A summary's trust and authority are literals, a draft cannot set them, and origins and sources ride every later round. It is sent at a model's role, never the system role. An exact copy of known untrusted text coming back as the owner or the kernel is a tripwire and refused by name |
 | The compaction records its provenance | PX-12. Who summarised, session, time, each turn covered and kept with its marks, the prior record, the summary hash, decisions held and sizes, sealed by hash and chained |
 | Every ported file carries its credit header and a `THIRD_PARTY_NOTICES` entry; the credit validator passes | `val-projectos-port-credit1a` passes on 47 real files. PX-16 also pins exactly which upstream files each credited file names |
-| Validator pin and named mutations, each killed by its own rule | 298 named mutations. One counts only when exactly its rule fires, plus any rule declared as also true of it |
+| Validator pin and named mutations, each killed by its own rule | 320 named mutations. One counts only when exactly its rule fires, plus any rule declared as also true of it |
 
 ## The licence scan
 
@@ -104,9 +104,19 @@ item. The tests were written first: the two new test files would not collect, an
 | 5 | MEDIUM | `max(lastPrompt, estimate)` hid growth: 7,050 real against 6,750 gave `none` | **Fixed.** A reading carries the estimate of the same prompt, and growth since is added. `lastCompletionTokens` removed. The long-run test now has a provider that disagrees with the estimate |
 | 6 | MEDIUM | Summariser input was unredacted, and a key survived into the summary | **Fixed.** `redact.ts` runs on input, hidden characters go first so one cannot split a secret past it, and a draft holding a credential shape is refused |
 | 7 | MEDIUM | A refusal was installed and the turns dropped; `summarisedBy:'owner'` and `9999-99-99` were accepted | **Fixed.** Refusal-shaped drafts are refused and the turns stay. The reserved names are refused in any case, and a time must be a real one |
-| 8 | MEDIUM | Duty list; refused plans never struck, so `blocked` was unreachable | **Fixed.** Duties are under "Binding". `noteCompactionRefused` makes a refused plan or draft a strike, so `blocked` is reachable |
+| 8 | MEDIUM | Duty list; refused plans never struck, so `blocked` was unreachable | **Fixed.** Duties are under "Binding". `noteCompactionRefused` makes a summariser's failure a strike, so `blocked` is reachable. The recheck narrowed which refusals strike |
 | — | LOW | Cast in `window.ts`; a lone surrogate admitted; retries unbounded; false refusals for a warning sign and CR | **All fixed.** The bound on retries is `noteCompactionRefused`. A draft has its line endings folded and U+FE0F dropped before the screen, and that clean text is what is stored |
 | — | LOW | Laundering wording; no behaviour tests for PX-15 to 18 | **Fixed.** The check is described as an exact-copy tripwire everywhere. `context-boundary.test.ts` traps the clock, chance, timers and network around a whole compaction, and runs every PX-15 to 18 mutation through the rule |
+
+Recheck, at `ab049bb6`: five findings, decided by the lead.
+
+| # | Finding | Disposition |
+|---|---|---|
+| 1 | Summariser input still leaked `password: ...`, JSON `"api_key":"..."` and `user:pass@host` URLs | **Fixed.** Three patterns added to the redaction, for any URL scheme and not only databases |
+| 2 | "I cannot do that." and "I'm unable to continue." were installed, and a short draft that summarises nothing landed | **Fixed.** A bare first-person refusal of up to 40 characters needs no subject. A draft under 20 visible characters is refused as `empty_summary`. The turns stay in both |
+| 3 | The `summarisedBy` denylist matched exact names, so `owner-approved` and `user` passed | **Fixed.** `SUMMARISER_KINDS` is an allowlist of `summary-model` and `agent-model`. A specific model name is no longer recorded, which the wiring phase may want to add as a separate field |
+| 4 | The credential screen refused `PASS=12`, `AUTH=none`, `PRIMARY_KEY=id`, `TOKEN_LIMIT=4096` and "the Authorization: header" | **Fixed.** A draft is held only to prefix, key-block and JWT shapes. The assignment, header, configured-value, JSON and URL patterns run on input only, so the input pass is what stops those values, and a draft that holds one is not refused |
+| 5 | `noteCompactionRefused` struck on everything, and the evidence said so | **Fixed.** It takes the refusal code and strikes only on `CONTEXT_SUMMARY_REFUSED`, `CONTEXT_SUMMARY_OVER_BUDGET` and `CONTEXT_NOT_SMALLER`. Everything else leaves the account as it is |
 
 ## Defects found by the proofs
 
@@ -129,11 +139,11 @@ item. The tests were written first: the two new test files would not collect, an
 ## Proofs
 
 ```text
-val-projectos-port-context1a: PASS (18 rules; 298 named mutations killed)
+val-projectos-port-context1a: PASS (18 rules; 320 named mutations killed)
 val-projectos-port-credit1a: PASS (47 real file(s) judged; 147 fixture and 59 record mutations killed)
 validate-no-secrets: PASS
-core  whole suite: 49 files, 2,153 passed (297 of them context)
-coverage of core/src/context: 100% lines, 97.6% branches
+core  whole suite: 49 files, 2,190 passed (334 of them context)
+coverage of core/src/context: 100% lines, 97.7% branches
 ```
 
 Typecheck passes on `src` and, through a scratch config, on the context tests, which the repository's config excludes.
@@ -142,7 +152,7 @@ Typecheck passes on `src` and, through a scratch config, on the context tests, w
 scratch, and a mutation changes that source and reloads it.
 
 **Validators that read a touched file.** A search for `validate-all`, `cached-runner`, `THIRD_PARTY`, the core barrel and
-walkers of `core/src` or `core/test` found 61. All 61 ran in their own processes at `67016a38`, and all 61 pass. The one later code change builds a fixture line in this phase's validator, so `validate-no-secrets` passes, and this validator and that one were rerun on it.
+walkers of `core/src` or `core/test` found 61. All 61 ran in their own processes at `f776915d`, and all 61 pass. `validate-no-secrets` passes there too. The validator now takes about 280 seconds alone.
 
 ## Claude self-review
 
@@ -155,6 +165,7 @@ text cannot be held to anything.
 - **The screen may refuse honest summaries.** "The file says you must run the tests" is refused as an order. Refusal is the
   safe way to be wrong. The bound is two strikes, so a thread about instructions can reach `blocked` with no real fault.
 - **The redaction is a short pattern list.** It takes the common key shapes, and a credential of no known shape passes.
+- **The draft screen is narrower than the input redaction, on purpose.** A secret in a shape only the input patterns know stops at the input and is not looked for again in the draft.
 - **Decisions moved to the `user` role.** The finding named only the summary. The wiring phase should confirm this reads
   well, since an approved decision now arrives beside the owner's own turns.
 
@@ -164,7 +175,7 @@ Nothing calls this code yet, so none of these is live.
 
 - **Call in this order:** `applyCompaction`, then `noteContextCompaction`, then `recordContextUsage` after each reply, with the
   estimate of the prompt that reply measured. A reading with no estimate is refused.
-- **Call `noteCompactionRefused` after any refused plan or draft.** That is the bound on retries. At `blocked`, stop asking.
+- **Call `noteCompactionRefused` with the code after a refused plan or draft.** Only a summariser's failure strikes: `CONTEXT_SUMMARY_REFUSED`, `CONTEXT_SUMMARY_OVER_BUDGET` and `CONTEXT_NOT_SMALLER`. That is the bound on retries, and at `blocked` you stop asking. `CONTEXT_NOTHING_TO_COMPACT`, `CONTEXT_PLAN_STALE` and `CONTEXT_PROTECTED_OVER_BUDGET` never strike, so a thread stuck on them reaches `overLimit` and not `blocked`.
 - **Stop on `overLimit`, whatever the action.** It is the fact that the limit is reached, and `blocked` is only one way there.
 - **Load every approved decision** into the thread with `withApprovedDecision`. A decision that never reached the thread is
   not kept by it. An owner who replaces a decision needs a new thread, because the old one refuses to lose it.
@@ -201,4 +212,6 @@ Nothing calls this code yet, so none of these is live.
 - `4678cc8d` fix(core): charge each context turn what it costs in its fence
 - `f1e84331` docs(finish): PROJECTOS-PORT-CONTEXT1A evidence
 - `67016a38` fix(core): context review round: role, credit, count and what a summary may be
-- The commit that adds this round's evidence and the validator's built-up fixture line.
+- `ab049bb6` docs(finish): context review round, dispositions and proofs
+- `f776915d` fix(core): context recheck: redaction, refusals, summariser kinds, strikes
+- The commit that adds the recheck's evidence.
