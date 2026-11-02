@@ -153,7 +153,9 @@ const MODULES = [
   // PROJECTOS-TENANT-PRINCIPAL1A — the tenant read from committed bytes and minted at real crossings.
   "val-projectos-tenant-principal1a",
   // PROJECTOS-TENANT-CREDENTIALS1A — a requester is a kernel-issued run handle; tenant and platform classes; reach; bound mutators.
-  "val-projectos-tenant-credentials1a"
+  "val-projectos-tenant-credentials1a",
+  // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
+  "val-projectos-connector-contract1a"
 ];
 
 // RETIRED: validator files that are deliberately NOT run by this suite, each with its recorded reason.

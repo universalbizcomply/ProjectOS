@@ -1,0 +1,228 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "projectos/schemas/connector-registry.schema.json",
+  "title": "ProjectOS Connector Registry",
+  "description": "projectos/connectors/registry.json. What each connector declares, and the release record that lets it run. Installation record, read from committed bytes. What JSON Schema cannot state is enforced by parseConnectorRegistry in projectos/core/src/connectorContract.ts, which validates the whole file before any match: uniqueness across entries, the tenant registry and action registry lookups, a credential-shaped value in the reference field, and a release record bound to its own connector, version, tenant and date. Staleness is judged per connector at the gate, against time handed in.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "policy",
+    "note",
+    "authority",
+    "authorisedBy",
+    "provenance",
+    "trustBasis",
+    "connectors"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "policy": {
+      "const": "connector-registry"
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1
+    },
+    "authority": {
+      "type": "string",
+      "minLength": 1
+    },
+    "authorisedBy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provenance": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trustBasis": {
+      "type": "string",
+      "minLength": 1
+    },
+    "connectors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/connector"
+      }
+    }
+  },
+  "definitions": {
+    "connectorId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "tenant": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,56}$"
+    },
+    "instant": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "connector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connectorId",
+        "version",
+        "tenant",
+        "domain",
+        "scopes",
+        "secretReference",
+        "dataCategories",
+        "idempotency",
+        "actions",
+        "lastAcceptanceDate",
+        "releaseRecord"
+      ],
+      "properties": {
+        "connectorId": {
+          "$ref": "#/definitions/connectorId"
+        },
+        "version": {
+          "$ref": "#/definitions/version"
+        },
+        "tenant": {
+          "$ref": "#/definitions/tenant"
+        },
+        "domain": {
+          "enum": [
+            "develop",
+            "business",
+            "personal",
+            "phone"
+          ]
+        },
+        "scopes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}$"
+          }
+        },
+        "secretReference": {
+          "description": "A reference to a credential in the store, never a value.",
+          "type": "string",
+          "pattern": "^ProjectOS/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(?:development|staging|production)/[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+          "not": {
+            "pattern": "[A-Za-z0-9]{24,}"
+          }
+        },
+        "dataCategories": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,63}$"
+          }
+        },
+        "idempotency": {
+          "enum": [
+            "provider-key",
+            "reconcile-first",
+            "read-only"
+          ]
+        },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{1,63}$"
+          }
+        },
+        "lastAcceptanceDate": {
+          "$ref": "#/definitions/instant"
+        },
+        "releaseRecord": {
+          "$ref": "#/definitions/releaseRecord"
+        }
+      }
+    },
+    "releaseRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connectorId",
+        "version",
+        "tenant",
+        "result",
+        "acceptedAt",
+        "checklist",
+        "scenarios",
+        "evidence"
+      ],
+      "properties": {
+        "connectorId": {
+          "$ref": "#/definitions/connectorId"
+        },
+        "version": {
+          "$ref": "#/definitions/version"
+        },
+        "tenant": {
+          "$ref": "#/definitions/tenant"
+        },
+        "result": {
+          "const": "passed"
+        },
+        "acceptedAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "checklist": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "provider-identity",
+              "actions-and-scopes-documented",
+              "authentication-and-revocation",
+              "tenant-and-resource-bound",
+              "read-and-write-verified",
+              "denied-actions-fail",
+              "rate-limits-and-retries",
+              "provider-receipts",
+              "audit-logs",
+              "operational-owner"
+            ]
+          }
+        },
+        "scenarios": {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "cross-tenant-denial",
+              "duplicate-webhook-delivery",
+              "expired-approval",
+              "token-revocation",
+              "prompt-injection-in-retrieved-content",
+              "process-crash-after-write",
+              "cancellation",
+              "missing-evidence",
+              "provider-outage"
+            ]
+          }
+        },
+        "evidence": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,255}$"
+        }
+      }
+    }
+  }
+}

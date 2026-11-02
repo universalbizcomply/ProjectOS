@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0.0",
+  "policy": "connector-registry",
+  "note": "The connector registry: what each connector declares, and the release record that lets it run. Empty by owner decision D5, 'Rules now, connectors later (Recommended)': zero live connectors. The rules are projectos/core/src/connectorContract.ts. A connector's actions must exist in the action registry, and each entry holds a reference to a credential, never a value.",
+  "authority": "owner",
+  "authorisedBy": "Murad",
+  "provenance": "Written by the implementer (Claude) in PROJECTOS-CONNECTOR-CONTRACT1A from owner decision D5, recorded in docs/changes/delta_spec.md. It holds no entry, so it transcribes no connector decision.",
+  "trustBasis": "MANUAL_GOVERNANCE_APPROVAL, tamperProof false. Read from committed bytes only and validated whole: a missing tenant, secret reference or passing release record, an unknown field, a duplicate or a wildcard refuses the entire file. Nothing reads this file at run time yet.",
+  "connectors": []
+}
