@@ -57,6 +57,7 @@ import { nodeProjectosRuntime } from './nodeRuntimeRoot.js';
 // A CYCLE, AND A SAFE ONE: `platformStop.ts` imports `loadGovernedContext`, and this imports where the
 // stop's verified state directory is. Both are only ever CALLED, never read at load time.
 import { platformStopDirOf } from './loop/platformStop.js';
+import { GATEKEEPER_CONFIG_REL } from './loop/gatekeeperConfig.js';
 
 /** Plan location when the config declares none. Unchanged default — existing installs are untouched. */
 export const DEFAULT_PLAN_RELPATH = '.projectops/plan.json';
@@ -431,11 +432,18 @@ export function refusalLines(r: Extract<GovernedContextResult, { ok: false }>): 
  * mark lives in memory, so the entry refusal keeps what it admitted against the context it was given.
  * `admittedRunEnvelopeOf` reads it and `mintRunCrossing` is the one route from it to a crossing.
  *
- * WHAT THIS STILL DOES NOT DO. `run-start` gets no execution line, because `commands/run.ts` holds one
- * entry refusal and no more (delta Zone 3). Its budget is zero, so `mintCrossing` would refuse a paid
- * crossing from it. The checkout is whichever one the process stands in: the tenant is derived, but which
- * work is bound is decided by where the process started. And the admitted run does not survive the
- * process. All three are binding on CREDENTIALS1A, in this phase's evidence.
+ * THE RUN ENDS ON THE RECORD. `commands/run.ts` holds one entry refusal and no more (delta Zone 3), so
+ * nothing there can say a run ended. The process does: an exit hook armed at admission writes the `run-start`
+ * execution line, and a kernel run handle stops there, so a handle lives as long as its run. A process
+ * killed outright writes nothing, and that handle lasts to its expiry.
+ *
+ * THE RUN HAS A BUDGET. It is the committed `phaseHardStopAtMicroUsd`, because a crossing's budget may not
+ * exceed its run's. It is a per-call ceiling (ADR-T1 §8), and zero with no committed cap, which lets a run
+ * work and spend nothing.
+ *
+ * WHAT THIS STILL DOES NOT DO. The checkout is whichever one the process stands in: the tenant is derived,
+ * but which work is bound is decided by where the process started. The in-memory envelope does not survive
+ * the process: its id, on the durable line, is the handle a release is asked of (CREDENTIALS1A).
  * ---------------------------------------------------------------------------------------------- */
 
 /** Stated by the kernel. At a boundary no worker has started, so the kernel is what is acting. */
@@ -575,6 +583,8 @@ export interface BoundaryRequest {
   readonly scope: readonly string[];
   readonly windowMs: number;
   readonly intentScope: string;
+  /** Micro-USD. Only a run has one; every other boundary is unpaid. */
+  readonly budget?: number;
 }
 
 /** Mint through the core and pass the door, with the durable recorder. Nothing else admits a crossing. */
@@ -593,12 +603,56 @@ export function admitBoundary(
       action: request.action,
       subjectHash: request.subjectHash,
       scope: request.scope,
-      budget: 0,
+      budget: request.budget ?? 0,
       expiry: instantAfter(now, request.windowMs),
       intentScope: request.intentScope,
     },
   );
   return admitEnvelope(minted, now, recorder, grant);
+}
+
+/**
+ * The per-phase cap this checkout commits, in micro-USD, or zero. Committed bytes only, with replacement
+ * objects off, so a working-tree edit moves nothing. A missing or nonsense cap is zero, never a default.
+ */
+function committedPhaseCap(sys: System, root: string): number {
+  const shown = sys.exec('git', ['--no-replace-objects', '-C', root, 'show', `HEAD:./${GATEKEEPER_CONFIG_REL}`]);
+  if (shown.code !== 0) return 0;
+  try {
+    const cap = (JSON.parse(shown.stdout) as { readonly budget?: { readonly phaseHardStopAtMicroUsd?: unknown } } | null)?.budget?.phaseHardStopAtMicroUsd;
+    return typeof cap === 'number' && Number.isSafeInteger(cap) && cap > 0 ? cap : 0;
+  } catch {
+    return 0;
+  }
+}
+
+interface LiveRun {
+  readonly sys: System;
+  readonly stateDir: string | null;
+  readonly envelope: TaskEnvelope;
+}
+
+/** Runs this process admitted that have not recorded their end. */
+const LIVE_RUNS = new Set<LiveRun>();
+let runEndArmed = false;
+
+/**
+ * Write each live run's execution line. Called by the exit hook, so it must stay synchronous. It names the
+ * exit code as the rule. A line that cannot be written cannot stop anything now, so the handle lasts to its
+ * expiry, which is what a killed process gets.
+ */
+export function endAdmittedRuns(exitCode: number): void {
+  for (const run of [...LIVE_RUNS]) {
+    LIVE_RUNS.delete(run);
+    recordExecution(run.envelope, exitCode === 0 ? 'allowed' : 'failed', `run-ended:${exitCode}`, run.sys.now(), envelopeRecorder(run.sys, run.stateDir));
+  }
+}
+
+function holdRunUntilExit(run: LiveRun): void {
+  LIVE_RUNS.add(run);
+  if (runEndArmed) return;
+  runEndArmed = true;
+  process.once('exit', endAdmittedRuns);
 }
 
 /** What each context's entry refusal admitted. The door's mark is in memory, so this is too. */
@@ -641,6 +695,7 @@ export function runStartTenantRefusal(ctx: CommandContext, execute: boolean): re
     principal: 'implementer',
     subjectHash: checkoutSubject(sys, root),
     scope: [`project:${derived.binding.projectId}`],
+    budget: committedPhaseCap(sys, root),
     windowMs: RUN_ENVELOPE_WINDOW_MS,
     intentScope: 'governed-run',
   });
@@ -653,6 +708,7 @@ export function runStartTenantRefusal(ctx: CommandContext, execute: boolean): re
     return [`REFUSED (${rule}): ${why}`, ...(stopped ? [] : [REFUSAL_NOT_RECORDED_LINE, RECORD_LOCK_HINT])];
   }
   ADMITTED_RUNS.set(ctx, { envelope: admission.envelope, derived });
+  holdRunUntilExit({ sys, stateDir: source.stateDir, envelope: admission.envelope });
   return null;
 }
 
