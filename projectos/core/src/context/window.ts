@@ -4,7 +4,7 @@
 // Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
-// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: translated from Python to TypeScript; the tail budget and the backward walk only; tool pairing is judged by call id, so a request that arrived between a call and its result cannot split them; the protected first turns, soft ceiling, anchors and oversized-turn exception were replaced by keeping the latest request verbatim, in compaction.ts
+// Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: translated from Python to TypeScript; the tail budget and the backward walk only; tool pairing is judged by call id, so a request that arrived between a call and its result cannot split them; the protected first turns, soft ceiling, anchors and oversized-turn exception were replaced by keeping the latest request verbatim, in compaction.ts; each turn is charged what it costs in its fence
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * Where a thread divides: a head that stays, a middle to summarise, and a tail of recent turns that stays.
@@ -15,7 +15,7 @@
  * exchange is worse than none in a summary. Pure.
  */
 import { compactionTriggerTokens, type ContextWindow } from './accounting.js';
-import { estimateTurnTokens } from './estimate.js';
+import { turnCostTokens } from './fence.js';
 import type { ContextTurn } from './turn.js';
 
 const TAIL_FLOOR_TOKENS = 10_000;
@@ -58,7 +58,7 @@ export function findTailStart(turns: readonly ContextTurn[], headEnd: number, bu
   let used = 0;
   let cut = turns.length;
   for (let index = turns.length - 1; index >= headEnd; index -= 1) {
-    const cost = estimateTurnTokens(turns[index] as ContextTurn);
+    const cost = turnCostTokens(turns[index] as ContextTurn);
     if (cut < turns.length && used + cost > budgetTokens) break;
     used += cost;
     cut = index;

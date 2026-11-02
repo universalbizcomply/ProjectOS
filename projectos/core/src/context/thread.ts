@@ -22,7 +22,8 @@
 import { createHash } from 'node:crypto';
 import { isMemoryEntryProvenance, type MemoryEntryProvenance } from '../memory/proposal.js';
 import { MEMORY_TARGETS, memoryEntryHash, type MemoryTarget } from '../memory/store.js';
-import { TURN_OVERHEAD_TOKENS, estimateTextTokens, estimateTurnTokens } from './estimate.js';
+import { TURN_OVERHEAD_TOKENS, estimateTextTokens } from './estimate.js';
+import { turnCostTokens } from './fence.js';
 import { compactionRecordProblem, type CompactionRecord } from './provenance.js';
 import { contextOk, contextRefused, isContextLabel, type ContextRefused, type ContextResult } from './refusal.js';
 import { textKey, trustOfOrigin, turnProblem, type ContextOrigin, type ContextSourceRef, type ContextTurn } from './turn.js';
@@ -155,7 +156,7 @@ export function contextThreadHash(thread: ContextThread): string {
 
 /** The rough size of a thread: turns, decisions and the summary, each with its overhead. */
 export function estimateThreadTokens(thread: Pick<ContextThread, 'turns' | 'decisions'> & { readonly summary: Pick<ContextSummary, 'text'> | null }): number {
-  const turns = thread.turns.reduce((sum, turn) => sum + estimateTurnTokens(turn), 0);
+  const turns = thread.turns.reduce((sum, turn) => sum + turnCostTokens(turn), 0);
   const decisions = thread.decisions.reduce((sum, { entry, record }) => sum + estimateTextTokens(`${record.ledgerRef ?? ''} ${entry}`) + TURN_OVERHEAD_TOKENS, 0);
   return turns + decisions + (thread.summary === null ? 0 : estimateTextTokens(thread.summary.text) + TURN_OVERHEAD_TOKENS);
 }

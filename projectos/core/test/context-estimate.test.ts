@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CHARS_PER_TOKEN, TURN_OVERHEAD_TOKENS, estimateTextTokens, estimateTurnTokens } from '../src/context/index.js';
+import { CHARS_PER_TOKEN, TURN_OVERHEAD_TOKENS, estimateTextTokens, estimateThreadTokens, estimateTurnTokens, renderContextPrompt, turnCostTokens } from '../src/context/index.js';
+import { agentTurn, callTurn, must, ownerTurn, resultTurn, threadOf } from './context-support.js';
 
 describe('the rough count of a text', () => {
   it('counts an empty text as nothing', () => {
@@ -29,6 +30,26 @@ describe('the rough count of a text', () => {
 
   it('counts a broken surrogate instead of failing on it', () => {
     expect(estimateTextTokens('\ud83d')).toBe(1);
+  });
+});
+
+describe('what a turn costs as it is sent', () => {
+  const sent = (text: string): number => estimateTextTokens(text) + TURN_OVERHEAD_TOKENS;
+
+  it('charges owner text as it stands: the positive control', () => {
+    expect(turnCostTokens(ownerTurn('u1', 'Go on.'))).toBe(sent('Go on.'));
+  });
+
+  it('charges a source for its fence, exactly as sent', () => {
+    const thread = threadOf([callTurn('c1', 'call-1'), resultTurn('t1', 'call-1', 'A long page of text.', 'docs/a.md', 'document')]);
+    const section = must(renderContextPrompt(thread)).sections.at(-1);
+    expect(turnCostTokens(thread.turns[1] as never)).toBe(sent(section?.text ?? ''));
+    expect(turnCostTokens(thread.turns[1] as never)).toBeGreaterThan(sent('A long page of text.') + 40);
+  });
+
+  it('a thread of many tool results is not counted as its bare text', () => {
+    const turns = Array.from({ length: 200 }, (_, index) => agentTurn(`a${index}`, 'x'));
+    expect(estimateThreadTokens({ turns, decisions: [], summary: null })).toBeGreaterThan(200 * 60);
   });
 });
 

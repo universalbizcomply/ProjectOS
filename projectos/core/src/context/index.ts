@@ -5,6 +5,7 @@ export * from './estimate.js';
 export * from './accounting.js';
 export * from './window.js';
 export * from './turn.js';
+export * from './fence.js';
 export * from './provenance.js';
 export * from './thread.js';
 export * from './compaction.js';

@@ -14,6 +14,7 @@ import {
   planCompaction,
   recordContextUsage,
   renderContextPrompt,
+  turnCostTokens,
   withApprovedDecision,
   type CompactionRecord,
   type ContextThread,
@@ -82,7 +83,7 @@ describe('what a compaction keeps', () => {
     let compactions = 0;
     for (let index = 0; index < 120; index += 1) {
       const incoming = agentTurn(`t${index}`, 'x'.repeat(800));
-      const pressure = must(contextPressure(accounts, AGENT, estimateThreadTokens(thread), 210));
+      const pressure = must(contextPressure(accounts, AGENT, estimateThreadTokens(thread), turnCostTokens(incoming)));
       expect(pressure.projectedTokens).toBeLessThan(pressure.inputTokens);
       if (pressure.action === 'compact') {
         thread = must(applyCompaction(thread, accountOf(accounts), draftFor(thread, `Round ${index} of the work.`))).thread;
@@ -222,7 +223,7 @@ describe('what yields when space runs out', () => {
     const thread = threadOf([agentTurn('a0', 'x'), agentTurn('a1', 'y'), ownerTurn('u1', 'z'), agentTurn('a2', 'w'.repeat(7_900))]);
     const plan = must(planCompaction(thread, account));
     expect(plan.summarise.map((turn) => turn.id)).toEqual(['a0', 'a1']);
-    expect(codeOf(applyCompaction(thread, account, draftFor(thread, 'x'.repeat(200))))).toBe('CONTEXT_NOT_SMALLER');
+    expect(codeOf(applyCompaction(thread, account, draftFor(thread, 'x'.repeat(800))))).toBe('CONTEXT_NOT_SMALLER');
   });
 });
 

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { findTailStart, headEndOf, latestRequestIndex, tailBudgetTokens, type ContextTurn } from '../src/context/index.js';
+import { findTailStart, headEndOf, latestRequestIndex, tailBudgetTokens, turnCostTokens, type ContextTurn } from '../src/context/index.js';
 import { WINDOW, agentTurn, callTurn, kernelTurn, ownerTurn, resultTurn } from './context-support.js';
 
-const row = (id: string): ContextTurn => agentTurn(id, 'x'.repeat(360));
+const row = (id: string): ContextTurn => ownerTurn(id, 'x'.repeat(360));
 const ROW_TOKENS = 100;
 
 describe('the tail budget', () => {
@@ -66,7 +66,7 @@ describe('where the tail starts', () => {
   });
 
   it('keeps the newest turn whatever its size', () => {
-    expect(findTailStart([...rows, agentTurn('big', 'x'.repeat(4_000))], 0, 10)).toBe(10);
+    expect(findTailStart([...rows, ownerTurn('big', 'x'.repeat(4_000))], 0, 10)).toBe(10);
   });
 
   it('keeps a whole tool group when the budget ends inside it', () => {
@@ -84,6 +84,12 @@ describe('where the tail starts', () => {
     expect(findTailStart(turns, 0, 20)).toBe(1);
   });
 
+  it('charges a fenced turn what its fence costs', () => {
+    const fenced = agentTurn('a1', 'x'.repeat(360));
+    expect(findTailStart([row('r0'), fenced], 0, ROW_TOKENS * 2)).toBe(1);
+    expect(findTailStart([row('r0'), fenced], 0, ROW_TOKENS + turnCostTokens(fenced))).toBe(0);
+  });
+
   it('never separates a tool result from its call, at any budget', () => {
     const turns = [
       kernelTurn('s1', 'a'),
@@ -95,7 +101,7 @@ describe('where the tail starts', () => {
       ]).flat(),
     ];
     const callIndex = (id: string): number => turns.findIndex((turn) => turn.toolCalls.some((call) => call.id === id));
-    for (let budget = 1; budget < 500; budget += 1) {
+    for (let budget = 1; budget < 1_500; budget += 3) {
       const start = findTailStart(turns, 1, budget);
       expect(start).toBeGreaterThanOrEqual(1);
       for (const turn of turns.slice(start)) {
