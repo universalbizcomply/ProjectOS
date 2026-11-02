@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { System } from '../src/system.js';
 import { nodeBrokeredTransport, TRANSPORT_BROKER_REL } from '../src/loop/transports/brokeredHttpPort.js';
+import { brokerRegistryText, TENANT_REGISTRY_FIXTURE_REL } from './support/tenantWorld.js';
 import type { ProjectosRuntime } from '../src/nodeRuntimeRoot.js';
 
 const REF = 'OPENAI_GATEKEEPER_KEY';
@@ -113,6 +114,7 @@ function installation(opts: {
       ],
     }),
   );
+  write(TENANT_REGISTRY_FIXTURE_REL, brokerRegistryText(PROJECT, root));
   const permission = opts.permission === undefined ? validPermission() : opts.permission;
   if (permission !== null) {
     write('.projectops/authority/plan-authoring-permission.json', JSON.stringify(permission));

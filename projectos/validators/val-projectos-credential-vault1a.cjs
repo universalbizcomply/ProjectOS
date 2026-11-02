@@ -38,6 +38,9 @@ const { createMetadataStore } = require("../credentials/credential-metadata.cjs"
 const { createOperationGate } = require("../credentials/operation-gate.cjs");
 const { parseReference, classifyRisk, fingerprint } = require("../credentials/reference.cjs");
 const { createRedactor } = require("../security/redaction.cjs");
+const { syntheticWorld } = require("./val-projectos-tenant-credentials1a.cjs");
+
+const PHASE = "CREDENTIAL-VAULT-FIXTURE1A";
 
 const POLYGO_TOKEN = "synthetic-polygo-gh-token-000000";
 const JDTESTING_TOKEN = "synthetic-jdtesting-gh-token-111";
@@ -56,11 +59,17 @@ function seedVault(stateDir) {
   const redactor = createRedactor();
   const store = createMemoryCredentialStore({ acknowledgedNonPersistent: true });
   const vault = createCredentialVault({ store, redactor, stateDir });
-  vault.provision({ reference: REF.polygoGh, readValue: () => POLYGO_TOKEN });
-  vault.provision({ reference: REF.jdGh, readValue: () => JDTESTING_TOKEN });
-  vault.provision({ reference: REF.bizGh, readValue: () => BIZCOMPLY_TOKEN });
-  vault.provision({ reference: REF.polygoServiceRole, readValue: () => SERVICE_ROLE });
-  return { vault, store, redactor };
+  // The requester is the call's new shape: a kernel run for each project, from a synthetic installation.
+  const world = syntheticWorld(path.join(stateDir, "tenant-world"), ["polygo", "jdtesting", "bizcomply"]);
+  world.grant("polygo", PHASE);
+  const polygo = world.requesterFor("polygo");
+  const jdtesting = world.requesterFor("jdtesting");
+  const bizcomply = world.requesterFor("bizcomply");
+  vault.provision({ reference: REF.polygoGh, requester: polygo, reach: "project", readValue: () => POLYGO_TOKEN });
+  vault.provision({ reference: REF.jdGh, requester: jdtesting, reach: "project", readValue: () => JDTESTING_TOKEN });
+  vault.provision({ reference: REF.bizGh, requester: bizcomply, reach: "project", readValue: () => BIZCOMPLY_TOKEN });
+  vault.provision({ reference: REF.polygoServiceRole, requester: polygo, readValue: () => SERVICE_ROLE });
+  return { vault, store, redactor, polygo, jdtesting };
 }
 
 function expectThrow(errors, label, fn, expectedFragment) {
@@ -78,11 +87,11 @@ function expectThrow(errors, label, fn, expectedFragment) {
 function run() {
   const errors = [];
   scratch.withScratch("credential-vault", (dir) => {
-    const { vault, store } = seedVault(dir);
+    const { vault, store, polygo, jdtesting } = seedVault(dir);
 
     // 1 / 2: cross-project authorisation is refused before the store is consulted.
-    expectThrow(errors, "invariant 1", () => vault.authoriseSessionRelease({ reference: REF.jdGh, projectId: "polygo" }), "another project");
-    expectThrow(errors, "invariant 2", () => vault.authoriseSessionRelease({ reference: REF.bizGh, projectId: "jdtesting" }), "another project");
+    expectThrow(errors, "invariant 1", () => vault.authoriseSessionRelease({ reference: REF.jdGh, requester: polygo }), "another project");
+    expectThrow(errors, "invariant 2", () => vault.authoriseSessionRelease({ reference: REF.bizGh, requester: jdtesting }), "another project");
 
     // 3: fail-closed classification.
     if (classifyRisk("gh-token") !== "session") errors.push("invariant 3: gh-token is not session-class");
@@ -91,15 +100,15 @@ function run() {
     }
 
     // 4: an operation-class credential can never be authorised for a session.
-    expectThrow(errors, "invariant 4", () => vault.authoriseSessionRelease({ reference: REF.polygoServiceRole, projectId: "polygo" }), "operation-class");
+    expectThrow(errors, "invariant 4", () => vault.authoriseSessionRelease({ reference: REF.polygoServiceRole, requester: polygo }), "operation-class");
 
     // 5: missing credential fails closed.
-    expectThrow(errors, "invariant 5", () => vault.authoriseSessionRelease({ reference: REF.absent, projectId: "polygo" }), "CREDENTIAL MISSING");
+    expectThrow(errors, "invariant 5", () => vault.authoriseSessionRelease({ reference: REF.absent, requester: polygo }), "CREDENTIAL MISSING");
 
     // 6: operation-class release requires an owner-confirmed permit.
-    const goodPermit = { permitId: "permit_test", projectId: "polygo", environment: "production", reference: REF.polygoServiceRole, expiresAtMs: Date.now() + 60000 };
-    expectThrow(errors, "invariant 6a", () => vault.authoriseOperationRelease({ reference: REF.polygoServiceRole, projectId: "polygo", permit: goodPermit, capability: {} }), "OWNER PERMIT REQUIRED");
-    expectThrow(errors, "invariant 6b", () => vault.authoriseOperationRelease({ reference: REF.polygoServiceRole, projectId: "polygo", permit: null, capability: { ownerConfirmation: true } }), "OWNER PERMIT REQUIRED");
+    const goodPermit = { permitId: "permit_test", projectId: "polygo", environment: "production", reference: REF.polygoServiceRole, runHandle: polygo.runHandle, phaseId: PHASE, expiresAtMs: Date.now() + 60000 };
+    expectThrow(errors, "invariant 6a", () => vault.authoriseOperationRelease({ reference: REF.polygoServiceRole, requester: polygo, permit: goodPermit, capability: {} }), "OWNER PERMIT REQUIRED");
+    expectThrow(errors, "invariant 6b", () => vault.authoriseOperationRelease({ reference: REF.polygoServiceRole, requester: polygo, permit: null, capability: { ownerConfirmation: true } }), "OWNER PERMIT REQUIRED");
 
     // 7: permit binding must match exactly.
     for (const bad of [
@@ -107,14 +116,14 @@ function run() {
       { ...goodPermit, environment: "staging" },
       { ...goodPermit, reference: REF.polygoGh },
     ]) {
-      expectThrow(errors, "invariant 7", () => vault.authoriseOperationRelease({ reference: REF.polygoServiceRole, projectId: "polygo", permit: bad, capability: { ownerConfirmation: true } }), "OWNER PERMIT REQUIRED");
+      expectThrow(errors, "invariant 7", () => vault.authoriseOperationRelease({ reference: REF.polygoServiceRole, requester: polygo, permit: bad, capability: { ownerConfirmation: true } }), "OWNER PERMIT REQUIRED");
     }
 
     // 8: expired permit.
-    expectThrow(errors, "invariant 8", () => vault.authoriseOperationRelease({ reference: REF.polygoServiceRole, projectId: "polygo", permit: { ...goodPermit, expiresAtMs: Date.now() - 1 }, capability: { ownerConfirmation: true } }), "OWNER PERMIT REQUIRED");
+    expectThrow(errors, "invariant 8", () => vault.authoriseOperationRelease({ reference: REF.polygoServiceRole, requester: polygo, permit: { ...goodPermit, expiresAtMs: Date.now() - 1 }, capability: { ownerConfirmation: true } }), "OWNER PERMIT REQUIRED");
 
     // 9: a hand-built look-alike grant is not redeemable.
-    const realGrant = vault.authoriseSessionRelease({ reference: REF.polygoGh, projectId: "polygo" });
+    const realGrant = vault.authoriseSessionRelease({ reference: REF.polygoGh, requester: polygo });
     const forged = { ...realGrant, grantId: "grant_forged" };
     expectThrow(errors, "invariant 9", () => vault.releaseIntoChildEnvironment(forged), "not recognised");
 
@@ -169,45 +178,45 @@ function run() {
         return { status: 0, stdout: "using " + options.env.SUPABASE_SERVICE_ROLE_KEY + "\n", stderr: "" };
       },
     });
-    const permit = gate.grantPermit({ reference: REF.polygoServiceRole, action: "read-config", capability: { ownerConfirmation: true } });
+    const permit = gate.grantPermit({ reference: REF.polygoServiceRole, action: "read-config", requester: polygo, phaseId: PHASE, capability: { ownerConfirmation: true } });
 
     const withSecretArg = gate.run({
-      reference: REF.polygoServiceRole, action: "read-config", permit, capability: { ownerConfirmation: true },
+      reference: REF.polygoServiceRole, requester: polygo, action: "read-config", permit, capability: { ownerConfirmation: true },
       command: "node", args: ["--token=" + SERVICE_ROLE], envVarName: "SUPABASE_SERVICE_ROLE_KEY",
     });
     if (withSecretArg.ok !== false) errors.push("invariant 16: a secret-shaped command argument was not refused");
     if (spawnCalls.length !== 0) errors.push("invariant 16: a command ran despite a secret-shaped argument");
 
     // 16b: a reserved environment variable name is refused — a credential must never be delivered as PATH.
-    const permitReserved = gate.grantPermit({ reference: REF.polygoServiceRole, action: "read-config", capability: { ownerConfirmation: true } });
+    const permitReserved = gate.grantPermit({ reference: REF.polygoServiceRole, action: "read-config", requester: polygo, phaseId: PHASE, capability: { ownerConfirmation: true } });
     const reserved = gate.run({
-      reference: REF.polygoServiceRole, action: "read-config", permit: permitReserved, capability: { ownerConfirmation: true },
+      reference: REF.polygoServiceRole, requester: polygo, action: "read-config", permit: permitReserved, capability: { ownerConfirmation: true },
       command: "node", args: ["--version"], envVarName: "PATH",
     });
     if (reserved.ok !== false) errors.push("invariant 16b: a reserved environment variable name was accepted");
 
     // 16c: an unresolvable command is refused BEFORE the single-use grant is spent.
-    const permitMissing = gate.grantPermit({ reference: REF.polygoServiceRole, action: "read-config", capability: { ownerConfirmation: true } });
+    const permitMissing = gate.grantPermit({ reference: REF.polygoServiceRole, action: "read-config", requester: polygo, phaseId: PHASE, capability: { ownerConfirmation: true } });
     const unresolvable = gate.run({
-      reference: REF.polygoServiceRole, action: "read-config", permit: permitMissing, capability: { ownerConfirmation: true },
+      reference: REF.polygoServiceRole, requester: polygo, action: "read-config", permit: permitMissing, capability: { ownerConfirmation: true },
       command: "projectos-command-that-does-not-exist", args: [], envVarName: "SUPABASE_SERVICE_ROLE_KEY",
     });
     if (unresolvable.blocker !== "COMMAND NOT EXECUTABLE") errors.push("invariant 16c: an unresolvable command was not refused (got " + String(unresolvable.blocker) + ")");
     if (spawnCalls.length !== 0) errors.push("invariant 16c: a command ran despite being unresolvable");
 
     // 18b: output is WITHHELD by default — the caller must opt in to see it at all.
-    const permitQuiet = gate.grantPermit({ reference: REF.polygoServiceRole, action: "read-config", capability: { ownerConfirmation: true } });
+    const permitQuiet = gate.grantPermit({ reference: REF.polygoServiceRole, action: "read-config", requester: polygo, phaseId: PHASE, capability: { ownerConfirmation: true } });
     const quiet = gate.run({
-      reference: REF.polygoServiceRole, action: "read-config", permit: permitQuiet, capability: { ownerConfirmation: true },
+      reference: REF.polygoServiceRole, requester: polygo, action: "read-config", permit: permitQuiet, capability: { ownerConfirmation: true },
       command: "node", args: ["--version"], envVarName: "SUPABASE_SERVICE_ROLE_KEY",
     });
     if (quiet.outputWithheld !== true || quiet.stdout !== "") errors.push("invariant 18b: operation output was returned without an explicit opt-in");
     if (String(JSON.stringify(quiet)).includes(SERVICE_ROLE)) errors.push("invariant 18b: the credential appeared in a withheld-output result");
     spawnCalls.length = 0;
 
-    const permit2 = gate.grantPermit({ reference: REF.polygoServiceRole, action: "read-config", capability: { ownerConfirmation: true } });
+    const permit2 = gate.grantPermit({ reference: REF.polygoServiceRole, action: "read-config", requester: polygo, phaseId: PHASE, capability: { ownerConfirmation: true } });
     const result = gate.run({
-      reference: REF.polygoServiceRole, action: "read-config", permit: permit2, capability: { ownerConfirmation: true },
+      reference: REF.polygoServiceRole, requester: polygo, action: "read-config", permit: permit2, capability: { ownerConfirmation: true },
       command: "node", args: ["--version"], envVarName: "SUPABASE_SERVICE_ROLE_KEY", includeOutput: true,
     });
     if (spawnCalls.length !== 1) errors.push("invariant 17: expected exactly one command to run, saw " + spawnCalls.length);
@@ -225,7 +234,7 @@ function run() {
     // 19: a prohibited provider action is refused before any credential is touched.
     const before = spawnCalls.length;
     const prohibited = gate.run({
-      reference: REF.polygoServiceRole, action: "mutate-production-db", permit: permit2, capability: { ownerConfirmation: true },
+      reference: REF.polygoServiceRole, requester: polygo, action: "mutate-production-db", permit: permit2, capability: { ownerConfirmation: true },
       command: "node", args: ["--version"], envVarName: "SUPABASE_SERVICE_ROLE_KEY", includeOutput: true,
     });
     if (prohibited.ok !== false || prohibited.blocker !== "PRODUCTION PROFILE REFUSED") errors.push("invariant 19: a prohibited provider action was not refused");
@@ -235,7 +244,7 @@ function run() {
     const malformed = ["", "ProjectOS/polygo", "ProjectOS/polygo/staging/github", "Other/polygo/staging/github/gh-token", "ProjectOS/polygo/nonsense/github/gh-token", "ProjectOS/../../etc/passwd/x", "ProjectOS/polygo/staging/github/gh-token/extra"];
     for (const bad of malformed) {
       if (parseReference(bad).ok) errors.push("invariant 20: parseReference accepted '" + bad + "'");
-      expectThrow(errors, "invariant 20 (vault)", () => vault.present({ reference: bad }));
+      expectThrow(errors, "invariant 20 (vault)", () => vault.present({ reference: bad, requester: polygo }));
       expectThrow(errors, "invariant 20 (store)", () => store.get(bad));
     }
   });

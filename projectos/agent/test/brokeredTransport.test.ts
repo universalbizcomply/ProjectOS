@@ -31,6 +31,7 @@ import {
   TRANSPORT_BROKER_REL,
   type BrokeredTransport,
 } from '../src/loop/transports/brokeredHttpPort.js';
+import { brokerRegistryText, TENANT_REGISTRY_FIXTURE_REL } from './support/tenantWorld.js';
 import { submitToOpenAi, type HttpPort } from '../src/loop/transports/openaiResponses.js';
 import { unprovisionedResolver, inMemoryResolverForTests } from '../src/loop/credentialResolver.js';
 import type { GatekeeperRequest } from '@projectos/core';
@@ -447,6 +448,7 @@ describe('a receipt authorises a project, not unlimited spending', () => {
         ],
       }),
     );
+    write(TENANT_REGISTRY_FIXTURE_REL, brokerRegistryText('projectos', root));
     write(
       `.projectops/gates/${PHASE}.secrets-handling.json`,
       JSON.stringify({ gateName: 'secrets-handling', phaseId: PHASE, ownerChoice: 'APPROVE' }),
@@ -602,6 +604,7 @@ describe('the governed root is compared by identity, not spelling', () => {
         ],
       }),
     );
+    write(TENANT_REGISTRY_FIXTURE_REL, brokerRegistryText('projectos', root));
     write(`.projectops/gates/${PHASE}.secrets-handling.json`, JSON.stringify({ gateName: 'secrets-handling', phaseId: PHASE, ownerChoice: 'APPROVE' }));
     git('add', '-A');
     git('commit', '-q', '-m', 'authorised');
@@ -823,6 +826,7 @@ describe('what the trusted side refuses to take on trust', () => {
         projects: [{ projectId: 'projectos', repository: 'github.com/local/fixture', governedRoot: root.split(String.fromCharCode(92)).join('/') }],
       }),
     );
+    write(TENANT_REGISTRY_FIXTURE_REL, brokerRegistryText('projectos', root));
     write(`.projectops/gates/${PHASE}.secrets-handling.json`, JSON.stringify({ gateName: 'secrets-handling', phaseId: PHASE, ownerChoice: 'APPROVE' }));
     git('add', '-A');
     git('commit', '-q', '-m', 'authorised');

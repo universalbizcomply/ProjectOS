@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { System } from '../src/system.js';
 import { nodeBrokeredTransport, TRANSPORT_BROKER_REL, type BrokeredTransport } from '../src/loop/transports/brokeredHttpPort.js';
+import { brokerRegistryText, TENANT_REGISTRY_FIXTURE_REL } from './support/tenantWorld.js';
 
 const V = JSON.parse(readFileSync(join(__dirname, '..', '..', 'contracts', 'host-review-path-vectors.v1.json'), 'utf8')) as {
   inputs: Record<string, string>;
@@ -89,6 +90,7 @@ function authorisedInstallation(): { root: string; stateDir: string } {
       projects: [{ projectId: I['projectId'], repository: 'github.com/local/fixture', governedRoot: root.split(String.fromCharCode(92)).join('/') }],
     }),
   );
+  write(TENANT_REGISTRY_FIXTURE_REL, brokerRegistryText(I['projectId']!, root));
   write(`.projectops/gates/${I['phaseId']}.secrets-handling.json`, JSON.stringify({ gateName: 'secrets-handling', phaseId: I['phaseId'], ownerChoice: 'APPROVE' }));
   git('add', '-A');
   git('commit', '-q', '-m', 'authorised');

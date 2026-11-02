@@ -58,6 +58,13 @@ export function registryText(lines: readonly RegistryLine[], over: Readonly<Reco
   return `${JSON.stringify({ ...real, projects: lines.map((line) => ({ ...line, note: 'fixture' })), ...over }, null, 2)}\n`;
 }
 
+/** The one-project registry a broker fixture needs: the real header, this checkout's line, in the owner's tenant. */
+export function brokerRegistryText(projectId: string, governedRoot: string, repository = 'github.com/local/fixture'): string {
+  return registryText([{ projectId, repository, governedRoot: governedRoot.split(String.fromCharCode(92)).join('/'), tenant: OWNER_TENANT, domain: 'develop' }]);
+}
+
+export const TENANT_REGISTRY_FIXTURE_REL = 'projectos/security/tenant-registry.json';
+
 export function projectConfig(projectId: string, root: string, extra: Readonly<Record<string, unknown>> = {}): string {
   return JSON.stringify({
     projectId,

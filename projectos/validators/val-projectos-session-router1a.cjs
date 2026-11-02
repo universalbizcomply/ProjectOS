@@ -42,6 +42,7 @@ const { createProjectRegistry } = require("../session-router/project-registry.cj
 const { createRegistry } = require("../providers/registry.cjs");
 const github = require("../providers/github.provider.cjs");
 const supabase = require("../providers/supabase.provider.cjs");
+const { syntheticWorld } = require("./val-projectos-tenant-credentials1a.cjs");
 
 const TOKENS = {
   polygoGh: "synthetic-polygo-gh-aaaaaaaaaaaa",
@@ -96,6 +97,8 @@ function run() {
     const stateDir = path.join(dir, "state");
     const store = createMemoryCredentialStore({ acknowledgedNonPersistent: true });
     const vault = createCredentialVault({ store, stateDir });
+    // The requester is the call's new shape: a kernel run per project, from a synthetic installation.
+    const world = syntheticWorld(path.join(dir, "tenant-world"), ["polygo", "jdtesting", "stranger", "prodproject"]);
 
     const polygo = setup(dir, "polygo", { supabase: "polygostagingrefaaaa", vercelOrg: "team_POLYGO_ORG", vercelProject: "prj_POLYGO_STAGING" });
     const jd = setup(dir, "jdtesting", { supabase: "jdteststagingrefaaaa", vercelOrg: "team_JDTEST_ORG", vercelProject: "prj_JDTEST_STAGING" });
@@ -107,7 +110,7 @@ function run() {
       ["ProjectOS/jdtesting/staging/github/gh-token", TOKENS.jdGh],
       ["ProjectOS/jdtesting/staging/supabase/supabase-access-token", TOKENS.jdSupabase],
       ["ProjectOS/jdtesting/staging/vercel/vercel-token", TOKENS.jdVercel],
-    ]) vault.provision({ reference, readValue: () => value });
+    ]) vault.provision({ reference, requester: world.requesterFor(reference.split("/")[1]), reach: "project", readValue: () => value });
 
     // The owner registry is the out-of-checkout trust anchor. Register each project exactly as the owner
     // would; nothing below can start a session without it.
@@ -117,7 +120,9 @@ function run() {
     }
 
     const spawned = [];
-    const router = createSessionRouter({ vault, stateDir, projectRegistry, spawn: fakeSpawn(spawned) });
+    const sessionRouter = createSessionRouter({ vault, stateDir, projectRegistry, spawn: fakeSpawn(spawned) });
+    const asked = (input) => ({ requester: world.requesterFor(input.connection.projectId), ...input });
+    const router = { ...sessionRouter, prepare: (input) => sessionRouter.prepare(asked(input)), start: (input) => sessionRouter.start(asked(input)) };
 
     const envBefore = JSON.stringify(process.env);
 

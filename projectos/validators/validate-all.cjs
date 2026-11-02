@@ -151,7 +151,9 @@ const MODULES = [
   // PROJECTOS-PORT-CONTEXT1A — context accounting and compaction: decisions kept, source text stays untrusted.
   "val-projectos-port-context1a",
   // PROJECTOS-TENANT-PRINCIPAL1A — the tenant read from committed bytes and minted at real crossings.
-  "val-projectos-tenant-principal1a"
+  "val-projectos-tenant-principal1a",
+  // PROJECTOS-TENANT-CREDENTIALS1A — a requester is a kernel-issued run handle; tenant and platform classes; reach; bound mutators.
+  "val-projectos-tenant-credentials1a"
 ];
 
 // RETIRED: validator files that are deliberately NOT run by this suite, each with its recorded reason.

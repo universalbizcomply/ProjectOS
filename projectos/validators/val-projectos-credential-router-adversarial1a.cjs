@@ -46,6 +46,7 @@ const { createMetadataStore } = require("../credentials/credential-metadata.cjs"
 const { createRegistry } = require("../providers/registry.cjs");
 const { parseReference } = require("../credentials/reference.cjs");
 const cli = require("../scripts/projectos-credential-router.cjs");
+const { syntheticWorld } = require("./val-projectos-tenant-credentials1a.cjs");
 
 const SYNTHETIC = "synthetic-adversarial-value-9999";
 
@@ -350,7 +351,8 @@ function run() {
     if (Object.prototype.polluted !== undefined) errors.push("invariant 15: Object.prototype carries a polluted key");
 
     // 17: a token-like string is redacted out of anything the vault hands back.
-    vault.provision({ reference: "ProjectOS/polygo/staging/github/gh-token", readValue: () => SYNTHETIC });
+    const requester = syntheticWorld(path.join(dir, "tenant-world"), ["polygo"]).requesterFor("polygo");
+    vault.provision({ reference: "ProjectOS/polygo/staging/github/gh-token", requester, readValue: () => SYNTHETIC });
     const redacted = vault.redactText("log line carrying " + SYNTHETIC + " in the middle");
     if (redacted.includes(SYNTHETIC)) errors.push("invariant 17: a known value was not redacted from text");
     if (!redacted.includes("«secret:")) errors.push("invariant 17: redaction did not substitute a placeholder");
