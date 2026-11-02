@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-PORT-SKILLS1A",
+  "evidenceSubjectHead": "f5c4b43f6322333e00cd13d97b4bfec87f2e303b",
+  "baselineCommit": "cb3979f5c4702e135a14892824358406d3f1c52e",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-02T02:28:17.184Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-PORT-SKILLS1A, phase 30 of 35 of plan v1.34, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. f5c4b43f on cb3979f5 (plan v1.34 activation): the two phases stacked with their reviews and fixes.",
+    "validatorsPass: val-projectos-port-skills1a (440 mutations), val-projectos-port-credit1a and validate-no-secrets PASS. validate-all 163/164 at f5c4b43f; the one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public since 693bc75d in dormant Host code, carried to Stage 4.",
+    "checksPass: core 2575/2575, agent 3103/3103, control-center 952/952 at f5c4b43f with normal package resolution.",
+    "reviewsComplete: Claude self-review; ECC SECURITY review (two HIGH fixed; recheck ACCEPT, with forgery open as a wiring condition); ECC CODE review (APPROVE, LOWs fixed).",
+    "unresolved: zero CRITICAL/HIGH. Binding on the wiring phase, in docs/finish/PROJECTOS-PORT-SKILLS1A.md: sign the pin or kernel-issue the actor before any loader reads a promoted skill; the kernel sets origin; a single owner label cannot promote an import, a safe dead end needing an owner design; named pattern gaps.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
