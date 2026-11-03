@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-TENANT-EXIT-PROOF1A",
+  "evidenceSubjectHead": "7e136b4826fee675647560dc7df5ff86116ac53c",
+  "baselineCommit": "70ffbca8ed1466e10d4b5f97499bf48b978e33c6",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-03T10:50:34.453Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-TENANT-EXIT-PROOF1A, phase 29 of 35 of plan v1.35, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 7e136b48 on 70ffbca8 (plan v1.35 activation): branch projectos-tenant-stack3, fast-forwarded onto the plan branch after the owner's tenant receipt.",
+    "validatorsPass: val-projectos-tenant-contract1a, -rls1a, -principal1a, -credentials1a, -csp1a, val-projectos-connector-contract1a and validate-no-secrets PASS. validate-all 166/167 at 967c7b86; the one failure is val-cd-b4-sealed-expected-window-facts1a, carried to Stage 4. The seven exit-proof validators PASS on the final evidence.",
+    "checksPass: core 2882/2882, agent 3424/3424, control-center 952/952 at 967c7b86 on the plan worktree after a rebuild; between 967c7b86 and 7e136b48 only closure records and this phase's evidence document changed. Removal round 4 on the final scripts: 23 killed, 2 masked as declared, 0 other. Post-merge check on the real installation, main 44ba28bb, unchanged code and production derivation: registry and receipt rules pass on real bytes, two controls refuse, real state unwritten.",
+    "reviewsComplete: Claude self-review; ECC DATABASE and ECC SECURITY (both APPROVE WITH CHANGES at ac9aaded, no CRITICAL or HIGH; every finding dispositioned at 967c7b86, not re-reviewed).",
+    "unresolved: zero CRITICAL/HIGH. Not a boundary against a hostile worker (Stage 4). RLS binds client roles only. The privilege gate's three LOW blind spots. PostgreSQL 17.6 parity. The released half of the credential route needs a real grant, which is an owner act. Full list under \"What Stage 2 does not prove\" in docs/finish/PROJECTOS-TENANT-EXIT-PROOF1A.md.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
