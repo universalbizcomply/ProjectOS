@@ -14,7 +14,7 @@ repository or ProjectOS's main checkout.
 |---|---|
 | Every database claim passes on a throwaway cluster, and each named mutation fails it | **Met.** Exact migration bytes, both starts, the three real project ids. 174 assertions pass; 43 of 43 named mutations fail by their own assertion or gate finding |
 | Live, read-only checks after the owner's apply | **Met,** by the lead's run, below |
-| Every kernel claim passes against the real committed registry, and removing each rule fails it | **Met on the agent route; met only on stand-ins for the credential route. A post-merge rerun on the real installation is a gate.** The agent route ran on the real bytes with unchanged code. The credential half (K1, K2-session, K5, K6, K8-vault) never ran on the real bytes with unchanged code: variant (a) changed one registry field and (b) one line of code. Both also passed the install root and state directory in explicitly, where production derives them: `installationStateDir()` (`credential-metadata.cjs:427`) returns null under the faked `LOCALAPPDATA`, and the install root has two derivations, `nodeRuntimeRoot.ts:67` and `projectos-credential-router.cjs:157`, neither exercised. 25 removals: 23 killed by exactly the declared change, 2 shown to be masked, as declared, by an earlier rule |
+| Every kernel claim passes against the real committed registry, and removing each rule fails it | **Met on the agent route. On the credential route, met on stand-ins, and on the real installation for the registry and receipt rules only (post-merge, 2026-11-03, under "Post-merge check").** The agent route ran on the real bytes with unchanged code. The credential half (K1, K2-session, K5, K6, K8-vault) never ran on the real bytes with unchanged code: variant (a) changed one registry field and (b) one line of code. Both also passed the install root and state directory in explicitly, where production derives them: `installationStateDir()` (`credential-metadata.cjs:427`) returns null under the faked `LOCALAPPDATA`, and the install root has two derivations, `nodeRuntimeRoot.ts:67` and `projectos-credential-router.cjs:157`, neither exercised. 25 removals: 23 killed by exactly the declared change, 2 shown to be masked, as declared, by an earlier rule |
 | The evidence states each limit in "What Stage 2 does not prove" | **Met,** below |
 | Required validators | 7 of 7 PASS |
 
@@ -401,6 +401,37 @@ The LOW slips are carried, not fixed: this phase changes no source.
   2026-11-03, on the final scripts: 23 killed, 2 masked as declared, 0 other.** That fourth run is the one reported
   above. Its log is `results/removals-round4.log`; the third round's is kept as `removals-round3.log`.
 
+## Post-merge check on the real installation, 2026-11-03 10:48 UTC
+
+The stack was fast-forwarded onto the plan branch and `main` was fast-forwarded locally to `44ba28bb`. The registry at
+that commit is blob `8f7b7437…`, and the owner's receipt names it. Both dists were rebuilt in `C:/dev/ProjectOS`. Then,
+from that main checkout, with unchanged code and nothing passed in that production derives itself:
+
+| Route | Call | Answer |
+|---|---|---|
+| Agent | `projectos tenant show`, run in `C:/dev/ProjectOS` | `projectos`, tenant `owner-personal`, domain `develop`, bound by `governed-root`, blob `8f7b7437…` at `44ba28bb`, receipt `typed-terminal` 2026-11-03T10:05:05.905Z |
+| Credential | Authority built exactly as `projectos-credential-router.cjs:214` builds it: install root from the router file's own location (`C:/dev/ProjectOS`) and `installationStateDir()` (the real `installation-state`). `fromRun` was given a well-formed handle that no run was ever admitted under | `RUN_HANDLE_UNKNOWN`. `bindRun` reads the registry first, so the main-checkout, whole-file and receipt rules all passed on the real bytes |
+| Credential, control | The same call with the real root and an empty state directory | `TENANT_REGISTRY_NO_RECEIPT` |
+| Credential, control | The same call with a linked worktree (`host-review-path1b`) as root and the real state | `INSTALLATION_NOT_MAIN_CHECKOUT` |
+| Credential | `operationGrantRefusal` for polygo | "no committed credential-release grant exists for this phase in the installation": fails closed |
+| Credential | a requester that is not a handle | `REQUESTER_REQUIRED` |
+
+**The real state was not written.** `installation-state` was listed by name, size and modification time before and after
+the credential calls: unchanged. The empty control directory stayed empty. The script and its output are
+`real-install-check.cjs`, `real-install-check.json` and `real-install-controls.json`, in the scratchpad of session
+`77b6fbca-0e82-4298-926e-8b308a5a6d02`.
+
+**What this closes and what it does not.** The registry and receipt half of the gate is met on the real installation,
+with production's own derivation of the root and the state. Two things are still not run on the real installation:
+
+- **Cross-tenant release with a live requester.** That needs a console run, which appends an admission line to the real
+  state. So it is proved on stand-ins only (K1, K2-session, K5, K6, K8-vault, above).
+- **The released half.** It needs a real committed and receipted `credential-release` grant. That is an owner act, and
+  none exists.
+
+`nodeRuntimeRoot.ts:67` was not traced separately: the agent route ran from the main checkout, and its answer names that
+root.
+
 ## What Stage 2 does not prove
 
 - **This is not a boundary against a hostile worker.** A worker can still reach any tenant's secrets and files outside
@@ -450,7 +481,7 @@ The LOW slips are carried, not fixed: this phase changes no source.
 | Not proved | Fix | Who | Cost |
 |---|---|---|---|
 | ~~The owner's real tenant receipt~~ **Done 2026-11-03 10:05:05 UTC:** the owner typed it at their terminal for blob `8f7b7437…`. The receipt and its admission line are in the real `installation-state`, envelope `ENV-5eab0280715f2a9cd73460fe` | — | Owner | Done |
-| **GATE: the credential route on the real installation, unchanged code, real bytes** | After merge and receipt, rerun `kernel-proof.mjs` with `C:/dev/ProjectOS` as the installation, with the root and state directory derived the way production derives them (`nodeRuntimeRoot.ts:67`, `projectos-credential-router.cjs:157`, `installationStateDir()`). That last derivation is the real state, so the rerun must write there only what the owner accepts. The refusal half needs no commit; the released half needs a real grant, an owner act | Lead, then owner for a grant | Minutes; the grant is a protected act |
+| **GATE, registry and receipt half MET 2026-11-03** (under "Post-merge check"). Still open: cross-tenant release with a live requester on the real installation, and the released half | After merge and receipt, rerun `kernel-proof.mjs` with `C:/dev/ProjectOS` as the installation, with the root and state directory derived the way production derives them (`nodeRuntimeRoot.ts:67`, `projectos-credential-router.cjs:157`, `installationStateDir()`). That last derivation is the real state, so the rerun must write there only what the owner accepts. The refusal half needs no commit; the released half needs a real grant, an owner act | Lead, then owner for a grant | Minutes; the grant is a protected act |
 | PostgreSQL 17.6, the live version | The proof ran on 17.10. Run the harness on 17.6 binaries if exact parity is wanted | Lead | About an hour to fetch, a minute to run |
 | The gate's blind spots: `private` default ACLs, definer triggers, role membership through `NOINHERIT` | One check each in `privilege-gate.sql` and `live-postapply.sql` | Lead, in a phase granted those files | Small; LOW |
 | A deep installation root refusing every grant | Read grants without the `<commit>:./<path>` stat, in a phase granted `credential-metadata.cjs` | Lead | Small; LOW |
