@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-CONNECTOR-CONTRACT1A",
   "project": "ProjectOS",
   "objective": "Owner decision, 2026-11-01: \"Rules now, connectors later (Recommended)\". This phase writes what every connector must declare (tenant, scopes, secret reference, data categories, idempotency, last acceptance date), the release gate that blocks an unqualified connector, and the standard execution receipt and error vocabulary, including outcome_unknown. The acceptance scenarios from the blueprint are defined here; cross-tenant denial is proved in Stage 2 and the other eight first run in Stage 5. Task ledger and webhooks stay in Stage 4 and 5; channel adapters stay in Stage 5 onward in the owner's agreed order.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-03T10:48:16.691Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-03T10:48:18.558Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-CONNECTOR-CONTRACT1A:owner-closure:967c7b86"
     }
   ]
 }
