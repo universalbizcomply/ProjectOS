@@ -167,14 +167,22 @@ ECC database-reviewer and security-reviewer.
       `docs/finish/PROJECTOS-TENANT-RLS1A.md`) **[OWNER]** Supabase RLS. Replace `using(true)` on `public.projects` and `public.phases`
       with `auth.uid()`-bound owner and tenant policies, and close open sign-up. This is a production
       database mutation.
-- [ ] 2.2 Principal model: tenant and domain come from the authenticated context. A tenant id in
-      agent text is never authority.
-- [ ] 2.3 Per-tenant credential references in the credential router. Personal and business secrets
-      are never shared.
+- [x] 2.2 (2026-11-03, `967c7b86`, plan v1.35 32/35: the tenant is derived from the committed registry and a typed
+      receipt, never from agent text, flags or environment; the owner typed the receipt for blob `8f7b7437…`; evidence in
+      `docs/finish/PROJECTOS-TENANT-PRINCIPAL1A.md`) Principal model: tenant and domain come from the authenticated
+      context. A tenant id in agent text is never authority.
+- [x] 2.3 (2026-11-03, `967c7b86`, plan v1.35 33/35: release is asked of a kernel-issued run handle, and a tenant-class
+      credential never crosses tenants; operation release fails closed until the owner commits and receipts a grant;
+      evidence in `docs/finish/PROJECTOS-TENANT-CREDENTIALS1A.md`) Per-tenant credential references in the credential
+      router. Personal and business secrets are never shared.
 - [x] 2.4 (2026-11-02, `b29ac72e`, plan v1.33 29/35: the CSP was proved in a real WebView2 and the bundle scan runs in the
       build; evidence in `docs/finish/PROJECTOS-TENANT-CSP1A.md`) **[OWNER]** A Tauri CSP (currently `null`).
-- **Exit proof:** two tenants on one machine (owner-personal and agency-business). A cross-tenant
-  read is refused by the database **and** by the kernel, and both are tested.
+- [x] **Exit proof** (2026-11-03, `7e136b48`, plan v1.35 35/35: the database shows 174 assertions and 43 of 43 mutations
+  failing, plus live read-only checks; the kernel shows 25 rule removals, 23 killed and 2 masked as declared; a post-merge
+  check on the real installation passed the registry and receipt rules; evidence in
+  `docs/finish/PROJECTOS-TENANT-EXIT-PROOF1A.md`) Two tenants on one machine (owner-personal and agency-business). A
+  cross-tenant read is refused by the database **and** by the kernel, and both are tested. Also CONNECTOR-CONTRACT1A
+  closed (`967c7b86`, 34/35): connector rules with zero live connectors.
 
 ## Stage 3 — Memory and context fabric (in parallel with Stage 4)
 
@@ -358,3 +366,4 @@ Forge, the signed installer, and the Host unattended-review route.
 - 2026-11-02: plan v1.34 (`cb3979f5`) added PRINCIPAL1A core test paths. PORT-SKILLS1A and PORT-CONTEXT1A **CLOSED** owner-direct, evidence subject `f5c4b43f`, `cf457b67`, `72a8ef3c`, 31/35. core 2575, agent 3103, control-center 952, validate-all 163/164. The one failure is `val-cd-b4`: `AdmittedRequest::session_digest` is public at `host/core/src/ipc_session.rs:693`, carried to Stage 4.
 - 2026-11-02: PRINCIPAL1A reviewed APPROVE on branch `projectos-tenant-principal1a`, HELD. Merging it before the owner runs `tenant receipt --blob 8f7b7437c648defc54d8d2005ab76691f51948fb` would refuse runs, selection and acting verbs.
 - 2026-11-02: CREDENTIALS1A review BLOCKED the lead's decision to treat a phase's `secrets-handling` gate record as a credential grant: it was too coarse and scoped to another key. Decision withdrawn. Plan v1.35 (`70ffbca8`) widens the phase's paths and adds the criterion that a release needs a committed grant naming project, exact references, action and expiry. Fix round running.
+- 2026-11-03: the owner typed the tenant receipt for registry blob `8f7b7437…` (10:05 UTC). The exit proof's two reviews (ECC DATABASE and ECC SECURITY, both APPROVE WITH CHANGES) were answered. Removal round 4 gave 23 killed, 2 masked, 0 other; round 3's two unexpected rows were a script fault. The stack was fast-forwarded (`967c7b86`) with core 2882, agent 3424, control-center 952 and validate-all 166/167 (`val-cd-b4` only). PRINCIPAL1A, CREDENTIALS1A, CONNECTOR-CONTRACT1A and TENANT-EXIT-PROOF1A **CLOSED** owner-direct, last `b6baa838`, **plan v1.35 35/35: Stage 2 complete.** Still open, carried: cross-tenant release with a live requester on the real installation, and the released half, which needs an owner grant. The K7 "non-owner last commit" refusal was replaced by the receipt as a lead decision and shown to the owner, with no ruling yet. Next: the port plan's phases 7-12, then Stages 3-8.
