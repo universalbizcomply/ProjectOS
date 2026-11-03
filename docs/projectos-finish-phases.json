@@ -1785,6 +1785,699 @@
         "ECC SECURITY review",
         "Agency application-security-engineer review"
       ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-PORT-ROUTINES1A",
+      "title": "Routine floors: schedules that cannot run too often or forever",
+      "description": "Port delta phase 7 (C13). Port the CopilotKit OpenBot (MIT) routine schedule validator and fatigue logic, and translate the Hermes (MIT) cron prompt scan and occurrence ids. A routine is a plan-approved record, never created by an agent. Floors are never-lowered constants. Pure rules plus a record reader; no scheduler runs.",
+      "scope": "Port the five-field cron validator, the floors, the fatigue auto-disable, the occurrence-scoped idempotency key and the prompt scan as pure core.",
+      "writePaths": [
+        "projectos/core/src/routines/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "./THIRD_PARTY_NOTICES",
+        "projectos/validators/val-projectos-port-routines1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody, the tenant or action registries, or any existing authority record.",
+        "Vendor folders stay read-only: nothing is installed or run from them, and nightly-labs/openbot (openbot-lower) is never opened or used as a source.",
+        "Unwired: nothing outside this module and its tests imports it, nothing reaches a live provider, the network, a shell or a browser, and no new dependency is added.",
+        "No xAI or Grok path is ported, and no model-judged approval or yolo mode."
+      ],
+      "dependsOn": [
+        "PROJECTOS-TENANT-EXIT-PROOF1A",
+        "PROJECTOS-PORT-FOUNDATION1A"
+      ],
+      "acceptanceCriteria": [
+        "A schedule that would run more often than every 15 minutes in any of its next 200 occurrences is refused, tested at 14 and 15 minutes.",
+        "A 21st enabled routine is refused; a routine is disabled after its 10th consecutive failure and stays disabled until a new approved record re-enables it, tested.",
+        "An unattended routine run asking for a P3 or higher action is refused and escalated to the owner queue, tested with a P2 control that is admitted.",
+        "Each occurrence derives one idempotency key, so a replayed occurrence is refused as a duplicate, tested.",
+        "A routine prompt that fails the prompt scan is refused at approval, tested.",
+        "Every ported file carries its credit header (upstream project, source path, pinned commit, licence, \"modified for ProjectOS\") and a THIRD_PARTY_NOTICES entry; the credit validator passes.",
+        "The validator refuses any importer of this module outside its own directory and tests, so \"unwired\" is enforced.",
+        "Validator pin and named mutations, each named after the rule body and killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-port-routines1a",
+        "val-projectos-port-credit1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-PORT-PROVIDERS1A",
+      "title": "Model broker: providers, retries, pricing and fallback",
+      "description": "Port delta phase 8 (C11). Port the OpenClaw (MIT) llm-core transport shape, retry, model catalogue and pricing, and translate the Hermes (MIT) provider registry, fallback chain and cooldown. The transport is an injected port with fakes in tests. Every call is P3 with a mandatory budget. Lives in modelBroker/ because core/src/execution/providers/ and projectos/providers/ already exist. Serves plan 4.2.",
+      "scope": "Port the provider registry, retry with a backoff floor, committed pricing feeding the existing RateCard, fallback and cooldown, custom OpenAI-compatible endpoint records and loopback-only local model detection.",
+      "writePaths": [
+        "projectos/core/src/modelBroker/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/modelBroker/",
+        "projectos/agent/test/",
+        "./THIRD_PARTY_NOTICES",
+        "projectos/validators/val-projectos-port-providers1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody, the tenant or action registries, or any existing authority record.",
+        "Vendor folders stay read-only: nothing is installed or run from them, and nightly-labs/openbot (openbot-lower) is never opened or used as a source.",
+        "Unwired: nothing outside this module and its tests imports it, nothing reaches a live provider, the network, a shell or a browser, and no new dependency is added.",
+        "No xAI or Grok path is ported, and no model-judged approval or yolo mode.",
+        "No change to gatekeeperConfig.ts, run.ts, the broker or credentialResolver.ts; no credential is read; Hermes credential_pool key rotation is refused."
+      ],
+      "dependsOn": [
+        "PROJECTOS-TENANT-EXIT-PROOF1A",
+        "PROJECTOS-PORT-FOUNDATION1A"
+      ],
+      "acceptanceCriteria": [
+        "A model call without a budget, or with a zero budget, is refused before the transport is reached, tested.",
+        "Retries never go below the backoff floor and stop at the attempt cap; a caller passing an empty history cannot reset the count, tested.",
+        "Pricing is read from committed bytes only and feeds the existing RateCard shape in core/src/gatekeeperCostLedger.ts; an unpriced model is refused, tested.",
+        "A fallback never moves to a provider outside the committed registry, and a provider in cooldown is skipped until its cooldown ends, tested with an injected clock.",
+        "Local model detection accepts loopback addresses only; any other host is refused, tested.",
+        "Every ported file carries its credit header (upstream project, source path, pinned commit, licence, \"modified for ProjectOS\") and a THIRD_PARTY_NOTICES entry; the credit validator passes.",
+        "The validator refuses any importer of this module outside its own directory and tests, so \"unwired\" is enforced.",
+        "Validator pin and named mutations, each named after the rule body and killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-port-providers1a",
+        "val-projectos-port-credit1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "Agency api-platform-engineer review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-PORT-AGENTS1A",
+      "title": "Agent records and delegation rules, with no second queue",
+      "description": "Port delta phase 9 (C7, C12). Port the OpenClaw (MIT) routing and binding model re-keyed on the envelope tenant and domain, and translate the Hermes (MIT) delegation dispatch rules. Pure rules only: agent records, queue-state rules the existing agent/src/workforce/ dispatch can adopt in Stage 4, delegation and same-tenant messages. The workforce dispatch stays the only queue (PRD non-goal: no second work queue or orchestrator).",
+      "scope": "Port agent records, queue-state rules (pause, resume, crash recovery) as pure functions, allowlist delegation at most the parent's grants, depth and fan-out caps, and same-tenant enveloped messages.",
+      "writePaths": [
+        "projectos/core/src/agents/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "./THIRD_PARTY_NOTICES",
+        "projectos/validators/val-projectos-port-agents1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody, the tenant or action registries, or any existing authority record.",
+        "Vendor folders stay read-only: nothing is installed or run from them, and nightly-labs/openbot (openbot-lower) is never opened or used as a source.",
+        "Unwired: nothing outside this module and its tests imports it, nothing reaches a live provider, the network, a shell or a browser, and no new dependency is added.",
+        "No xAI or Grok path is ported, and no model-judged approval or yolo mode.",
+        "No dispatcher, queue store or event loop is added; agent/src/workforce/ is not changed."
+      ],
+      "dependsOn": [
+        "PROJECTOS-PORT-PROVIDERS1A"
+      ],
+      "acceptanceCriteria": [
+        "A child asking for any grant its parent lacks is refused, and a child's tenant, domain, project and environment must equal the parent's through checkChildEnvelope, tested.",
+        "Delegation past the depth cap or fan-out cap, or beyond the parent's remaining budget, is refused, tested.",
+        "A message to an agent of another tenant is refused; the same message within the tenant is admitted, tested.",
+        "No child may delegate a P5 action, tested.",
+        "The queue-state rules are pure: the validator refuses a queue store, timer or dispatcher in this module.",
+        "Every ported file carries its credit header (upstream project, source path, pinned commit, licence, \"modified for ProjectOS\") and a THIRD_PARTY_NOTICES entry; the credit validator passes.",
+        "The validator refuses any importer of this module outside its own directory and tests, so \"unwired\" is enforced.",
+        "Validator pin and named mutations, each named after the rule body and killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-port-agents1a",
+        "val-projectos-port-credit1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "Agency multi-agent-systems-architect review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-PORT-COMPUTER1A",
+      "title": "Agent computer rules: approval binding and default-deny policy",
+      "description": "Port delta phase 10 (C14). Port a named subset of OpenClaw (MIT) exec approval (src/infra/exec-allowlist-pattern.ts and the exec-approval files the phase lists by path) and the src/process kill-tree logic, and the CopilotKit OpenBot (MIT) action policy as a typed default-deny table. The runner sits behind an injected spawn port with fakes only. Browser and computer-use interfaces refuse SANDBOX_NOT_AVAILABLE until Stage 4.3. Serves plan 4.3.",
+      "scope": "Port the exec-approval binding, allowlist patterns, a default-deny action policy and the kill-tree logic behind an injected port; browser and computer use are interfaces that refuse.",
+      "writePaths": [
+        "projectos/core/src/computer/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/computer/",
+        "projectos/agent/test/",
+        "./THIRD_PARTY_NOTICES",
+        "projectos/validators/val-projectos-port-computer1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody, the tenant or action registries, or any existing authority record.",
+        "Vendor folders stay read-only: nothing is installed or run from them, and nightly-labs/openbot (openbot-lower) is never opened or used as a source.",
+        "Unwired: nothing outside this module and its tests imports it, nothing reaches a live provider, the network, a shell or a browser, and no new dependency is added.",
+        "No xAI or Grok path is ported, and no model-judged approval or yolo mode.",
+        "No import of node:child_process anywhere in this module; no exec default of \"full\", no elevated mode, no attachment to the owner's signed-in browser, no vault autofill or TOTP; OpenBot dry-run mode is not ported."
+      ],
+      "dependsOn": [
+        "PROJECTOS-PORT-AGENTS1A"
+      ],
+      "acceptanceCriteria": [
+        "An approved command is refused if its argv, cwd or hash changes by one byte, after expiry, or on a second use, tested.",
+        "An action no policy row allows is refused, tested with an allowed control.",
+        "Every browser or computer-use call returns SANDBOX_NOT_AVAILABLE, tested.",
+        "The validator refuses any import of node:child_process in this module and in its agent side.",
+        "The finish record lists every upstream exec-approval file ported, by path.",
+        "Every ported file carries its credit header (upstream project, source path, pinned commit, licence, \"modified for ProjectOS\") and a THIRD_PARTY_NOTICES entry; the credit validator passes.",
+        "The validator refuses any importer of this module outside its own directory and tests, so \"unwired\" is enforced.",
+        "Validator pin and named mutations, each named after the rule body and killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-port-computer1a",
+        "val-projectos-port-credit1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "Agency application-security-engineer review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-PORT-RESEARCH1A",
+      "title": "Cited research: SSRF guard, readability and step-capped search",
+      "description": "Port delta phase 11 (C16). Port the OpenClaw (MIT) web-search runtime, web-fetch, readability extraction and external-content guidance, and translate the Hermes (MIT) url_safety and website_policy. SearXNG and Brave adapters sit behind an injected fetch with fakes only. Cited answers reuse the search port's admitCitedAnswer; fetched text is untrusted and threat-scanned with the memory port's scan. Lives in research/ because core/src/search/ exists.",
+      "scope": "Port the SSRF guard and website policy, readability extraction, the step-capped research loop and citation admission, with provider adapters behind an injected fetch.",
+      "writePaths": [
+        "projectos/core/src/research/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/research/",
+        "projectos/agent/test/",
+        "./THIRD_PARTY_NOTICES",
+        "projectos/validators/val-projectos-port-research1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody, the tenant or action registries, or any existing authority record.",
+        "Vendor folders stay read-only: nothing is installed or run from them, and nightly-labs/openbot (openbot-lower) is never opened or used as a source.",
+        "Unwired: nothing outside this module and its tests imports it, nothing reaches a live provider, the network, a shell or a browser, and no new dependency is added.",
+        "No xAI or Grok path is ported, and no model-judged approval or yolo mode.",
+        "No live search or fetch; no X search through xAI."
+      ],
+      "dependsOn": [
+        "PROJECTOS-PORT-PROVIDERS1A",
+        "PROJECTOS-PORT-SEARCH1A",
+        "PROJECTOS-PORT-MEMORY1A"
+      ],
+      "acceptanceCriteria": [
+        "Loopback, link-local, private, metadata and non-http(s) URLs are refused, including after a redirect and for a hostname resolving to such an address through the injected resolver, tested.",
+        "A research loop stops at its step cap and refuses to answer without a citation, tested.",
+        "Fetched content is rendered fenced as untrusted and a threat-scan hit is refused before it reaches a prompt, tested.",
+        "A paid search provider call without a budget is refused, tested.",
+        "Every ported file carries its credit header (upstream project, source path, pinned commit, licence, \"modified for ProjectOS\") and a THIRD_PARTY_NOTICES entry; the credit validator passes.",
+        "The validator refuses any importer of this module outside its own directory and tests, so \"unwired\" is enforced.",
+        "Validator pin and named mutations, each named after the rule body and killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-port-research1a",
+        "val-projectos-port-credit1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "Agency application-security-engineer review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-PORT-MCP1A",
+      "title": "Governed MCP connectors on the connector contract",
+      "description": "Port delta phase 12 (C15). Port the OpenClaw (MIT) MCP client lifecycle behind an injected spawn port, and translate the Hermes (MIT) per-tool cost, scope and sampling ideas, on core/src/connectorContract.ts. Zero live connectors: projectos/connectors/registry.json stays empty and CC-25 stands. Lives in mcpConnectors/ because agent/src/mcp/ (the owner bridge) exists and is not touched.",
+      "scope": "Port the MCP client lifecycle, a server allowlist pinned by hash, per-tool spend, sampling off and elicitation to the owner queue, on the connector contract.",
+      "writePaths": [
+        "projectos/core/src/mcpConnectors/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/mcpConnectors/",
+        "projectos/agent/test/",
+        "./THIRD_PARTY_NOTICES",
+        "projectos/validators/val-projectos-port-mcp1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody, the tenant or action registries, or any existing authority record.",
+        "Vendor folders stay read-only: nothing is installed or run from them, and nightly-labs/openbot (openbot-lower) is never opened or used as a source.",
+        "Unwired: nothing outside this module and its tests imports it, nothing reaches a live provider, the network, a shell or a browser, and no new dependency is added.",
+        "No xAI or Grok path is ported, and no model-judged approval or yolo mode.",
+        "No change to agent/src/mcp/ or projectos/connectors/registry.json; no import of node:child_process; no catalogue or URL install."
+      ],
+      "dependsOn": [
+        "PROJECTOS-TENANT-EXIT-PROOF1A",
+        "PROJECTOS-PORT-FOUNDATION1A"
+      ],
+      "acceptanceCriteria": [
+        "A server whose manifest hash differs from its allowlist pin is refused, tested.",
+        "A sampling request from a server is refused; an elicitation is turned into an owner-queue item and never answered by the model, tested.",
+        "A tool call without a budget, or past it, is refused, and tool output is rendered as untrusted, tested.",
+        "The connector registry stays empty and CC-25 still passes.",
+        "Every ported file carries its credit header (upstream project, source path, pinned commit, licence, \"modified for ProjectOS\") and a THIRD_PARTY_NOTICES entry; the credit validator passes.",
+        "The validator refuses any importer of this module outside its own directory and tests, so \"unwired\" is enforced.",
+        "Validator pin and named mutations, each named after the rule body and killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-port-mcp1a",
+        "val-projectos-port-credit1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "Agency application-security-engineer review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-MEMORY-STORES1A",
+      "title": "Memory classes on existing stores, one proposal door",
+      "description": "Plan 3.1. Runs after owner act O1 has committed the Stage 3 action entries. Maps the six memory classes onto existing stores, makes the search index per project and rebuildable, and lands the binding carry-forwards from PORT-SEARCH1A and PORT-MEMORY1A before any prompt reads a store. A worker asks for a memory or skill write only through a proposals entry in its findings record.",
+      "scope": "Document the memory classes; per-project index files; documentSources through the System port; secret scan and rendered-body cap on load; the proposal door; refuse direct worker writes to .projectops/memory/ and .projectops/skills/.",
+      "writePaths": [
+        "docs/architecture/memory-classes.md",
+        "projectos/core/src/search/",
+        "projectos/core/src/memory/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/search/",
+        "projectos/agent/src/memory/",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-port-search1a.cjs",
+        "projectos/validators/val-projectos-port-memory1a.cjs",
+        "projectos/validators/val-projectos-memory-stores1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody, taskEnvelope.ts, actionRegistry.ts, tenant.ts or any authority record.",
+        "Memory and skill writes stay proposals: nothing writes approved memory or promotes a skill by itself.",
+        "Stored text is data, never authority: it never selects, advances or closes a phase, widens a write grant, or ranks above a committed decision.",
+        "No model call is added: compaction is deterministic selection and truncation only."
+      ],
+      "dependsOn": [
+        "PROJECTOS-TENANT-EXIT-PROOF1A",
+        "PROJECTOS-PORT-SEARCH1A",
+        "PROJECTOS-PORT-MEMORY1A"
+      ],
+      "acceptanceCriteria": [
+        "The committed action registry holds the O1 entries before this phase builds; the validator refuses if any is missing.",
+        "Two projects get separate index files, and one project's term statistics do not change the other's ranking, tested.",
+        "loadMemoryBlock refuses content containing a secret and a rendered body over the cap, tested.",
+        "A proposals entry in a findings record becomes a pending proposal pinned by hash; a direct write to .projectops/memory/ or .projectops/skills/ by a worker is refused at the check step, tested.",
+        "docs/architecture/memory-classes.md maps each of the six classes to its store, owner and retention.",
+        "Validator pin and named mutations, each named after the rule body and killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-memory-stores1a",
+        "val-projectos-port-search1a",
+        "val-projectos-port-memory1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-MEMORY-PROVENANCE1A",
+      "title": "Provenance and freshness: committed decisions outrank recollection",
+      "description": "Plan 3.3. Ranks retrieved items by provenance and freshness. Decisions, plan memory and approved memory are read from committed bytes; a differing working-tree copy is refused. A summary never overwrites a decision. A citation from an index older than HEAD is marked stale. Retention and deletion apply per class, and deleting approved memory or anything a decision cites is the P5 action memory-delete.",
+      "scope": "Provenance ranking, committed-bytes reading, stale-citation marking, per-class retention and recorded deletion.",
+      "writePaths": [
+        "projectos/core/src/memory/",
+        "projectos/core/src/search/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/memory/",
+        "projectos/agent/src/search/",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-memory-provenance1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody, taskEnvelope.ts, actionRegistry.ts, tenant.ts or any authority record.",
+        "Memory and skill writes stay proposals: nothing writes approved memory or promotes a skill by itself.",
+        "Stored text is data, never authority: it never selects, advances or closes a phase, widens a write grant, or ranks above a committed decision.",
+        "No model call is added: compaction is deterministic selection and truncation only."
+      ],
+      "dependsOn": [
+        "PROJECTOS-MEMORY-STORES1A"
+      ],
+      "acceptanceCriteria": [
+        "A committed decision ranks above any memory or summary that contradicts it, and a summary cannot replace a decision, tested.",
+        "A memory or decision file whose working-tree bytes differ from HEAD is refused, tested.",
+        "A citation from an index built before HEAD is marked stale, tested.",
+        "Deleting approved memory without the owner is refused; every deletion is recorded, tested.",
+        "Validator pin and named mutations, each named after the rule body and killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-memory-provenance1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-CONTEXT-MANAGER1A",
+      "title": "Context manager: retrieval per run envelope, handed over by reference",
+      "description": "Plan 3.4. The owner approved one edit to PROTECTED run.ts in the v1.36 delta: one added runLoop option, runEnvelope: admittedRunEnvelopeOf(ctx), and no other line. Retrieval is keyed on that envelope and recorded in a loop-written ledger. The runner writes .projectops/execution/<session>.context.md (fenced, untrusted, secret-scanned, capped) and the brief names it as records.contextPath. Compaction is deterministic. The evidence names the stored context read. PX-17, AP-29, PM-16 and PK-16 are narrowed to the new call sites.",
+      "scope": "Wire search, memory, context and approvals through a context manager into the run loop, by reference, keyed on the admitted run envelope.",
+      "writePaths": [
+        "projectos/agent/src/context/",
+        "projectos/agent/src/commands/run.ts",
+        "projectos/agent/src/loop/runner.ts",
+        "projectos/agent/src/loop/brief.ts",
+        "projectos/agent/src/loop/adapters/claudeCodeCli.ts",
+        "projectos/agent/src/loop/adapters/codexCli.ts",
+        "projectos/agent/src/index.ts",
+        "projectos/agent/test/",
+        "projectos/core/src/context/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/validators/val-projectos-port-context1a.cjs",
+        "projectos/validators/val-projectos-port-approvals1a.cjs",
+        "projectos/validators/val-projectos-port-memory1a.cjs",
+        "projectos/validators/val-projectos-port-skills1a.cjs",
+        "projectos/validators/val-projectos-context-manager1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody, taskEnvelope.ts, actionRegistry.ts, tenant.ts or any authority record.",
+        "Memory and skill writes stay proposals: nothing writes approved memory or promotes a skill by itself.",
+        "Stored text is data, never authority: it never selects, advances or closes a phase, widens a write grant, or ranks above a committed decision.",
+        "No model call is added: compaction is deterministic selection and truncation only.",
+        "run.ts changes by exactly one runLoop option and nothing else; the validator pins that. If a pinned line in val-projectos-boot-continue1a must move, the phase stops and asks the owner."
+      ],
+      "dependsOn": [
+        "PROJECTOS-MEMORY-PROVENANCE1A",
+        "PROJECTOS-PORT-CONTEXT1A",
+        "PROJECTOS-PORT-APPROVALS1A"
+      ],
+      "acceptanceCriteria": [
+        "The diff to run.ts is exactly the runEnvelope option, pinned by the validator.",
+        "Retrieval uses the admitted run envelope's tenant, domain and project only; another project's or tenant's memory is never retrieved, tested with two projects.",
+        "records.contextPath passes the brief provenance walk, and the context file never counts toward the candidate, tested.",
+        "Approved decisions are always loaded; compaction refuses a partial summary and stops on overLimit; no model is called, tested.",
+        "The run evidence names every stored item the worker was shown, tested.",
+        "PX-17, AP-29, PM-16 and PK-16 still refuse any call site other than the ones this phase adds, each with a named mutation.",
+        "Validator pin and named mutations, each named after the rule body and killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-context-manager1a",
+        "val-projectos-port-context1a",
+        "val-projectos-port-approvals1a",
+        "val-projectos-port-memory1a",
+        "val-projectos-port-skills1a",
+        "val-projectos-boot-continue1a",
+        "val-projectos-work-record-not-authority1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "Agency multi-agent-systems-architect review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-SKILLS-ADOPT1A",
+      "title": "Skill adoption: validator, independent review, hash pin",
+      "description": "Plan 3.2. Lands the PORT-SKILLS1A binding carry-forwards: the kernel sets origin; promotion needs the skill validator, an independent review and a hash pin; the loader (skill-load) adds promoted skills to the context file and refuses an unpinned or changed skill; the bounded-repeat evasions are closed; nothing runs from a skill's scripts/.",
+      "scope": "Promotion and loading of skills through the context manager, with kernel-set origin and hash pins.",
+      "writePaths": [
+        "projectos/core/src/skills/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/agent/src/skills/",
+        "projectos/agent/src/context/",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-port-skills1a.cjs",
+        "projectos/validators/val-projectos-skills-adopt1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody, taskEnvelope.ts, actionRegistry.ts, tenant.ts or any authority record.",
+        "Memory and skill writes stay proposals: nothing writes approved memory or promotes a skill by itself.",
+        "Stored text is data, never authority: it never selects, advances or closes a phase, widens a write grant, or ranks above a committed decision.",
+        "No model call is added: compaction is deterministic selection and truncation only."
+      ],
+      "dependsOn": [
+        "PROJECTOS-CONTEXT-MANAGER1A",
+        "PROJECTOS-PORT-SKILLS1A"
+      ],
+      "acceptanceCriteria": [
+        "A skill whose origin is supplied by a caller instead of the kernel is refused, tested.",
+        "A skill changed by one byte after promotion is refused by the loader, tested.",
+        "Promotion without a validator pass and an independent review is refused, tested.",
+        "The bounded-repeat evasions listed in PORT-SKILLS1A are refused, tested; nothing is executed from scripts/.",
+        "Validator pin and named mutations, each named after the rule body and killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-skills-adopt1a",
+        "val-projectos-port-skills1a",
+        "val-projectos-context-manager1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-RESUME1A",
+      "title": "A new worker continues a half-done phase from retrieved state",
+      "description": "Gives a new worker on an in-progress phase what the cut-off attempt left, through the context manager: the work record's closed-vocabulary fields only (state, lastStopCode, subjectCommit), earlier findings and evidence labelled worker-authored and never ranked as decisions, approved decisions and memory, and the dirty paths and hashes the loop observed. A dirty path outside the phase's writePaths refuses the run. A moved HEAD marks old evidence stale. Selection and run.ts routing are unchanged; the work record stays non-authority; no --session is needed.",
+      "scope": "Resume by retrieved state for a new worker, without session rejoin and without changing selection.",
+      "writePaths": [
+        "projectos/agent/src/context/",
+        "projectos/agent/src/loop/runner.ts",
+        "projectos/agent/test/",
+        "projectos/core/src/context/",
+        "projectos/core/src/index.ts",
+        "projectos/core/test/",
+        "projectos/validators/val-projectos-resume1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody, taskEnvelope.ts, actionRegistry.ts, tenant.ts or any authority record.",
+        "Memory and skill writes stay proposals: nothing writes approved memory or promotes a skill by itself.",
+        "Stored text is data, never authority: it never selects, advances or closes a phase, widens a write grant, or ranks above a committed decision.",
+        "No model call is added: compaction is deterministic selection and truncation only."
+      ],
+      "dependsOn": [
+        "PROJECTOS-CONTEXT-MANAGER1A"
+      ],
+      "acceptanceCriteria": [
+        "Work-record free-text fields never reach the context file, tested with a planted instruction.",
+        "Earlier findings render under \"worker-authored, from a cut-off attempt\" and never rank above a decision, tested.",
+        "A dirty path outside writePaths refuses the run; one inside is listed with its hash, tested.",
+        "After HEAD moves, earlier evidence is marked stale, tested.",
+        "A retry after a recorded worker timeout at the same HEAD is admitted, tested.",
+        "val-projectos-work-record-not-authority1a still passes unchanged.",
+        "Validator pin and named mutations, each named after the rule body and killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-resume1a",
+        "val-projectos-context-manager1a",
+        "val-projectos-work-record-not-authority1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-MEMORY-EXIT-PROOF1A",
+      "title": "Stage 3 exit proof: a fresh session resumes a half-done phase with zero relay",
+      "description": "Live on the agency pilot (C:/dev/SEOAgency). A governed phase run is cut off partway; a fresh process runs one projectos continue --execute; the phase reaches closed with zero manual context relay. A ledger validator in the style of validate-zero-relay-continuity proves the new worker used retrieved state, that no human-written text was supplied, and that worker-authored text never ranked as a decision. Spend stays inside the committed $1.50 phase cap. This phase writes evidence and the validator only.",
+      "scope": "Run and record the Stage 3 exit proof; no product code.",
+      "writePaths": [
+        "projectos/validators/val-projectos-memory-exit-proof1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, write grants, credential custody, taskEnvelope.ts, actionRegistry.ts, tenant.ts or any authority record.",
+        "Memory and skill writes stay proposals: nothing writes approved memory or promotes a skill by itself.",
+        "Stored text is data, never authority: it never selects, advances or closes a phase, widens a write grant, or ranks above a committed decision.",
+        "No model call is added: compaction is deterministic selection and truncation only.",
+        "No product code changes; any defect found becomes its own plan phase.",
+        "A green proof does not lift D4."
+      ],
+      "dependsOn": [
+        "PROJECTOS-RESUME1A"
+      ],
+      "acceptanceCriteria": [
+        "One continue --execute from a fresh process carries the cut-off phase to closed, with no --session and no human-written text, recorded.",
+        "The ledger proves which retrieved items the new worker was shown and that none was worker-authored text ranked as a decision.",
+        "Phase spend is under the committed $1.50 cap.",
+        "Validator pin and named mutations, each named after the rule body and killed by its own rule."
+      ],
+      "requiredValidators": [
+        "val-projectos-memory-exit-proof1a",
+        "val-projectos-resume1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "ECC CODE review"
+      ]
     }
   ]
 }
