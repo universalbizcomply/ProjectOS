@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-TENANT-EXIT-PROOF1A",
+  "project": "ProjectOS",
+  "objective": "Prove on three real projects that the database and the kernel's own routes each refuse a cross-tenant read: projectos and polygo in owner-personal, seo-agency in agency-business. The same-tenant pair is what lets the proof fail. A proof counts only if removing its rule makes it fail. Spend is $0, so no temporary allowlist entry is needed. The owner's live database apply, with a passed preflight, comes before this phase. This is not a boundary against a hostile worker, and the evidence says so.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-03T10:50:30.733Z",
+      "note": "Owner-approved Stage 2 delta and plan v1.35. Implemented by agents under the lead (Claude) in parallel worktrees; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-03T10:50:31.371Z",
+      "note": "Stage 2 exit proof: database and kernel each refuse a cross-tenant read, each rule shown to matter by removal"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-03T10:50:32.021Z",
+      "note": "core 2882/2882, agent 3424/3424, control-center 952/952 at 967c7b86 on the plan worktree after a rebuild; between 967c7b86 and 7e136b48 only closure records and this phase's evidence document changed. validate-all 166/167 at 967c7b86; the one failure is val-cd-b4-sealed-expected-window-facts1a, carried to Stage 4. The seven exit-proof validators PASS on the final evidence."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-03T10:50:32.664Z",
+      "note": "Evidence: docs/finish/PROJECTOS-TENANT-EXIT-PROOF1A.md (7e136b48)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-03T10:50:33.285Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC DATABASE and ECC SECURITY (both APPROVE WITH CHANGES at ac9aaded, no CRITICAL or HIGH; every finding dispositioned at 967c7b86, not re-reviewed)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-03T10:50:33.897Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
