@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-TENANT-PRINCIPAL1A",
+  "evidenceSubjectHead": "967c7b863e1020eaa8c14b1c48e44b80761ba3ee",
+  "baselineCommit": "70ffbca8ed1466e10d4b5f97499bf48b978e33c6",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-03T10:48:03.900Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-TENANT-PRINCIPAL1A, phase 25 of 35 of plan v1.35, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 967c7b86 on 70ffbca8 (plan v1.35 activation): branch projectos-tenant-stack3, fast-forwarded onto the plan branch after the owner's tenant receipt.",
+    "validatorsPass: val-projectos-tenant-principal1a and validate-no-secrets PASS. validate-all 166/167 at 967c7b86; the one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4.",
+    "checksPass: core 2882/2882, agent 3424/3424, control-center 952/952 at 967c7b86 on the plan worktree, normal package resolution, after a rebuild of all three.",
+    "reviewsComplete: Claude self-review; ECC SECURITY (APPROVE WITH CHANGES at aac21426, recheck APPROVED); Agency identity-access-engineer (APPROVE WITH CHANGES at aac21426, every finding dispositioned).",
+    "unresolved: zero CRITICAL/HIGH. A receipt is a file any process of this user can write (ADR-T1 section 10). The delta's \"non-owner last commit\" refusal was replaced by the receipt as a lead decision under full authority, shown to the owner 2026-11-03, no ruling yet. Remaining items in docs/finish/PROJECTOS-TENANT-PRINCIPAL1A.md.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
