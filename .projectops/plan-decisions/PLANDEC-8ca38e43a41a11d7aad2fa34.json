@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-8ca38e43a41a11d7aad2fa34",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "25396423d86699713e03ca5066465d6f4a67615c",
+  "draftId": "6ca89e08c59cac54",
+  "planDigest": "sha256:ea7b4ee5555f1be8b0c4496a16fb4d5f003575fcd4f71e02fc55d0e09b706879",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-03T11:56:48.399Z",
+  "note": "Owner, 2026-11-03: Yes, decide and activate (Recommended). Delta docs/changes/delta_spec.md rev 2 approved in Plan Mode; K7 keep the receipt.",
+  "recordedBy": "projectos plan decide"
+}
