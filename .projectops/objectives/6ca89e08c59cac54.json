@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "6ca89e08c59cac54",
+  "objective": "Plan v1.36: port phases 7-12 (routines, model broker, agents, computer rules, research, MCP; unwired) and V4 Stage 3 memory and context fabric with its exit proof, per docs/changes/delta_spec.md revision 2 approved by the owner on 2026-11-03.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "bf94cb3b368c26ee0db640df24bdb4c74bddd8d6",
+  "submittedAt": "2026-11-03T11:50:12.675Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
