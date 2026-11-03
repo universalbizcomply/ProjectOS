@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-CONNECTOR-CONTRACT1A",
+  "project": "ProjectOS",
+  "objective": "Owner decision, 2026-11-01: \"Rules now, connectors later (Recommended)\". This phase writes what every connector must declare (tenant, scopes, secret reference, data categories, idempotency, last acceptance date), the release gate that blocks an unqualified connector, and the standard execution receipt and error vocabulary, including outcome_unknown. The acceptance scenarios from the blueprint are defined here; cross-tenant denial is proved in Stage 2 and the other eight first run in Stage 5. Task ledger and webhooks stay in Stage 4 and 5; channel adapters stay in Stage 5 onward in the owner's agreed order.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-03T10:48:13.348Z",
+      "note": "Owner-approved Stage 2 delta and plan v1.35. Implemented by agents under the lead (Claude) in parallel worktrees; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-03T10:48:13.966Z",
+      "note": "connector contract in core with zero live connectors, cross-tenant denial proved"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-03T10:48:14.600Z",
+      "note": "core 2882/2882, agent 3424/3424, control-center 952/952 at 967c7b86 on the plan worktree, normal package resolution, after a rebuild of all three. validate-all 166/167 at 967c7b86; the one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-03T10:48:15.359Z",
+      "note": "Evidence: docs/finish/PROJECTOS-CONNECTOR-CONTRACT1A.md (967c7b86)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-03T10:48:16.100Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY (APPROVE WITH CHANGES at 33763d70; recheck at bc740e99 APPROVE WITH CHANGES, both HIGH fixed); ECC CODE (APPROVE WITH CHANGES)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-03T10:48:16.691Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
