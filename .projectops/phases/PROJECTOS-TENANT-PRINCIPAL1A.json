@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-TENANT-PRINCIPAL1A",
+  "project": "ProjectOS",
+  "objective": "Tenant comes from the committed installation registry for the project the work is bound to, never from worker text, arguments or environment. The envelope is minted where a tenant can be crossed: run start, Control Center project selection and MCP bridge read. It is recorded at admission, and a refusal that cannot be recorded stops the operation, because appendRefusal in mcp/bridge.ts drops silently today. Changing the registry is a P5 action: the owner must have made its last commit. Authorship stays a git name until signed commits exist.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-03T10:48:00.064Z",
+      "note": "Owner-approved Stage 2 delta and plan v1.35. Implemented by agents under the lead (Claude) in parallel worktrees; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-03T10:48:00.654Z",
+      "note": "tenant and domain derived from committed bytes at every real crossing, with a console receipt per registry blob"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-03T10:48:01.377Z",
+      "note": "core 2882/2882, agent 3424/3424, control-center 952/952 at 967c7b86 on the plan worktree, normal package resolution, after a rebuild of all three. validate-all 166/167 at 967c7b86; the one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-03T10:48:02.102Z",
+      "note": "Evidence: docs/finish/PROJECTOS-TENANT-PRINCIPAL1A.md (967c7b86)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-03T10:48:02.750Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; ECC SECURITY (APPROVE WITH CHANGES at aac21426, recheck APPROVED); Agency identity-access-engineer (APPROVE WITH CHANGES at aac21426, every finding dispositioned)."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-03T10:48:03.328Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
