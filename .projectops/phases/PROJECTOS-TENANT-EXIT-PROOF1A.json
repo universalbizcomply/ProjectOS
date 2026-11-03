@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-TENANT-EXIT-PROOF1A",
   "project": "ProjectOS",
   "objective": "Prove on three real projects that the database and the kernel's own routes each refuse a cross-tenant read: projectos and polygo in owner-personal, seo-agency in agency-business. The same-tenant pair is what lets the proof fail. A proof counts only if removing its rule makes it fail. Spend is $0, so no temporary allowlist entry is needed. The owner's live database apply, with a passed preflight, comes before this phase. This is not a boundary against a hostile worker, and the evidence says so.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-03T10:50:33.897Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-03T10:50:35.571Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-TENANT-EXIT-PROOF1A:owner-closure:7e136b48"
     }
   ]
 }
