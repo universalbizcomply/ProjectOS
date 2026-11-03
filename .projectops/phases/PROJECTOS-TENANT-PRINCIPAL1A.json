@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-TENANT-PRINCIPAL1A",
   "project": "ProjectOS",
   "objective": "Tenant comes from the committed installation registry for the project the work is bound to, never from worker text, arguments or environment. The envelope is minted where a tenant can be crossed: run start, Control Center project selection and MCP bridge read. It is recorded at admission, and a refusal that cannot be recorded stops the operation, because appendRefusal in mcp/bridge.ts drops silently today. Changing the registry is a P5 action: the owner must have made its last commit. Authorship stays a git name until signed commits exist.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-03T10:48:03.328Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-03T10:48:05.102Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-TENANT-PRINCIPAL1A:owner-closure:967c7b86"
     }
   ]
 }
