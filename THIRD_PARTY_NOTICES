@@ -924,3 +924,80 @@ Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
 Licence: MIT
 Copyright: Copyright (c) 2025 Nous Research
 Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/modelBroker/retry.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: packages/retry/src/index.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/modelBroker/transportTypes.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: packages/llm-core/src/model-data.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/modelBroker/transportTypes.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: packages/llm-core/src/types.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/modelBroker/pricingTiers.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: packages/llm-core/src/usage-cost.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/modelBroker/pricingTiers.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: packages/model-catalog-core/src/model-catalog-pricing.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/modelBroker/providerRegistry.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/provider_registry.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/modelBroker/providerRegistry.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/provider_base.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/modelBroker/cooldown.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: agent/fallback_cooldown.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
