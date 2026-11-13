@@ -1,0 +1,57 @@
+// Origin: original ProjectOS code
+/**
+ * Routine floors, pure (PROJECTOS-PORT-ROUTINES1A, C13). Ported files carry their own credit, and
+ * `THIRD_PARTY_NOTICES` holds the licences. No file here runs a schedule, reads a clock, or calls out.
+ */
+export {
+  ROUTINE_MINIMUM_INTERVAL_MS,
+  ROUTINE_SCAN_OCCURRENCES,
+  checkScheduleFloor,
+  isScheduledInstant,
+  nextRoutineOccurrence,
+  parseCron,
+  type CronResult,
+  type CronSchedule,
+  type NextOccurrenceResult,
+  type ScheduleFloorResult,
+  type ScheduleRefusal,
+  type ScheduleRefusalCode,
+} from './cronSchedule.js';
+export { scanRoutinePrompt, type RoutinePromptFinding } from './promptScan.js';
+export {
+  admitRoutineRecord,
+  isAdmittedRoutineRecord,
+  type RoutineApproval,
+  type RoutineRecord,
+  type RoutineRecordResult,
+  type RoutineRefusal,
+  type RoutineRefusalCode,
+} from './routineRecord.js';
+export {
+  MAX_ENABLED_ROUTINES,
+  ROUTINE_FATIGUE_LIMIT,
+  applyRunOutcome,
+  enableRoutine,
+  type EnableRefusalCode,
+  type EnableResult,
+  type OutcomeResult,
+  type RoutineState,
+  type RunOutcome,
+} from './fatigue.js';
+export {
+  ROUTINE_RUN_ACTION,
+  deriveOccurrenceKey,
+  occurrenceIntentScope,
+  scheduledInstant,
+  type OccurrenceClaimPort,
+  type OccurrenceIdentity,
+} from './occurrence.js';
+export {
+  UNATTENDED_CEILING,
+  admitUnattendedAction,
+  type OwnerQueueEscalation,
+  type OwnerQueuePort,
+  type UnattendedRequest,
+  type UnattendedResult,
+} from './unattended.js';
+export { admitRoutineRun, type RunAdmission, type RunRefusalCode, type RunRequest } from './runAdmission.js';

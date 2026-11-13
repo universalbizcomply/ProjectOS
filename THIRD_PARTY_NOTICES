@@ -699,6 +699,42 @@ Licence: MIT
 Copyright: Copyright (c) 2025 Nous Research
 Licence-Text: SOURCE hermes-agent, in this file
 
+ENTRY: projectos/core/src/routines/cronSchedule.ts
+Source: copilotkit-openbot
+Upstream: https://github.com/CopilotKit/OpenBot
+Source-Path: server/src/routines/schedule.ts
+Source-Commit: c396a5f68c817043846f1ca3c2b42061ee73ceb5
+Licence: MIT
+Copyright: Copyright (c) 2026 CopilotKit
+Licence-Text: SOURCE copilotkit-openbot, in this file
+
+ENTRY: projectos/core/src/routines/fatigue.ts
+Source: copilotkit-openbot
+Upstream: https://github.com/CopilotKit/OpenBot
+Source-Path: server/src/routines/runner.ts
+Source-Commit: c396a5f68c817043846f1ca3c2b42061ee73ceb5
+Licence: MIT
+Copyright: Copyright (c) 2026 CopilotKit
+Licence-Text: SOURCE copilotkit-openbot, in this file
+
+ENTRY: projectos/core/src/routines/occurrence.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: cron/occurrences.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/routines/promptScan.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/cronjob_prompt_scan.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
 ENTRY: projectos/core/src/search/hybrid.ts
 Source: openclaw
 Upstream: https://github.com/openclaw/openclaw
