@@ -153,8 +153,9 @@ Passed, seen in this tree: core `npx vitest run` 65 files / 2994 tests (the six 
 core `npm run -s build` exit 0; `val-projectos-port-routines1a` PASS (59 scenarios, 52 behaviour and 57 text mutations
 killed); `validate-no-secrets` PASS; `val-projectos-port-credit1a` PASS only with the uncommitted two-line patch below.
 
-Interrupted: `validate-all` was stopped part way. About 82 validators had reported, all PASS and no FAIL (as read from its
-output at the pause), but it never finished, so no full-run result is claimed.
+Interrupted: `validate-all` was stopped part way, after 124 PASS lines. Failures seen: `val-cd-b4-sealed-expected-window-facts1a`
+(the allowed val-cd-b4 family) and `validate-desktop-e2e` (no Control Centre production bundle built in this worktree, an
+environment gap, not this change). It never finished, so no full-run result is claimed.
 
 Left: (1) re-run `validate-all` to the end (only `val-cd-b4` may fail); (2) the two-line credit patch is in the working
 tree, not committed (`val-projectos-port-credit1a.cjs` PORT_DIRS and ADR-P1 §7): needs approval to widen write paths,
