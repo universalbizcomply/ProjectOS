@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-MEMORY-PROVENANCE1A",
   "project": "ProjectOS",
   "objective": "Plan 3.3. Ranks retrieved items by provenance and freshness. Decisions, plan memory and approved memory are read from committed bytes; a differing working-tree copy is refused. A summary never overwrites a decision. A citation from an index older than HEAD is marked stale. Retention and deletion apply per class, and deleting approved memory or anything a decision cites is the P5 action memory-delete.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-14T20:44:29.157Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-14T20:44:30.622Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-MEMORY-PROVENANCE1A:owner-closure:278f9b71"
     }
   ]
 }
