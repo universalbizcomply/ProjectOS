@@ -15,13 +15,26 @@
  * The context file's path is derived from the brief's own path (the same rule `briefProvenanceProblems` holds the brief to), so
  * there is one derivation and a worker names none of it.
  *
- * WHAT THIS DOES NOT DO: it starts no worker, decides no stop, and writes nothing a worker reads except the one file. The ledger
- * is `.projectops/context-ledger/`; the loop writes it and nothing else does.
+ * WHAT THIS DOES NOT DO: it starts no worker, decides no stop, and writes nothing a worker reads except the one file.
+ *
+ * THE LEDGER IS NOT IN THE PROJECT TREE (review round 1, item 1). It lives under the INSTALLATION'S state directory
+ * (`<state>/context-ledger/ledger-<hash of tenant and project>/`), the same place the spend ledger and the platform stop live. In the
+ * tree it was an untracked file that git does not ignore and that `isFoldableRunRecord` (PROTECTED, `run.ts`) does not know, so every
+ * governed project's next closure would have refused for "uncommitted changes that are not run-records", and the ledger would have been
+ * part of the candidate. Outside the tree it leaves `git status` clean, and a worker (which holds write grants to named files inside
+ * the project and nothing in the installation) cannot reach it: that is how far this goes toward a ledger whose whole directory is
+ * deleted, and no further, since the owner and anything with the user's rights can still delete it, and a head hash kept elsewhere
+ * is what would find that.
+ *
+ * NOTHING STORED, NO FILE. A run whose retrieval holds no item and no decision records the retrieval and places no file; the brief
+ * names none (`hasContent`).
+ *
+ * PLACEMENT IS HYGIENIC. A file left by a killed earlier run is swept before the new one is created, the new one is created with a
+ * create-if-absent write (which does not follow a link or a hard link that someone put there), and the envelope's expiry is asked again.
  */
-import { join } from '../context.js';
 import { briefPath, isSafeSessionId } from '../loop/session.js';
-import type { ContextLedgerBody, ContextLedgerDecision, ContextLedgerItem, ContextLedgerWithheld } from '@projectos/core';
-import { appendContextLedger } from './contextLedger.js';
+import { contextRetrievalKeyOf, sha256Hex, type ContextLedgerBody, type ContextLedgerDecision, type ContextLedgerItem, type ContextLedgerWithheld } from '@projectos/core';
+import { appendContextLedger, contextLedgerRepairOf } from './contextLedger.js';
 import { assembleRunContext, type RunContextRequest } from './contextManager.js';
 import type { ContextManagerPorts } from './contextPorts.js';
 
@@ -33,6 +46,7 @@ export interface ContextRunSystem {
   exists(path: string): boolean;
   listDir(path: string): readonly string[];
   createExclusive(path: string, content: string): boolean;
+  renameFile(from: string, to: string): boolean;
   removeFile(path: string): boolean;
 }
 
@@ -44,6 +58,8 @@ export interface PrepareRunContextInput {
   readonly dependsOn: readonly string[];
   readonly planMemoryPaths: readonly string[];
   readonly ports: ContextManagerPorts;
+  /** The installation's state directory, where the ledger lives. Null when the installation gives none, which refuses the run. */
+  readonly ledgerRoot: string | null;
 }
 
 /** What the run evidence says about the stored text the worker was shown. */
@@ -58,7 +74,10 @@ export interface StoredContextEvidence {
   readonly headCommit: string;
   /** The ledger entry that recorded the retrieval, or null before it is recorded. */
   readonly ledger: { readonly seq: number; readonly entryHash: string } | null;
-  readonly fileHash: string;
+  /** The NEWEST entry the run wrote, so a ledger whose tail was cut after the run is seen. Null before anything is recorded. */
+  readonly ledgerNewest: { readonly seq: number; readonly entryHash: string } | null;
+  /** The hash of the file as placed, or null when nothing was stored and no file was placed. */
+  readonly fileHash: string | null;
   readonly shown: readonly ContextLedgerItem[];
   readonly withheld: readonly ContextLedgerWithheld[];
   readonly omitted: readonly string[];
@@ -76,6 +95,8 @@ export type StepResult = { readonly ok: true } | { readonly ok: false; readonly 
 export interface RunContext {
   /** The file the brief names. Absolute, in `.projectops/execution/`. */
   readonly contextPath: string;
+  /** False when nothing is stored for this run: no file is placed, and the brief names none. */
+  readonly hasContent: boolean;
   record(): StepResult;
   place(attempt: number): StepResult;
   retire(): StepResult;
@@ -87,7 +108,14 @@ export type PrepareRunContext =
   | { readonly kind: 'refused'; readonly lines: readonly string[] }
   | { readonly kind: 'ready'; readonly run: RunContext };
 
-const ledgerDirectory = (root: string): string => join(root, '.projectops', 'context-ledger');
+/**
+ * Where one tenant's one project's ledger lives under the installation's state directory. The name is a hash of the pair, so no id
+ * reaches a path and two projects never share a chain.
+ */
+export function contextLedgerDirectoryOf(ledgerRoot: string, tenant: string, project: string): string {
+  const base = ledgerRoot.replace(/\\/g, '/').replace(/\/+$/, '');
+  return `${base}/context-ledger/ledger-${sha256Hex(JSON.stringify([tenant, project])).slice(0, 32)}`;
+}
 /** The one derivation of the context file's path: the brief's own path, read as the context file. `brief.ts` holds the brief to it. */
 export const contextPathOf = (root: string, sessionId: string): string => briefPath(root, sessionId).replace(/\.brief\.json$/, '.context.md');
 const refusalLines = (code: string, message: string): readonly string[] => [`REFUSED (${code}): ${message}`];
@@ -99,28 +127,39 @@ function instantOf(now: string): string {
 }
 
 /** A refusal that knows whose run it was is recorded, best effort: a ledger that is down must not hide why the run stopped. */
-function recordRefusal(sys: ContextRunSystem, root: string, request: RunContextRequest, code: string, key: { tenant: string; domain: string; project: string; envelopeId: string }): void {
+function recordRefusal(sys: ContextRunSystem, directory: string, request: RunContextRequest, code: string, key: { tenant: string; domain: string; project: string; envelopeId: string }): void {
   const body = {
     event: 'refused', sessionId: request.sessionId, tenant: key.tenant, domain: key.domain, project: key.project, envelopeId: key.envelopeId,
     headCommit: null, at: sys.now(), attempt: null, shown: [], withheld: [], omitted: [], decisions: [], compactor: 'none', compactionId: null,
     estimatedTokens: 0, taintsRun: false, fileHash: null, refusal: /^[A-Z][A-Z0-9_]{2,63}$/.test(code) ? code : 'CONTEXT_MANAGER_REFUSED',
   } as unknown as ContextLedgerBody;
-  appendContextLedger(sys, ledgerDirectory(root), body);
+  appendContextLedger(sys, directory, body);
 }
 
 /** Ask the manager what this run may be shown. Reads only, and the handle writes nothing until the loop says so. */
 export function prepareRunContext(sys: ContextRunSystem, root: string, input: PrepareRunContextInput): PrepareRunContext {
   if (input.envelope === null || input.envelope === undefined) return { kind: 'none' };
   if (typeof input.sessionId !== 'string' || !isSafeSessionId(input.sessionId)) return { kind: 'refused', lines: refusalLines('CONTEXT_MANAGER_SESSION_INVALID', 'The session id does not make a safe file name, so no context file can be named.') };
+  if (input.ledgerRoot === null || typeof input.ledgerRoot !== 'string' || input.ledgerRoot.trim() === '') {
+    return {
+      kind: 'refused',
+      lines: refusalLines(
+        'CONTEXT_NOT_RECORDED',
+        'the installation gives no state directory, so the retrieval cannot be recorded and no stored text is shown to a worker. Fix: the owner makes the installation state location available to the user who runs ProjectOS (LOCALAPPDATA on Windows, XDG_STATE_HOME or HOME elsewhere), then runs again.',
+      ),
+    };
+  }
+  const ledgerRoot = input.ledgerRoot;
   const request: RunContextRequest = { envelope: input.envelope, sessionId: input.sessionId, root, query: input.query, dependsOn: input.dependsOn, planMemoryPaths: input.planMemoryPaths, nowIso: instantOf(sys.now()) };
   const result = assembleRunContext(input.ports, request);
   if (result.kind === 'none') return { kind: 'none' };
   if (result.kind === 'refused') {
-    if (result.key !== null) recordRefusal(sys, root, request, result.code, result.key);
+    if (result.key !== null) recordRefusal(sys, contextLedgerDirectoryOf(ledgerRoot, result.key.tenant, result.key.project), request, result.code, result.key);
     return { kind: 'refused', lines: refusalLines(result.code, result.message) };
   }
 
   const contextPath = contextPathOf(root, input.sessionId);
+  const directory = contextLedgerDirectoryOf(ledgerRoot, result.key.tenant, result.key.project);
   const base = {
     sessionId: input.sessionId,
     tenant: result.key.tenant,
@@ -136,19 +175,23 @@ export function prepareRunContext(sys: ContextRunSystem, root: string, input: Pr
     compactionId: result.compactionId,
     estimatedTokens: result.estimatedTokens,
     taintsRun: result.taintsRun,
-    fileHash: result.fileHash,
+    fileHash: result.hasContent ? result.fileHash : null,
     refusal: null,
   } as const;
   let recorded: { readonly seq: number; readonly entryHash: string } | null = null;
+  let newest: { readonly seq: number; readonly entryHash: string } | null = null;
   const placed: number[] = [];
 
   const append = (event: 'retrieved' | 'placed', attempt: number | null): StepResult & { entry?: { seq: number; entryHash: string } } => {
-    const appended = appendContextLedger(sys, ledgerDirectory(root), { ...base, event, attempt, at: sys.now() } as ContextLedgerBody);
-    return appended.ok ? { ok: true, entry: { seq: appended.entry.seq, entryHash: appended.entry.entryHash } } : { ok: false, detail: `the retrieval ledger refused the entry (${appended.code})` };
+    const appended = appendContextLedger(sys, directory, { ...base, event, attempt, at: sys.now() } as ContextLedgerBody);
+    if (!appended.ok) return { ok: false, detail: `the retrieval ledger refused the entry (${appended.code}). ${contextLedgerRepairOf(appended.code, directory)}` };
+    newest = { seq: appended.entry.seq, entryHash: appended.entry.entryHash };
+    return { ok: true, entry: newest };
   };
 
   const run: RunContext = {
     contextPath,
+    hasContent: result.hasContent,
     record() {
       if (recorded !== null) return { ok: true };
       const done = append('retrieved', null);
@@ -159,8 +202,13 @@ export function prepareRunContext(sys: ContextRunSystem, root: string, input: Pr
     place(attempt) {
       if (recorded === null) return { ok: false, detail: 'the retrieval is not recorded, so no context file is placed' };
       if (!Number.isSafeInteger(attempt) || attempt < 1) return { ok: false, detail: 'the dispatch number is not a count' };
+      if (!result.hasContent) return { ok: true };
+      // The envelope is asked again at every placement: a run that outlives its envelope is not shown stored text.
+      if (!contextRetrievalKeyOf(input.envelope, input.ports.isProxy, instantOf(sys.now())).ok) return { ok: false, detail: 'the run envelope has expired, so no stored text is placed. Fix: the owner starts a new run.' };
       try {
-        sys.writeText(contextPath, result.fileText);
+        // A file left by a killed earlier run is swept; the new one is created if absent, which does not follow a link or a hard link.
+        sys.removeFile(contextPath);
+        if (!sys.createExclusive(contextPath, result.fileText)) return { ok: false, detail: 'the context file could not be created, because something else holds that name. Fix: the owner removes it from the project tree and runs again.' };
         if (sys.readText(contextPath) !== result.fileText) {
           sys.removeFile(contextPath);
           return { ok: false, detail: 'the context file could not be read back as it was written' };
@@ -195,6 +243,7 @@ export function prepareRunContext(sys: ContextRunSystem, root: string, input: Pr
         envelopeId: base.envelopeId,
         headCommit: base.headCommit,
         ledger: recorded,
+        ledgerNewest: newest,
         fileHash: base.fileHash,
         shown: base.shown,
         withheld: base.withheld,

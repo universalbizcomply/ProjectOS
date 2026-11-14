@@ -58,7 +58,7 @@ describe('a port that is missing is a refusal, never a default', () => {
 
 describe('the production ports are made from the System', () => {
   it('are complete, and the Proxy test is the runtime own', () => {
-    const ports = nodeContextPorts(system(), '/work/project', () => null);
+    const ports = nodeContextPorts(system(), '/work/project', () => null, () => null);
     expect(portsProblem(ports)).toBeNull();
     expect(ports.isProxy(new Proxy({}, {}))).toBe(true);
     expect(ports.isProxy({})).toBe(false);
@@ -67,8 +67,8 @@ describe('the production ports are made from the System', () => {
 
   it('opens no index when the installation gives no directory, and none nobody built', () => {
     const owner = { tenant: 'agency-one', project: 'alpha-project' };
-    expect(nodeContextPorts(system(), '/work/project', () => null).openIndex?.(owner)).toBeNull();
-    expect(nodeContextPorts(system(), '/work/project', () => join(dir, 'indexes')).openIndex?.(owner)).toBeNull();
+    expect(nodeContextPorts(system(), '/work/project', () => null, () => null).openIndex?.(owner)).toBeNull();
+    expect(nodeContextPorts(system(), '/work/project', () => join(dir, 'indexes'), () => null).openIndex?.(owner)).toBeNull();
   });
 
   it('opens the index of the owner it is asked for once its file is there, and writes nothing to make it', () => {
@@ -78,10 +78,10 @@ describe('the production ports are made from the System', () => {
     if (!built.ok) throw new Error(built.reason);
     built.index.close();
     const sys = system({ exists: (path: string) => path === built.location });
-    const opened = nodeContextPorts(sys, '/work/project', () => directory).openIndex?.(owner);
+    const opened = nodeContextPorts(sys, '/work/project', () => directory, () => null).openIndex?.(owner);
     expect(opened).not.toBeNull();
     opened?.close();
-    const other = nodeContextPorts(sys, '/work/project', () => directory).openIndex?.({ tenant: 'agency-one', project: 'beta-project' });
+    const other = nodeContextPorts(sys, '/work/project', () => directory, () => null).openIndex?.({ tenant: 'agency-one', project: 'beta-project' });
     expect(other).toBeNull();
   });
 });

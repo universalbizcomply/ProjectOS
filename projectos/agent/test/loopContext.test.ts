@@ -12,6 +12,7 @@ import { parseContextLedgerEntry, type TaskEnvelope } from '@projectos/core';
 import { runLoop as runLoopRaw, type RunOptions } from '../src/loop/runner.js';
 import { invocationIdFor } from '../src/loop/invocation.js';
 import type { ContextManagerPorts } from '../src/context/contextPorts.js';
+import { contextLedgerDirectoryOf } from '../src/context/contextRun.js';
 import type { AdapterRegistry, WorkerAdapter } from '../src/loop/workers.js';
 import type { ExecResult, System } from '../src/system.js';
 import { reviewing, withReviewer } from './support/fakeReviewer.js';
@@ -20,7 +21,7 @@ import { MEMORY_FILE, admittedRun, fakeGit, storeOf, storeText, worldPorts, type
 const ROOT = '/proj';
 const HEAD = 'f'.repeat(40);
 const PHASE = 'PROJECTOS-RECOVERY-PLANNING-BRAIN1A';
-const KIND = 'test-worker';
+const KIND = 'claude-code-cli';
 const VALIDATOR = 'validate-plan-discovery-import';
 const FACT = 'The build uses Node 24.';
 const DECISION = 'Bookings are never deleted, only cancelled.';
@@ -30,7 +31,8 @@ const NOW = '2026-08-11T19:00:00Z';
 const SESSION = `${PHASE}-${HEAD.slice(0, 12)}-${invocationIdFor(PHASE, NOW, FACTS.pid).slice(0, 8)}`;
 const EXECUTION = `${ROOT}/.projectops/execution`;
 const CONTEXT_PATH = `${EXECUTION}/${SESSION}.context.md`;
-const LEDGER_DIR = `${ROOT}/.projectops/context-ledger`;
+const STATE = '/state';
+const LEDGER_DIR = contextLedgerDirectoryOf(STATE, admittedRun().tenant, admittedRun().project);
 const BRIEF_PATH = `${EXECUTION}/${SESSION}.brief.json`;
 const EVIDENCE_PATH = `${EXECUTION}/${SESSION}.evidence.json`;
 
@@ -54,8 +56,8 @@ interface World {
 /** The committed tree the context manager reads: the memory store, as committed. */
 const COMMITTED: Record<string, string> = { [MEMORY_FILE]: storeText([FACT, DECISION]) };
 
-function world(opts: { readonly validatorExit?: number } = {}): World {
-  const config = { ...realConfig(), localPath: ROOT, planMemory: { planPath: 'state/plan.json', currentStatePath: 'state/current.json' }, execution: withReviewer({ workers: [{ workerId: 'test', kind: KIND, command: '/usr/local/bin/test-worker' }] }, KIND) };
+function world(opts: { readonly validatorExit?: number; readonly kind?: string; readonly onValidator?: (files: Record<string, string>) => void } = {}): World {
+  const config = { ...realConfig(), localPath: ROOT, planMemory: { planPath: 'state/plan.json', currentStatePath: 'state/current.json' }, execution: withReviewer({ workers: [{ workerId: 'test', kind: opts.kind ?? KIND, command: '/usr/local/bin/test-worker' }] }, opts.kind ?? KIND) };
   const files: Record<string, string> = {
     [`${ROOT}/.projectops/project-config.json`]: JSON.stringify(config),
     [`${ROOT}/state/plan.json`]: JSON.stringify(realPlan()),
@@ -72,7 +74,7 @@ function world(opts: { readonly validatorExit?: number } = {}): World {
   let dispatched = false;
   const untracked = (): string[] =>
     Object.keys(files)
-      .filter((path) => !baseline.has(path) && !hidden.has(path))
+      .filter((path) => path.startsWith(`${ROOT}/`) && !baseline.has(path) && !hidden.has(path))
       .map((path) => path.slice(ROOT.length + 1))
       .sort();
   const committedGit = fakeGit(Object.fromEntries(Object.entries(COMMITTED).map(([path, text]) => [path, { text }])), HEAD).git;
@@ -97,10 +99,19 @@ function world(opts: { readonly validatorExit?: number } = {}): World {
       delete files[path];
       return true;
     },
-    renameFile: () => true,
+    renameFile: (from, to) => {
+      if (!(from in files)) return false;
+      files[to] = files[from] as string;
+      delete files[from];
+      writes.push(to);
+      return true;
+    },
     exec: (cmd, args): ExecResult => {
       commands.push(`${cmd} ${args.join(' ')}`);
-      if (cmd !== 'git') return { code: opts.validatorExit ?? 0, stdout: 'validator ran', stderr: '' };
+      if (cmd !== 'git') {
+        opts.onValidator?.(files);
+        return { code: opts.validatorExit ?? 0, stdout: 'validator ran', stderr: '' };
+      }
       const key = args.join(' ');
       if (/ (?:rev-parse --verify HEAD|ls-tree -z (?!-r)|cat-file )/.test(` ${key}`)) {
         const answer = committedGit(args.slice(args.indexOf(ROOT) + 1));
@@ -137,7 +148,7 @@ interface Worker {
 }
 
 /** A worker that looks at the context file when it is dispatched, and may do something else while it is there. */
-function worker(w: World, act: (attempt: number) => void = () => undefined): Worker {
+function worker(w: World, act: (attempt: number) => void = () => undefined, kind: string = KIND): Worker {
   const calls: string[] = [];
   const seenAtDispatch: (string | null)[] = [];
   const dispatch = (name: string) => {
@@ -147,8 +158,8 @@ function worker(w: World, act: (attempt: number) => void = () => undefined): Wor
     act(calls.length);
     return { kind: 'completed' as const, exitCode: 0, stdout: '', stderr: '', providerRef: 'ref-1' };
   };
-  const adapter: WorkerAdapter = { kind: KIND, ...reviewing(), start: () => dispatch('start'), rejoin: () => dispatch('rejoin') };
-  return { calls, registry: { [KIND]: adapter }, seenAtDispatch };
+  const adapter: WorkerAdapter = { kind, ...reviewing(), start: () => dispatch('start'), rejoin: () => dispatch('rejoin') };
+  return { calls, registry: { [kind]: adapter }, seenAtDispatch };
 }
 
 const stores = { memory: storeOf([{ text: FACT, kind: 'fact' }, { text: DECISION, kind: 'decision' }]) };
@@ -168,7 +179,7 @@ function contextPorts(w: World, options: WorldOptions = {}, patch: Partial<Conte
 }
 
 function run(w: World, wk: Worker, over: Partial<RunOptions> = {}, envelope: TaskEnvelope | null = admittedRun(), ports: ContextManagerPorts = contextPorts(w)) {
-  return runLoopRaw(w.sys, ROOT, { invocation: FACTS, adapters: wk.registry, runEnvelope: envelope, contextPorts: ports, ...over });
+  return runLoopRaw(w.sys, ROOT, { invocation: FACTS, adapters: wk.registry, runEnvelope: envelope, contextPorts: ports, contextStateDir: STATE, ...over });
 }
 
 const ledgerOf = (files: Record<string, string>) =>
@@ -352,5 +363,55 @@ describe('a worker does not write memory or skills: refused at the check step', 
     });
     const result = run(w, wk);
     expect(result.ok && result.stop?.code).toBe('OWNER_GATE');
+  });
+});
+
+describe('review round 1: item 1, the empty retrieval; item 7, the pointer; item 2, the guard', () => {
+  it('places no file and names none in the brief when nothing is stored, and still records the retrieval', () => {
+    const w = world();
+    const wk = worker(w);
+    const result = run(w, wk, {}, admittedRun(), contextPorts(w, { tree: {}, stores: {} }));
+    expect(result.ok).toBe(true);
+    expect(wk.seenAtDispatch).toEqual([null]);
+    const brief = JSON.parse(w.files[BRIEF_PATH] as string) as { records: Record<string, unknown> };
+    expect(brief.records).not.toHaveProperty('contextPath');
+    expect(ledgerOf(w.files).map((entry) => entry.event)).toEqual(['retrieved']);
+  });
+
+  it('writes the ledger in the state directory and nothing of it in the project tree', () => {
+    const w = world();
+    run(w, worker(w));
+    expect(Object.keys(w.files).some((path) => path.startsWith(`${ROOT}/.projectops/context-ledger`))).toBe(false);
+    expect(Object.keys(w.files).some((path) => path.startsWith(`${STATE}/context-ledger/`))).toBe(true);
+  });
+
+  it('refuses a worker kind that is not told where the file is, before any file is placed, so the record never says shown when it was not', () => {
+    const w = world({ kind: 'test-worker' });
+    const wk = worker(w, () => undefined, 'test-worker');
+    const result = run(w, wk);
+    expect(result.ok).toBe(false);
+    expect(result.lines.join('\n')).toContain('REFUSED (CONTEXT_NOT_POINTABLE)');
+    expect(wk.calls).toEqual([]);
+    expect(ledgerOf(w.files).filter((entry) => entry.event === 'placed')).toEqual([]);
+  });
+
+  it('judges a direct store write even when the run has no admitted envelope and no context', () => {
+    const w = world();
+    const wk = worker(w, () => {
+      w.files[`${ROOT}/.projectops/memory/proposals/p.json`] = '{"approved":true}';
+    });
+    const result = run(w, wk, {}, null);
+    expect(result.ok && result.stop?.detail).toContain('MEMORY_DIRECT_WRITE');
+  });
+
+  it('keeps its baseline across the checks: check code that writes a store is caught after the checks', () => {
+    const w = world({
+      onValidator: (files) => {
+        files[`${ROOT}/.projectops/skills/promoted/x/SKILL.md`] = 'written by a check';
+      },
+    });
+    const result = run(w, worker(w));
+    expect(result.ok && result.stop?.code).toBe('SCOPE_DECISION');
+    expect(result.ok && result.stop?.detail).toContain('MEMORY_DIRECT_WRITE');
   });
 });

@@ -21,6 +21,11 @@
  *
  * A file that is simply not in HEAD is nothing to show and not a failure. Every other refusal is a failure with a closed code,
  * and a failure never carries text. The index is closed on every path.
+ *
+ * A FAILURE ON A SOURCE THAT CAN HOLD A DECISION IS BLOCKING (review round 1, item 5): the approved memory files, their provenance
+ * records, and the committed decision of a phase this one depends on. A worker that is not shown an approved or committed decision
+ * because a file could not be read would act as if there were none, so the manager stops the run and names the fix. A plan-memory
+ * path and the index are not decisions: a failure there is withheld by code and the run goes on.
  */
 import {
   citationFreshnessMarkOf,
@@ -68,6 +73,8 @@ export interface ContextRead {
 export interface ContextFailure {
   readonly id: string;
   readonly code: string;
+  /** True when the source can hold a decision, so the run must not go on without it. */
+  readonly blocking: boolean;
 }
 
 export interface ContextRetrieval {
@@ -90,12 +97,12 @@ function approvedMemory(ports: ContextManagerPorts, root: string): { reads: Cont
   for (const { target, path } of MEMORY_FILES) {
     const committed = readCommittedMemoryFile({ git: ports.git, fs: ports.fs }, root, path);
     if (!committed.ok) {
-      if (committed.code !== NOT_IN_HEAD) failures.push({ id: path, code: committed.code });
+      if (committed.code !== NOT_IN_HEAD) failures.push({ id: path, code: committed.code, blocking: true });
       continue;
     }
     const store = ports.readMemoryStore(target);
     if (!store.ok) {
-      failures.push({ id: path, code: store.refusal.code });
+      failures.push({ id: path, code: store.refusal.code, blocking: true });
       continue;
     }
     const recordOf = (entry: string): MemoryEntryProvenance | null => {
@@ -116,15 +123,15 @@ function approvedMemory(ports: ContextManagerPorts, root: string): { reads: Cont
 }
 
 /** One committed file of the given kind, as a read or as a failure. A file not in HEAD is neither. */
-function committedFile(ports: ContextManagerPorts, root: string, path: string, reads: ContextRead[], failures: ContextFailure[]): void {
+function committedFile(ports: ContextManagerPorts, root: string, path: string, blocking: boolean, reads: ContextRead[], failures: ContextFailure[]): void {
   const committed = readCommittedMemoryFile({ git: ports.git, fs: ports.fs }, root, path);
   if (committed.ok) reads.push({ id: path, kind: committed.read.kind, text: committed.read.text, proof: committed.read.proof, source: 'committed', freshness: null });
-  else if (committed.code !== NOT_IN_HEAD) failures.push({ id: path.slice(0, 200), code: committed.code });
+  else if (committed.code !== NOT_IN_HEAD) failures.push({ id: path.slice(0, 200), code: committed.code, blocking });
 }
 
 function firstOf(list: readonly string[], max: number, label: string, failures: ContextFailure[]): readonly string[] {
   const kept = list.slice(0, max);
-  for (const extra of list.slice(max)) failures.push({ id: typeof extra === 'string' ? extra.slice(0, 200) : label, code: 'CONTEXT_TOO_MANY_PATHS' });
+  for (const extra of list.slice(max)) failures.push({ id: typeof extra === 'string' ? extra.slice(0, 200) : label, code: 'CONTEXT_TOO_MANY_PATHS', blocking: false });
   return kept;
 }
 
@@ -136,7 +143,7 @@ function indexHits(ports: ContextManagerPorts, key: ContextRetrievalKey, query: 
     if (index === null) return;
     const outcome = index.search({ project: key.project, query: query.slice(0, MAX_QUERY_CHARS), maxResults: MAX_INDEX_HITS, matchAny: true });
     if (!outcome.ok) {
-      failures.push({ id: 'index', code: 'CONTEXT_INDEX_UNAVAILABLE' });
+      failures.push({ id: 'index', code: 'CONTEXT_INDEX_UNAVAILABLE', blocking: false });
       return;
     }
     for (const hit of outcome.hits.slice(0, MAX_INDEX_HITS)) {
@@ -144,7 +151,7 @@ function indexHits(ports: ContextManagerPorts, key: ContextRetrievalKey, query: 
       if (read !== null) reads.push(read);
     }
   } catch {
-    failures.push({ id: 'index', code: 'CONTEXT_INDEX_UNAVAILABLE' });
+    failures.push({ id: 'index', code: 'CONTEXT_INDEX_UNAVAILABLE', blocking: false });
   } finally {
     try {
       index?.close();
@@ -158,7 +165,7 @@ function indexRead(hit: CitedSearchHit, key: ContextRetrievalKey, failures: Cont
   const { project, path, startLine, endLine } = hit.citation;
   const id = `index:${path}:${startLine}-${endLine}`;
   if (project !== key.project) {
-    failures.push({ id, code: 'CONTEXT_WRONG_PROJECT' });
+    failures.push({ id, code: 'CONTEXT_WRONG_PROJECT', blocking: false });
     return null;
   }
   const judged = citationFreshnessOfValue(hit.citation.freshness);
@@ -179,9 +186,9 @@ export function retrieveStoredContext(ports: ContextManagerPorts, key: ContextRe
   const reads: ContextRead[] = [...memory.reads];
   failures.push(...memory.failures);
   const phases = firstOf(request.dependsOn, MAX_DECISION_PHASES, 'dependsOn', failures);
-  for (const phase of phases) committedFile(ports, request.root, `.projectops/closure/decisions/${phase}.json`, reads, failures);
+  for (const phase of phases) committedFile(ports, request.root, `.projectops/closure/decisions/${phase}.json`, true, reads, failures);
   const plans = firstOf(request.planMemoryPaths, MAX_PLAN_MEMORY_PATHS, 'planMemoryPaths', failures);
-  for (const path of plans) committedFile(ports, request.root, path, reads, failures);
+  for (const path of plans) committedFile(ports, request.root, path, false, reads, failures);
   indexHits(ports, key, request.query, reads, failures);
   return { reads, decisions: memory.decisions, failures };
 }

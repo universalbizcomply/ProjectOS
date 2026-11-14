@@ -9,7 +9,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ProjectConfig } from '@projectos/core';
 import { buildWorkerBrief, briefProvenanceProblems, type WorkerBrief } from '../src/loop/brief.js';
-import { CLAUDE_CODE_CLI, claudeCodeCliAdapter, correctionInstruction, pointerInstruction } from '../src/loop/adapters/claudeCodeCli.js';
+import { CLAUDE_CODE_CLI, claudeCodeCliAdapter, contextPointerPathOf, correctionInstruction, pointerInstruction } from '../src/loop/adapters/claudeCodeCli.js';
 import type { GovernedContext } from '../src/governedContext.js';
 import type { RepositoryObservation } from '../src/loop/observation.js';
 import type { ExecResult, System } from '../src/system.js';
@@ -96,6 +96,8 @@ describe('the worker instruction points at the context file, and at nothing the 
   });
 });
 
+const RELATIVE_PATH = '.projectops/execution/s1.context.md';
+
 describe('the Claude Code adapter hands the path on from the brief, and only from the brief', () => {
   function recording() {
     const calls: { cmd: string; args: readonly string[] }[] = [];
@@ -122,8 +124,9 @@ describe('the Claude Code adapter hands the path on from the brief, and only fro
   it('starts a worker with the context path in its one instruction, when the brief names one', () => {
     const sys = recording();
     claudeCodeCliAdapter.start(sys, worker, built({ ...RECORDS, contextPath: CONTEXT_PATH }), RECORDS.briefPath);
-    expect(sys.calls[0]?.args).toContain(pointerInstruction(RECORDS.briefPath, CONTEXT_PATH));
-    expect(sys.calls[0]?.args.join(' ')).toContain(CONTEXT_PATH);
+    // The worker is placed in the project root, so the pointer is the project-relative path.
+    expect(sys.calls[0]?.args).toContain(pointerInstruction(RECORDS.briefPath, RELATIVE_PATH));
+    expect(sys.calls[0]?.args.join(' ')).toContain(RELATIVE_PATH);
   });
 
   it('starts it exactly as before when the brief names none', () => {
@@ -136,7 +139,41 @@ describe('the Claude Code adapter hands the path on from the brief, and only fro
     const sys = recording();
     const session = { sessionId: 's1', workerId: 'claude-local', kind: CLAUDE_CODE_CLI, phaseId: PHASE, briefId: 'b', briefPath: 'C:/elsewhere/s1.brief.json', startedAt: NOW, providerRef: 'ref-1', state: 'started', exitCode: 0, corrections: 0 };
     claudeCodeCliAdapter.rejoin(sys, worker, session as never, built({ ...RECORDS, contextPath: CONTEXT_PATH }));
-    expect(sys.calls[0]?.args).toContain(correctionInstruction(RECORDS.briefPath, CONTEXT_PATH));
-    expect(sys.calls[0]?.args.join(' ')).toContain(CONTEXT_PATH);
+    expect(sys.calls[0]?.args).toContain(correctionInstruction(RECORDS.briefPath, RELATIVE_PATH));
+    expect(sys.calls[0]?.args.join(' ')).toContain(RELATIVE_PATH);
+  });
+});
+
+describe('review round 1, item 7: the pointer is the project-relative path, so no root can silence it', () => {
+  const RELATIVE = '.projectops/execution/s1.context.md';
+  const roots = [
+    `C:/Users/M${String.fromCodePoint(0xfc)}ller/OneDrive - Corp (Team)/proj`,
+    'C:/dev/My+App@2/proj',
+    'C:/dev/ProjectOS',
+  ];
+  const sysOf = () => {
+    const calls: { args: readonly string[] }[] = [];
+    const sys = { calls, cwd: () => '/', now: () => NOW, readText: () => null, writeText: () => undefined, exists: () => false, listDir: () => [], createExclusive: () => true, removeFile: () => true, renameFile: () => true,
+      exec: (_cmd: string, args: readonly string[]): ExecResult => (calls.push({ args }), { code: 0, stdout: JSON.stringify({ session_id: 'ref' }), stderr: '' }) } as unknown as System & { calls: typeof calls };
+    return sys;
+  };
+  const worker = { workerId: 'claude-local', kind: CLAUDE_CODE_CLI, command: CLAUDE, args: [], timeoutMs: 60_000 };
+
+  it.each(roots)('points at the file by its project-relative path for the root %s', (root) => {
+    const result = buildWorkerBrief(context(), PHASE, { ...OBSERVED, root }, NOW, { ...RECORDS, contextPath: `${root}/${RELATIVE}` } as never);
+    if (!result.ok) throw new Error(result.problems.join('; '));
+    const sys = sysOf();
+    claudeCodeCliAdapter.start(sys, worker, result.brief, RECORDS.briefPath);
+    const line = sys.calls[0]?.args.join(' ') ?? '';
+    expect(line).toContain(RELATIVE);
+    expect(line).toContain('stored context');
+    expect(line).not.toContain(`${root}/${RELATIVE}`);
+  });
+
+  it('puts no pointer on the command line for a context path outside the root, and says so by returning no path', () => {
+    expect(contextPointerPathOf('D:/elsewhere/.projectops/execution/s1.context.md', 'C:/dev/ProjectOS')).toBeNull();
+    expect(contextPointerPathOf(`C:/dev/ProjectOS/${RELATIVE}`, 'C:/dev/ProjectOS')).toBe(RELATIVE);
+    expect(contextPointerPathOf(`C:/dev/ProjectOS/../x/${RELATIVE}`, 'C:/dev/ProjectOS')).toBeNull();
+    expect(contextPointerPathOf(undefined, 'C:/dev/ProjectOS')).toBeNull();
   });
 });

@@ -88,7 +88,25 @@ const CHECKS_CLAUSE =
  * the path, which is put on the command line only in the shape the loop derives it (`contextPointer`): a worker, a request and a
  * stored file have no say in it. The file is data. This clause says where it is and what it is, and gives it no authority.
  */
-const CONTEXT_PATH_SHAPE = /^[A-Za-z0-9_.:/ -]{1,400}\.projectops\/execution\/[A-Za-z0-9_.-]{1,64}\.context\.md$/;
+const CONTEXT_RELATIVE_SHAPE = /^\.projectops\/execution\/[A-Za-z0-9_.-]{1,64}\.context\.md$/;
+const CONTEXT_PATH_SHAPE = /^(?:[A-Za-z0-9_.:/ -]{1,400}\/)?\.projectops\/execution\/[A-Za-z0-9_.-]{1,64}\.context\.md$/;
+
+/** The worker kinds whose instruction names the context file. A run that has a file to show and a worker of another kind is refused, so the record never says shown when the worker was not told. */
+export const CONTEXT_POINTABLE_KINDS: readonly string[] = [CLAUDE_CODE_CLI];
+
+/**
+ * The context file's path RELATIVE TO THE PROJECT ROOT, which is where the worker is placed (`cwd`), or null when the path is not that
+ * file under that root. A relative path needs no characters a root may or may not contain (brackets, plus signs, non-ASCII), so no
+ * root can silence the pointer while the record still says the file was shown.
+ */
+export function contextPointerPathOf(contextPath: unknown, root: unknown): string | null {
+  if (typeof contextPath !== 'string' || typeof root !== 'string' || root === '') return null;
+  const base = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  const full = contextPath.replace(/\\/g, '/');
+  if (!full.startsWith(`${base}/`)) return null;
+  const relative = full.slice(base.length + 1);
+  return CONTEXT_RELATIVE_SHAPE.test(relative) ? relative : null;
+}
 
 function contextPointer(contextPath: string | undefined): string {
   if (typeof contextPath !== 'string' || !CONTEXT_PATH_SHAPE.test(contextPath) || contextPath.split('/').includes('..')) return '';
@@ -234,7 +252,7 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
       return { kind: 'refused', detail: 'the brief is not bound to a commit, so no worker may be started from it' };
     }
     return outcomeFrom(
-      sys.exec(worker.command, [...worker.args, ...OUTPUT_ARGS, '-p', pointerInstruction(briefPath, brief.records.contextPath)], {
+      sys.exec(worker.command, [...worker.args, ...OUTPUT_ARGS, '-p', pointerInstruction(briefPath, contextPointerPathOf(brief.records.contextPath, brief.repository.root) ?? undefined)], {
         // The worker inherits no credential-shaped variable: the project forbids `use-anthropic-api`,
         // and an inherited key would make that forbidding decorative.
         scrubCredentials: true, ensureSystemPath: true,
@@ -286,7 +304,7 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
           '--resume',
           session.providerRef,
           '-p',
-          correctionInstruction(brief.records.briefPath, brief.records.contextPath),
+          correctionInstruction(brief.records.briefPath, contextPointerPathOf(brief.records.contextPath, brief.repository.root) ?? undefined),
         ],
         {
           scrubCredentials: true, ensureSystemPath: true, cwd: brief.repository.root,

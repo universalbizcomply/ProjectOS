@@ -2,9 +2,11 @@
 /**
  * APPENDING TO THE RETRIEVAL LEDGER (PROJECTOS-CONTEXT-MANAGER1A, plan 3.4).
  *
- * The loop writes one numbered file per entry, `.projectops/context-ledger/000001.json` and up, through a CREATE-IF-ABSENT write
- * and nothing else: the port below has no overwrite and no delete, so an entry that exists is never rewritten. Two writers that
- * reach for the same number cannot both win; the loser reads the directory again and takes the next, once.
+ * The loop writes one numbered file per entry, `000001.json` and up, in a directory under the INSTALLATION'S state (not in the
+ * project tree: see `contextRun.ts`). An entry is written to a temporary name by a CREATE-IF-ABSENT write and then renamed to its
+ * number, so a crash in the middle leaves a temporary file, which the next run sweeps, and never a truncated entry under a number.
+ * The temporary name is per number, so two writers that reach for the same number cannot both create it: the loser reads the
+ * directory again and takes the next, once. An entry that exists is never rewritten (the number is checked before the rename).
  *
  * WHAT IS CHECKED BEFORE AN ENTRY IS ADDED. The directory must hold only files this module would have written (a name it did not
  * make is refused, so a planted file cannot sit in the chain's place), numbered from 1 with no gap, and the NEWEST
@@ -29,12 +31,37 @@ import {
 /** How much of the end of the chain is read and verified before an entry is added. */
 export const CONTEXT_LEDGER_TAIL_WINDOW = 64;
 
-/** What the ledger touches. There is no overwrite and no delete: this is the whole port. */
+/** What the ledger touches. `removeFile` is only ever asked of a temporary name, and `renameFile` only moves a temporary name to its number. */
 export interface ContextLedgerFiles {
   readonly listDir: (path: string) => readonly string[];
   readonly readText: (path: string) => string | null;
   /** Creates the file only if it is not there. True when this call created it. */
   readonly createExclusive: (path: string, content: string) => boolean;
+  readonly renameFile: (from: string, to: string) => boolean;
+  readonly removeFile: (path: string) => boolean;
+}
+
+/** What an operating system leaves in a directory. It is not a foreign file. */
+const OS_JUNK = /^(?:desktop\.ini|thumbs\.db|\.ds_store)$/i;
+/** A temporary entry name: an entry that was being written when the process died. */
+const TEMPORARY_ENTRY = /^\d{6}\.json\.tmp$/;
+
+/** What to do about a ledger that cannot take an entry: who does it, and what. The ledger is ProjectOS's alone, and so is nothing a worker may touch. */
+export function contextLedgerRepairOf(code: string, directory: string): string {
+  switch (code) {
+    case 'CONTEXT_LEDGER_FOREIGN_FILE':
+      return `Fix: the owner removes or moves the file in ${directory} that the ledger did not write (the ledger is ProjectOS's alone), then runs again.`;
+    case 'CONTEXT_LEDGER_BROKEN':
+      return `Fix: the owner compares ${directory} with a backup or the last good copy and restores any entry that was edited, removed or cut off; if the owner decides to abandon that chain, moving the whole directory aside starts a new one. Then run again.`;
+    case 'CONTEXT_LEDGER_UNREADABLE':
+      return `Fix: the owner checks that ${directory} can be read by the user who runs ProjectOS, then runs again.`;
+    case 'CONTEXT_LEDGER_FULL':
+      return `Fix: the owner archives ${directory} (moves it aside, and a new chain starts), then runs again.`;
+    case 'CONTEXT_LEDGER_WRITE_FAILED':
+      return `Fix: the owner checks the disk and the permissions on ${directory}, and that no other ProjectOS run is writing there, then runs again.`;
+    default:
+      return `Fix: this is a defect in ProjectOS, not in ${directory}: the owner reports it, and nothing is shown to a worker until it is fixed.`;
+  }
 }
 
 export type ContextLedgerAppendCode =
@@ -62,6 +89,7 @@ function numbersOf(files: ContextLedgerFiles, directory: string): readonly numbe
   if (!Array.isArray(names) || names.length > MAX_CONTEXT_LEDGER_ENTRIES) return 'CONTEXT_LEDGER_FULL';
   const numbers: number[] = [];
   for (const name of names) {
+    if (OS_JUNK.test(name) || TEMPORARY_ENTRY.test(name)) continue;
     const seq = contextLedgerSeqOfFileName(name);
     if (seq === null) return 'CONTEXT_LEDGER_FOREIGN_FILE';
     numbers.push(seq);
@@ -103,13 +131,23 @@ function attempt(files: ContextLedgerFiles, directory: string, body: ContextLedg
   const sealed = sealContextLedgerEntry(body, seq, tail.last?.entryHash ?? null);
   if (!sealed.ok) return { ok: false, code: sealed.code === 'CONTEXT_LEDGER_BODY_INVALID' ? 'CONTEXT_LEDGER_BODY_INVALID' : 'CONTEXT_LEDGER_FULL' };
   const path = `${directory}/${contextLedgerFileName(seq) as string}`;
-  let created = false;
+  const temporary = `${path}.tmp`;
+  let written = false;
   try {
-    created = files.createExclusive(path, `${JSON.stringify(sealed.entry)}\n`);
+    // A temporary name left by a process that died is this number's own: sweep it, then create it exclusively.
+    files.removeFile(temporary);
+    written = files.createExclusive(temporary, `${JSON.stringify(sealed.entry)}\n`) && files.readText(path) === null && files.renameFile(temporary, path);
   } catch {
-    created = false;
+    written = false;
   }
-  return created ? { ok: true, entry: sealed.entry, path } : 'raced';
+  if (!written) {
+    try {
+      files.removeFile(temporary);
+    } catch {
+      // nothing is left under a number either way
+    }
+  }
+  return written ? { ok: true, entry: sealed.entry, path } : 'raced';
 }
 
 /** Add one entry. A lost race is tried once more, from a fresh read; nothing is ever overwritten. */

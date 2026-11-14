@@ -12,6 +12,8 @@
  *   isProxy        whether a value is a Proxy: core imports no `node:` module and cannot ask.
  *   readMemoryStore the working-tree provenance records of a memory store (who approved each entry).
  *   openIndex      opens the search index of ONE tenant's ONE project, or null. The manager passes it the envelope's pair.
+ *   checkout       what THIS checkout is governed as (tenant and project), from the installation's tenant registry. The envelope's
+ *                  pair must equal it, or nothing is read (review round 1, item 3).
  *   registry       the action registry, when the caller has one; the taint rule asks it, and answers the same without it.
  *   window         the token window a context file is held to; a constant unless a test passes a smaller one.
  *   drafter        what writes a compaction draft; deterministic selection unless a test passes another.
@@ -28,7 +30,7 @@ import {
   type SearchIndexOwner,
 } from '@projectos/core';
 import { types } from 'node:util';
-import { containsSecret } from '../authoringEvidence.js';
+import { storedTextSecretScreen } from './contextScreen.js';
 import { readMemoryStore } from '../memory/memoryFiles.js';
 import { nodeEntryProbe } from '../search/nodeHost.js';
 import { documentFsOver, gitRunnerOver, searchClockOver, searchHeadOver, type DocumentFs, type GitRunner, type SearchClock } from '../search/ports.js';
@@ -44,6 +46,12 @@ export interface ContextDraftOffer {
   readonly stopReason?: string;
 }
 
+/** What a checkout is governed as. */
+export interface ContextCheckoutIdentity {
+  readonly tenant: string;
+  readonly project: string;
+}
+
 export interface ContextManagerPorts {
   readonly git: GitRunner;
   readonly fs: DocumentFs;
@@ -51,6 +59,8 @@ export interface ContextManagerPorts {
   readonly secretScreen: (text: string) => boolean;
   readonly isProxy: (value: unknown) => boolean;
   readonly readMemoryStore: (target: MemoryTarget) => MemoryResult<MemoryStoreState>;
+  /** The tenant and project this checkout is governed as, or null when the installation cannot say. Null refuses the run. */
+  readonly checkout: () => ContextCheckoutIdentity | null;
   readonly openIndex: ((owner: SearchIndexOwner) => SearchIndex | null) | null;
   readonly registry: ActionRegistry | null;
   readonly window?: ContextWindow;
@@ -68,6 +78,7 @@ export function portsProblem(ports: Partial<ContextManagerPorts> | null | undefi
   if (!isFunction(ports.secretScreen)) return 'secretScreen';
   if (!isFunction(ports.isProxy)) return 'isProxy';
   if (!isFunction(ports.readMemoryStore)) return 'readMemoryStore';
+  if (!isFunction(ports.checkout)) return 'checkout';
   if (ports.openIndex !== null && !isFunction(ports.openIndex)) return 'openIndex';
   return null;
 }
@@ -79,16 +90,17 @@ export type ContextIndexDirectory = () => string | null;
  * The ports of a real run. The index directory is the installation's, supplied by the caller: the project's own tree is where
  * a worker writes, so an index kept there could be replaced by one.
  */
-export function nodeContextPorts(sys: System, root: string, indexDirectory: ContextIndexDirectory): ContextManagerPorts {
+export function nodeContextPorts(sys: System, root: string, indexDirectory: ContextIndexDirectory, checkout: () => ContextCheckoutIdentity | null): ContextManagerPorts {
   const git = gitRunnerOver(sys, root);
   const clock = searchClockOver(sys);
   return {
     git,
     fs: documentFsOver(sys, nodeEntryProbe),
     clock,
-    secretScreen: containsSecret,
+    secretScreen: storedTextSecretScreen,
     isProxy: (value) => types.isProxy(value),
     readMemoryStore: (target) => readMemoryStore(sys, root, target),
+    checkout,
     openIndex: (owner) => {
       const directory = indexDirectory();
       if (directory === null) return null;

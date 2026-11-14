@@ -4,7 +4,7 @@
 **Branch:** `projectos-context-manager1a`, worktree `C:/dev/ProjectOS-worktrees/context-manager1a-v136`, based on `c71adc16`.
 Not pushed, not merged, phase not closed, `docs/06_Plan.md` not edited. `validate-all` is the lead's and was not run here.
 
-**State:** built and self-checked. No review has seen it yet (ECC SECURITY and Agency `multi-agent-systems-architect` are the two this phase owes).
+**State:** built, self-checked, reviewed once (round 1: ECC `security-reviewer` and Agency `multi-agent-systems-architect`, no CRITICAL), and the round-1 fixes are in a second commit. See "Review round 1" below; the round-1 fixes have not been re-reviewed.
 This is the first phase that wires stored context into the run loop, so it is the most security-sensitive of Stage 3. Everything below is what was run
 and seen in this worktree; where a check could not run as written, it says so.
 
@@ -50,7 +50,7 @@ changes by one option and the import it needs, and nothing else.
 | `run.ts` | `agent/src/commands/run.ts` | See "The one protected edit" |
 | Core barrel | `core/src/index.ts` | Three lines. The new core files are exported here and **not** through `core/src/context/index.ts`, because `val-projectos-port-context1a` copies that barrel and its 13 files into a scratch directory and the barrel would stop resolving |
 | Narrowed rules | `val-projectos-port-{context,approvals,memory,skills}1a.cjs` | See "The four narrowed rules" |
-| Validator | `validators/val-projectos-context-manager1a.cjs` | 19 rules, 225 named mutations; registered in both runners after `memory-provenance1a` and before `connector-contract1a` |
+| Validator | `validators/val-projectos-context-manager1a.cjs` | 20 rules (CM-20 added in review round 1), 266 named mutations; registered in both runners after `memory-provenance1a` and before `connector-contract1a` |
 
 ### The one protected edit (the exact diff to `run.ts`)
 
@@ -139,11 +139,11 @@ The unmutated tree passing every pin is the positive control. They are text muta
 | CM-3 | a stored text is shown ungated | 21 |
 | CM-4 | items are not ranked by provenance | 12 |
 | CM-5 | an approved decision can be dropped | 8 |
-| CM-6 | compaction is not deterministic selection | 16 |
-| CM-7 | the retrieval is not recorded by the loop | 20 |
+| CM-6 | compaction is not deterministic selection | 17 |
+| CM-7 | the retrieval is not recorded by the loop | 22 |
 | CM-8 | the context file is a candidate, or its path is free | 17 |
-| CM-9 | the evidence does not name what was shown | 19 |
-| CM-10 | a direct write to memory or skills passes | 13 |
+| CM-9 | the evidence does not name what was shown | 18 |
+| CM-10 | a direct write to memory or skills passes | 15 |
 | CM-11 | a second caller or a write path | 15 |
 | CM-12 | core is not pure | 7 |
 | CM-13 | the agent reaches around its ports | 12 |
@@ -153,9 +153,10 @@ The unmutated tree passing every pin is the positive control. They are text muta
 | CM-17 | a file has no statement of origin | 4 |
 | CM-18 | a file is not tracked | 4 |
 | CM-19 | a narrowed rule loosened | 8 |
-| **Total** | | **225** |
+| CM-20 | the review round 1 hardening has been undone | 36 |
+| **Total** | | **266** |
 
-The four narrowed validators went from 320 to 326 mutations (`port-context1a`), 64 to 68 text (`port-approvals1a`), 199 to 206 (`port-memory1a`) and 440 to 447 (`port-skills1a`).
+Round 1 added 41 mutations net (36 under the new CM-20, the rest under CM-6, CM-7 and CM-10) and re-anchored 14 existing ones whose text moved. The four narrowed validators went from 320 to 326 mutations (`port-context1a`), 64 to 68 text (`port-approvals1a`), 199 to 206 (`port-memory1a`) and 440 to 447 (`port-skills1a`).
 
 ## Checks, with counts (read from the exit codes, not from a doc)
 
@@ -239,7 +240,7 @@ Of the PROTECTED files, only `projectos/agent/src/commands/run.ts` is in it, and
 
 ## Out-of-path edits needed
 
-**1. One validator outside this phase's write paths goes stale from the registration the brief asked for, and was not edited.**
+**1. (Resolved.) One validator outside this phase's write paths went stale from the registration the brief asked for, and was not edited here.** The lead made the one-line edit in `46d66e08` (`NEXT_VALIDATOR` is now `val-projectos-context-manager1a`), and `val-projectos-memory-provenance1a` passes on this branch (see the round-1 checks). What follows is the original statement, kept as the record:
 `val-projectos-memory-provenance1a.cjs` fails MP-12 twice (in `validate-all` and in `cached-runner`): it pins "this validator is immediately before
 `val-projectos-connector-contract1a`", and this phase's validator now sits between them, as the brief said. The edit is **one line**: line 45,
 `const NEXT_VALIDATOR = "val-projectos-connector-contract1a";` becomes `"val-projectos-context-manager1a"`. No MP-12 mutation names the next validator
@@ -261,8 +262,9 @@ Everything else that reads `validate-all` and `cached-runner` passes untouched (
   The carried order is therefore plan, draft, apply, note (and `noteCompactionRefused` on a refusal). When a provider count exists, it goes after each reply.
 - **No command builds the per-project index.** The manager opens `<installation state>/search-index/idx-<hash>.sqlite` only if that file already exists, and nothing creates it yet
   (STORES1A named this: the installation's index directory is not chosen). Until one does, production retrieval returns committed memory and decisions and no index hits.
-- **The run ledger is not folded by `run.ts`.** `.projectops/context-ledger/NNNNNN.json` is untracked after a run, like `.findings.json` and `.effects.json`, so the owner's commit carries it.
-  The classifier that commits ProjectOS's own run records (`isFoldableRunRecord` in `run.ts`, PROTECTED) names four shapes and would need a fifth: that is an owner approval, not an edit made here.
+- **The run ledger is outside the project tree (review round 1, item 1).** It is `<installation state>/context-ledger/ledger-<hash of tenant and project>/NNNNNN.json`. It was first written to `.projectops/context-ledger/`, where it was an untracked file
+  that `isFoldableRunRecord` (`run.ts`, PROTECTED) does not know, so a governed project's next closure would have refused it as foreign; outside the tree it leaves `git status` clean and is not part of any candidate. It is therefore not folded and not committed:
+  the run evidence (a record the owner commits) names the retrieval's entry and the newest entry by number and hash.
 - **Skills are not loaded.** `PROJECTOS-SKILLS-ADOPT1A` adds the skill loader to this file and moves PK-16 with it.
 
 ### What the design leans on, and where it is weaker than it looks
@@ -280,7 +282,7 @@ Everything else that reads `validate-all` and `cached-runner` passes untouched (
 - **The ledger's chain is verified over its newest 64 entries on each append** (a bound, so a long ledger does not slow a run), and `contextLedgerProblem` verifies the whole chain where an audit reads it.
   A changed entry older than the window, a cut tail and a rewritten directory are not found by the run; a head hash kept elsewhere would anchor it (the same residual as the deletion ledger).
 - **The run envelope lasts 12 hours** (`RUN_ENVELOPE_WINDOW_MS`). A `--continue` programme that outlives it is refused at the next phase with `CONTEXT_MANAGER_ENVELOPE_EXPIRED`: it fails closed, and it does say so.
-- **The guard runs when the run has an admitted envelope**, which is every `--execute` run (a dry run and an unadmitted run have none). A transparent Proxy, an NTFS alternate data stream, a write made and undone between the two digests,
+- **The guard runs on every dispatched run** (review round 1, item 2: it no longer depends on stored context), judged against one baseline taken before the first dispatch. A transparent Proxy, an NTFS alternate data stream, a write made and undone between the two digests,
   and an 8.3 short name are the stated limits of STORES1A's digest and direct-write check, and are unchanged.
 - **The worker can also read the committed files directly.** It has read access to the repository, so the context file is a convenience and a record of what ProjectOS chose to show, not a boundary: the boundary is that stored text is data, fenced, scanned and never authority.
 - **A fence is a statement to a model, not a boundary.** Core's fence names itself by a hash of what it holds, so text cannot close it early; it lowers the chance of an instruction landing and cannot remove it.
@@ -289,9 +291,61 @@ Everything else that reads `validate-all` and `cached-runner` passes untouched (
 - **The agent barrel `agent/src/index.ts` does not export the new names,** like the memory and search modules: nothing outside the loop calls them.
 - **`node:sqlite` is experimental** in Node 24.14.1 and prints a warning when an index opens.
 
+## Review round 1 (ECC security-reviewer and Agency multi-agent-systems-architect): what each fix did
+
+Both reviews reproduced or verified their findings; neither found a CRITICAL. One follow-up commit (`fix(context): ...`) carries the ten items below. The rules held: every fix has a test
+that failed first (the red run is the appendix at the end), every rule has a named validator mutation (CM-20; 41 net new mutations; 14 old ones re-anchored where their text moved), `run.ts` is still exactly the import plus
+one option (**no further `run.ts` line was needed**), core is untouched this round (no `node:*` anywhere in it), and no model, network or new dependency was added. The new agent-side credential patterns live in
+`contextScreen.ts`; **the shared screens (`authoringEvidence.ts`'s `containsSecret`, the loader's) are untouched**, so a shape added here is not added there.
+
+| # | Finding | What was done | Where the proof is |
+|---|---|---|---|
+| 1 | HIGH. The ledger was an untracked, unfoldable file in the project tree, so a governed project's next closure would refuse it as foreign | The ledger moved **out of the project tree**, into the installation state directory: `<state>/context-ledger/ledger-<first 32 hex of sha256 of [tenant, project]>/`, the place the spend ledger and the platform stop already live. `prepareRunContext` takes `ledgerRoot`; a run with an envelope and no state directory is refused (`CONTEXT_NOT_RECORDED`) saying the fix. A run whose retrieval holds no item, no decision and no placeholder (`hasContent` false) records the retrieval and places **no file**, and the brief names none (the brief is rebuilt with `records.contextPath` only when a file will exist) | `contextReviewRound1.test.ts` "leaves `git status` of a real repository empty after a whole run" (a real `git init`, real commit, a whole prepare/record/place/retire, `git status --porcelain --untracked-files=all` is empty, two entries in the state directory, none in `.projectops`); "places no file when nothing is stored"; CM-20 `the-ledger-is-in-the-project-tree`, `the-ledger-is-keyed-by-the-project-only`, `a-file-is-placed-when-nothing-is-stored`, `the-brief-names-a-file-when-nothing-is-stored` |
+| 2 | MEDIUM. The store guard closed before the checks, so check code could write the stores unseen and the next attempt's baseline absorbed it | The memory and skill stores are digested **once, before the first dispatch**, and that one baseline is kept across every attempt. It is judged after the worker (as before), **after the checks**, and **where the candidate is captured** (`evidenceFor`, which refuses to ask a review). It is no longer tied to `contextRun !== null`: a worker's direct write to a store is judged on every run, with or without stored context | `loopContext.test.ts` "keeps its baseline across the checks" (a validator writes `.projectops/skills/promoted/x/SKILL.md`; the run stops `SCOPE_DECISION` with `MEMORY_DIRECT_WRITE`), "judges a direct store write even when the run has no admitted envelope and no context"; CM-10 `the-guard-baseline-is-retaken-for-every-attempt`, `the-guard-needs-stored-context-to-judge`; CM-20 `the-stores-are-not-rejudged-after-the-checks`, `...-at-capture` |
+| 3 | MEDIUM. The retrieval key was not bound to the checkout | `ContextManagerPorts.checkout()` answers what **this checkout** is governed as, from the installation tenant registry (`checkoutIdentityOf`: the project's own declared id, `readInstallationRegistries`, `bindCheckout`, the same derivation `projectos run` used at admission, without asking for the owner receipt again). Before anything is read (before HEAD is asked), the envelope's tenant and project must equal it, or the run is refused `CONTEXT_MANAGER_NOT_THIS_CHECKOUT`, saying to check the project in the tenant registry. A refusal of this kind is **not** written to the ledger of the pair the envelope names (it is not this checkout's to write) | "refuses an envelope whose tenant and project are not the checkout governed ones, reads nothing" (the git port is never called), "refuses when the checkout cannot say..., and when only one half agrees" (null, one half, a throw); CM-20 `the-envelope-is-not-bound-to-the-checkout`, `something-is-read-before-the-checkout-is-judged`, `the-checkout-port-is-not-required`, `the-runner-supplies-a-made-up-checkout`, `the-checkout-comes-from-the-envelope` |
+| 4 | MEDIUM. The notice said approved decisions outrank | Committed decisions render **first**, in their own section; approved memory decisions follow under "Approved memory decisions (loaded, authority none)". The notice now says only the brief and a committed decision win, that memory decisions are loaded in full and carry no authority, and that they never outrank a committed decision | "puts the committed decision first when memory says the opposite" (memory says "deleted after 30 days", the committed file says "NEVER deleted": the committed text and its heading come first; no "approved decision(s) outrank"); CM-20 `the-notice-says-memory-outranks`, `memory-decisions-are-shown-before-committed-ones` |
+| 5 | MEDIUM. A read failure on a decision-bearing source was only withheld | Retrieval marks a failure `blocking` when the source can hold a decision: the approved memory files, their provenance records, and the committed decision of each phase depended on. The manager refuses `CONTEXT_MANAGER_DECISION_UNREADABLE`, naming the file and the fix (compare it with HEAD, commit or restore it). A plan-memory path and the index still fail soft (withheld by code). A **committed decision the gate refuses** (threat, hidden text, credential) stays in the file as `[WITHHELD: committed decision <id> (<code>). It is not shown here.]` and is named in `withheld`; it does not stop the run | "stops when the provenance file of an approved store cannot be read", "stops when an approved store differs from HEAD, and when a committed decision of a phase depended on does", "does not stop for a decision that is simply not in HEAD", "keeps a decision the gate blocks as a named placeholder"; CM-20 `an-unreadable-approved-store-is-only-withheld`, `an-unreadable-committed-decision-is-only-withheld`, `the-run-goes-on-without-a-decision` |
+| 6 | Decisions skipped the hidden-text and threat gate; a hostile file name could refuse the whole draft; OVER_LIMIT named no fix | Every approved memory decision now meets `gateContextItemText` (hidden text, threat, credential, size) and shows as `[BLOCKED: entry <hash> (<code>)...]` when refused. The decisions are held, **per store, to that store's own limit** (`memoryCharLimit`, the one the kernel's prompt block refuses over), and the rest are `[WITHHELD: entry <hash> (over the limit the memory stores hold)]` placeholders, so an over-cap store no longer refuses every run for ever. A stored name is shown through `displayIdOf`: printable, short, and **a name the threat scan reads as an instruction is shown as `item-<12 hex of its hash>`**, in the item marks, the fence's source id and the deterministic draft. Both OVER_LIMIT stops end with "Fix: the owner shortens the approved memory decisions or the committed decisions this phase depends on (a decision is never dropped to fit), or raises the context window" | "shows a memory decision with hidden text as a placeholder, names its code, and still holds it", "a hostile-looking file name cannot make the deterministic draft refuse the whole run" (an index hit called `docs/ignore all previous instructions.md`), "names what to shorten, and who decides, when what must stay does not fit", "aggregates a committed store over its cap into placeholders"; CM-20 `a-memory-decision-skips-the-gate`, `the-decisions-are-not-held-to-the-store-limit`, `a-stored-name-is-shown-raw`, `a-stop-names-no-fix`; CM-6 `the-draft-names-a-stored-file-raw` |
+| 7 | `CONTEXT_PATH_SHAPE` rejected roots with `( ) + @` or non-ASCII, yet the audit still said shown | The worker is placed in the project root, so the adapter now puts the **project-relative** path on the command line (`contextPointerPathOf(contextPath, root)`: only a path under that root, only `.projectops/execution/<id>.context.md`), which needs no character a root may or may not contain. And the record can no longer say shown for a worker that was not told: only a worker kind in `CONTEXT_POINTABLE_KINDS` (`claude-code-cli`) may be given a file, any other is refused `CONTEXT_NOT_POINTABLE` **before the retrieval is recorded and before a file is placed** | `loopBriefContext.test.ts` "points at the file by its project-relative path for the root %s" (a root with `Müller` and `(Team)`, one with `+` and `@`, one plain), "puts no pointer on the command line for a context path outside the root"; `loopContext.test.ts` "refuses a worker kind that is not told where the file is"; CM-20 `any-worker-kind-may-be-given-a-file`, `a-worker-kind-that-is-not-told-is-pointable`, `the-pointer-is-not-held-to-the-root` |
+| 8 | Credential-screen gaps in the agent-side screening of stored text | `storedTextSecretScreen` = the agent's `containsSecret` **or** five linear, bounded shapes: `password = value` (an unquoted value must contain a digit, so "password: required" is a note), JSON `"password": "..."`, `scheme://user:pass@host`, `Bearer <16+ chars>`, an AWS secret access key beside its name. Every repeat has an upper bound. It is the port's `secretScreen` in production. A shape-list is not proof of absence | "refuses a password assignment / a JSON password / a URL with a credential / a bearer token / an AWS secret access key", "passes ordinary text" (five prose lines), "is linear on hostile input of 60,000 characters" (five patterns, each under 2 s); CM-20 `a-password-shape-is-no-longer-screened`, `the-stored-text-screen-is-the-old-one`, `a-credential-pattern-is-unbounded` |
+| 9 | Ledger robustness (a-f) | (a) An entry is written to `NNNNNN.json.tmp` (created exclusively), checked that the number is still free, and **renamed**: a crash leaves a temporary name, which the next append sweeps, never a truncated entry. (b) Every refusal names who does what (`contextLedgerRepairOf`: the owner removes a foreign file, compares a broken chain with a backup or moves the directory aside to start a new one, checks permissions, archives a full ledger) and the directory. (c) `desktop.ini`, `Thumbs.db`, `.DS_Store` are not foreign. (d) The withheld list is capped at 400 names and a `CONTEXT_WITHHELD_TRUNCATED` entry counts the rest (580 ids made the entry body invalid before). (e) An over-cap store of approved decisions is aggregated into placeholders (item 6). (f) The evidence anchors the **newest** entry (`ledgerNewest`) as well as the retrieval's, so a ledger cut after the run is seen | "writes an entry through a temporary name and a rename, so a crash leaves no truncated entry", "ignores the files an operating system leaves", "says who does what to repair a foreign file, a broken chain and a full ledger", "caps the names withheld and counts the rest, so 600 depended-on phases...", "names the newest entry of the run in the evidence"; CM-7 `an-entry-is-renamed-over-one-that-exists`, `the-ledger-deletes-more-than-its-temporary-name`; CM-20 `an-os-file-is-read-as-foreign`, `a-ledger-refusal-names-no-fix`, `the-newest-entry-is-not-anchored`, `the-withheld-list-is-not-capped`, `the-withheld-cap-grows` |
+| 10 | A stale `<session>.context.md` was not swept; `place()` used a plain write; the envelope's expiry was not re-checked | `place()` sweeps the file, creates it with the exclusive create (which does not follow a link or hard link that someone put there), reads it back, and asks `contextRetrievalKeyOf` **again** at every placement (an expired envelope places nothing and says "start a new run"). **HEAD is not re-read at placement: recorded as a residual** (it costs a git call per dispatch; the committed reader already proved the text against the HEAD of retrieval, and the candidate is bound to the base commit separately) | "sweeps a stale file left by a killed earlier run, and creates the new one exclusively", "refuses a placement when the exclusive create loses to something that was put there, such as a link", "refuses a placement after the envelope has expired"; CM-20 `a-stale-file-stays`, `the-file-is-placed-with-a-plain-write`, `an-expired-envelope-is-placed` |
+
+### Checks after round 1 (read from exit codes and output, in this worktree)
+
+| Check | Result |
+|---|---|
+| core | **unchanged this round** (`git status` lists no file under `projectos/core`); the round-0 run stands: build exit 0, 111 files, 4,719 tests pass |
+| esbuild browser bundle of `core/src/index.ts`, evaluated in a bare context | ok, 863,697 bytes (the same as round 0); the positive control (a top-level `Buffer`) fails as it should |
+| agent `src` and all tests type-checked through the alias | exit 0, no output |
+| agent tests, alias vitest config (a temporary untracked file, deleted before the commit) | 129 files: 128 pass, **3,961 tests pass, 0 failed, 10 skipped**. The one failed file is `tenantSidecar.test.ts` and is the alias artefact described above (its `beforeAll` runs the agent's own `tsc`, which cannot resolve the new core exports through the junction), its 10 tests skipped, as in round 0 |
+| the round-1 tests (`contextReviewRound1`: 34 tests; 5 new in `loopContext`; 4 new in `loopBriefContext`; and the edited `contextLedger`, `contextRun`, `contextPorts`, `contextManager`, `contextRetrieval`) | all pass (inside the full run above) |
+| `val-projectos-context-manager1a` | PASS, **20 rules, 266 named mutations killed** (synchronous: `Array.isArray(run())` is true) |
+| `val-projectos-port-context1a`, `-port-approvals1a`, `-port-memory1a`, `-port-skills1a` | PASS, exit 0 (326; 83 scenarios, 81 + 68; 206; 447 mutations) |
+| `val-projectos-memory-provenance1a` | **PASS**, exit 0 (the MP-12 pin the lead moved in `46d66e08`: 204 text and 125 behavioural mutations) |
+| `val-projectos-memory-stores1a`, `-port-search1a`, `-port-credit1a` | PASS, exit 0 (198 + 84; 113 + 26; 189 files, 157 + 59 mutations) |
+| `val-projectos-boot-continue1a`, `-work-record-not-authority1a`, `-kernel-followup1a`, `-kernel-platform-stop1a`, `-kernel-role-review1a`, `-worker-lifecycle-bounded1a`, `-technical-continuation1a`, `-agent-workforce1a`, `-port-providers1a`, `-port-research1a` | PASS, exit 0 (the ones that read `runner.ts`, `claudeCodeCli.ts` or the context files) |
+| `validate-no-secrets` | PASS, exit 0 |
+
+`validate-all` was not run. The temporary `vitest.alias-tmp.config.ts` and two `tsconfig.alias-*` files are deleted and not committed.
+
+### Carried, with no code (named so a later phase can take them)
+
+- **Taint is recorded, not enforced.** `taintsRun` is in the ledger and the evidence; nothing yet holds the run's taint in the approvals module (no public `startRunGuard`/`recordOutsideContent`). The phase that mediates every tool call owns it.
+- **The compaction label is `agent-model`.** The sealed record's summariser list (PX-12) has no deterministic kind; the ledger's `compactor` says `deterministic-selection`.
+- **`contradicts` is never set.** `rankByProvenance` can overrule an item by a stronger one, but nothing in retrieval says that two items contradict; `overruledBy` is empty in practice.
+- **`rankByProvenance` is given `timeMs` = now for every item.** Recency among equals therefore does not order them; tier and rank do.
+- **The validator's narrowing scans `projectos/*/src` by name and call regex.** An alias or a re-export evades it; `sidecar/*.mjs` and `agent/bin` are not scanned.
+- **Index ownership is tenant and project, not domain.** One tenant's two domains with the same project id would share an index; the registry makes that pair unique today.
+- **The provenance sidecar is a working-tree file** (STORES1A owner question 2): who approved an entry is read from it, and it is not committed. A cloned repository can bring one.
+- **A deleted ledger directory cannot be seen from inside it.** The state-directory move puts the ledger out of the worker's reach (a worker holds write grants to named files in the project and nothing in the installation) and out of every `git clean`, which is how far this phase goes; the owner and anything running with the user's rights can still delete it, and only a head hash kept somewhere else would find that. The run evidence (a record the owner commits) now carries the retrieval entry's hash and the newest entry's hash, so a ledger cut or replaced after the run disagrees with a committed record; that is an anchor only once the owner has committed the evidence.
+- **HEAD is not re-read at each placement** (item 10).
+- **The production checkout identity uses the install root the running code names** (`tenantSourceOf({})`), as `projectos run` does outside a test or the packaged sidecar. A sidecar whose bound system root differs would refuse (fail closed) rather than read another project's notes.
+
 ## Commits
 
 - `feat(context): the context manager, retrieval keyed on the admitted run envelope, handed over by reference`: the core rules, the agent files, the loop wiring, the brief and adapter change, the one `run.ts` option, the tests, the validator, the four narrowed rules, the registration and this file. One commit on the branch, not pushed.
+- `fix(context): review round 1 ...`: the ten items above, one follow-up commit (`contextScreen.ts`, `contextCheckout.ts`, `contextReviewRound1.test.ts`, the edits to the files listed in the round-1 table, CM-20, and this file). Not pushed.
 
 ## Appendix: the failing run, test names (against the stub, before the implementation)
 
@@ -527,5 +581,52 @@ Names are as vitest printed them (a `%s` is an `it.each` value). 191 failed and 
 - loopBriefContext.test.ts: the Claude Code adapter hands the path on from the brief, and only from the brief > starts a worker with the context path in its one instruction, when the brief names one
 - loopBriefContext.test.ts: the Claude Code adapter hands the path on from the brief, and only from the brief > starts it exactly as before when the brief names none
 - loopBriefContext.test.ts: the Claude Code adapter hands the path on from the brief, and only from the brief > rejoins with the same pointer, from the current brief and never from the session record
-- loopContext.test.ts: with an admitted envelope the runner hands the worker the stored context, by reference > removes the file as soon as the worker returns: it is never in what the checks judge, and 
+- loopContext.test.ts: with an admitted envelope the runner hands the worker the stored context, by reference > removes the file as soon as the worker returns: it is never in what the checks judge, and
 
+## Appendix: the review round 1 failing run
+
+Written before any round-1 source was changed, against the round-0 source plus the test-support and the new tests. `contextReviewRound1.test.ts` and `loopBriefContext.test.ts` ran: **36 failed, 26 passed of 62**. `loopContext.test.ts` did **not load** (it imports `contextLedgerDirectoryOf`, which did not exist), so its five new tests (an empty retrieval places no file, the ledger is in the state directory, an unpointable worker kind is refused, a direct write is judged without an envelope, the baseline survives the checks) were red by failure to load, and its 20 older tests were not run in that pass.
+
+**loopBriefContext.test.ts**: 4 failed
+
+- points at the file by its project-relative path for the root C:/Users/Müller/OneDrive - Corp (Team)/proj
+- points at the file by its project-relative path for the root C:/dev/My+App@2/proj
+- points at the file by its project-relative path for the root C:/dev/ProjectOS
+- puts no pointer on the command line for a context path outside the root, and says so by returning no path
+
+**contextReviewRound1.test.ts**: 32 failed
+
+- leaves `git status` of a real repository empty after a whole run with stored context, and writes the ledger in the state directory
+- keys the ledger directory by a hash of the tenant and the project, so no id reaches a path and two projects never share a chain
+- refuses the run, saying the fix, when the installation gives no state directory
+- places no file when nothing is stored, and still logs the retrieval
+- refuses an envelope whose tenant and project are not the checkout governed ones, reads nothing, and names the fix
+- refuses when the checkout cannot say what it is governed as, and when only one half agrees
+- puts the committed decision first when memory says the opposite, and does not say a memory decision outranks anything
+- stops when the provenance file of an approved store cannot be read
+- stops when an approved store differs from HEAD, and when a committed decision of a phase depended on does
+- keeps a decision the gate blocks as a named placeholder, and does not stop for it
+- shows a memory decision with hidden text as a placeholder, names its code, and still holds it
+- a hostile-looking file name cannot make the deterministic draft refuse the whole run
+- names what to shorten, and who decides, when what must stay does not fit
+- refuses a password assignment
+- refuses a JSON password
+- refuses a URL with a credential
+- refuses a bearer token
+- refuses an AWS secret access key
+- passes ordinary text (The build uses Node 24.)
+- passes ordinary text (password: required)
+- passes ordinary text (Bearer of bad news)
+- passes ordinary text (see https://example.com/docs)
+- passes ordinary text (a secret garden)
+- is linear on hostile input of 60,000 characters
+- writes an entry through a temporary name and a rename, so a crash leaves no truncated entry
+- ignores the files an operating system leaves in a directory
+- says who does what to repair a foreign file, a broken chain and a full ledger
+- caps the names withheld and counts the rest, so 600 depended-on phases do not make the entry invalid
+- aggregates a committed store over its cap into placeholders instead of refusing every run
+- names the newest entry of the run in the evidence, so a cut tail is seen
+- refuses a placement when the exclusive create loses to something that was put there, such as a link
+- refuses a placement after the envelope has expired
+
+**Passed in that run, and what they were worth.** 4 of the new tests in `contextReviewRound1.test.ts` passed against round-0 source: "does not stop for a decision that is simply not in HEAD, or for a plan note and an index that fail" (true before and after: it pins that the fix does not over-reach), "sweeps a stale file left by a killed earlier run, and creates the new one exclusively" (the plain write overwrote a stale file already; the exclusive create and its refusal are the two tests that were red), and two tests that were **deleted afterwards** because their premise did not hold: "retries a draft the screen refuses with a count-only draft" (asserted `ready` or `refused`, so it could not fail; the fix it named, sanitised names, is proved by "a hostile-looking file name cannot make the deterministic draft refuse the whole run") and a placeholder for item 7 (item 7 is proved in `loopBriefContext.test.ts` and `loopContext.test.ts`). The 22 `loopBriefContext.test.ts` tests that passed are the older ones; the four new ones failed.

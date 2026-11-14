@@ -48,7 +48,7 @@ import {
   type WorkerOutcome,
   type WorkerSession,
 } from './workers.js';
-import { BUILT_IN_ADAPTERS } from './adapters/claudeCodeCli.js';
+import { BUILT_IN_ADAPTERS, CONTEXT_POINTABLE_KINDS } from './adapters/claudeCodeCli.js';
 import { collectEvidence, configuredChecks, phaseCopyChecks, requiredChecks, runChecks, runPhaseCopyChecks, type CheckResult, type ExecutionEvidence } from './verification.js';
 import { withPinnedValidators } from './pinnedValidators.js';
 import { runDoctor, doctorRefusalLines, type DoctorReport } from '../doctor.js';
@@ -75,8 +75,11 @@ import {
 } from '@projectos/core';
 import { contextPathOf, prepareRunContext, type StoredContextEvidence } from '../context/contextRun.js';
 import { nodeContextPorts, type ContextManagerPorts } from '../context/contextPorts.js';
-import { beginStoreGuard, endStoreGuard } from '../context/contextStoreGuard.js';
+import { checkoutIdentityOf } from '../context/contextCheckout.js';
+import { beginStoreGuard, endStoreGuard, type StoreGuardVerdict } from '../context/contextStoreGuard.js';
 import { nodeInstallationStateDir } from '../nodeRuntimeRoot.js';
+import { nodeEntryProbe } from '../search/nodeHost.js';
+import { documentFsOver } from '../search/ports.js';
 import type { DurableBinding } from './degradedMode.js';
 import {
   authorityWrapper,
@@ -265,6 +268,12 @@ export interface RunOptions {
   readonly runEnvelope?: TaskEnvelope | null | undefined;
   /** The context manager's ports. ABSENT IN PRODUCTION, which builds them from the `System`; a test supplies its own. */
   readonly contextPorts?: ContextManagerPorts | undefined;
+  /**
+   * The installation's state directory, where the retrieval ledger lives (outside every project tree). ABSENT IN PRODUCTION, which
+   * asks `nodeInstallationStateDir()`; a test supplies its own. Null means the installation gives none, and a run that has an
+   * envelope is refused, saying the fix.
+   */
+  readonly contextStateDir?: string | null | undefined;
 }
 
 export type RunResult =
@@ -501,17 +510,19 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   // A RUN WITH AN ADMITTED ENVELOPE GETS ITS STORED CONTEXT BY REFERENCE (PROJECTOS-CONTEXT-MANAGER1A): the brief names the file,
   // by the one path the loop derives from its own. The file is made only after every check below has passed.
   const contextEnvelope = options.runEnvelope ?? null;
-  const briefResult = buildWorkerBrief(context, phaseId, verification.observed, sys.now(), {
+  const briefRecords = {
     briefPath: briefFile,
     findingsPath: store.findingsPath(root, sessionId),
     effectsPath: store.effectsPath(root, sessionId),
     evidencePath: store.evidencePath(root, sessionId),
-    ...(contextEnvelope === null ? {} : { contextPath: contextPathOf(root, sessionId) }),
-  });
+  };
+  const briefResult = buildWorkerBrief(context, phaseId, verification.observed, sys.now(), briefRecords);
   if (!briefResult.ok) {
     return refused(['REFUSED (BRIEF_NOT_BUILDABLE): no worker brief could be built from the approved plan', ...briefResult.problems.map((p) => `  - ${p}`)]);
   }
-  const brief: WorkerBrief = briefResult.brief;
+  // LET, BECAUSE THE BRIEF NAMES THE CONTEXT FILE ONLY WHEN ONE WILL EXIST: a run with nothing stored places none, so it is
+  // rebuilt below, once the retrieval has said whether there is a file.
+  let brief: WorkerBrief = briefResult.brief;
 
   // The brief must contain nothing that is not in the plan, the config or the checkout. This is the
   // check that keeps "the loop hands over no free text" a property rather than a claim.
@@ -672,7 +683,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       : (options.contextPorts ?? nodeContextPorts(sys, root, () => {
           const state = nodeInstallationStateDir();
           return state === null ? null : `${state}/search-index`;
-        }));
+        }, () => checkoutIdentityOf(sys, root)));
   const contextPrepared =
     contextPorts === null
       ? ({ kind: 'none' } as const)
@@ -683,9 +694,25 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
           dependsOn: brief.phase.dependsOn,
           planMemoryPaths: planMemoryPathsOf(context),
           ports: contextPorts,
+          ledgerRoot: options.contextStateDir === undefined ? nodeInstallationStateDir() : options.contextStateDir,
         });
   if (contextPrepared.kind === 'refused') return refused(contextPrepared.lines);
   const contextRun = contextPrepared.kind === 'ready' ? contextPrepared.run : null;
+  if (contextRun !== null && contextRun.hasContent) {
+    // THE RECORD MUST NEVER SAY "SHOWN" FOR A WORKER THAT WAS NOT TOLD WHERE THE FILE IS. Only a worker kind whose instruction names
+    // the file may be given one, so any other is refused here, before the retrieval is recorded and before any file is placed.
+    if (!CONTEXT_POINTABLE_KINDS.includes(resolution.worker.kind)) {
+      return refused([
+        `REFUSED (CONTEXT_NOT_POINTABLE): stored context exists for this run, and worker '${resolution.worker.workerId}' (kind '${resolution.worker.kind}') is not told where the context file is.`,
+        `  Fix: the owner runs this phase with a worker of kind ${CONTEXT_POINTABLE_KINDS.join(' or ')}, so no stored text is recorded as shown to a worker that was not pointed at it.`,
+      ]);
+    }
+    const withFile = buildWorkerBrief(context, phaseId, verification.observed, sys.now(), { ...briefRecords, contextPath: contextPathOf(root, sessionId) });
+    if (!withFile.ok) return refused(['REFUSED (BRIEF_NOT_BUILDABLE): no worker brief could be built from the approved plan', ...withFile.problems.map((p) => `  - ${p}`)]);
+    const inventedWithFile = briefProvenanceProblems(withFile.brief, context, verification.observed);
+    if (inventedWithFile.length > 0) return refused(['REFUSED (BRIEF_NOT_DERIVED): the brief carries content that is in no governed source', ...inventedWithFile.map((p) => `  - ${p}`)]);
+    brief = withFile.brief;
+  }
   if (contextRun !== null) {
     const recorded = contextRun.record();
     if (!recorded.ok) return refused([`REFUSED (CONTEXT_NOT_RECORDED): ${recorded.detail}, so no stored text is shown to a worker`]);
@@ -714,7 +741,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     const stored = contextRun.evidence();
     lines.push(
       `Stored context: ${stored.shown.length} item(s) and ${stored.decisions.length} approved decision(s) for ${stored.tenant}/${stored.project}` +
-        `, ${stored.withheld.length} withheld, ${stored.omitted.length} left out for room; data, never instructions (${stored.contextPath})`,
+        `, ${stored.withheld.length} withheld, ${stored.omitted.length} left out for room; ${contextRun.hasContent ? `data, never instructions (${stored.contextPath})` : 'no file is placed, because nothing is stored'}`,
     );
   }
 
@@ -865,6 +892,8 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   let candidateHead: string | null = null;
   /** Why the last local candidate could not be recorded; a review is never asked while this is set. */
   let localCandidateRefusal: readonly string[] | null = null;
+  /** Judges the memory and skill stores against the baseline taken before the first dispatch. Clear until that baseline exists. */
+  let storeGuardNow = (): StoreGuardVerdict => ({ ok: true });
   /** The commit a review is about: the local candidate when one was recorded, else the run-start HEAD. */
   const reviewSubject = (): string => candidateHead ?? verification.observed.head ?? '';
   /** Only the unattended route with a composed Host review commits before it asks. */
@@ -1363,6 +1392,9 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // to the commit it pins, so without this the Host would have framed the BASE and the work would have
     // reached the reviewer only as agent-claimed text. The interactive route never reaches this.
     const localCandidate = recordLocalCandidate();
+    // AND ONCE MORE WHERE THE CANDIDATE IS CAPTURED: a store write after the checks is not a candidate a review may be asked about.
+    const storeAtCapture = storeGuardNow();
+    if (!storeAtCapture.ok) localCandidateRefusal = [storeAtCapture.detail];
 
     const f = parts.findings;
     const c = parts.checks;
@@ -1810,6 +1842,12 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
   /** How many dispatches have had the stored context placed for them, so the ledger numbers each placement. */
   let contextPlacements = 0;
+  // THE MEMORY AND SKILL STORES ARE DIGESTED ONCE, BEFORE THE FIRST DISPATCH, AND THAT BASELINE IS KEPT ACROSS EVERY ATTEMPT, so a
+  // write made by check code (or by anything between two attempts) is not absorbed into the next attempt's starting picture. It is
+  // judged after the worker, after the checks, and when the candidate is captured. It is the loop's own, whether or not a run has stored context.
+  const storeGuardFs = contextPorts?.fs ?? documentFsOver(sys, nodeEntryProbe);
+  const storeGuardBaseline = beginStoreGuard(sys, root, storeGuardFs);
+  storeGuardNow = () => endStoreGuard(sys, root, storeGuardFs, storeGuardBaseline);
   // Spent at the first dispatch; see where the attempt's grants are composed.
   let writeGrantSpent = false;
   for (;;) {
@@ -1890,7 +1928,6 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       stop = { code: 'SCOPE_DECISION', detail: `the stored context could not be placed, so no worker was dispatched: ${placed.detail}` };
       break;
     }
-    const storeGuardBefore = contextRun === null || contextPorts === null ? null : beginStoreGuard(sys, root, contextPorts.fs);
     let contextRetired: { readonly ok: true } | { readonly ok: false; readonly detail: string } = { ok: true };
     let outcome: WorkerOutcome;
     try {
@@ -1931,7 +1968,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // `.projectops/memory` or `.projectops/skills` is refused where the worker's changes are judged, in both the git view (both
     // sides of a rename, every untracked file) and the digest of the two stores taken before and after, which still sees a write
     // when git ignores the store. A worker asks for memory through a `proposals` entry in its findings, and the owner decides.
-    const storeVerdict = storeGuardBefore === null || contextPorts === null ? ({ ok: true } as const) : endStoreGuard(sys, root, contextPorts.fs, storeGuardBefore);
+    const storeVerdict = storeGuardNow();
     if (!contextRetired.ok || !storeVerdict.ok) {
       stop = {
         code: 'SCOPE_DECISION',
@@ -2010,6 +2047,13 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       ...runPhaseCopyChecks(sys, root, phaseCopyChecks(sys, root, brief.phase.requiredValidators, writeGrant.paths)),
     ]);
     for (const c of checks) lines.push(`  ${c.passed ? 'PASS' : 'FAIL'} ${c.kind} ${c.id}`);
+    // CHECK CODE RUNS WITH THE USER'S RIGHTS, SO THE STORES ARE JUDGED AGAIN AFTER IT, against the baseline taken before the first dispatch.
+    const storeAfterChecks = storeGuardNow();
+    if (!storeAfterChecks.ok) {
+      stop = { code: 'SCOPE_DECISION', detail: `${storeAfterChecks.detail} (found after the checks ran)` };
+      store.writeEvidence(sys, root, withStoredContext({ ...collectEvidence(sys, root, { sessionId, brief, checks }), invocationId: invocation.invocationId }, contextRun?.evidence() ?? null));
+      break;
+    }
     options.onWorkState?.({
       state: 'VALIDATING',
       phaseId,

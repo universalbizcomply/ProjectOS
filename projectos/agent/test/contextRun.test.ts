@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseContextLedgerEntry, sha256Hex } from '@projectos/core';
-import { prepareRunContext, type ContextRunSystem, type PrepareRunContextInput, type RunContext } from '../src/context/contextRun.js';
+import { contextLedgerDirectoryOf, prepareRunContext, type ContextRunSystem, type PrepareRunContextInput, type RunContext } from '../src/context/contextRun.js';
 import { ENVELOPE_NOW, MEMORY_FILE, ROOT, admittedRun, storeOf, storeText, worldPorts, type WorldOptions } from './support/contextWorld.js';
 
 const SESSION = 'PHASE-abcdef012345-1a2b3c4d';
 const CONTEXT_PATH = `${ROOT}/.projectops/execution/${SESSION}.context.md`;
-const LEDGER_DIR = `${ROOT}/.projectops/context-ledger`;
+const STATE = '/state';
+const LEDGER_DIR = contextLedgerDirectoryOf(STATE, admittedRun().tenant, admittedRun().project);
 const decisionPath = (id: string): string => `.projectops/closure/decisions/${id}.json`;
 const FACT = 'The build uses Node 24.';
 
@@ -26,6 +27,12 @@ function fakeSystem(initial: Record<string, string> = {}, over: Partial<ContextR
       files[path] = text;
       return true;
     },
+    renameFile: (from, to) => {
+      if (!(from in files)) return false;
+      files[to] = files[from] as string;
+      delete files[from];
+      return true;
+    },
     removeFile: (path) => {
       delete files[path];
       return true;
@@ -41,6 +48,7 @@ const input = (options: WorldOptions = {}, over: Partial<PrepareRunContextInput>
   query: 'booking panel',
   dependsOn: ['PHASE-A'],
   planMemoryPaths: [],
+  ledgerRoot: STATE,
   ports: worldPorts({
     tree: { [decisionPath('PHASE-A')]: '{"decision":"closed after review"}', [MEMORY_FILE]: storeText([FACT]) },
     stores: { memory: storeOf([{ text: FACT, kind: 'fact' }]) },

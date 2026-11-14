@@ -162,6 +162,7 @@ export interface WorldOptions {
   readonly isProxy?: ContextManagerPorts['isProxy'];
   readonly registry?: ActionRegistry | null;
   readonly drafter?: ContextManagerPorts['drafter'];
+  readonly checkout?: ContextManagerPorts['checkout'];
 }
 
 export function worldPorts(options: WorldOptions = {}) {
@@ -175,6 +176,7 @@ export function worldPorts(options: WorldOptions = {}) {
     readMemoryStore: (target) => ({ ok: true, value: options.stores?.[target] ?? { entries: [], provenance: new Map() } }),
     openIndex: options.openIndex ?? null,
     registry: options.registry === undefined ? null : options.registry,
+    checkout: options.checkout ?? (() => ({ tenant: admittedRun().tenant, project: admittedRun().project })),
     ...(options.drafter === undefined ? {} : { drafter: options.drafter }),
   };
   return { ports, calls: world.calls };

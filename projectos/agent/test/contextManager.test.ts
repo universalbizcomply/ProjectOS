@@ -68,8 +68,9 @@ describe('retrieval is keyed on the admitted run envelope, and fails closed with
   it('keys two projects apart: each run opens its own project index and reads no other', () => {
     const owners: string[] = [];
     const open = (owner: { tenant: string; project: string }) => (owners.push(`${owner.tenant}/${owner.project}`), null);
-    assemble({ openIndex: open }, { envelope: admittedRun('polygo') });
-    assemble({ openIndex: open }, { envelope: admittedRun('projectos') });
+    const identityOf = (project: 'polygo' | 'projectos') => ({ tenant: admittedRun(project).tenant, project: admittedRun(project).project });
+    assemble({ openIndex: open, checkout: () => identityOf('polygo') }, { envelope: admittedRun('polygo') });
+    assemble({ openIndex: open, checkout: () => identityOf('projectos') }, { envelope: admittedRun('projectos') });
     expect(owners.length).toBe(2);
     expect(new Set(owners).size).toBe(2);
     expect(owners.map((owner) => owner.split('/')[1])).toEqual(['polygo', 'projectos']);
@@ -200,7 +201,7 @@ describe('approved decisions are always loaded', () => {
     expect(result.fileText).toContain(DECISION);
     expect(result.fileText).toMatch(/\[decision, ledger: docs\/changes\/delta_spec_V4_PORTS\.md\]/);
     expect(result.decisions).toEqual([{ hash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/), target: 'memory' }]);
-    expect(result.fileText).toContain('## Approved decisions');
+    expect(result.fileText).toContain('## Approved memory decisions');
   });
 
   it('keeps them when compaction runs: only stored items are summarised away', () => {
