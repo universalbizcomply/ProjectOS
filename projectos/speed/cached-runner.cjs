@@ -186,6 +186,8 @@ const MODULES = [
   "val-projectos-tenant-principal1a",
   // PROJECTOS-TENANT-CREDENTIALS1A — a requester is a kernel-issued run handle; tenant and platform classes; reach; bound mutators.
   "val-projectos-tenant-credentials1a",
+  // PROJECTOS-PORT-ROUTINES1A — routine floors: 15-minute minimum, 20 enabled, off after 10 failures, P2 ceiling unattended, one key per occurrence.
+  "val-projectos-port-routines1a",
   // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
   "val-projectos-connector-contract1a"
 ];
