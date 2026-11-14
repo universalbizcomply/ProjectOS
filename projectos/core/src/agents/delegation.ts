@@ -12,8 +12,9 @@
  *
  * THE DEPTH, THE COUNT AND THE BUDGET ARE THE BOOK'S. A request has no field for any of them. A delegate's depth is its
  * parent's plus one, read from the parent's node; a parent the book has never seen is refused and is never taken for a root.
- * A root is an envelope the kernel's own door admitted, registered once, and never an envelope that has a parent, so depth
- * cannot be reset by registering again and a hand-built root with a huge budget is refused. Fan-out counts every child a
+ * A root is an envelope the kernel's own door admitted, a run of the agent the kernel names as its actor, registered once. A
+ * child envelope is never a run, so depth cannot be reset by registering it again, and a hand-built root with a huge budget is
+ * refused. A child never outlives its parent, so an expired parent has only expired children and is refused by that. Fan-out counts every child a
  * parent ever had. The budget a child asks for is reserved from what the parent has left after its own recorded spend, and
  * is not given back when the child ends: what it really spent belongs to the canonical budget adapter, not to this module.
  *
@@ -56,12 +57,16 @@ import {
   MAX_DELEGATION_NODES_PER_PROJECT,
   MAX_LIVE_DELEGATES_PER_PROJECT,
   MAX_LIVE_DELEGATES_PER_ROOT,
+  MAX_TOMBSTONES_PER_PROJECT,
 } from './delegationLimits.js';
 import { goalProblem } from './delegationTasks.js';
-import { childGrantProblem, type GrantRefusalCode } from './delegationToolsets.js';
-import { snapshotEnvelope } from './envelopeSnapshot.js';
+import { childGrantProblem, isBlockedGrant, type GrantRefusalCode } from './delegationToolsets.js';
+import { deepSnapshot, snapshotEnvelope } from './envelopeSnapshot.js';
 import { readOwnerForm, verifiedByPort, type OwnerFormVerifier } from './ownerForm.js';
 import { snapshotOf } from './plainRecords.js';
+
+/** The action the kernel's door defines for a run (`mintCrossing` in taskEnvelope.ts holds a crossing to a run of this action). */
+const RUN_ACTION = 'run-start';
 
 export type NodeState = 'live' | 'completed' | 'failed' | 'unknown';
 const NODE_STATES: readonly NodeState[] = ['live', 'completed', 'failed', 'unknown'];
@@ -148,10 +153,13 @@ export type DelegationCode =
   | 'DELEGATED_CLASS'
   | 'OVER_BUDGET'
   | 'ROOT_NOT_ADMITTED'
+  | 'ROOT_NOT_A_RUN'
+  | 'ROOT_AGENT_MISMATCH'
+  | 'CHILD_EXPIRED'
+  | 'TOMBSTONES_FULL'
   | 'ROOT_SCOPE'
   | 'ROOT_LABEL'
   | 'ROOT_AGENT_UNKNOWN'
-  | 'ROOT_IS_A_CHILD'
   | 'NODE_UNKNOWN'
   | 'ALREADY_SETTLED'
   | 'OUTCOME'
@@ -177,11 +185,23 @@ export interface DelegationFailure {
 
 export type DelegationResult = { readonly ok: true; readonly book: DelegationBook; readonly node: DelegationNode } | DelegationFailure;
 
-const BOOKS = new WeakMap<DelegationBook, ReadonlyMap<string, DelegationNode>>();
+/** An envelope id the book pruned, with the instant its envelope expires: it cannot be admitted again until then, and not after. */
+interface Tombstone {
+  readonly expiry: number;
+  readonly scope: string;
+}
 
-function bookOf(nodes: ReadonlyMap<string, DelegationNode>, lastSeen: number): DelegationBook {
+interface BookState {
+  readonly nodes: ReadonlyMap<string, DelegationNode>;
+  readonly tombs: ReadonlyMap<string, Tombstone>;
+}
+
+const BOOKS = new WeakMap<DelegationBook, BookState>();
+const noTombs = (): ReadonlyMap<string, Tombstone> => new Map();
+
+function bookOf(nodes: ReadonlyMap<string, DelegationNode>, lastSeen: number, tombs: ReadonlyMap<string, Tombstone> = noTombs()): DelegationBook {
   const book: DelegationBook = Object.freeze({ size: nodes.size, lastSeen });
-  BOOKS.set(book, nodes);
+  BOOKS.set(book, { nodes, tombs });
   return book;
 }
 
@@ -204,6 +224,7 @@ function kernelAdmitted(envelope: unknown): envelope is TaskEnvelope {
 
 interface Prepared {
   readonly nodes: ReadonlyMap<string, DelegationNode>;
+  readonly tombs: ReadonlyMap<string, Tombstone>;
   readonly now: number;
   readonly iso: string;
 }
@@ -219,7 +240,7 @@ function prepare(book: DelegationBook, context: DelegationContext): Prepared | D
   if (!isAgentBook(context.agents)) return fail(book, 'AGENT_BOOK', 'the agent book was not built by this module');
   const now = readClock(context.clock, book.lastSeen);
   if (now === null) return fail(book, 'CLOCK', 'the clock gave no usable time, or a time before one the book has already seen');
-  return { nodes: held, now, iso: new Date(now).toISOString() };
+  return { nodes: held.nodes, tombs: held.tombs, now, iso: new Date(now).toISOString() };
 }
 
 const isFailure = (value: Prepared | DelegationFailure): value is DelegationFailure => 'ok' in value;
@@ -271,16 +292,17 @@ export function registerRoot(book: DelegationBook, input: DelegationContext, ask
   if (envelope.tenant !== binding.tenant || envelope.project !== binding.projectId || envelope.domain !== binding.domain) {
     return fail(book, 'ROOT_SCOPE', "the root envelope is not in the binding's tenant, domain and project");
   }
-  if (envelope.parentEnvelopeId !== null) return fail(book, 'ROOT_IS_A_CHILD', 'an envelope with a parent is not a root, and registering it again would reset its depth');
   const resolved = resolveAction(registry, envelope.action);
   if (resolved.actionClass !== envelope.actionClass || resolved.environment !== envelope.environment) {
     return fail(book, 'ROOT_LABEL', "the root envelope's class or environment is not the registry's for its action");
   }
+  if (envelope.action !== RUN_ACTION) return fail(book, 'ROOT_NOT_A_RUN', `a root is the kernel's '${RUN_ACTION}' envelope, not '${envelope.action}'`);
+  if (request.agentId !== envelope.actor.agent) return fail(book, 'ROOT_AGENT_MISMATCH', "the root's agent is not the agent the kernel's envelope names as its actor");
   const record = findAgent(context.agents, binding.tenant, binding.projectId, request.agentId);
   if (record === null) return fail(book, 'ROOT_AGENT_UNKNOWN', 'the root agent is not held by this tenant and project');
   if (envelopeExpired(envelope, prepared.iso)) return fail(book, 'PARENT_EXPIRED', 'the root envelope has expired');
   const key = nodeKey(binding.tenant, binding.projectId, envelope.envelopeId);
-  if (prepared.nodes.has(key)) return fail(book, 'DUPLICATE_ENVELOPE', 'this envelope is already in the book');
+  if (prepared.nodes.has(key) || prepared.tombs.has(key)) return fail(book, 'DUPLICATE_ENVELOPE', 'this envelope is already in the book, or was pruned from it and cannot be admitted again');
   if (nodeCount(prepared.nodes, binding) >= MAX_DELEGATION_NODES_PER_PROJECT) return fail(book, 'BOOK_FULL', 'the book is full for this project; nothing is dropped to make room');
   const node: DelegationNode = Object.freeze({
     tenant: binding.tenant,
@@ -302,14 +324,13 @@ export function registerRoot(book: DelegationBook, input: DelegationContext, ask
     released: false,
     admittedAt: prepared.now,
   });
-  return { ok: true, book: bookOf(new Map([...prepared.nodes, [key, node]]), prepared.now), node };
+  return { ok: true, book: bookOf(new Map([...prepared.nodes, [key, node]]), prepared.now, prepared.tombs), node };
 }
 
 /** The first of these a request breaks, in this order, or `null`. Each is its own rule. */
 function parentProblem(parent: DelegationNode | undefined, context: DelegationContext, prepared: Prepared): readonly [DelegationCode, string] | null {
   if (parent === undefined) return ['PARENT_UNKNOWN', 'the parent is not in the book for this tenant and project; it is not taken for a root'];
   if (parent.state !== 'live') return ['PARENT_NOT_LIVE', 'the parent has ended'];
-  if (envelopeExpired(parent.envelope, prepared.iso)) return ['PARENT_EXPIRED', "the parent's envelope has expired"];
   const record = findAgent(context.agents, parent.tenant, parent.project, parent.agentId);
   if (record === null || record.mayDelegate !== true) return ['NOT_DELEGATE_CAPABLE', "the parent's agent record does not say it may delegate"];
   if (record.recordHash !== parent.recordHash) return ['RECORD_CHANGED', "the parent's agent record is not the one the run started under"];
@@ -352,8 +373,9 @@ export function admitDelegation(book: DelegationBook, input: DelegationContext, 
   const checked = checkChildEnvelope(parent.envelope, plain, registry);
   if (!checked.ok) return fail(book, `ENVELOPE_${checked.rule}` as DelegationCode, checked.reasons.join('; '));
   const child = checked.envelope;
+  if (envelopeExpired(child, prepared.iso)) return fail(book, 'CHILD_EXPIRED', "the child's envelope has expired");
   const key = nodeKey(binding.tenant, binding.projectId, child.envelopeId);
-  if (nodes.has(key)) return fail(book, 'DUPLICATE_ENVELOPE', 'this envelope is already in the book');
+  if (nodes.has(key) || prepared.tombs.has(key)) return fail(book, 'DUPLICATE_ENVELOPE', 'this envelope is already in the book, or was pruned from it and cannot be admitted again');
   if (!classAtMost(resolveAction(registry, child.action).actionClass, DELEGATED_CLASS_CEILING)) {
     return fail(book, 'DELEGATED_CLASS', `a delegate may act at ${DELEGATED_CLASS_CEILING} at most: no child holds a P5 action`);
   }
@@ -382,7 +404,7 @@ export function admitDelegation(book: DelegationBook, input: DelegationContext, 
   const next = new Map(nodes);
   next.set(nodeKey(binding.tenant, binding.projectId, parent.envelopeId), updated);
   next.set(key, node);
-  return { ok: true, book: bookOf(next, prepared.now), node };
+  return { ok: true, book: bookOf(next, prepared.now, prepared.tombs), node };
 }
 
 export type SettleOutcome = 'completed' | 'failed' | 'unknown';
@@ -405,7 +427,7 @@ export function settleDelegation(book: DelegationBook, input: DelegationContext,
   const next = new Map(nodes);
   next.set(key, Object.freeze({ ...node, state: outcome }));
   endBelow(next, node);
-  return { ok: true, book: bookOf(next, prepared.now) };
+  return { ok: true, book: bookOf(next, prepared.now, prepared.tombs) };
 }
 
 export type ExpireResult = { readonly ok: true; readonly book: DelegationBook; readonly expired: number } | DelegationFailure;
@@ -416,7 +438,7 @@ export function expireStaleDelegations(book: DelegationBook, input: DelegationCo
   const prepared = prepare(book, context);
   if (isFailure(prepared)) return prepared;
   const { nodes, expired } = withExpiry(prepared.nodes, prepared.now);
-  return { ok: true, book: expired === 0 ? book : bookOf(nodes, prepared.now), expired };
+  return { ok: true, book: expired === 0 ? book : bookOf(nodes, prepared.now, prepared.tombs), expired };
 }
 
 /** Record spend by a live node's own work, held with what it has reserved for its children to its budget. */
@@ -433,7 +455,7 @@ export function recordDelegateSpend(book: DelegationBook, input: DelegationConte
   if (node.spent + amount + node.reserved > node.envelope.budget) return fail(book, 'OVER_BUDGET', 'this spend, with what is reserved for children, is past the budget');
   const next = new Map(nodes);
   next.set(key, Object.freeze({ ...node, spent: node.spent + amount }));
-  return { ok: true, book: bookOf(next, prepared.now) };
+  return { ok: true, book: bookOf(next, prepared.now, prepared.tombs) };
 }
 
 const RELEASE_FIELDS = ['envelopeId', 'tenant', 'project'] as const;
@@ -457,29 +479,49 @@ export function releaseDelegation(book: DelegationBook, input: DelegationContext
   }
   const next = new Map(nodes);
   next.set(key, Object.freeze({ ...node, released: true }));
-  return { ok: true, book: bookOf(next, prepared.now) };
+  return { ok: true, book: bookOf(next, prepared.now, prepared.tombs) };
 }
 
 export type PruneResult = { readonly ok: true; readonly book: DelegationBook; readonly pruned: number } | DelegationFailure;
 
 /**
- * Drop ended delegates (completed or failed, never unknown) that have nothing beneath them, so the node cap is not a lifetime
- * cap. Their parent keeps its child count and its reservation, and roots are never dropped, so a spent budget cannot be reset
- * by registering a root again.
+ * Drop every ended node (completed or failed) whose whole subtree has ended too, roots included, so the node cap is not a
+ * lifetime cap. A node with an unknown or live node beneath it is kept. A pruned parent's count and reservation stay on the
+ * parent. Each pruned envelope id is remembered as a tombstone until its envelope expires, so it cannot be admitted again and
+ * a spent root budget cannot be reset by registering the root again. A tombstone is dropped only once its envelope has
+ * expired, when it could not be admitted anyway; if the tombstones for the project are full, nothing is pruned and nothing is
+ * forgotten.
  */
 export function pruneSettledDelegations(book: DelegationBook, input: DelegationContext): PruneResult {
   const context = once(input);
   const prepared = prepare(book, context);
   if (isFailure(prepared)) return prepared;
   const { nodes } = withExpiry(prepared.nodes, prepared.now);
-  const parents = new Set([...nodes.values()].map((node) => `${node.tenant}\u0000${node.project}\u0000${node.parentEnvelopeId}`));
-  const gone = [...nodes].filter(
-    ([, node]) => inScope(node, context.binding) && node.depth > 0 && (node.state === 'completed' || node.state === 'failed') && !parents.has(`${node.tenant}\u0000${node.project}\u0000${node.envelopeId}`),
-  );
-  if (gone.length === 0) return { ok: true, book, pruned: 0 };
+  const mine = [...nodes].filter(([, node]) => inScope(node, context.binding));
+  const childrenOf = new Map<string, DelegationNode[]>();
+  for (const [, node] of mine) {
+    if (node.parentEnvelopeId !== null) childrenOf.set(node.parentEnvelopeId, [...(childrenOf.get(node.parentEnvelopeId) ?? []), node]);
+  }
+  const memo = new Map<string, boolean>();
+  const prunable = (node: DelegationNode): boolean => {
+    const known = memo.get(node.envelopeId);
+    if (known !== undefined) return known;
+    const result = (node.state === 'completed' || node.state === 'failed') && (childrenOf.get(node.envelopeId) ?? []).every(prunable);
+    memo.set(node.envelopeId, result);
+    return result;
+  };
+  const gone = mine.filter(([, node]) => prunable(node));
+  const scope = scopeKey(context.binding.tenant, context.binding.projectId);
+  const tombs = new Map([...prepared.tombs].filter(([, tomb]) => tomb.expiry > prepared.now));
+  const held = [...tombs.values()].filter((tomb) => tomb.scope === scope).length;
+  if (gone.length === 0) return { ok: true, book: tombs.size === prepared.tombs.size ? book : bookOf(nodes, prepared.now, tombs), pruned: 0 };
+  if (held + gone.length > MAX_TOMBSTONES_PER_PROJECT) return fail(book, 'TOMBSTONES_FULL', 'the pruned ids this project remembers are full; nothing is pruned and nothing is forgotten to make room');
   const next = new Map(nodes);
-  for (const [key] of gone) next.delete(key);
-  return { ok: true, book: bookOf(next, prepared.now), pruned: gone.length };
+  for (const [key, node] of gone) {
+    next.delete(key);
+    tombs.set(key, { expiry: Date.parse(node.envelope.expiry), scope });
+  }
+  return { ok: true, book: bookOf(next, prepared.now, tombs), pruned: gone.length };
 }
 
 /**
@@ -490,7 +532,7 @@ export function pruneSettledDelegations(book: DelegationBook, input: DelegationC
 export function delegationNodeAt(book: DelegationBook, tenant: string, project: string, envelopeId: string, now: number): DelegationNode | null {
   const held = BOOKS.get(book);
   if (held === undefined || !Number.isSafeInteger(now) || now < book.lastSeen) return null;
-  return withExpiry(held, now).nodes.get(nodeKey(tenant, project, String(envelopeId))) ?? null;
+  return withExpiry(held.nodes, now).nodes.get(nodeKey(tenant, project, String(envelopeId))) ?? null;
 }
 
 /** A timer the caller hands in: it calls `fire` after `ms`, and the function it returns cancels that. */
@@ -519,18 +561,36 @@ export async function runDelegated<T>(
   timer: DelegationTimer | undefined,
 ): Promise<RunResult<T>> {
   const context = once(input);
-  if (typeof timer !== 'function') return { ok: false, code: 'NO_TIMER', message: 'a delegated run needs a deadline timer from the caller; with none it is not started' };
-  const admitted = admitDelegation(holder.book, context, asked);
-  if (!admitted.ok) return { ok: false, code: admitted.code, message: admitted.message };
-  holder.book = admitted.book;
+  const noTimer = (why: string): RunResult<T> => ({ ok: false, code: 'NO_TIMER', message: `a delegated run needs a working deadline timer from the caller, and ${why}; the run is not started` });
+  if (typeof timer !== 'function') return noTimer('there is none');
   const control = { aborted: false };
-  let cancel: unknown;
+  let fire: () => void = () => undefined;
   const deadline = new Promise<'deadline'>((resolve) => {
-    cancel = timer(DELEGATION_LEASE_MS, () => {
+    fire = () => {
       control.aborted = true;
       resolve('deadline');
-    });
+    };
   });
+  let cancel: unknown;
+  try {
+    cancel = timer(DELEGATION_LEASE_MS, fire);
+  } catch {
+    return noTimer('the one given threw');
+  }
+  if (typeof cancel !== 'function') return noTimer('the one given returned no way to cancel it');
+  const stop = (): void => {
+    try {
+      (cancel as () => void)();
+    } catch {
+      // a timer that cannot be cancelled changes nothing here: the node's slot is held by the book, not by the timer
+    }
+  };
+  const admitted = admitDelegation(holder.book, context, asked);
+  if (!admitted.ok) {
+    stop();
+    return { ok: false, code: admitted.code, message: admitted.message };
+  }
+  holder.book = admitted.book;
   let outcome: SettleOutcome = 'failed';
   let answer: RunResult<T>;
   try {
@@ -547,7 +607,7 @@ export async function runDelegated<T>(
   } catch (error) {
     answer = { ok: false, code: 'WORK_FAILED', message: `the delegated work did not complete (${error instanceof Error ? error.name : 'not an error'})` };
   } finally {
-    if (typeof cancel === 'function') (cancel as () => void)();
+    stop();
     const settled = settleDelegation(holder.book, context, admitted.node.envelopeId, outcome);
     if (settled.ok) holder.book = settled.book;
     else if (outcome === 'completed') outcome = 'unknown';
@@ -601,14 +661,18 @@ export function delegateOutput(book: DelegationBook, input: DelegationContext, e
 export interface DelegationSnapshot {
   readonly lastSeen: number;
   readonly nodes: readonly Readonly<Record<string, unknown>>[];
+  /** The pruned envelope ids of the scope, each with the instant its envelope expires. */
+  readonly tombstones: readonly Readonly<{ envelopeId: string; expiry: number }>[];
 }
 
 /** The nodes of `binding`'s tenant and project as plain data, or `null` when the book is not this module's. */
 export function exportDelegationBook(book: DelegationBook, binding: TenantBinding): DelegationSnapshot | null {
   const held = BOOKS.get(book);
   if (held === undefined || !isDerivedBinding(binding)) return null;
-  const nodes = [...held.values()].filter((node) => inScope(node, binding)).map((node) => ({ ...node }));
-  return { lastSeen: book.lastSeen, nodes };
+  const nodes = [...held.nodes.values()].filter((node) => inScope(node, binding)).map((node) => ({ ...node }));
+  const scope = scopeKey(binding.tenant, binding.projectId);
+  const tombstones = [...held.tombs].filter(([, tomb]) => tomb.scope === scope).map(([key, tomb]) => ({ envelopeId: (JSON.parse(key) as string[])[2] as string, expiry: tomb.expiry }));
+  return { lastSeen: book.lastSeen, nodes, tombstones };
 }
 
 const NODE_FIELDS = [
@@ -660,6 +724,7 @@ function restoredTreeProblem(nodes: ReadonlyMap<string, DelegationNode>, context
       if (node.depth !== 0 || node.rootEnvelopeId !== node.envelopeId || node.lineage.length !== 1 || node.lineage[0] !== node.agentId) return `'${node.envelopeId}' is not a consistent root`;
       const resolved = resolveAction(context.registry, node.envelope.action);
       if (resolved.actionClass !== node.envelope.actionClass || resolved.environment !== node.envelope.environment) return `'${node.envelopeId}' has labels the registry does not give its action`;
+      if (node.envelope.action !== RUN_ACTION || node.envelope.actor.agent !== node.agentId) return `'${node.envelopeId}' is not the kernel's run envelope of its agent`;
       continue;
     }
     const parent = byId.get(node.parentEnvelopeId);
@@ -672,6 +737,7 @@ function restoredTreeProblem(nodes: ReadonlyMap<string, DelegationNode>, context
       return `'${node.envelopeId}' holds more than its parent`;
     }
     if (node.grants.some((grant) => !parent.grants.includes(grant))) return `'${node.envelopeId}' holds a grant its parent lacks`;
+    if (node.grants.some(isBlockedGrant)) return `'${node.envelopeId}' holds a grant no delegate holds`;
   }
   return null;
 }
@@ -690,11 +756,16 @@ export function restoreDelegationBook(input: DelegationContext, raw: unknown, ve
   const no = (code: DelegationCode, message: string): RestoreResult => ({ ok: false, code, message });
   if (!isDerivedBinding(context.binding)) return no('BINDING', 'the tenant binding was not produced by resolveTenant, so the tenant is a claim');
   if (!isAgentBook(context.agents)) return no('AGENT_BOOK', 'the agent book was not built by this module');
-  const top = snapshotOf(raw, ['lastSeen', 'nodes']);
-  if (top === null || !isCount(top['lastSeen']) || !Array.isArray(top['nodes']) || top['nodes'].length > MAX_DELEGATION_NODES_PER_PROJECT) return no('SNAPSHOT_SHAPE', 'a snapshot is a time and a bounded list of nodes');
+  // Everything the caller handed in is copied once, deeply, into frozen plain data. The verifier is shown that copy and the book is
+  // built from that copy and nothing else, so an array or an object that answers differently on a second read changes nothing.
+  const copy = deepSnapshot(raw);
+  const top = copy === undefined ? null : snapshotOf(copy, ['lastSeen', 'nodes', 'tombstones']);
+  if (copy === undefined || top === null || !isCount(top['lastSeen']) || !Array.isArray(top['nodes']) || top['nodes'].length > MAX_DELEGATION_NODES_PER_PROJECT || !Array.isArray(top['tombstones']) || top['tombstones'].length > MAX_TOMBSTONES_PER_PROJECT) {
+    return no('SNAPSHOT_SHAPE', 'a snapshot is plain data: a time, a bounded list of nodes and a bounded list of pruned ids');
+  }
   let verified = false;
   try {
-    verified = typeof verify === 'function' && verify(raw) === true;
+    verified = typeof verify === 'function' && verify(copy) === true;
   } catch {
     verified = false;
   }
@@ -709,6 +780,15 @@ export function restoreDelegationBook(input: DelegationContext, raw: unknown, ve
     if (nodes.has(key)) return no('SNAPSHOT_INVARIANT', 'an envelope id appears twice');
     nodes.set(key, node);
   }
+  const scope = scopeKey(context.binding.tenant, context.binding.projectId);
+  const tombs = new Map<string, Tombstone>();
+  for (const entry of top['tombstones'] as readonly unknown[]) {
+    const tomb = snapshotOf(entry, ['envelopeId', 'expiry']);
+    if (tomb === null || typeof tomb['envelopeId'] !== 'string' || !isCount(tomb['expiry'])) return no('SNAPSHOT_SHAPE', 'a pruned id is an envelope id and the instant its envelope expires');
+    const key = nodeKey(context.binding.tenant, context.binding.projectId, tomb['envelopeId']);
+    if (nodes.has(key) || tombs.has(key)) return no('SNAPSHOT_INVARIANT', 'a pruned id is also in the book, or appears twice');
+    tombs.set(key, { expiry: tomb['expiry'], scope });
+  }
   const problem = restoredTreeProblem(nodes, context);
-  return problem === null ? { ok: true, book: bookOf(nodes, top['lastSeen']) } : no('SNAPSHOT_INVARIANT', problem);
+  return problem === null ? { ok: true, book: bookOf(nodes, top['lastSeen'], tombs) } : no('SNAPSHOT_INVARIANT', problem);
 }

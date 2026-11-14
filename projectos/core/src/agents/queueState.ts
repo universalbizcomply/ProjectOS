@@ -90,6 +90,8 @@ export interface QueueContext {
   readonly clock: Clock;
   /** Vouches for a resolution record. With none, an unknown item cannot be resolved or restored. */
   readonly verifyResolution?: OwnerFormVerifier;
+  /** Vouches for a stored item, by the store's own authentication. Required to restore anything but an unstarted queued item. */
+  readonly verifyItem?: OwnerFormVerifier;
 }
 
 export type QueueCode =
@@ -106,6 +108,7 @@ export type QueueCode =
   | 'OUTCOME'
   | 'RESOLUTION'
   | 'RESOLUTION_UNVERIFIED'
+  | 'ITEM_UNVERIFIED'
   | 'CONTROL';
 
 export type QueueFailure = { readonly ok: false; readonly code: QueueCode; readonly message: string };
@@ -307,7 +310,9 @@ function shapeProblem(fields: Record<string, unknown>): boolean {
 
 /**
  * Read an item back from a store, held to the invariants these rules could have produced. It must be in the binding's scope,
- * and an item that was ever unknown comes back only with its resolution, bound to it and verified by the injected port.
+ * and an item that was ever unknown comes back only with its resolution, bound to it and verified by the injected port. Anything
+ * but an unstarted queued item also needs the store verifier, because a forged copy of a finished item would otherwise restore as
+ * a fresh queued one.
  */
 export function restoreQueueItem(input: QueueContext, raw: unknown): QueueResult {
   const context = once(input);
@@ -327,5 +332,12 @@ export function restoreQueueItem(input: QueueContext, raw: unknown): QueueResult
       return no('RESOLUTION_UNVERIFIED', 'the injected port did not answer exactly true for the resolution of this item, or there is none');
     }
   }
-  return admit({ ...(fields as unknown as QueueItem), resolution: resolution === null ? null : Object.freeze({ ...resolution }) });
+  const restored = { ...(fields as unknown as QueueItem), resolution: resolution === null ? null : Object.freeze({ ...resolution }) };
+  // A forged copy of a finished item is indistinguishable from a real unstarted one by its fields alone, so only an item that has
+  // not started and never was unknown comes back without the store vouching for it. Whether the store can vouch is the wiring's.
+  const unstarted = restored.status === 'queued' && restored.attempts === 0 && !restored.wasUnknown;
+  if (!unstarted && !verifiedByPort(context.verifyItem, restored as unknown as Readonly<Record<string, unknown>>)) {
+    return no('ITEM_UNVERIFIED', 'an item that has started, finished or been unknown is restored only when the injected store verifier answers exactly true for it');
+  }
+  return admit(restored);
 }

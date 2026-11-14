@@ -180,11 +180,13 @@ derived binding can be paused, and nothing is dropped from it.
 - A finished delegate does not give its budget back, and neither does a failed or lapsed one: what it really spent belongs to
   the canonical budget adapter, which owns real spend. This module holds a parent's own recorded spend and its reservations
   for children against its budget, and nothing more.
-- A pruned delegate's envelope id could be delegated again, because pruning forgets it; deduplicating a task by its
-  idempotency key is the store's. Roots are never pruned, so a spent budget is never reset.
+- A pruned envelope id is remembered as a tombstone, so it cannot be admitted again (a spent root budget cannot be reset by registering the root again). A tombstone is dropped only once its envelope has expired, when it could not be admitted anyway, and a full set refuses to prune and forgets nothing. Deduplicating a task by its idempotency key is still the store's.
 - The message ledger and the revision are only as durable as the caller makes them, and a revision is a compare-and-swap only
   if the store compares it. The per-pair and ledger caps are lifetime caps of one ledger, never decremented.
 - Retry counting is not unified with the workforce dispatch's `maxAttemptsPerTask`: that is Stage 4 wiring.
+- The budget ceiling of a run is the kernel's admission to own, not this module's: a root is the kernel's `run-start` envelope of the agent the kernel names as its actor, and whatever budget the door admitted is the ceiling. This module only keeps a delegate inside it.
+- A forged unstarted queued copy of an item cannot be told from a real one without store authentication, which the wiring owns. Every other restore (a started, finished, paused or formerly unknown item) needs the store's verifier to answer exactly `true`.
+- A message id is remembered only for the window, so one older than the window could be admitted again: the receiving queue deduplicates on the derived idempotency key.
 - A restored item is only as trustworthy as the store it came from: the rules refuse an item they could not have produced,
   not one edited to a state they could.
 - Delegation and queue state are in memory values; durable storage, the hash-chained event store and the adoption by the
@@ -215,15 +217,30 @@ mutation killed by its own rule.
 Deferred, in Residuals: the wiring proving that a caller is the run its envelope id names, and unifying the retry counter with
 the dispatch's `maxAttemptsPerTask`.
 
+## Review round 2
+
+The recheck of `574a6430..bd37909a` closed H1 (accessors), F3, and F4 to F10, and raised six more. Each got a failing test first
+(21 of the 23 new tests fail against the source of `bd37909a`), the fix, and a named validator mutation killed by its own rule.
+
+| Item | What was wrong | The fix | Mutation |
+|---|---|---|---|
+| N1 | the verifier saw `raw` and the restore then read `top.nodes` again: a Proxy `nodes` array showed the honest graph to the verifier and a forged one (a root that had spent 0, not 400) to the restore | `deepSnapshot` copies the whole snapshot once, deeply, into frozen plain data (descriptor copy, no accessor, no symbol key, no odd prototype, `length` read once, bounded); the verifier is shown that copy and the book is built from it only. A restored delegate with a blocked grant is refused, as are a reservation past the budget, a negative spend, a cycle and a fan-out past the cap | `a-snapshot-is-read-again-after-it-is-verified`, `a-snapshot-accessor-is-read`, `a-restored-delegate-may-hold-a-blocked-grant`, `a-length-is-read-on-every-pass` |
+| N2 | a timer that threw made `deadline` reject while the work still ran | the timer is called and checked before anything is admitted: one that throws, or returns no cancel function, means the run is not started. A deadline can no longer reject, and a cancel that throws changes nothing, so a lapsed-but-running node keeps its slot until the verified release | `a-throwing-timer-is-ignored`, `a-timer-without-a-cancel-is-taken` |
+| N3 | after 60 roots a project was full for ever, and a pruned child's id could be admitted again | a whole ended subtree is pruned together, roots included, and each pruned id becomes a tombstone (exported and restored too): re-registering or re-admitting it is refused. Tombstones are bounded per project, dropped only when their envelope has expired, and a full set refuses to prune. A child whose own envelope has expired is refused | `a-root-is-never-pruned`, `a-pruned-root-may-return`, `a-pruned-child-may-return`, `an-unknown-descendant-does-not-block-pruning`, `the-tombstone-cap-is-three-hundred`, `an-expired-child-is-admitted` |
+| N4 | the ledger caps never reset | each entry carries the injected-clock time it was admitted; the caps count only the last window (`MESSAGE_WINDOW_MS`), older entries are forgotten, and a clock behind the ledger is refused | `the-message-window-never-ends`, `a-ledger-clock-may-run-backwards` |
+| N5 | the kernel proof said "some kernel admitted this", not whose run it was | a root is registered only for the agent its envelope names as the actor, and only if its action is the kernel's `run-start` (the action `mintCrossing` holds a crossing to; read in `taskEnvelope.ts`, which is not changed). The budget ceiling stays the kernel's admission to own. Two rules fell out: a kernel-admitted child can never be a `run-start`, so the separate "a child is not a root" check was dead code and is gone, and a parent that has expired has only expired children, so the separate parent-expiry check went too | `a-root-may-be-registered-for-any-agent`, `a-root-may-be-any-action` |
+| N6 | a forged copy of a completed item restored as a fresh queued one | anything but an unstarted queued item that was never unknown needs the store verifier to answer exactly `true`; the verifier is shown the item. A forged unstarted copy cannot be told apart without store authentication, which the wiring owns | `a-finished-item-needs-no-vouching` |
+| L1 | a hostile list could answer a new `length` on every read | `plainList` and the deep copy read `length` once | `a-length-is-read-on-every-pass` |
+
 ## Checks
 
 Exit codes and counts are from the runs themselves, not from this document. `validate-all` was not run (the lead runs it).
 
 ```text
 core: npm run -s build                      exit 0
-core: npx vitest run                        71 files, 3228 tests passed (this phase: 7 files, 235 tests)
-core: vitest --coverage on src/agents       99.55% lines, 92.64% branches, 100% functions
-val-projectos-port-agents1a                 PASS (140 scenarios; 118 behaviour and 62 text mutations killed)
+core: npx vitest run                        72 files, 3251 tests passed (this phase: 8 files, 258 tests)
+core: vitest --coverage on src/agents       99.59% lines, 93.03% branches, 99.18% functions
+val-projectos-port-agents1a                 PASS (157 scenarios; 132 behaviour and 65 text mutations killed)
 val-projectos-port-credit1a                 PASS (93 real files judged; 157 fixture and 59 record mutations killed)
 validate-no-secrets                         PASS
 val-projectos-connector-contract1a          PASS (reads validate-all and the runner lists)
@@ -232,7 +249,7 @@ val-projectos-tenant-contract1a, -credentials1a, -csp1a, -principal1a, -rls1a   
 val-projectos-v3-validation-evidence1a, val-projectos-validator-scratch-lifecycle1a PASS
 ```
 
-The same set was run after review round 1, and every exit code was 0 (the context, memory and skills validators took several minutes each).
+The same set was run after review rounds 1 and 2, and every exit code was 0 (the context, memory and skills validators took several minutes each).
 
 The registration is in both lists, in the same position, before `val-projectos-connector-contract1a`, which pins its own entry as
 the last one. The agent package was not typechecked: its `@projectos/core` junction points at another worktree (as for the
@@ -247,8 +264,8 @@ its credit header or its original mark, and every ported file has its notices en
 only edits outside this phase's own files are the one core barrel line, the notices entries, and the registration of the
 validator in the two lists, in the same position and order, before the connector-contract entry.
 
-Review round 1 was reconciled against the same shape: the fixes stay inside `core/src/agents/`, its tests, the validator, this
+Review rounds 1 and 2 were reconciled against the same shape: the fixes stay inside `core/src/agents/`, its tests, the validator, this
 record and the two registration comments (their mojibake dash is now the em dash their neighbours use). Nothing in the kernel
 was changed to give the module its proof of a root: it reuses `recordExecution`, which already answers `true` only for an
 envelope the door admitted. `envelopeSnapshot.ts` and `ownerForm.ts` are new original files, and the module is still
-unwired. ECC SECURITY and Agency `multi-agent-systems-architect` reviews are requested for the recheck.
+unwired. Round 2 added nothing outside `core/src/agents/`, its tests, the validator and this record. ECC SECURITY and Agency `multi-agent-systems-architect` reviews are requested for the recheck.

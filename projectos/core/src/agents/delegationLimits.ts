@@ -35,6 +35,9 @@ export const DELEGATED_CLASS_CEILING = 'P3';
 /** The most live (or lapsed and not released) delegates under one root, so no one run fills the project. */
 export const MAX_LIVE_DELEGATES_PER_ROOT = 8;
 
+/** How many pruned envelope ids a project remembers so they cannot be admitted again. A full set refuses to prune; it never forgets one that could still matter. */
+export const MAX_TOMBSTONES_PER_PROJECT = 200;
+
 /** The longest goal handed to a delegate, in characters. */
 export const MAX_GOAL_CHARS = 4000;
 
@@ -62,6 +65,9 @@ export const MAX_LEASE_RENEWALS = 8;
 export const MAX_MESSAGE_HOPS = 4;
 export const MAX_MESSAGES_PER_PAIR = 20;
 export const MAX_MESSAGE_LEDGER_ENTRIES = 40;
+
+/** The span over which the message caps count. Past it a message no longer counts and is forgotten, so the caps are a rate and not a lifetime ban. */
+export const MESSAGE_WINDOW_MS = 60 * 60 * 1000;
 
 /** The most route bindings one resolve call reads. A longer list is refused, never read in part. */
 export const MAX_ROUTE_BINDINGS = 200;

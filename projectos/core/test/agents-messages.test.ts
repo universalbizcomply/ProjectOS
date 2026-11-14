@@ -10,15 +10,16 @@ import {
   type MessageLedger,
   type MessageRequest,
 } from '../src/agents/index.js';
+import type { ActionRegistry } from '../src/actionRegistry.js';
 import type { TaskEnvelope } from '../src/taskEnvelope.js';
 import type { TenantBinding } from '../src/tenant.js';
-import { LEAD, MINUTE, NOW, WORKER, agency, bookOf, childEnvelope, clockAt, committedRegistry, contextOf, nextEnvelopeId, polygo, projectos, rootEnvelope, withRoot } from './agents-support.js';
+import { LEAD, MINUTE, NOW, WORKER, agency, bookOf, childEnvelope, clockAt, committedRegistry, contextOf, nextEnvelopeId, polygo, projectos, rootEnvelope, runRegistry, withRoot } from './agents-support.js';
 
 const home = polygo();
 const held = (): AgentBook => bookOf(home, [{ ...LEAD, messageAllow: ['worker'] }, { ...WORKER, messageAllow: [] }, { recordId: 'AGT-other', agentId: 'other' }]);
 
 /** A sender run the delegation book holds, for the lead agent unless a test says another. */
-function run(envelope: TaskEnvelope = rootEnvelope(home), agentId = 'lead', agents: AgentBook = held()): { readonly envelope: TaskEnvelope; readonly delegations: DelegationBook } {
+function run(envelope: TaskEnvelope = rootEnvelope(home), agentId: string = envelope.actor.agent, agents: AgentBook = held()): { readonly envelope: TaskEnvelope; readonly delegations: DelegationBook } {
   return { envelope, delegations: withRoot(home, agents, envelope, agentId) };
 }
 
@@ -40,12 +41,13 @@ interface Setup {
   readonly ms?: number;
   readonly delegations: DelegationBook;
   readonly ledger?: MessageLedger;
+  readonly registry?: ActionRegistry;
 }
 
 const admit = (req: MessageRequest, setup: Setup) =>
   admitAgentMessage(
     setup.book ?? held(),
-    { binding: setup.binding ?? home, registry: committedRegistry(), clock: clockAt(setup.ms ?? NOW), delegations: setup.delegations, ledger: setup.ledger ?? emptyMessageLedger() },
+    { binding: setup.binding ?? home, registry: setup.registry ?? committedRegistry(), clock: clockAt(setup.ms ?? NOW), delegations: setup.delegations, ledger: setup.ledger ?? emptyMessageLedger() },
     req,
   );
 const code = (result: ReturnType<typeof admit>): string => (result.ok ? 'ok' : result.code);
@@ -107,7 +109,7 @@ describe('the sender is the delegation book\'s, not the caller\'s', () => {
   });
 
   it('takes the sending agent from the run, so a request that names another agent changes nothing', () => {
-    const { envelope, delegations } = run(rootEnvelope(home), 'worker');
+    const { envelope, delegations } = run(rootEnvelope(home, { agent: 'worker' }), 'worker');
     const lie = { ...message(envelope, { toAgentId: 'lead' }), fromAgentId: 'lead' } as MessageRequest;
     expect(code(admit(lie, { delegations }))).toBe('NOT_ALLOWED');
   });
@@ -143,7 +145,7 @@ describe('messaging between agents is off until a record allows it', () => {
   });
 
   it('refuses every message from an agent whose record allows none', () => {
-    const { envelope, delegations } = run(rootEnvelope(home), 'worker');
+    const { envelope, delegations } = run(rootEnvelope(home, { agent: 'worker' }), 'worker');
     expect(code(admit(message(envelope, { toAgentId: 'lead' }), { delegations }))).toBe('NOT_ALLOWED');
   });
 
@@ -156,8 +158,10 @@ describe('messaging between agents is off until a record allows it', () => {
 
 describe('a message carries no authority', () => {
   it('refuses an envelope above P2: a message asks nothing that needs a grant', () => {
-    const { envelope, delegations } = run(rootEnvelope(home, { action: 'approve' }));
-    expect(code(admit(message(envelope, { envelope: { action: 'commit', actionClass: 'P3' } }), { delegations }))).toBe('MESSAGE_CLASS');
+    const p5 = runRegistry({ class: 'P5' });
+    const envelope = rootEnvelope(home, { registry: p5 });
+    const delegations = withRoot(home, held(), envelope, undefined, NOW, p5);
+    expect(code(admit(message(envelope, { envelope: { action: 'commit', actionClass: 'P3' } }), { delegations, registry: p5 }))).toBe('MESSAGE_CLASS');
   });
 
   it('refuses an envelope with a budget: a message spends nothing', () => {

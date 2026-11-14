@@ -70,7 +70,7 @@ function must<T extends { ok: boolean }>(result: T): Extract<T, { ok: true }> {
 }
 
 describe('H3: an unknown item leaves unknown only on a bound, verified record', () => {
-  const at = (ms: number, verify?: (record: Readonly<Record<string, unknown>>) => boolean): QueueContext => ({ binding: home, clock: clockAt(ms), ...(verify === undefined ? {} : { verifyResolution: verify }) });
+  const at = (ms: number, verify?: (record: Readonly<Record<string, unknown>>) => boolean): QueueContext => ({ binding: home, clock: clockAt(ms), verifyItem: () => true, ...(verify === undefined ? {} : { verifyResolution: verify }) });
   const unknown = (id = 'ITEM-1'): QueueItem => {
     const queued = must(newQueueItem(at(NOW), id)).item;
     const running = must(claimItem(at(NOW), emptyQueueControl(), queued, queued.revision)).item;
@@ -289,7 +289,7 @@ describe('M7: a conversation ends', () => {
   ]);
   const runs = () => {
     const lead = rootEnvelope(home);
-    const worker = rootEnvelope(home);
+    const worker = rootEnvelope(home, { agent: 'worker' });
     const book = must(registerRoot(withRoot(home, agents, lead, 'lead'), contextOf(home, agents), { agentId: 'worker', envelope: worker })).book;
     return { lead, worker, book };
   };

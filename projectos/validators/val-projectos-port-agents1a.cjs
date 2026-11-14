@@ -213,7 +213,7 @@ const FINISH_PINS = {
   "that the workforce stays the only queue": "The workforce dispatch stays the only queue",
   "that no gate changed": "No gate was loosened or replaced.",
   "the wording": "A well-formed record that names a decision id is not an approval",
-  "the root rule": "A root is only the envelope object the kernel's door admitted", "the wiring-owned limit": "is taken to be that run", "the verifier ports": "Whether a verifier port is honest is the wiring's", "the retry residual": "Retry counting is not unified with the workforce dispatch", "the review round": "## Review round 1",
+  "the root rule": "A root is only the envelope object the kernel's door admitted", "the wiring-owned limit": "is taken to be that run", "the verifier ports": "Whether a verifier port is honest is the wiring's", "the retry residual": "Retry counting is not unified with the workforce dispatch", "the review round": "## Review round 1", "the second review round": "## Review round 2", "the kernel owns the ceiling": "is the kernel's admission to own", "the unstarted-copy limit": "cannot be told from a real one without store authentication",
   "the budget residual": "A finished delegate does not give its budget back",
     "the store residual": "A restored item is only as trustworthy as the store it came from",
   "the credit directories commit": "The shared commit `86f18e23` lists this directory",
@@ -321,9 +321,9 @@ function worldOf(core, actionJson, tenantJson) {
   let counter = 0;
   const nextId = () => `ENV-${(counter += 1).toString(16).padStart(24, "0")}`;
   const root = (binding, change = {}) => {
-    const context = { binding, registry, principal: "implementer", actor: { agent: "claude-code-cli", provider: "anthropic", model: "claude-opus-5-5" }, envelopeId: nextId() };
+    const context = { binding, registry: change.registry ?? registry, principal: "implementer", actor: { agent: change.agent ?? "lead", provider: "anthropic", model: "claude-opus-5-5" }, envelopeId: nextId() };
     const minted = core.mintEnvelope(context, {
-      action: change.action ?? "implement", subjectHash: "a".repeat(40), scope: change.scope ?? ["projectos/core/src/", "docs/"], budget: change.budget ?? 1000,
+      action: change.action ?? "run-start", subjectHash: "a".repeat(40), scope: change.scope ?? ["projectos/core/src/", "docs/"], budget: change.budget ?? 1000,
       expiry: change.expiry ?? LATER, intentScope: `RUN-${nextId()}`,
     });
     const admission = core.admitEnvelope(minted, NOW_ISO, () => true, () => true);
@@ -334,13 +334,13 @@ function worldOf(core, actionJson, tenantJson) {
     ...parent, envelopeId: nextId(), parentEnvelopeId: parent.envelopeId, action: "run_validators", actionClass: "P1", budget: 100,
     idempotencyKey: `sha256:${"b".repeat(64)}`, ...change,
   });
-  const ctx = (binding, agents, ms = NOW) => ({ binding, registry, agents, clock: () => ms });
-  const start = (binding, agents, envelope, agentId = "lead", ms = NOW) => must(core.registerRoot(core.emptyDelegationBook(), ctx(binding, agents, ms), { agentId, envelope })).book;
+  const ctx = (binding, agents, ms = NOW, reg = registry) => ({ binding, registry: reg, agents, clock: () => ms });
+  const start = (binding, agents, envelope, agentId = envelope.actor.agent, ms = NOW, reg = registry) => must(core.registerRoot(core.emptyDelegationBook(), ctx(binding, agents, ms, reg), { agentId, envelope })).book;
   const req = (parent, over = {}) => {
     const { child: change, ...rest } = over;
     return { parentEnvelopeId: parent.envelopeId, childAgentId: "worker", childEnvelope: child(parent, change ?? {}), grants: ["read-repository"], goal: GOAL, ...rest };
   };
-  const delegate = (book, request, agents = team(), ms = NOW, binding = home) => core.admitDelegation(book, ctx(binding, agents, ms), request);
+  const delegate = (book, request, agents = team(), ms = NOW, binding = home, reg = registry) => core.admitDelegation(book, ctx(binding, agents, ms, reg), request);
   const admitChild = (book, parent, agentId, over = {}, agents = team()) => {
     const request = req(parent, { childAgentId: agentId, ...over });
     return { book: must(delegate(book, request, agents)).book, envelope: request.childEnvelope };
@@ -351,8 +351,9 @@ function worldOf(core, actionJson, tenantJson) {
     bookOf(other, [{ recordId: "AGT-agency-only", agentId: "agency-only" }], bookOf(home, [{ ...LEAD, messageAllow: ["worker", "agency-only"] }, { ...WORKER, messageAllow: [] }, { recordId: "AGT-other", agentId: "other", grants: ["send_message"] }]));
   /** A sender run the delegation book holds, and everything a message needs around it. */
   const msgWorld = (agentId = "lead", agents = messageAgents(), envelopeChange = {}, binding = home) => {
-    const sender = root(binding, envelopeChange);
-    return { sender, agents, binding, delegations: start(binding, agents, sender, agentId), ledger: core.emptyMessageLedger() };
+    const sender = root(binding, { ...envelopeChange, agent: agentId });
+    const reg = envelopeChange.registry ?? registry;
+    return { sender, agents, binding, registry: reg, delegations: start(binding, agents, sender, agentId, NOW, reg), ledger: core.emptyMessageLedger() };
   };
   const message = (sender, over = {}) => {
     const { envelope, ...rest } = over;
@@ -362,9 +363,9 @@ function worldOf(core, actionJson, tenantJson) {
     };
   };
   const send = (request, m, over = {}) =>
-    core.admitAgentMessage(over.agents ?? m.agents, { binding: over.binding ?? m.binding, registry, clock: () => over.ms ?? NOW, delegations: over.delegations ?? m.delegations, ledger: over.ledger ?? m.ledger }, request);
+    core.admitAgentMessage(over.agents ?? m.agents, { binding: over.binding ?? m.binding, registry: over.registry ?? m.registry ?? registry, clock: () => over.ms ?? NOW, delegations: over.delegations ?? m.delegations, ledger: over.ledger ?? m.ledger }, request);
 
-  const at = (ms, binding = home) => ({ binding, clock: () => ms, verifyResolution: () => true });
+  const at = (ms, binding = home) => ({ binding, clock: () => ms, verifyResolution: () => true, verifyItem: () => true });
   const q = {
     claimItem: (c, ctl, i, rev = i.revision) => core.claimItem(c, ctl, i, rev),
     completeItem: (c, i, o, rev = i.revision) => core.completeItem(c, i, o, rev),
@@ -382,6 +383,7 @@ function worldOf(core, actionJson, tenantJson) {
     if (!admission.admitted) throw new Error(`the control child was refused: ${admission.reasons.join("; ")}`);
     return admission.envelope;
   };
+  const runReg = (change) => registryWith({ "run-start": change });
   const registryWith = (change) => {
     const parsed = core.parseActionRegistry({ ...actionJson, actions: actionJson.actions.map((entry) => ({ ...entry, ...(change[entry.id] ?? {}) })) });
     if (!parsed.ok) throw new Error("the changed action registry does not parse");
@@ -398,7 +400,7 @@ function worldOf(core, actionJson, tenantJson) {
   const RC = (result) => (result.ok ? `${result.route.agentId}/${result.route.matchedBy}` : result.code);
 
   return {
-    core, registry, home, sibling, other, C, must, rawAgent, agentOf, bookOf, LEAD, WORKER, team, root, child, ctx, start, req, delegate, admitChild, settle, q, res, admittedChild, registryWith,
+    core, registry, home, sibling, other, C, must, rawAgent, agentOf, bookOf, LEAD, WORKER, team, root, child, ctx, start, req, delegate, admitChild, settle, q, res, admittedChild, registryWith, runReg,
     messageAgents, msgWorld, message, send, at, item, running, stored, QC, routeBinding, routeBook, route, RC,
   };
 }
@@ -459,8 +461,9 @@ const SCENARIOS = [
     return w.C(w.delegate(w.start(w.home, w.team(), parent), w.req(parent, { child: { project: "projectos" } })));
   }),
   S("AG-2", "a-child-in-another-environment-is-refused", REFUSE, "ENVELOPE_R3", (w) => {
-    const parent = w.root(w.home, { action: "cross-tenant-access" });
-    return w.C(w.delegate(w.start(w.home, w.team(), parent), w.req(parent, { child: { environment: "local" } })));
+    const reg = w.runReg({ class: "P5", environment: "production" });
+    const parent = w.root(w.home, { registry: reg });
+    return w.C(w.delegate(w.start(w.home, w.team(), parent, undefined, NOW, reg), w.req(parent, { child: { environment: "local" } }), w.team(), NOW, w.home, reg));
   }),
   S("AG-2", "a-child-budget-above-its-parents-is-refused", REFUSE, "ENVELOPE_R3", (w) => {
     const parent = w.root(w.home);
@@ -484,7 +487,7 @@ const SCENARIOS = [
     const { one } = grandchild(w);
     return w.C(w.delegate(one.book, w.req(one.envelope, { childAgentId: "leaf" })));
   }, true),
-  S("AG-3", "a-child-envelope-is-not-a-root", REFUSE, "ROOT_IS_A_CHILD", (w) => {
+  S("AG-3", "a-child-envelope-is-not-a-root", REFUSE, "ROOT_NOT_A_RUN", (w) => {
     const parent = w.root(w.home);
     return w.C(w.core.registerRoot(w.core.emptyDelegationBook(), w.ctx(w.home, w.team()), { agentId: "lead", envelope: w.admittedChild(parent) }));
   }),
@@ -493,8 +496,8 @@ const SCENARIOS = [
     return w.C(w.core.registerRoot(w.start(w.home, w.team(), parent), w.ctx(w.home, w.team()), { agentId: "lead", envelope: parent }));
   }),
   S("AG-3", "a-root-with-a-false-class-label-is-refused", REFUSE, "ROOT_LABEL", (w) => {
-    const stricter = { ...w.ctx(w.home, w.team()), registry: w.registryWith({ implement: { class: "P3" } }) };
-    return w.C(w.core.registerRoot(w.core.emptyDelegationBook(), stricter, { agentId: "lead", envelope: w.root(w.home, { action: "implement" }) }));
+    const stricter = { ...w.ctx(w.home, w.team()), registry: w.runReg({ class: "P3" }) };
+    return w.C(w.core.registerRoot(w.core.emptyDelegationBook(), stricter, { agentId: "lead", envelope: w.root(w.home) }));
   }),
   S("AG-3", "a-hand-built-root-is-refused", REFUSE, "ROOT_NOT_ADMITTED", (w) =>
     w.C(w.core.registerRoot(w.core.emptyDelegationBook(), w.ctx(w.home, w.team()), { agentId: "lead", envelope: { ...w.root(w.home), budget: 1e12 } }))),
@@ -518,7 +521,7 @@ const SCENARIOS = [
     const first = w.admitChild(w.start(w.home, w.team(), parent), parent, "worker");
     return w.C(w.delegate(first.book, { ...w.req(parent), childEnvelope: first.envelope }));
   }),
-  S("AG-3", "an-expired-parent-is-refused", REFUSE, "PARENT_EXPIRED", (w) => {
+  S("AG-3", "an-expired-parent-is-refused", REFUSE, "CHILD_EXPIRED", (w) => {
     const parent = w.root(w.home, { expiry: "2026-11-14T12:30:00.000Z" });
     return w.C(w.delegate(w.start(w.home, w.team(), parent), w.req(parent, { child: { expiry: "2026-11-14T12:30:00.000Z" } }), w.team(), NOW + 31 * MINUTE));
   }),
@@ -581,16 +584,19 @@ const SCENARIOS = [
   }),
   // AG-6: P5
   S("AG-6", "a-p5-child-is-refused", REFUSE, "DELEGATED_CLASS", (w) => {
-    const parent = w.root(w.home, { action: "approve" });
-    return w.C(w.delegate(w.start(w.home, w.team(), parent), w.req(parent, { child: { action: "reject", actionClass: "P5" } })));
+    const reg = w.runReg({ class: "P5" });
+    const parent = w.root(w.home, { registry: reg });
+    return w.C(w.delegate(w.start(w.home, w.team(), parent, undefined, NOW, reg), w.req(parent, { child: { action: "reject", actionClass: "P5" } }), w.team(), NOW, w.home, reg));
   }),
   S("AG-6", "an-unregistered-child-action-is-refused", REFUSE, "DELEGATED_CLASS", (w) => {
-    const parent = w.root(w.home, { action: "cross-tenant-access" });
-    return w.C(w.delegate(w.start(w.home, w.team(), parent), w.req(parent, { child: { action: "made-up-action", actionClass: "P5", environment: "production" } })));
+    const reg = w.runReg({ class: "P5", environment: "production" });
+    const parent = w.root(w.home, { registry: reg });
+    return w.C(w.delegate(w.start(w.home, w.team(), parent, undefined, NOW, reg), w.req(parent, { child: { action: "made-up-action", actionClass: "P5", environment: "production" } }), w.team(), NOW, w.home, reg));
   }),
   S("AG-6", "a-p3-child-of-a-p5-parent-is-admitted", ANSWER, "ok", (w) => {
-    const parent = w.root(w.home, { action: "approve" });
-    return w.C(w.delegate(w.start(w.home, w.team(), parent), w.req(parent, { child: { action: "commit", actionClass: "P3", environment: "local" } })));
+    const reg = w.runReg({ class: "P5" });
+    const parent = w.root(w.home, { registry: reg });
+    return w.C(w.delegate(w.start(w.home, w.team(), parent, undefined, NOW, reg), w.req(parent, { child: { action: "commit", actionClass: "P3", environment: "local" } }), w.team(), NOW, w.home, reg));
   }, true),
   // AG-7: messages
   S("AG-7", "a-message-within-the-tenant-is-admitted", ANSWER, "ok", (w) => {
@@ -623,7 +629,7 @@ const SCENARIOS = [
     return w.C(w.send(w.message(m.sender, { toAgentId: "lead" }), m));
   }),
   S("AG-7", "a-message-that-needs-a-grant-is-refused", REFUSE, "MESSAGE_CLASS", (w) => {
-    const m = w.msgWorld("lead", w.messageAgents(), { action: "approve" });
+    const m = w.msgWorld("lead", w.messageAgents(), { registry: w.runReg({ class: "P5" }) });
     return w.C(w.send(w.message(m.sender, { envelope: { action: "commit", actionClass: "P3", environment: "local" } }), m));
   }),
   S("AG-7", "a-message-that-spends-is-refused", REFUSE, "MESSAGE_BUDGET", (w) => {
@@ -906,7 +912,7 @@ const SCENARIOS = [
   S("AG-7", "a-reply-chain-has-a-hop-cap", REFUSE, "HOP_CAP", (w) => {
     const agents = w.bookOf(w.home, [{ ...w.LEAD, messageAllow: ["worker"] }, { ...w.WORKER, messageAllow: ["lead"] }]);
     const lead = w.root(w.home);
-    const worker = w.root(w.home);
+    const worker = w.root(w.home, { agent: "worker" });
     const delegations = w.must(w.core.registerRoot(w.start(w.home, agents, lead, "lead"), w.ctx(w.home, agents), { agentId: "worker", envelope: worker })).book;
     const world = { agents, binding: w.home, delegations };
     let ledger = w.core.emptyMessageLedger();
@@ -1008,11 +1014,61 @@ const SCENARIOS = [
     const pruned = w.must(w.core.pruneSettledDelegations(ended, w.ctx(w.home, w.team()))).book;
     return w.C(w.core.registerRoot(pruned, w.ctx(w.home, w.team()), { agentId: "lead", envelope: w.root(w.home) }));
   }),
-  S("AG-4", "a-root-is-not-pruned-so-its-budget-cannot-be-reset", REFUSE, "DUPLICATE_ENVELOPE", (w) => {
+  S("AG-4", "a-pruned-root-cannot-be-registered-again", REFUSE, "DUPLICATE_ENVELOPE", (w) => {
     const parent = w.root(w.home, { budget: 1000 });
     const ended = w.must(w.settle(w.start(w.home, w.team(), parent), parent.envelopeId, "completed")).book;
     const pruned = w.must(w.core.pruneSettledDelegations(ended, w.ctx(w.home, w.team()))).book;
     return w.C(w.core.registerRoot(pruned, w.ctx(w.home, w.team()), { agentId: "lead", envelope: parent }));
+  }),
+  S("AG-4", "a-pruned-child-cannot-be-admitted-again", REFUSE, "DUPLICATE_ENVELOPE", (w) => {
+    const parent = w.root(w.home, { budget: 1000 });
+    const first = w.admitChild(w.start(w.home, w.team(), parent), parent, "worker");
+    const ended = w.must(w.settle(first.book, first.envelope.envelopeId, "completed")).book;
+    const pruned = w.must(w.core.pruneSettledDelegations(ended, w.ctx(w.home, w.team()))).book;
+    return w.C(w.delegate(pruned, { ...w.req(parent), childEnvelope: first.envelope }));
+  }),
+  S("AG-4", "settled-roots-are-pruned-so-the-node-cap-frees", ANSWER, "ok", (w) => {
+    let book = w.core.emptyDelegationBook();
+    const roots = [];
+    for (let count = 0; count < 60; count += 1) {
+      const root = w.root(w.home);
+      book = w.must(w.core.registerRoot(book, w.ctx(w.home, w.team()), { agentId: "lead", envelope: root })).book;
+      roots.push(root);
+    }
+    for (const root of roots) book = w.must(w.settle(book, root.envelopeId, "completed")).book;
+    const pruned = w.must(w.core.pruneSettledDelegations(book, w.ctx(w.home, w.team()))).book;
+    return w.C(w.core.registerRoot(pruned, w.ctx(w.home, w.team()), { agentId: "lead", envelope: w.root(w.home) }));
+  }),
+  S("AG-4", "an-unknown-node-blocks-pruning-its-ancestors", ANSWER, "0", (w) => {
+    const parent = w.root(w.home, { budget: 1000 });
+    const one = w.admitChild(w.start(w.home, w.team(), parent), parent, "mid");
+    const two = w.admitChild(one.book, one.envelope, "leaf");
+    let book = w.must(w.settle(two.book, two.envelope.envelopeId, "unknown")).book;
+    book = w.must(w.settle(book, one.envelope.envelopeId, "completed")).book;
+    book = w.must(w.settle(book, parent.envelopeId, "completed")).book;
+    return String(w.must(w.core.pruneSettledDelegations(book, w.ctx(w.home, w.team()))).pruned);
+  }),
+  S("AG-4", "a-full-set-of-pruned-ids-refuses-to-prune", REFUSE, "TOMBSTONES_FULL", (w) => {
+    let book = w.core.emptyDelegationBook();
+    const round = () => {
+      const roots = [];
+      for (let count = 0; count < 60; count += 1) {
+        const root = w.root(w.home);
+        book = w.must(w.core.registerRoot(book, w.ctx(w.home, w.team()), { agentId: "lead", envelope: root })).book;
+        roots.push(root);
+      }
+      for (const root of roots) book = w.must(w.settle(book, root.envelopeId, "completed")).book;
+    };
+    for (let rounds = 0; rounds < 3; rounds += 1) {
+      round();
+      book = w.must(w.core.pruneSettledDelegations(book, w.ctx(w.home, w.team()))).book;
+    }
+    round();
+    return w.C(w.core.pruneSettledDelegations(book, w.ctx(w.home, w.team())));
+  }),
+  S("AG-4", "a-child-that-has-already-expired-is-refused", REFUSE, "CHILD_EXPIRED", (w) => {
+    const parent = w.root(w.home);
+    return w.C(w.delegate(w.start(w.home, w.team(), parent), w.req(parent, { child: { expiry: "2026-11-14T11:00:00.000Z" } })));
   }),
   S("AG-4", "a-root-cap-holds-the-delegates-under-one-run", REFUSE, "ROOT_CAP", (w) => {
     const parent = w.root(w.home, { budget: 100_000 });
@@ -1063,6 +1119,90 @@ const SCENARIOS = [
     const book = w.start(w.home, w.team(), parent);
     return String(w.core.delegationNodeAt(book, "owner-personal", "polygo", parent.envelopeId, NOW - 1));
   }),
+
+  // Final fix round
+  S("AG-4", "a-snapshot-is-restored-from-what-was-verified", ANSWER, "400", (w) => {
+    const parent = w.root(w.home, { budget: 1000 });
+    const spent = w.must(w.core.recordDelegateSpend(w.start(w.home, w.team(), parent), w.ctx(w.home, w.team()), parent.envelopeId, 400)).book;
+    const snapshot = JSON.parse(JSON.stringify(w.core.exportDelegationBook(spent, w.home)));
+    const forged = snapshot.nodes.map((node) => ({ ...node, spent: 0 }));
+    let phase = 0;
+    const hostile = new Proxy(snapshot.nodes, {
+      getOwnPropertyDescriptor: (target, key) => Reflect.getOwnPropertyDescriptor(phase === 0 ? target : forged, key),
+      get: (target, key) => Reflect.get(phase === 0 ? target : forged, key),
+    });
+    const result = w.core.restoreDelegationBook(w.ctx(w.home, w.team()), { ...snapshot, nodes: hostile }, () => {
+      phase = 1;
+      return true;
+    });
+    return result.ok ? String(w.core.exportDelegationBook(result.book, w.home).nodes[0].spent) : result.code;
+  }),
+  S("AG-4", "a-snapshot-with-an-accessor-is-refused", REFUSE, "SNAPSHOT_SHAPE", (w) => {
+    const parent = w.root(w.home, { budget: 1000 });
+    const snapshot = JSON.parse(JSON.stringify(w.core.exportDelegationBook(w.start(w.home, w.team(), parent), w.home)));
+    Object.defineProperty(snapshot.nodes[0], "spent", { enumerable: true, get: () => 0 });
+    return w.C(w.core.restoreDelegationBook(w.ctx(w.home, w.team()), snapshot, () => true));
+  }),
+  S("AG-4", "a-restored-delegate-with-a-blocked-grant-is-refused", REFUSE, "SNAPSHOT_INVARIANT", (w) => {
+    const parent = w.root(w.home, { budget: 1000 });
+    const first = w.admitChild(w.start(w.home, w.team(), parent), parent, "worker");
+    const snapshot = JSON.parse(JSON.stringify(w.core.exportDelegationBook(first.book, w.home)));
+    snapshot.nodes.find((node) => node.parentEnvelopeId !== null).grants = ["send_message"];
+    return w.C(w.core.restoreDelegationBook(w.ctx(w.home, w.team()), snapshot, () => true));
+  }),
+  S("AG-4", "a-list-length-is-read-once", ANSWER, "1", (w) => {
+    let reads = 0;
+    const hostile = new Proxy(["docs/"], {
+      get(target, key) {
+        if (key === "length") {
+          reads += 1;
+          return reads === 1 ? 1 : 1e9;
+        }
+        return Reflect.get(target, key);
+      },
+    });
+    const copy = w.core.deepSnapshot(hostile);
+    return copy === undefined ? "refused" : String(copy.length);
+  }),
+  S("AG-11", "a-timer-that-throws-starts-nothing", REFUSE, "NO_TIMER", async (w) => {
+    const parent = w.root(w.home);
+    const holder = { book: w.start(w.home, w.team(), parent) };
+    const answer = await w.core.runDelegated(holder, w.ctx(w.home, w.team()), w.req(parent), async () => 1, () => {
+      throw new Error("no timer");
+    });
+    return answer.ok ? "ok" : answer.code;
+  }),
+  S("AG-11", "a-timer-with-no-cancel-starts-nothing", REFUSE, "NO_TIMER", async (w) => {
+    const parent = w.root(w.home);
+    const holder = { book: w.start(w.home, w.team(), parent) };
+    const answer = await w.core.runDelegated(holder, w.ctx(w.home, w.team()), w.req(parent), async () => 1, () => undefined);
+    return answer.ok ? "ok" : answer.code;
+  }),
+  S("AG-7", "the-pair-cap-is-a-rate-over-a-window", ANSWER, "ok", (w) => {
+    const m = w.msgWorld();
+    let ledger = m.ledger;
+    for (let count = 0; count < 20; count += 1) ledger = w.must(w.send(w.message(m.sender, { messageId: `MSG-A${count}` }), m, { ledger })).ledger;
+    return w.C(w.send(w.message(m.sender, { messageId: "MSG-A-later" }), m, { ledger, ms: NOW + 60 * MINUTE }));
+  }),
+  S("AG-7", "a-message-clock-behind-the-ledger-is-refused", REFUSE, "CLOCK", (w) => {
+    const m = w.msgWorld();
+    const first = w.must(w.send(w.message(m.sender, { messageId: "MSG-1" }), m, { ms: NOW + 5 }));
+    return w.C(w.send(w.message(m.sender, { messageId: "MSG-2" }), m, { ledger: first.ledger, ms: NOW + 1 }));
+  }),
+  S("AG-3", "a-root-for-another-agent-than-its-actor-is-refused", REFUSE, "ROOT_AGENT_MISMATCH", (w) =>
+    w.C(w.core.registerRoot(w.core.emptyDelegationBook(), w.ctx(w.home, w.team()), { agentId: "lead", envelope: w.root(w.home, { agent: "worker" }) }))),
+  S("AG-3", "a-root-that-is-not-a-run-is-refused", REFUSE, "ROOT_NOT_A_RUN", (w) =>
+    w.C(w.core.registerRoot(w.core.emptyDelegationBook(), w.ctx(w.home, w.team()), { agentId: "lead", envelope: w.root(w.home, { action: "implement" }) }))),
+  S("AG-9", "a-finished-item-is-not-restored-unvouched", REFUSE, "ITEM_UNVERIFIED", (w) => {
+    const { verifyItem, ...bare } = w.at(NOW + 10);
+    void verifyItem;
+    return w.C(w.core.restoreQueueItem(bare, { ...w.running(), status: "completed", leaseExpiresAt: null }));
+  }),
+  S("AG-9", "an-unstarted-item-is-restored-without-a-verifier", ANSWER, "queued", (w) => {
+    const { verifyItem, ...bare } = w.at(NOW + 10);
+    void verifyItem;
+    return w.QC(w.core.restoreQueueItem(bare, { ...w.item() }));
+  }, true),
 ];
 void unusedClock;
 
@@ -1084,14 +1224,12 @@ const BEHAVIOUR_MUTATIONS = [
   // AG-3: depth, cycles, roots
   M("the-depth-cap-is-three", "a-delegate-past-the-depth-cap-is-refused", LIMITS_REL, "export const MAX_DELEGATION_DEPTH = 2;", "export const MAX_DELEGATION_DEPTH = 3;"),
   M("the-depth-is-the-requests", "a-request-cannot-state-its-depth", DELEGATION_REL, "if (parent.depth + 1 > MAX_DELEGATION_DEPTH)", "if (((request).depth ?? parent.depth) + 1 > MAX_DELEGATION_DEPTH)"),
-  M("a-child-envelope-is-a-root", "a-child-envelope-is-not-a-root", DELEGATION_REL, "if (envelope.parentEnvelopeId !== null) return", "if (false) return"),
-  M("a-root-may-be-registered-twice", "a-root-registered-twice-is-refused", DELEGATION_REL, "if (prepared.nodes.has(key)) return fail", "if (false) return fail"),
+  M("a-root-may-be-registered-twice", "a-root-registered-twice-is-refused", DELEGATION_REL, "if (prepared.nodes.has(key) || prepared.tombs.has(key)) return fail(", "if (prepared.tombs.has(key)) return fail("),
   M("a-root-label-is-the-envelopes-own", "a-root-with-a-false-class-label-is-refused", DELEGATION_REL, "if (resolved.actionClass !== envelope.actionClass || resolved.environment !== envelope.environment) {", "if (false) {"),
   M("any-agent-may-delegate", "a-parent-that-may-not-delegate-is-refused", DELEGATION_REL, "record === null || record.mayDelegate !== true", "record === null"),
   M("a-delegate-may-return-to-an-ancestor", "a-delegate-to-an-ancestor-is-refused", DELEGATION_REL, "if (parent.lineage.includes(record.agentId))", "if (false)"),
   M("an-agent-is-found-by-id-alone", "a-child-agent-another-tenant-holds-is-unknown", BOOK_REL, "JSON.stringify([tenant, project, agentId])", "JSON.stringify([agentId])"),
-  M("a-child-envelope-id-may-repeat", "a-child-envelope-id-held-already-is-refused", DELEGATION_REL, "if (nodes.has(key)) return fail", "if (false) return fail"),
-  M("an-expired-parent-delegates", "an-expired-parent-is-refused", DELEGATION_REL, `if (envelopeExpired(parent.envelope, prepared.iso)) return ['PARENT_EXPIRED', "the parent's envelope has expired"];`, ""),
+  M("a-child-envelope-id-may-repeat", "a-child-envelope-id-held-already-is-refused", DELEGATION_REL, "if (nodes.has(key) || prepared.tombs.has(key)) return fail(", "if (prepared.tombs.has(key)) return fail("),
   // AG-4: caps
   M("the-fan-out-cap-is-six", "a-sixth-child-is-refused", LIMITS_REL, "export const MAX_CHILDREN_PER_PARENT = 5;", "export const MAX_CHILDREN_PER_PARENT = 6;"),
   M("a-settled-child-frees-a-fan-out-place", "a-finished-child-still-counts-toward-the-fan-out", DELEGATION_REL, "next.set(key, Object.freeze({ ...node, state: outcome }));",
@@ -1186,8 +1324,7 @@ const BEHAVIOUR_MUTATIONS = [
   M("an-unvouched-release-is-taken", "an-unvouched-release-is-refused", DELEGATION_REL, " || !verifiedByPort(verify, form)) {", ") {"),
   M("a-deadline-is-ignored", "a-run-past-its-deadline-is-lapsed", DELEGATION_REL, "const first = await Promise.race([running.then((value) => ({ value })), deadline]);", "const first = await running.then((value) => ({ value }));"),
   M("a-late-result-is-returned", "a-late-result-is-refused", DELEGATION_REL, "    else if (outcome === 'completed') outcome = 'unknown';\n", ""),
-  M("pruning-drops-nothing", "a-pruned-delegate-frees-the-node-cap", DELEGATION_REL, "  for (const [key] of gone) next.delete(key);\n", ""),
-  M("a-root-is-pruned", "a-root-is-not-pruned-so-its-budget-cannot-be-reset", DELEGATION_REL, "inScope(node, context.binding) && node.depth > 0 && (", "inScope(node, context.binding) && ("),
+  M("pruning-drops-nothing", "a-pruned-delegate-frees-the-node-cap", DELEGATION_REL, "    next.delete(key);\n", ""),
   M("the-root-cap-is-nine", "a-root-cap-holds-the-delegates-under-one-run", LIMITS_REL, "export const MAX_LIVE_DELEGATES_PER_ROOT = 8;", "export const MAX_LIVE_DELEGATES_PER_ROOT = 9;"),
   M("an-unvouched-snapshot-is-restored", "a-snapshot-nobody-vouches-for-is-refused", DELEGATION_REL, "if (!verified) return no(", "if (false) return no("),
   M("a-reservation-is-not-checked", "a-snapshot-with-an-impossible-reservation-is-refused", DELEGATION_REL, "node.reserved < kids.reduce((sum, kid) => sum + kid.envelope.budget, 0) || ", ""),
@@ -1203,6 +1340,24 @@ const BEHAVIOUR_MUTATIONS = [
   M("a-renewal-does-not-extend-the-lease", "a-lease-that-is-renewed-is-not-lost-at-its-old-end", QUEUE_REL, "leaseExpiresAt: now + QUEUE_LEASE_MS, updatedAt: now, revision: item.revision + 1, renewals: item.renewals + 1", "leaseExpiresAt: item.leaseExpiresAt, updatedAt: now, revision: item.revision + 1, renewals: item.renewals + 1"),
   M("the-renewal-cap-is-nine", "a-lease-is-renewed-only-a-bounded-number-of-times", LIMITS_REL, "export const MAX_LEASE_RENEWALS = 8;", "export const MAX_LEASE_RENEWALS = 9;"),
   M("an-ended-lease-is-renewed", "an-ended-lease-is-not-renewed", QUEUE_REL, "  if (now >= item.leaseExpiresAt) return no('RENEWAL_REFUSED', 'the lease has already ended; recovery, not a renewal, decides what happens to the item');\n", ""),
+  // Final fix round
+  M("a-snapshot-is-read-again-after-it-is-verified", "a-snapshot-is-restored-from-what-was-verified", DELEGATION_REL, "for (const entry of top['nodes'] as readonly unknown[]) {", "for (const entry of (raw as { nodes: readonly unknown[] }).nodes) {"),
+  M("a-snapshot-accessor-is-read", "a-snapshot-with-an-accessor-is-refused", FILES.envelopeSnapshot, "    if (descriptor === undefined || !('value' in descriptor) || descriptor.enumerable !== true) return REFUSED;\n    const item = copyDeep(descriptor.value, depth + 1, budget);", "    const item = copyDeep((value as Record<string, unknown>)[key], depth + 1, budget);"),
+  M("a-restored-delegate-may-hold-a-blocked-grant", "a-restored-delegate-with-a-blocked-grant-is-refused", DELEGATION_REL, "    if (node.grants.some(isBlockedGrant)) return ", "    if (false) return "),
+  M("a-length-is-read-on-every-pass", "a-list-length-is-read-once", FILES.envelopeSnapshot, "    for (let index = 0; index < length; index += 1) {\n      const descriptor = Object.getOwnPropertyDescriptor(value, index);\n      if (descriptor === undefined || !('value' in descriptor)) return REFUSED;", "    for (let index = 0; index < (value as unknown[]).length; index += 1) {\n      const descriptor = Object.getOwnPropertyDescriptor(value, index);\n      if (descriptor === undefined || !('value' in descriptor)) return REFUSED;"),
+  M("a-throwing-timer-is-ignored", "a-timer-that-throws-starts-nothing", DELEGATION_REL, "  } catch {\n    return noTimer('the one given threw');\n  }", "  } catch {\n    cancel = () => undefined;\n  }"),
+  M("a-timer-without-a-cancel-is-taken", "a-timer-with-no-cancel-starts-nothing", DELEGATION_REL, "  if (typeof cancel !== 'function') return noTimer(", "  if (false) return noTimer("),
+  M("a-pruned-root-may-return", "a-pruned-root-cannot-be-registered-again", DELEGATION_REL, "if (prepared.nodes.has(key) || prepared.tombs.has(key)) return fail(", "if (prepared.nodes.has(key)) return fail("),
+  M("a-pruned-child-may-return", "a-pruned-child-cannot-be-admitted-again", DELEGATION_REL, "if (nodes.has(key) || prepared.tombs.has(key)) return fail(", "if (nodes.has(key)) return fail("),
+  M("a-root-is-never-pruned", "settled-roots-are-pruned-so-the-node-cap-frees", DELEGATION_REL, "    const result = (node.state === 'completed' || node.state === 'failed') &&", "    const result = node.parentEnvelopeId !== null && (node.state === 'completed' || node.state === 'failed') &&"),
+  M("an-unknown-descendant-does-not-block-pruning", "an-unknown-node-blocks-pruning-its-ancestors", DELEGATION_REL, ".every(prunable);", ".every(() => true);"),
+  M("the-tombstone-cap-is-three-hundred", "a-full-set-of-pruned-ids-refuses-to-prune", LIMITS_REL, "export const MAX_TOMBSTONES_PER_PROJECT = 200;", "export const MAX_TOMBSTONES_PER_PROJECT = 300;"),
+  M("an-expired-child-is-admitted", "a-child-that-has-already-expired-is-refused", DELEGATION_REL, "if (envelopeExpired(child, prepared.iso)) return fail(", "if (false) return fail("),
+  M("the-message-window-never-ends", "the-pair-cap-is-a-rate-over-a-window", MESSAGES_REL, "now - entry.at < MESSAGE_WINDOW_MS", "true"),
+  M("a-ledger-clock-may-run-backwards", "a-message-clock-behind-the-ledger-is-refused", MESSAGES_REL, "Math.max(context.delegations.lastSeen, state.lastAt)", "context.delegations.lastSeen"),
+  M("a-root-may-be-registered-for-any-agent", "a-root-for-another-agent-than-its-actor-is-refused", DELEGATION_REL, "if (request.agentId !== envelope.actor.agent) return fail(", "if (false) return fail("),
+  M("a-root-may-be-any-action", "a-root-that-is-not-a-run-is-refused", DELEGATION_REL, "if (envelope.action !== RUN_ACTION) return fail(", "if (false) return fail("),
+  M("a-finished-item-needs-no-vouching", "a-finished-item-is-not-restored-unvouched", QUEUE_REL, "if (!unstarted && !verifiedByPort(context.verifyItem,", "if (false && !verifiedByPort(context.verifyItem,"),
 ];
 
 /** Run every scenario against one compiled core. A scenario that throws has an outcome too: it threw. */
@@ -1447,6 +1602,9 @@ const TEXT_MUTATIONS = [
   F("the-finish-record-loses-the-verifier-ports-limit", "Whether a verifier port is honest is the wiring's", "A verifier port is honest"),
   F("the-finish-record-loses-the-retry-residual", "Retry counting is not unified with the workforce dispatch", "Retries are unified"),
   F("the-finish-record-loses-the-review-round", "## Review round 1", "## Notes"),
+  F("the-finish-record-loses-the-second-review-round", "## Review round 2", "## Notes 2"),
+  F("the-finish-record-loses-the-kernel-owns-the-ceiling", "is the kernel's admission to own", "is this module's to own"),
+  F("the-finish-record-loses-the-unstarted-copy-limit", "cannot be told from a real one without store authentication", "can be told from a real one"),
   F("the-finish-record-loses-the-budget-residual", "A finished delegate does not give its budget back", "A finished delegate gives its budget back"),
   F("the-finish-record-loses-the-store-residual", "A restored item is only as trustworthy as the store it came from", "A restored item is proved"),
   F("the-finish-record-loses-the-credit-directories-commit", "The shared commit `86f18e23` lists this directory", "The credit validator was edited"),

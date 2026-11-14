@@ -19,6 +19,7 @@ import {
   type DelegationBook,
   type DelegationRequest,
 } from '../src/agents/index.js';
+import type { ActionRegistry } from '../src/actionRegistry.js';
 import type { TaskEnvelope } from '../src/taskEnvelope.js';
 import type { TenantBinding } from '../src/tenant.js';
 import {
@@ -37,6 +38,7 @@ import {
   projectos,
   registryWith,
   rootEnvelope,
+  runRegistry,
   withRoot,
 } from './agents-support.js';
 
@@ -60,8 +62,16 @@ function request(parent: TaskEnvelope, over: Partial<DelegationRequest> & { chil
 }
 
 const code = (result: { ok: boolean } & Record<string, unknown>): string => (result.ok ? 'ok' : String(result['code']));
-const delegate = (book: DelegationBook, req: DelegationRequest, held: AgentBook = agents(), ms = NOW, tenantBinding: TenantBinding = home) =>
-  admitDelegation(book, contextOf(tenantBinding, held, ms), req);
+const delegate = (book: DelegationBook, req: DelegationRequest, held: AgentBook = agents(), ms = NOW, tenantBinding: TenantBinding = home, registry?: ActionRegistry) =>
+  admitDelegation(book, contextOf(tenantBinding, held, ms, registry), req);
+
+/** A run whose class and environment the test raised, as the kernel would mint it under that registry. */
+const P5_RUN = runRegistry({ class: 'P5' });
+const PRODUCTION_RUN = runRegistry({ class: 'P5', environment: 'production' });
+const under = (registry: ActionRegistry) => {
+  const parent = rootEnvelope(home, { registry });
+  return { parent, book: withRoot(home, agents(), parent, undefined, NOW, registry) };
+};
 
 function must<T extends { ok: boolean }>(result: T): Extract<T, { ok: true }> {
   if (!result.ok) throw new Error(`a control call was refused: ${JSON.stringify(result)}`);
@@ -122,7 +132,7 @@ describe('the grants a child may hold are at most its parent\'s', () => {
 });
 
 describe('a child\'s tenant, domain, project and environment equal its parent\'s, through checkChildEnvelope', () => {
-  const root = (): TaskEnvelope => rootEnvelope(home, { action: 'implement' });
+  const root = (): TaskEnvelope => rootEnvelope(home);
 
   it('refuses a child in another tenant, with the envelope rule that decided it', () => {
     const parent = root();
@@ -141,8 +151,8 @@ describe('a child\'s tenant, domain, project and environment equal its parent\'s
   });
 
   it('refuses a child in another environment: cross-tenant-access is production, run_validators is local', () => {
-    const parent = rootEnvelope(home, { action: 'cross-tenant-access' });
-    const result = delegate(withRoot(home, agents(), parent), request(parent, { child: { environment: 'local' } }));
+    const { parent, book } = under(PRODUCTION_RUN);
+    const result = delegate(book, request(parent, { child: { environment: 'local' } }), agents(), NOW, home, PRODUCTION_RUN);
     expect(code(result)).toBe('ENVELOPE_R3');
   });
 
@@ -205,8 +215,8 @@ describe('the depth is derived, and capped', () => {
     const { root, two } = chain();
     const asRoot = admittedChild(root, home);
     expect(asRoot.parentEnvelopeId).not.toBeNull();
-    expect(registerRoot(two.book, contextOf(home, agents()), { agentId: 'leaf', envelope: asRoot })).toMatchObject({ ok: false, code: 'ROOT_IS_A_CHILD' });
-    expect(registerRoot(two.book, contextOf(home, agents()), { agentId: 'leaf', envelope: two.envelope })).toMatchObject({ ok: false, code: 'ROOT_NOT_ADMITTED' });
+    expect(registerRoot(two.book, contextOf(home, agents()), { agentId: 'lead', envelope: asRoot })).toMatchObject({ ok: false, code: 'ROOT_NOT_A_RUN' });
+    expect(registerRoot(two.book, contextOf(home, agents()), { agentId: 'lead', envelope: two.envelope })).toMatchObject({ ok: false, code: 'ROOT_NOT_ADMITTED' });
   });
 
   it('refuses a delegation from a parent the book has never seen, instead of treating it as a root', () => {
@@ -341,25 +351,25 @@ describe('a delegate is held to what is left of the parent\'s budget', () => {
 
 describe('no child may delegate a P5 action', () => {
   it('refuses a P5 child of a P5 parent: the class check, not the envelope check, decides', () => {
-    const parent = rootEnvelope(home, { action: 'approve' });
-    const result = delegate(withRoot(home, agents(), parent), request(parent, { child: { action: 'reject', actionClass: 'P5' } }));
+    const { parent, book } = under(P5_RUN);
+    const result = delegate(book, request(parent, { child: { action: 'reject', actionClass: 'P5' } }), agents(), NOW, home, P5_RUN);
     expect(code(result)).toBe('DELEGATED_CLASS');
   });
 
   it('refuses a child whose action the registry does not list, which reads as P5', () => {
-    const parent = rootEnvelope(home, { action: 'cross-tenant-access' });
-    const result = delegate(withRoot(home, agents(), parent), request(parent, { child: { action: 'made-up-action', actionClass: 'P5', environment: 'production' } }));
+    const { parent, book } = under(PRODUCTION_RUN);
+    const result = delegate(book, request(parent, { child: { action: 'made-up-action', actionClass: 'P5', environment: 'production' } }), agents(), NOW, home, PRODUCTION_RUN);
     expect(code(result)).toBe('DELEGATED_CLASS');
   });
 
   it('refuses a child that labels a P5 action P1, by the registry\'s class', () => {
-    const parent = rootEnvelope(home, { action: 'approve' });
-    expect(code(delegate(withRoot(home, agents(), parent), request(parent, { child: { action: 'reject', actionClass: 'P1' } })))).toBe('ENVELOPE_R3');
+    const { parent, book } = under(P5_RUN);
+    expect(code(delegate(book, request(parent, { child: { action: 'reject', actionClass: 'P1' } }), agents(), NOW, home, P5_RUN))).toBe('ENVELOPE_R3');
   });
 
   it('admits a P3 child of a P5 parent: the control for the class ceiling', () => {
-    const parent = rootEnvelope(home, { action: 'approve' });
-    expect(code(delegate(withRoot(home, agents(), parent), request(parent, { child: { action: 'commit', actionClass: 'P3', environment: 'local' } })))).toBe('ok');
+    const { parent, book } = under(P5_RUN);
+    expect(code(delegate(book, request(parent, { child: { action: 'commit', actionClass: 'P3', environment: 'local' } }), agents(), NOW, home, P5_RUN))).toBe('ok');
   });
 });
 
@@ -383,7 +393,7 @@ describe('the clock is injected, finite and does not run backwards', () => {
   it('refuses a parent whose envelope has expired by the injected clock', () => {
     const root = rootEnvelope(home, { expiry: '2026-11-14T12:30:00.000Z' });
     const book = withRoot(home, agents(), root);
-    expect(code(delegate(book, request(root, { child: { expiry: '2026-11-14T12:30:00.000Z' } }), agents(), NOW + 31 * MINUTE))).toBe('PARENT_EXPIRED');
+    expect(code(delegate(book, request(root, { child: { expiry: '2026-11-14T12:30:00.000Z' } }), agents(), NOW + 31 * MINUTE))).toBe('CHILD_EXPIRED');
   });
 });
 
@@ -394,13 +404,13 @@ describe('a root enters the book once, for its own tenant', () => {
   });
 
   it('refuses a root whose class label is not the registry\'s for its action: a P5 action labelled P1', () => {
-    const root = rootEnvelope(home, { action: 'implement' });
-    const stricter = { ...contextOf(home, agents()), registry: registryWith({ implement: { class: 'P3' } }) };
+    const root = rootEnvelope(home);
+    const stricter = { ...contextOf(home, agents()), registry: registryWith({ 'run-start': { class: 'P3' } }) };
     expect(registerRoot(emptyDelegationBook(), stricter, { agentId: 'lead', envelope: root })).toMatchObject({ ok: false, code: 'ROOT_LABEL' });
   });
 
   it('refuses a root whose agent this tenant does not hold', () => {
-    expect(registerRoot(emptyDelegationBook(), contextOf(home, agents()), { agentId: 'ghost', envelope: rootEnvelope(home) })).toMatchObject({ ok: false, code: 'ROOT_AGENT_UNKNOWN' });
+    expect(registerRoot(emptyDelegationBook(), contextOf(home, agents()), { agentId: 'ghost', envelope: rootEnvelope(home, { agent: 'ghost' }) })).toMatchObject({ ok: false, code: 'ROOT_AGENT_UNKNOWN' });
   });
 
   it('refuses a root registered twice', () => {

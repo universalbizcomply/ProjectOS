@@ -23,7 +23,7 @@ import type { TenantBinding } from '../src/tenant.js';
 import { MINUTE, NOW, PLAN_DIGEST, agency, clockAt, polygo, projectos } from './agents-support.js';
 
 const home = polygo();
-const at = (ms: number, binding: TenantBinding = home): QueueContext => ({ binding, clock: clockAt(ms), verifyResolution: () => true });
+const at = (ms: number, binding: TenantBinding = home): QueueContext => ({ binding, clock: clockAt(ms), verifyResolution: () => true, verifyItem: () => true });
 const OWNER = { decisionId: 'PLANDEC-0123456789abcdef', decidedBy: 'owner' as const, planDigest: PLAN_DIGEST };
 
 /** A resolution record bound to this item, its tenant, project and current revision. */

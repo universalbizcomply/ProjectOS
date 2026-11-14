@@ -24,9 +24,9 @@
  * project and the message id.
  *
  * A CONVERSATION ENDS. A ledger the caller threads through records every message, keyed by tenant, project and message id. A
- * message id is admitted once. A reply names the message it answers, which must have been sent to the replier, and the hop
+ * message id is admitted once within the window. A reply names the message it answers, which must have been sent to the replier, and the hop
  * count is the ledger's, not the request's, and has a cap. One pair of agents may exchange a bounded number of messages. A
- * full ledger refuses and never forgets an old entry.
+ * full ledger refuses and forgets nothing that still counts. The caps count only the messages of the last window, a span of the injected clock, so they are a rate and not a lifetime ban, and an entry older than the window is forgotten, which keeps the ledger bounded.
  *
  * WHAT THIS MODULE CANNOT PROVE. That the caller is the run the sender envelope id names is the wiring's, as is keeping the
  * ledger durable. Pure: no I/O.
@@ -38,7 +38,7 @@ import { isDerivedBinding, type TenantBinding } from '../tenant.js';
 import { findAgent, isAgentBook, scopeKey, type AgentBook } from './agentBook.js';
 import { readClock, type Clock } from './clockGuard.js';
 import { delegationNodeAt, isDelegationBook, type DelegationBook } from './delegation.js';
-import { MAX_MESSAGES_PER_PAIR, MAX_MESSAGE_CHARS, MAX_MESSAGE_HOPS, MAX_MESSAGE_LEDGER_ENTRIES } from './delegationLimits.js';
+import { MAX_MESSAGES_PER_PAIR, MAX_MESSAGE_CHARS, MAX_MESSAGE_HOPS, MAX_MESSAGE_LEDGER_ENTRIES, MESSAGE_WINDOW_MS } from './delegationLimits.js';
 import { normalizeGrantName } from './delegationToolsets.js';
 import { snapshotEnvelope } from './envelopeSnapshot.js';
 
@@ -53,6 +53,14 @@ interface LedgerEntry {
   readonly to: string;
   readonly hops: number;
   readonly scope: string;
+  /** When it was admitted, by the injected clock. */
+  readonly at: number;
+}
+
+interface LedgerState {
+  readonly entries: ReadonlyMap<string, LedgerEntry>;
+  /** The latest instant an entry carries. A clock behind it is not believed. */
+  readonly lastAt: number;
 }
 
 /** An opaque ledger of the messages admitted so far. */
@@ -60,15 +68,15 @@ export interface MessageLedger {
   readonly size: number;
 }
 
-const LEDGERS = new WeakMap<MessageLedger, ReadonlyMap<string, LedgerEntry>>();
+const LEDGERS = new WeakMap<MessageLedger, LedgerState>();
 
-function ledgerOf(entries: ReadonlyMap<string, LedgerEntry>): MessageLedger {
+function ledgerOf(entries: ReadonlyMap<string, LedgerEntry>, lastAt: number): MessageLedger {
   const ledger: MessageLedger = Object.freeze({ size: entries.size });
-  LEDGERS.set(ledger, entries);
+  LEDGERS.set(ledger, { entries, lastAt });
   return ledger;
 }
 
-export const emptyMessageLedger = (): MessageLedger => ledgerOf(new Map());
+export const emptyMessageLedger = (): MessageLedger => ledgerOf(new Map(), 0);
 
 export interface MessageContext {
   readonly binding: TenantBinding;
@@ -159,10 +167,12 @@ export function admitAgentMessage(book: AgentBook, input: MessageContext, asked:
   if (!isDerivedBinding(binding)) return no('BINDING', 'the tenant binding was not produced by resolveTenant, so the tenant is a claim');
   if (!isAgentBook(book)) return no('AGENT_BOOK', 'the agent book was not built by this module');
   if (!isDelegationBook(context.delegations)) return no('DELEGATION_BOOK', 'the delegation book was not built by this module');
-  const held = LEDGERS.get(context.ledger);
-  if (held === undefined) return no('LEDGER', 'the message ledger was not built by this module');
-  const now = readClock(context.clock, context.delegations.lastSeen);
-  if (now === null) return no('CLOCK', 'the clock gave no usable time, or a time before one the delegation book has already seen');
+  const state = LEDGERS.get(context.ledger);
+  if (state === undefined) return no('LEDGER', 'the message ledger was not built by this module');
+  const now = readClock(context.clock, Math.max(context.delegations.lastSeen, state.lastAt));
+  if (now === null) return no('CLOCK', 'the clock gave no usable time, or a time before one the delegation or message ledger has already seen');
+  // Only the last window counts, and only it is kept.
+  const held = new Map([...state.entries].filter(([, entry]) => now - entry.at < MESSAGE_WINDOW_MS));
   const shape = shapeProblem(request);
   if (shape !== null) return no('MESSAGE_SHAPE', shape);
   const node = delegationNodeAt(context.delegations, binding.tenant, binding.projectId, request.senderEnvelopeId, now);
@@ -199,8 +209,8 @@ export function admitAgentMessage(book: AgentBook, input: MessageContext, asked:
   const scope = scopeKey(binding.tenant, binding.projectId);
   const inScope = [...held.values()].filter((entry) => entry.scope === scope);
   const pair = pairKey(sender.agentId, recipient.agentId);
-  if (inScope.filter((entry) => pairKey(entry.from, entry.to) === pair).length >= MAX_MESSAGES_PER_PAIR) return no('PAIR_CAP', `one pair of agents exchanges at most ${MAX_MESSAGES_PER_PAIR} messages`);
-  if (inScope.length >= MAX_MESSAGE_LEDGER_ENTRIES) return no('LEDGER_FULL', 'the ledger is full for this project; nothing is forgotten to make room');
+  if (inScope.filter((entry) => pairKey(entry.from, entry.to) === pair).length >= MAX_MESSAGES_PER_PAIR) return no('PAIR_CAP', `one pair of agents exchanges at most ${MAX_MESSAGES_PER_PAIR} messages in a window`);
+  if (inScope.length >= MAX_MESSAGE_LEDGER_ENTRIES) return no('LEDGER_FULL', 'the ledger is full for this window; nothing that still counts is forgotten to make room');
 
   const idempotencyKey = deriveIdempotencyKey({
     tenant: binding.tenant,
@@ -209,10 +219,10 @@ export function admitAgentMessage(book: AgentBook, input: MessageContext, asked:
     subjectHash: createHash('sha256').update(request.body, 'utf8').digest('hex'),
     intentScope: request.messageId,
   });
-  const entry: LedgerEntry = Object.freeze({ from: sender.agentId, to: recipient.agentId, hops, scope });
+  const entry: LedgerEntry = Object.freeze({ from: sender.agentId, to: recipient.agentId, hops, scope, at: now });
   return {
     ok: true,
-    ledger: ledgerOf(new Map([...held, [key, entry]])),
+    ledger: ledgerOf(new Map([...held, [key, entry]]), now),
     message: {
       trust: 'untrusted-data',
       tenant: binding.tenant,

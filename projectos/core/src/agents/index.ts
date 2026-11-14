@@ -20,6 +20,8 @@ export {
   MAX_MESSAGE_HOPS,
   MAX_MESSAGES_PER_PAIR,
   MAX_MESSAGE_LEDGER_ENTRIES,
+  MAX_TOMBSTONES_PER_PROJECT,
+  MESSAGE_WINDOW_MS,
   MAX_LIVE_DELEGATES_PER_PROJECT,
   MAX_MESSAGE_CHARS,
   MAX_MESSAGE_RECIPIENTS,
@@ -66,7 +68,7 @@ export {
 export { resolveAgentRoute, type ResolvedRoute, type RouteCode, type RouteInput, type RouteMatchedBy, type RouteResult } from './routeResolve.js';
 export { DELEGATE_BLOCKED_GRANTS, childGrantProblem, isBlockedGrant, normalizeGrantName, type GrantRefusal, type GrantRefusalCode } from './delegationToolsets.js';
 export { readOwnerForm, verifiedByPort, type OwnerFormVerifier } from './ownerForm.js';
-export { snapshotEnvelope } from './envelopeSnapshot.js';
+export { deepSnapshot, snapshotEnvelope } from './envelopeSnapshot.js';
 export { goalProblem } from './delegationTasks.js';
 export {
   admitDelegation,

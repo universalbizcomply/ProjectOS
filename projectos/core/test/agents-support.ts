@@ -83,12 +83,12 @@ export function nextEnvelopeId(): string {
   return `ENV-${counter.toString(16).padStart(24, '0')}`;
 }
 
-export function kernelContext(binding: TenantBinding, id: string = envelopeId('1')): KernelEnvelopeContext {
+export function kernelContext(binding: TenantBinding, id: string = envelopeId('1'), registry: ActionRegistry = committedRegistry(), agent = 'lead'): KernelEnvelopeContext {
   return {
     binding,
-    registry: committedRegistry(),
+    registry,
     principal: 'implementer',
-    actor: { agent: 'claude-code-cli', provider: 'anthropic', model: 'claude-opus-5-5' },
+    actor: { agent, provider: 'anthropic', model: 'claude-opus-5-5' },
     envelopeId: id,
   };
 }
@@ -100,19 +100,23 @@ export interface EnvelopeChange {
   readonly expiry?: string;
   readonly intentScope?: string;
   readonly envelopeId?: string;
+  /** The registry the kernel mints under. A root is a `run-start` envelope, whose class and environment a test may raise. */
+  readonly registry?: ActionRegistry;
+  /** The agent the kernel names as the envelope's actor. A root is registered for exactly this agent. */
+  readonly agent?: string;
 }
 
 /** An admitted root envelope, the way the kernel mints one and the door admits it. */
 export function rootEnvelope(binding: TenantBinding, change: EnvelopeChange = {}): TaskEnvelope {
   const request: EnvelopeRequest = {
-    action: change.action ?? 'implement',
+    action: change.action ?? 'run-start',
     subjectHash: 'a'.repeat(40),
     scope: change.scope ?? ['projectos/core/src/', 'docs/'],
     budget: change.budget ?? 1000,
     expiry: change.expiry ?? LATER,
     intentScope: change.intentScope ?? `RUN-${nextEnvelopeId()}`,
   };
-  const minted = mintEnvelope(kernelContext(binding, change.envelopeId ?? nextEnvelopeId()), request);
+  const minted = mintEnvelope(kernelContext(binding, change.envelopeId ?? nextEnvelopeId(), change.registry, change.agent), request);
   const admission = admitEnvelope(minted, '2026-11-14T12:00:00.000Z', () => true, () => true);
   if (!admission.admitted) throw new Error(`the control envelope was refused: ${admission.reasons.join('; ')}`);
   return admission.envelope;
@@ -156,13 +160,21 @@ export function childEnvelope(parent: TaskEnvelope, change: Partial<Record<keyof
   } as TaskEnvelope;
 }
 
-export function contextOf(binding: TenantBinding, agents: AgentBook, ms: number = NOW): DelegationContext {
-  return { binding, registry: committedRegistry(), agents, clock: clockAt(ms) };
+export function contextOf(binding: TenantBinding, agents: AgentBook, ms: number = NOW, registry: ActionRegistry = committedRegistry()): DelegationContext {
+  return { binding, registry, agents, clock: clockAt(ms) };
 }
 
-/** A delegation book with `envelope` registered as the root of `agentId`. */
-export function withRoot(binding: TenantBinding, agents: AgentBook, envelope: TaskEnvelope, agentId = 'lead', ms: number = NOW): DelegationBook {
-  const result = registerRoot(emptyDelegationBook(), contextOf(binding, agents, ms), { agentId, envelope });
+/** The committed registry with the `run-start` entry changed: a root is a run, so this is how a test raises a root's class or environment. */
+export function runRegistry(change: Record<string, unknown>): ActionRegistry {
+  const raw = json('action-registry.json') as { actions: Record<string, unknown>[] };
+  const parsed = parseActionRegistry({ ...raw, actions: raw.actions.map((entry) => (entry['id'] === 'run-start' ? { ...entry, ...change } : entry)) });
+  if (!parsed.ok) throw new Error('the changed action registry does not parse');
+  return parsed.registry;
+}
+
+/** A delegation book with `envelope` registered as the root of `agentId`, which is the agent the envelope names as its actor unless told otherwise. */
+export function withRoot(binding: TenantBinding, agents: AgentBook, envelope: TaskEnvelope, agentId: string = envelope.actor.agent, ms: number = NOW, registry: ActionRegistry = committedRegistry()): DelegationBook {
+  const result = registerRoot(emptyDelegationBook(), contextOf(binding, agents, ms, registry), { agentId, envelope });
   if (!result.ok) throw new Error(`the control root was refused: ${result.code}: ${result.message}`);
   return result.book;
 }
