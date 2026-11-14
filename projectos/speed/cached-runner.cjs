@@ -194,6 +194,8 @@ const MODULES = [
   "val-projectos-port-mcp1a",
   // PROJECTOS-PORT-AGENTS1A — agent records, same-tenant routes and messages, delegation never past the parent, queue-state rules, and no second queue.
   "val-projectos-port-agents1a",
+  // PROJECTOS-PORT-RESEARCH1A — cited research: an SSRF guard on every fetch, a budget on every paid search, a step cap, no uncited answer.
+  "val-projectos-port-research1a",
   // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
   "val-projectos-connector-contract1a"
 ];

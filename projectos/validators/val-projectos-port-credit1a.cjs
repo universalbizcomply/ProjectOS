@@ -175,7 +175,7 @@ const FIXTURE_MARK = "Credit-Fixture: quotes upstream marks as test data";
 const OWNER_RECORDER = "projectos plan decide";
 const PLAN_DIGEST = /^sha256:[0-9a-f]{64}$/;
 /** Each port phase's own validator. A reviewed list: a later port phase adds its name here. */
-const PORT_VALIDATORS = ["search", "memory", "skills", "context", "approvals", "providers"].map((name) => `projectos/validators/val-projectos-port-${name}1a.cjs`);
+const PORT_VALIDATORS = ["search", "memory", "skills", "context", "approvals", "providers", "research"].map((name) => `projectos/validators/val-projectos-port-${name}1a.cjs`);
 /** The empty blob. An intent-to-add entry is listed with it, and `git commit` leaves that file out. */
 const EMPTY_BLOB = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391";
 /** Ends our header. Upstream text kept below it, as ADR-P1 §3 and Apache-2.0 §4(c) require, is not read as ours. */

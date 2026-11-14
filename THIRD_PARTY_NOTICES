@@ -1151,3 +1151,118 @@ Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
 Licence: MIT
 Copyright: Copyright (c) 2025 Nous Research
 Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/research/addressClass.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/url_safety.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/research/brave.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: extensions/brave/src/brave-web-search-provider.runtime.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/research/externalContent.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/security/external-content.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/research/extractors.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/web-fetch/content-extractors.runtime.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/research/hostNames.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/url_safety.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/research/readableText.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: extensions/web-readability/web-content-extractor.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/research/searchRuntime.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/web-search/runtime.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/research/searchRuntime.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/web-search/runtime-error.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/research/searxng.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: extensions/searxng/src/searxng-client.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/research/ssrfGuard.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/url_safety.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/research/urlParse.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/url_safety.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/research/websitePolicy.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/website_policy.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
