@@ -171,3 +171,44 @@ describe('an escaped secret, and the newer shapes, are refused (fix round 1, M3)
     expect(sensitiveContentProblem(`A literal backslash-u sequence for a space: ${BS}u0020 and nothing else.`)).toBeNull();
   });
 });
+
+describe('ordinary snake_case is not a credential, real tokens still are (final round, N2)', () => {
+  const body = 'A1b2C3d4'.repeat(4);
+
+  it.each([
+    'Call re_render_count_total_value after the update.',
+    'The helper re_authenticate_user_with_session runs first.',
+    'The setting sb_publishable_key_name_for_client_config is documented.',
+    'The flag sb_secret_rotation_policy_for_service_roles is on.',
+    'See vcp_deployment_configuration_for_production.',
+    'Use re_render_v2_count_total_value_again for the v2 path.',
+    'The name vcp_cache_invalidation_strategy_v2_final is a label.',
+  ])('does not refuse %s', (text) => {
+    expect(sensitiveContentProblem(text)).toBeNull();
+  });
+
+  it.each([
+    ['a Resend key, mixed case with digits', `re_${body.slice(0, 24)}`],
+    ['a Resend key with the underscore split', `re_${'Ab12Cd34'}_${'Ef56Gh78Ij90Kl12Mn34Op56'}`],
+    ['a Supabase secret key', `sb_secret_${'a1b2'.repeat(8)}`],
+    ['a Supabase publishable key', `sb_publishable_${'a1b2'.repeat(8)}`],
+    ['a Vercel token', `vcp_${'A1b2C3d4'.repeat(3)}`],
+  ])('still refuses %s', (_label, secret) => {
+    expect(sensitiveContentProblem(`Notes ${secret} more`)).toBe('secret-content');
+  });
+
+  it.each([
+    ['spaces-free runs of tokens', 'sb_secret_a-'.repeat(5000)],
+    ['re_ then a long run', `re_${'a'.repeat(60000)}`],
+    ['re_ then a long run with a late digit', `re_${'a'.repeat(60000)}1`],
+    ['many re_ starts', `${'re_aaaaaaaaaaaaaaaaaaaaaaaaaaaaa '.repeat(2000)}`],
+    ['sb_ starts joined by hyphens', 'sb_publishable_aaaaaaaaaaaaaaaaaaaaaaaaaaaa-'.repeat(1400)],
+    ['vcp_ starts', 'vcp_aaaaaaaaaaaaaaaaaaaaaaaaaaaa '.repeat(2000)],
+    ['one megabyte of one letter', 'a'.repeat(1_000_000)],
+    ['one megabyte of underscores', '_'.repeat(1_000_000)],
+  ])('ends quickly on %s', (_label, input) => {
+    const started = Date.now();
+    sensitiveContentProblem(input);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+});

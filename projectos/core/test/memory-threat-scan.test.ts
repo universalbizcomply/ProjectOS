@@ -307,3 +307,72 @@ describe('the hidden reference forms the first round still admitted (fix round 1
     expect(Array.isArray(scanForThreats(text, 'strict'))).toBe(true);
   });
 });
+
+describe('every pattern is linear on hostile input, one input at a time (final round, N1)', () => {
+  const BSL = String.fromCharCode(92);
+  const NL = String.fromCharCode(10);
+  const BIG = 60000;
+  const SLOW_MS = 2000;
+  const hostile: readonly (readonly [string, string])[] = [
+    ['spaces after a label', `[x]:${' '.repeat(BIG)}`],
+    ['tabs after a label', `[x]:${String.fromCharCode(9).repeat(BIG)}`],
+    ['spaces after an opening angle', `[x]: <${' '.repeat(BIG)}`],
+    ['spaces after a destination', `[x]: a${' '.repeat(BIG)}`],
+    ['spaces after a destination and a newline', `[x]: a${NL}${' '.repeat(BIG)}`],
+    ['spaces between a hash and nothing', `[x]: #${' '.repeat(BIG)}`],
+    ['an angle destination that never closes', `[x]: <${'a '.repeat(BIG / 2)}`],
+    ['an angle destination with spaces and a title', `[x]: <${'a b '.repeat(500)}> ${' '.repeat(BIG)}`],
+    ['newline and space pairs', `[x]:${`${NL} `.repeat(BIG / 2)}`],
+    ['newline-led labels', `${`${NL}[x`.repeat(BIG / 3)}`],
+    ['opening brackets', `${NL}${'['.repeat(BIG)}`],
+    ['closing brackets', `${NL}[${']'.repeat(BIG)}`],
+    ['escaped characters in a label', `${NL}[${`${BSL}a`.repeat(BIG / 2)}`],
+    ['escaped brackets in a label', `${NL}[${`${BSL}]`.repeat(BIG / 2)}`],
+    ['a long label that closes', `${NL}[${'a'.repeat(BIG)}]: <>`],
+    ['single quotes after a destination', `[x]: a ${"'".repeat(BIG)}`],
+    ['double quotes after a destination', `[x]: a ${'"'.repeat(BIG)}`],
+    ['markers before a label', `${'> - 1. '.repeat(BIG / 7)}[x]: <>`],
+    ['list markers only', `${'- '.repeat(BIG / 2)}[x]:`],
+    ['numbered markers only', `${'1. '.repeat(BIG / 3)}[x]:`],
+    ['many definitions on one line', `${'[x]: a '.repeat(BIG / 8)}`],
+    ['many definitions on many lines', `${`[x]: a${NL}`.repeat(BIG / 6)}`],
+    ['entities in a run', '&amp;'.repeat(BIG / 5)],
+    ['entities that decode to entities', `${'&amp;amp;amp;'.repeat(BIG / 13)}lt;`],
+    ['numeric entities', '&#x3c;'.repeat(BIG / 6)],
+    ['an ampersand run', '&'.repeat(BIG)],
+    ['one megabyte of one letter', 'a'.repeat(1_000_000)],
+    ['one megabyte of spaces after a label', `[x]:${' '.repeat(1_000_000)}`],
+  ];
+
+  it.each(hostile)('ends quickly on %s', (_label, input) => {
+    const started = Date.now();
+    expect(Array.isArray(scanForThreats(input, 'strict'))).toBe(true);
+    expect(Date.now() - started).toBeLessThan(SLOW_MS);
+  });
+
+  it('still finds the forms the linear patterns replaced: the positive control', () => {
+    for (const text of ['[x]:\n#', '[x]: &lt;&gt;', '[x]:  \n  #', '[x]: a\n"t"', '[x]:\t<>', '[x]: <a b> "t"', '[x]:   <  #  >']) {
+      expect(scanForThreats(`before\n${text}\nafter`, 'strict').some((id) => id.startsWith('markdown_'))).toBe(true);
+    }
+  });
+});
+
+describe('the last hidden-title evasions (final round, N3)', () => {
+  const BSL = String.fromCharCode(92);
+  const found = (text: string): boolean => scanForThreats(`before\n${text}\nafter`, 'strict').some((id) => id.startsWith('markdown_'));
+
+  it('refuses an angle destination with an escaped closing bracket, and then a title', () => {
+    expect(found(`[x]: &lt;a${BSL}&gt; b&gt; "hidden"`)).toBe(true);
+    expect(found(`[x]: <a${BSL}> b> 'hidden'`)).toBe(true);
+  });
+
+  it('refuses a label up to 999 characters long', () => {
+    expect(found(`[${'a'.repeat(600)}]: &lt;&gt;`)).toBe(true);
+    expect(found(`[${'a'.repeat(990)}]: <>`)).toBe(true);
+  });
+
+  it('a label longer than the bound is left alone, and an ordinary angle destination with no title passes: the positive control', () => {
+    expect(found(`[${'a'.repeat(1100)}]: <>`)).toBe(false);
+    expect(found('[x]: <a b>')).toBe(false);
+  });
+});

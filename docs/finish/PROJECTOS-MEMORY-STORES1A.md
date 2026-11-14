@@ -216,11 +216,22 @@ files import `core/src/tenant.ts` and `core/src/execution/evidence.ts` read-only
   and the read (a race).
 - **The credential vocabulary is the union of two lists that are still two lists.** The agent's `containsSecret` lives in
   `authoringEvidence.ts`, outside this phase's paths, so the loader asks both and does not share one. Core's list gained
-  `sb_secret_`, `sb_publishable_`, `vcp_` and `re_` (the last anchored at 20 characters; a snake_case name that long which starts
-  `re_` is skipped from an index and reported).
+  `sb_secret_`, `sb_publishable_`, `vcp_` and `re_` (see the `re_` note above: a name is not a token).
 - **The hidden-reference patterns are looser than a renderer.** A definition whose destination or title is on the next line,
   or inside a quote or list marker, is refused when empty, `#` or titled; a plain `[x]: destination` still passes, because a
   capped note may hold a reference. A line that looks like `[note]: see "this"` is refused.
+- **Wiring must run `git status --porcelain --untracked-files=all`** (final round, N4). With the default, a fresh clone whose
+  `.projectops/` is new prints `?? .projectops/`, which the parent-of-a-store rule (H1) now refuses, so every run would be refused.
+  With `--untracked-files=all` the files are listed one by one.
+- **The digest cannot see an alternate-data-stream write** (`MEMORY.md:evil` on NTFS): `readText` reads the main stream. Nor does it
+  see a write that was made and undone between the two snapshots.
+- **A findings record with a `constructor`, `prototype` or `__proto__` key is refused whole** (L1), not trimmed.
+- **Shapes only.** An entity-spelled secret (`&#115;k-ant-...`) and a secret split by zero-width characters are not recognised by the
+  credential screens; zero-width characters are refused by the threat scan as invisible text, which covers the second at proposal,
+  and entity-spelled secrets are the stated shapes-only limit.
+- **The `re_` shape needs upper case, lower case and a digit** (final round, N2), so a Resend-style key that is all lower case is
+  not recognised, in exchange for not refusing snake_case names. `sb_secret_`, `sb_publishable_` and `vcp_` need a digit in the
+  first 64 characters of a tail of 20 or more.
 - **Owner question 3: who deletes a promoted skill?** `memory-delete` covers approved memory and anything a decision cites. A skill
   is neither, so its deletion has no registered action.
 - **The rendered cap is twice the store cap, a judgment.** An ordinary full store of decisions with long references (a few
@@ -305,6 +316,47 @@ by this one, except that the two above were re-run because the scan and the rend
 - **PROTECTED files untouched:** `git diff --stat 841f3286..HEAD` still lists no PROTECTED file, no `observation.ts`,
   `session.ts`, `runner.ts`, `system.ts`, `.gitignore`, `THIRD_PARTY_NOTICES` or `docs/06_Plan.md`.
 
+## Final round (ECC recheck): N1 to N4
+
+| Item | What it was | Test | Mutations |
+|---|---|---|---|
+| N1 (HIGH) | `REF_GAP` was `[ \t]*\n?[ \t]*`: two adjacent quantifiers over the same characters, so 60,000 spaces after `[x]:` took 12 to 15 seconds, reachable through `admitMemoryContent` and the door | `core/test/memory-threat-scan.test.ts` "every pattern is linear on hostile input, one input at a time": 28 inputs (spaces, tabs, bracket, quote, marker, entity and escape runs, one megabyte), each under 2,000 ms. Seen red first: three inputs took 2.7 to 3.5 s | `the-gap-is-two-adjacent-quantifiers`, `the-angle-comment-is-two-adjacent-quantifiers`, `a-title-separator-is-two-quantifiers` (text, MS-8); `the-gap-is-two-adjacent-quantifiers-when-run` restores the old regex and the probe takes the 60,000 spaces over its bound (MS-8) |
+| N2 (MEDIUM) | `re_`, `sb_publishable_`, `sb_secret_`, `vcp_` flagged snake_case names | `core/test/search-sensitive.test.ts` "ordinary snake_case is not a credential, real tokens still are": seven false-positive inputs now pass, six real shapes still refused, eight hostile inputs under 2,000 ms. Seen red first | `a-resend-name-needs-no-mixed-case`, `a-supabase-name-needs-no-digit`, `the-shape-lookahead-is-unbounded`, one per shape (text); the first two also when run (MS-5) |
+| N3 (LOW) | `[x]: &lt;a\&gt; b&gt; "hidden"` returned nothing, and a 600-character label escaped the 512 bound | `core/test/memory-threat-scan.test.ts` "the last hidden-title evasions". Seen red first | `an-escaped-angle-destination-is-not-allowed`, `the-label-bound-is-512` (text and when run, MS-8) |
+| N4 (doc only) | Residuals | this section and "Residuals" above | none |
+
+**The audit.** Every regex added in round 1 was read for adjacent or nested quantifiers over the same characters. The label
+`(?:\\[\s\S]|[^\]\\]){0,999}` has disjoint alternatives and a bound. The marker prefix consumes a marker on every iteration. The
+title's destination alternatives are bounded (`{0,2048}`), its separator is `[ \t]+(?:\n[ \t]*)?|\n[ \t]*`, and the gap and the angle
+comment each consume a run of spaces one way only. The entity pattern and the escape normaliser are single alternations with
+bounded passes. The secret shapes' lookaheads are bounded at 64 characters, because an unbounded one over `sb_secret_a-sb_secret_a-...`
+would rescan the rest of the text from every start. The hostile-input table covers each pattern; a row for the angle form alone
+does not separate the old form from the new one on this Node, so only the gap has a behavioural mutation for time.
+
+### Final-round checks, with counts
+
+| Check | Result |
+|---|---|
+| core `npm run -s build` | exit 0 |
+| core `npx vitest run` | 103 files, 4,360 tests, all pass |
+| agent tests, **alias** | 117 files; 116 pass, 3,664 tests pass, 10 skipped (`tenantSidecar.test.ts`, the alias artefact described above) |
+| agent new and changed tests type-checked through the alias | exit 0, no output |
+| `val-projectos-memory-stores1a` | PASS: 9 new and 12 changed files judged; 186 text and 82 behavioural mutations killed (about 45 s) |
+| `val-projectos-port-search1a` | PASS, exit 0, 26 s |
+| `val-projectos-port-memory1a` | PASS: 20 rules; 199 mutations, exit 0, 40 s |
+| `val-projectos-port-credit1a` | PASS: 178 real files, exit 0, 22 s |
+| `val-projectos-port-skills1a` | PASS: 21 rules; 440 mutations, exit 0, 143 s |
+| `val-projectos-port-context1a` | PASS: 18 rules; 320 mutations, exit 0, **276 s** (about 4.6 minutes, run alone on a loaded machine) |
+| `validate-no-secrets` | PASS, exit 0, 2 s |
+
+The coordinator's note that `context1a` might be slow because of the ReDoS was withdrawn: it takes the same four to five minutes
+as in the first round (233 s then, 276 s now), so the long run is the validator's own size.
+
+### Converge after the final round
+
+Nothing new is unbuilt. No file outside the write paths was touched, no PROTECTED file is in `git diff --stat 841f3286..HEAD`, and
+`validate-all` was not run.
+
 ## Commits
 
 - `f720153c` feat(memory): core rules for the proposal door, direct-write refusal, rendered cap and index key
@@ -312,3 +364,5 @@ by this one, except that the two above were re-run because the scan and the rend
 - The commit that adds the validator, the two validator updates, the runners, the classes doc and this file.
 - `fb3af05d` docs(finish): state exactly which validators were run
 - `d37aa323` fix(memory): ECC security review round 1 for MEMORY-STORES1A
+- `43d758ab` docs(finish): fix round 1 checks and converge
+- The final-round commit (N1 to N4) that adds this section.

@@ -34,10 +34,12 @@ const SECRET_SHAPES: readonly RegExp[] = [
   /\bsbp_[a-f0-9]{40,}/,
   /\bnpm_[A-Za-z0-9]{36}/,
   /\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/,
-  /\bsb_secret_[A-Za-z0-9_-]{16,}/,
-  /\bsb_publishable_[A-Za-z0-9_-]{16,}/,
-  /\bvcp_[A-Za-z0-9]{20,}/,
-  /\bre_[A-Za-z0-9_]{20,}/,
+  // A token-like tail, not a name (final round, N2): 20 or more characters with a digit in the first 64. `sb_secret_rotation_policy`
+  // is a name. The lookahead is bounded so it stays linear, and a Resend key must also mix upper and lower case.
+  /\bsb_secret_(?=[A-Za-z0-9_-]{0,64}\d)[A-Za-z0-9_-]{20,}/,
+  /\bsb_publishable_(?=[A-Za-z0-9_-]{0,64}\d)[A-Za-z0-9_-]{20,}/,
+  /\bvcp_(?=[A-Za-z0-9]{0,64}\d)[A-Za-z0-9]{20,}/,
+  /\bre_(?=[A-Za-z0-9_]{0,64}\d)(?=[A-Za-z0-9_]{0,64}[A-Z])(?=[A-Za-z0-9_]{0,64}[a-z])[A-Za-z0-9_]{20,}/,
 ];
 
 /**

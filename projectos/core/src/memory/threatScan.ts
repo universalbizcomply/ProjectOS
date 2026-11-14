@@ -47,8 +47,11 @@ const MODIFY = String.raw`(update|modify|edit|write|change|append|add\s+to)\s+[^
  * may hold an escaped bracket and may run over lines; and a destination or title that may sit on the next line.
  */
 const REF_START = String.raw`(?:^|\n)(?:[ \t]*(?:>|[-*+]|\d{1,9}[.)]))*[ \t]*`;
-const REF_LABEL = String.raw`\[(?:\\[\s\S]|[^\]\\]){0,512}\]:`;
-const REF_GAP = String.raw`[ \t]*\n?[ \t]*`;
+const REF_LABEL = String.raw`\[(?:\\[\s\S]|[^\]\\]){0,999}\]:`;
+// EVERY QUANTIFIER HERE IS LINEAR (final round, N1). Two adjacent quantifiers over the same characters, as in a gap written
+// `[ \t]*\n?[ \t]*`, split a run of spaces in every possible way before they fail, and took 12 to 15 seconds on 60,000 spaces.
+// A gap is written so that a run of spaces can be consumed only one way.
+const REF_GAP = String.raw`[ \t]*(?:\n[ \t]*)?`;
 
 const PATTERNS: readonly (readonly [source: string, id: string, scope: ThreatScope])[] = [
   // Classic prompt injection, everywhere.
@@ -62,8 +65,8 @@ const PATTERNS: readonly (readonly [source: string, id: string, scope: ThreatSco
   [String.raw`<!--`, 'html_comment', 'strict'],
   [String.raw`\[//\]:`, 'markdown_comment', 'strict'],
   // The same hiding in other spellings (STORES1A): `[x]: <>`, `[x]: # 'text'`, `[ // ]: #`, and a title only a tooltip shows.
-  [String.raw`${REF_START}${REF_LABEL}${REF_GAP}(?:<[ \t]*#?[ \t]*>|#)`, 'markdown_reference_comment', 'strict'],
-  [String.raw`${REF_START}${REF_LABEL}${REF_GAP}(?:<[^>\n]{0,2048}>|\S{1,2048})(?:[ \t]+|[ \t]*\n[ \t]*)["'(]`, 'markdown_reference_title', 'strict'],
+  [String.raw`${REF_START}${REF_LABEL}${REF_GAP}(?:<[ \t]*(?:#[ \t]*)?>|#)`, 'markdown_reference_comment', 'strict'],
+  [String.raw`${REF_START}${REF_LABEL}${REF_GAP}(?:<(?:\\.|[^>\n\\]){0,2048}>|\S{1,2048})(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)["'(]`, 'markdown_reference_title', 'strict'],
   [String.raw`translate\s+[^\n]{0,512}\s+into\s+${WORD}+(?:[\s-]+${WORD}+){0,2}\s+and\s+(execute|run|eval)\b`, 'translate_execute', 'all'],
   [String.raw`do\s+not\s+${FILLER}tell\s+${FILLER}the\s+user`, 'deception_hide', 'all'],
 

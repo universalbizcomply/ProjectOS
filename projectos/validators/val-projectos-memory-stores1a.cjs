@@ -264,10 +264,13 @@ const PINS = [
   PM("MS-5", "a-store-directory-that-is-a-file-is-listed", STORES, "collectStoreSources", "return stat.kind === 'directory' ? null : { path: directory, reason: 'unreadable' };", "return null;"),
   PM("MS-5", "the-escape-normaliser-is-not-run", SENSITIVE, "sensitiveContentProblem", "const decoded = normaliseEscapedText(text);", "const decoded = text;"),
   PM("MS-5", "the-normaliser-stops-after-one-pass", SENSITIVE, null, "const MAX_UNESCAPE_PASSES = 4;", "const MAX_UNESCAPE_PASSES = 1;"),
-  PM("MS-5", "a-supabase-secret-shape-is-missing", SENSITIVE, null, "  /" + BS + "bsb_secret_[A-Za-z0-9_-]{16,}/,\n", ""),
-  PM("MS-5", "a-supabase-publishable-shape-is-missing", SENSITIVE, null, "  /" + BS + "bsb_publishable_[A-Za-z0-9_-]{16,}/,\n", ""),
-  PM("MS-5", "a-vercel-shape-is-missing", SENSITIVE, null, "  /" + BS + "bvcp_[A-Za-z0-9]{20,}/,\n", ""),
-  PM("MS-5", "a-resend-shape-is-missing", SENSITIVE, null, "  /" + BS + "bre_[A-Za-z0-9_]{20,}/,\n", ""),
+  PM("MS-5", "a-supabase-secret-shape-is-missing", SENSITIVE, null, "  /" + BS + "bsb_secret_(?=[A-Za-z0-9_-]{0,64}" + BS + "d)[A-Za-z0-9_-]{20,}/,\n", ""),
+  PM("MS-5", "a-supabase-publishable-shape-is-missing", SENSITIVE, null, "  /" + BS + "bsb_publishable_(?=[A-Za-z0-9_-]{0,64}" + BS + "d)[A-Za-z0-9_-]{20,}/,\n", ""),
+  PM("MS-5", "a-vercel-shape-is-missing", SENSITIVE, null, "  /" + BS + "bvcp_(?=[A-Za-z0-9]{0,64}" + BS + "d)[A-Za-z0-9]{20,}/,\n", ""),
+  PM("MS-5", "a-resend-shape-is-missing", SENSITIVE, null, "  /" + BS + "bre_(?=[A-Za-z0-9_]{0,64}" + BS + "d)(?=[A-Za-z0-9_]{0,64}[A-Z])(?=[A-Za-z0-9_]{0,64}[a-z])[A-Za-z0-9_]{20,}/,\n", ""),
+  PM("MS-5", "a-resend-name-needs-no-mixed-case", SENSITIVE, null, "(?=[A-Za-z0-9_]{0,64}[A-Z])(?=[A-Za-z0-9_]{0,64}[a-z])", ""),
+  PM("MS-5", "a-supabase-name-needs-no-digit", SENSITIVE, null, "sb_secret_(?=[A-Za-z0-9_-]{0,64}" + BS + "d)", "sb_secret_"),
+  PM("MS-5", "the-shape-lookahead-is-unbounded", SENSITIVE, null, "bvcp_(?=[A-Za-z0-9]{0,64}", "bvcp_(?=[A-Za-z0-9]*"),
   PM("MS-5", "a-store-link-is-followed", STORES, "collectStoreSources", "if (stat.kind === 'link') return [{ path: rel, reason: 'link' }];", ""),
   PM("MS-5", "a-store-record-is-read-without-a-secret-check", STORES, "collectStoreSources", "const secret = sensitiveContentProblem(content);", "const secret = null as string | null;"),
   PM("MS-5", "a-store-record-has-no-size-cap", STORES, "collectStoreSources", "if (size > maxFileBytes) return { path: rel, reason: 'too-large' };", ""),
@@ -304,8 +307,13 @@ const PINS = [
   PM("MS-8", "an-invisible-entity-is-not-decoded", SCAN, "invisibleFindings", "...(decodeThreatEntities(content).match(INVISIBLE) ?? [])", ""),
   PM("MS-8", "the-entity-passes-are-one", SCAN, null, "const MAX_ENTITY_PASSES = 3;", "const MAX_ENTITY_PASSES = 1;"),
   PM("MS-8", "quote-and-list-prefixes-are-not-markers", SCAN, null, "(?:>|[-*+]|" + BS + "d{1,9}[.)])", "(?:)"),
-  PM("MS-8", "a-destination-on-the-next-line-is-missed", SCAN, null, "String.raw`[ " + BS + "t]*" + BS + "n?[ " + BS + "t]*`;", "String.raw`[ " + BS + "t]*`;"),
   PM("MS-8", "an-escaped-bracket-ends-the-label", SCAN, null, "(?:" + BS + BS + "[" + BS + "s" + BS + "S]|", "(?:"),
+  PM("MS-8", "a-destination-on-the-next-line-is-missed", SCAN, null, "String.raw`[ " + BS + "t]*(?:" + BS + "n[ " + BS + "t]*)?`;", "String.raw`[ " + BS + "t]*`;"),
+  PM("MS-8", "the-gap-is-two-adjacent-quantifiers", SCAN, null, "String.raw`[ " + BS + "t]*(?:" + BS + "n[ " + BS + "t]*)?`;", "String.raw`[ " + BS + "t]*" + BS + "n?[ " + BS + "t]*`;"),
+  PM("MS-8", "the-angle-comment-is-two-adjacent-quantifiers", SCAN, null, "(?:<[ " + BS + "t]*(?:#[ " + BS + "t]*)?>|#)", "(?:<[ " + BS + "t]*#?[ " + BS + "t]*>|#)"),
+  PM("MS-8", "an-escaped-angle-destination-is-not-allowed", SCAN, null, "<(?:" + BS + BS + "." + "|[^>" + BS + "n" + BS + BS + "]){0,2048}>", "<[^>" + BS + "n]{0,2048}>"),
+  PM("MS-8", "the-label-bound-is-512", SCAN, null, "){0,999}" + BS + "]:`;", "){0,512}" + BS + "]:`;"),
+  PM("MS-8", "a-title-separator-is-two-quantifiers", SCAN, null, "(?:[ " + BS + "t]+(?:" + BS + "n[ " + BS + "t]*)?|" + BS + "n[ " + BS + "t]*)[\"'(]", "(?:[ " + BS + "t]+|[ " + BS + "t]*" + BS + "n[ " + BS + "t]*)[\"'(]"),
   PM("MS-8", "a-reference-comment-passes", SCAN, null, "'markdown_reference_comment', 'strict'],", "'markdown_reference_comment', 'never'],", ["MS-8"]),
   PM("MS-8", "a-link-title-passes", SCAN, null, "'markdown_reference_title', 'strict'],", "'markdown_reference_title', 'never'],", ["MS-8"]),
 
@@ -1159,6 +1167,17 @@ expectIt('MS-18', () => {
 });
 
 
+// FINAL ROUND probes: linear time, the last evasions, names that are not tokens.
+const NLC = String.fromCharCode(10);
+expectIt('MS-8', () => {
+  const started = Date.now();
+  for (const input of ['[x]:' + ' '.repeat(60000), '[x]:' + String.fromCharCode(9).repeat(60000), '[x]: <' + ' '.repeat(60000), '[x]: a' + ' '.repeat(60000)]) core.scanForThreats(input, 'strict');
+  return Date.now() - started < 2000;
+});
+expectIt('MS-8', () => ['[x]: &lt;a' + BSL + '&gt; b&gt; "hidden"', '[' + 'a'.repeat(600) + ']: &lt;&gt;', '[x]:' + NLC + '#', '[x]:  ' + NLC + '  #', '[x]: a' + NLC + '"t"'].every((s) => core.scanForThreats('before' + NLC + s + NLC + 'after', 'strict').some((id) => id.startsWith('markdown_'))));
+expectIt('MS-5', () => ['Call re_render_count_total_value after the update.', 'Use re_render_v2_count_total_value_again for the v2 path.', 'The setting sb_publishable_key_name_for_client_config is documented.', 'The flag sb_secret_rotation_policy_for_service_roles is on.', 'See vcp_deployment_configuration_for_production.'].every((s) => core.sensitiveContentProblem(s) === null)
+  && ['re_A1b2C3d4_Ef56Gh78Ij90Kl12Mn34Op56', 'sb_secret_' + 'a1b2'.repeat(8), 'sb_publishable_' + 'a1b2'.repeat(8), 'vcp_' + 'A1b2C3d4'.repeat(3)].every((s) => core.sensitiveContentProblem('Notes ' + s + ' more') === 'secret-content'));
+
 console.log(JSON.stringify({ count, failed: [...failed].sort() }));
 `;
 
@@ -1230,13 +1249,18 @@ const BEHAVIOUR_MUTATIONS = [
   B("the-rendered-limit-is-one-targets-when-run", "MS-7", PROMPT, "return memoryCharLimit(target) * MEMORY_RENDERED_CAP_FACTOR;", "return memoryCharLimit('memory') * MEMORY_RENDERED_CAP_FACTOR;"),
   // MS-8
   B("the-blank-braille-cell-is-visible-when-run", "MS-8", SCAN, `${BS}p{Zp}${BS}u2800]/gu`, `${BS}p{Zp}]/gu`),
-  B("a-hash-target-reference-passes-when-run", "MS-8", SCAN, "(?:<[ \\t]*#?[ \\t]*>|#)", "(?:<[ \\t]*#?[ \\t]*>)"),
+  B("a-hash-target-reference-passes-when-run", "MS-8", SCAN, "(?:<[ \\t]*(?:#[ \\t]*)?>|#)", "(?:<[ \\t]*(?:#[ \\t]*)?>)"),
   B("a-parenthesised-title-passes-when-run", "MS-8", SCAN, ")[\"'(]`", ")[\"']`"),
   B("entities-are-not-decoded-when-run", "MS-8", SCAN, "const decoded = decodeThreatEntities(folded);", "const decoded = folded;"),
   B("an-invisible-entity-is-not-decoded-when-run", "MS-8", SCAN, "...(decodeThreatEntities(content).match(INVISIBLE) ?? [])", ""),
   B("the-entity-passes-are-one-when-run", "MS-8", SCAN, "const MAX_ENTITY_PASSES = 3;", "const MAX_ENTITY_PASSES = 1;"),
   B("quote-and-list-prefixes-are-not-markers-when-run", "MS-8", SCAN, "(?:>|[-*+]|" + BS + "d{1,9}[.)])", "(?:)"),
-  B("a-destination-on-the-next-line-is-missed-when-run", "MS-8", SCAN, "String.raw`[ " + BS + "t]*" + BS + "n?[ " + BS + "t]*`;", "String.raw`[ " + BS + "t]*`;"),
+  B("a-destination-on-the-next-line-is-missed-when-run", "MS-8", SCAN, "String.raw`[ " + BS + "t]*(?:" + BS + "n[ " + BS + "t]*)?`;", "String.raw`[ " + BS + "t]*`;"),
+  B("the-gap-is-two-adjacent-quantifiers-when-run", "MS-8", SCAN, "String.raw`[ " + BS + "t]*(?:" + BS + "n[ " + BS + "t]*)?`;", "String.raw`[ " + BS + "t]*" + BS + "n?[ " + BS + "t]*`;"),
+  B("an-escaped-angle-destination-is-not-allowed-when-run", "MS-8", SCAN, "<(?:" + BS + BS + "." + "|[^>" + BS + "n" + BS + BS + "]){0,2048}>", "<[^>" + BS + "n]{0,2048}>"),
+  B("the-label-bound-is-512-when-run", "MS-8", SCAN, "){0,999}" + BS + "]:`;", "){0,512}" + BS + "]:`;"),
+  B("a-resend-name-needs-no-mixed-case-when-run", "MS-5", SENSITIVE, "(?=[A-Za-z0-9_]{0,64}[A-Z])(?=[A-Za-z0-9_]{0,64}[a-z])", ""),
+  B("a-supabase-name-needs-no-digit-when-run", "MS-5", SENSITIVE, "sb_secret_(?=[A-Za-z0-9_-]{0,64}" + BS + "d)", "sb_secret_"),
   B("an-escaped-bracket-ends-the-label-when-run", "MS-8", SCAN, "(?:" + BS + BS + "[" + BS + "s" + BS + "S]|", "(?:"),
   // MS-9
   B("a-worker-proposes-a-decision-when-run", "MS-9", DOOR_CORE, "if (kind === 'decision') {", "if (false) {"),
