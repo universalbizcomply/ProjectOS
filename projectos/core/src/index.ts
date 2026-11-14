@@ -52,6 +52,7 @@ export * from './modelBroker/index.js';
 export * from './mcpConnectors/index.js';
 export * from './agents/index.js';
 export * from './research/index.js';
+export * from './computer/index.js';
 
 /** Engine version — bump on breaking changes to the public API. */
 export const CORE_VERSION = '0.1.0';

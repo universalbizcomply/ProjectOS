@@ -196,6 +196,8 @@ const MODULES = [
   "val-projectos-port-agents1a",
   // PROJECTOS-PORT-RESEARCH1A — cited research: an SSRF guard on every fetch, a budget on every paid search, a step cap, no uncited answer.
   "val-projectos-port-research1a",
+  // PROJECTOS-PORT-COMPUTER1A - exec grants bound to argv, cwd and hash; exact allowlists; a typed default-deny action policy; no child_process; browser and computer use refuse until Stage 4.3.
+  "val-projectos-port-computer1a",
   // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
   "val-projectos-connector-contract1a"
 ];
