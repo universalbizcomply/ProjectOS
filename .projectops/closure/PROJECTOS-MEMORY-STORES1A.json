@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-MEMORY-STORES1A",
+  "evidenceSubjectHead": "c499454260064619f087c374ca8bf507ad5fc2b4",
+  "baselineCommit": "b5073c1a8862f7e2a446ca0dc61b66a79a8e61f8",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-14T17:56:19.737Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-MEMORY-STORES1A, phase 42 of 47 of plan v1.36, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. c4994542 on the plan worktree (the six memory classes on existing stores, one search index file per tenant and project, a clock and file-system port, a secret and size screen on every memory load, one proposal door, and a refusal for a worker's direct write to the memory or skill store).",
+    "validatorsPass: val-projectos-memory-stores1a (19 rules; 186 text and 82 behavioural mutations killed before the stack fix, MS-19 added after), val-projectos-port-search1a, val-projectos-port-memory1a, val-projectos-port-credit1a, val-projectos-port-skills1a, val-projectos-port-context1a and validate-no-secrets PASS. validate-all on the stack head c4994542: 173 PASS, 1 FAIL, 2 retired (174 registered). The one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4. A first stack run found control-center coreBrowserLoad failing (core/src/memory/proposalDoor.ts imported node:util); fixed in f07f6807 by an injected Proxy-test port and a new validator rule.",
+    "checksPass: core 4368/4368 (103 files), agent 3675/3675 (117 files), control-center 952/952 (69 files) on the merged stack c4994542 after a rebuild of core then agent.",
+    "reviewsComplete: Claude self-review; ECC security-reviewer (1 HIGH: a parent path of a store root passed the direct-write refusal; 6 MEDIUM: link walk, secret screens, hidden-text variants, rename, a gitignore design conflict; 4 LOW; all reproduced and fixed); one recheck that reproduced (confirmed ten fixed, found a new HIGH ReDoS in the reference-gap regex and a re_ false-positive source, fixed in the final round); the lead re-verified with a scratch script against the built dist (12 hostile timing inputs, 13 hidden-text variants, 16 direct-write evasions, secret shapes and false positives). No Agency specialist: the phase spec asks for ECC SECURITY only.",
+    "unresolved: zero CRITICAL/HIGH. Residuals are named in docs/finish/PROJECTOS-MEMORY-STORES1A.md: (1) NOTHING IS WIRED: checkNoDirectStoreWrites needs one call in agent/src/loop/runner.ts before the checks (with both sides of a rename and git status --untracked-files=all) and openProposalDoor one call after readFindings in session.ts, both outside this phase's paths and verification.ts is PROTECTED: Stage 4.1. (2) The six memory classes list was reconstructed from plan 3.1-3.3, the recon and ADR-S3 because it is not on disk: owner to confirm. (3) .projectops/memory/ is not git-ignored so a clone-borne store reads as approved: ignoring it is acceptable only together with the store-digest check; signing records is the real answer and belongs with owner proof. (4) The digest cannot see alternate-data-stream writes or a write undone between two snapshots. (5) A copied index file with its owner row deleted is adopted by another tenant (needs write access to the index directory). (6) Entity-form and zero-width-split secrets are the stated shapes-only limit; all-lowercase Resend-style keys are not recognised. (7) core and agent keep two secret vocabularies because authoringEvidence.ts is outside the paths. (8) The first run of the core door, direct-write and index-key tests was written in the same pass as the code, with no red run captured; the validator mutations are the evidence. The 10 agent tenantSidecar tests skip only under the builder's alias config and pass on the stack.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
