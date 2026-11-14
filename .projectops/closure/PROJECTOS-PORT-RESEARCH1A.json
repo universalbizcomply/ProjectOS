@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-PORT-RESEARCH1A",
+  "evidenceSubjectHead": "ba1f76447de65596d14c3c30c5d48973bcb73f1f",
+  "baselineCommit": "b5073c1a8862f7e2a446ca0dc61b66a79a8e61f8",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-14T12:38:01.945Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-PORT-RESEARCH1A, phase 41 of 47 of plan v1.36, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. ba1f7644 on the plan worktree (cited web research over injected ports: an SSRF guard on every fetch, a budget on every paid search, a step cap and a filtered answer, as pure core rules).",
+    "validatorsPass: val-projectos-port-research1a (205 text and 165 behavioural mutations killed), val-projectos-port-credit1a, val-projectos-connector-contract1a and validate-no-secrets PASS. validate-all on the stack head ba1f7644: 172 PASS, 1 FAIL, 2 retired (173 registered). The one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4. An earlier run at a6ac6543 found a name clash with the MCP guard (MC-19) and two async run() validators; both fixed in ba1f7644.",
+    "checksPass: core 4132/4132 (100 files), agent 3573/3573 (114 files), control-center 952/952 (69 files) at a6ac6543 on the plan worktree after a rebuild of core then agent; at ba1f7644 (a rename of one computer helper and two validator run() wrappers) core was rebuilt, the 148 computer tests re-ran and the affected validators passed again.",
+    "reviewsComplete: Claude self-review; ECC security-reviewer (0 CRITICAL or HIGH, four MEDIUM, fixed); Agency application-security-engineer (BLOCK wiring until two findings, both fixed); one recheck (hung grant, timer shape, total fetch budget and four answer-filter inputs still open, plus two residual channels) and a final round re-verified by the lead with a scratch script against the built dist (the four filter inputs, two extractor timings, a hung grant, a {done:true} timer).",
+    "unresolved: zero CRITICAL/HIGH. Residuals are named in docs/finish/PROJECTOS-PORT-RESEARCH1A.md: the answer filter is defence in depth and the UI must render research answers as plain text; the threat scan can drop a legitimate result; the host cap counts failed fetches (safe side); percent-encoded instructions in a kept URL query. A wall-clock bound in one filter test was loosened from 500 ms to 2000 ms (real cost about 190 ms) because it flaked under load. The 6-hop slow fetch is covered by a fake-timer test, not by the lead scratch script. Ports ship unwired.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
