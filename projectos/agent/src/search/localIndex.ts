@@ -46,8 +46,10 @@ import {
   SEARCH_SOURCE_KINDS,
   bm25RankToScore,
   chunkRecordsOf,
+  citationFreshnessOf,
   compileFts5Match,
   excerptOf,
+  isCommitName,
   isProjectId,
   isTenantId,
   planKeywordSearch,
@@ -64,7 +66,7 @@ import {
   type TemporalDecayConfig,
   type VectorCandidate,
 } from '@projectos/core';
-import type { SearchClock } from './ports.js';
+import type { SearchClock, SearchHead } from './ports.js';
 
 /** 2: the file is bound to one tenant and one project. A version 1 file held many, and is dropped and rebuilt. */
 export const SEARCH_SCHEMA_VERSION = 2;
@@ -86,7 +88,8 @@ const SCHEMA = `
     chunking_version INTEGER NOT NULL,
     built_at_ms REAL NOT NULL,
     sources INTEGER NOT NULL,
-    chunks INTEGER NOT NULL
+    chunks INTEGER NOT NULL,
+    built_at_commit TEXT
   ) STRICT;
   CREATE TABLE search_chunks (
     id INTEGER PRIMARY KEY,
@@ -131,8 +134,18 @@ export interface SearchIndex {
   readonly rebuildProject: (
     project: string,
     sources: readonly SearchSourceText[],
-    options?: { readonly chunking?: SearchChunking },
+    options?: {
+      readonly chunking?: SearchChunking;
+      /**
+       * The commit HEAD was at BEFORE the sources were collected: take it with `currentHead()`, collect, then build with it. It is the
+       * one recorded as built-at, so a commit made while the sources were being read leaves the index stale and not fresh. Absent, or not
+       * a commit name, none is recorded and every citation reads `built-commit-unknown`.
+       */
+      readonly builtAtCommit?: string | null;
+    },
   ) => RebuildResult;
+  /** The commit HEAD is at now, by the head port, or null. Take it before collecting the sources of a rebuild. */
+  readonly currentHead: () => string | null;
   readonly statusOf: (project: string) => ProjectIndexStatus;
   readonly search: (request: SearchRequest) => SearchOutcome;
   readonly close: () => void;
@@ -157,6 +170,7 @@ interface Statements {
   readonly insertChunk: StatementSync;
   readonly insertFts: StatementSync;
   readonly recordProject: StatementSync;
+  readonly recordCommit: StatementSync;
   readonly projectVersion: StatementSync;
   readonly matchChunks: StatementSync;
 }
@@ -203,6 +217,16 @@ function candidateOf(row: ChunkRow): KeywordCandidate {
   };
 }
 
+/**
+ * A file made before this phase has no `built_at_commit`. The column is additive and the file is derived, so it is added in place
+ * and not by dropping the file: the schema version stays 2, old rows read NULL, and NULL reads as `built-commit-unknown` (stale)
+ * until the project is rebuilt.
+ */
+function addBuildCommitColumn(db: DatabaseSync): void {
+  const columns = db.prepare('PRAGMA table_info(search_projects)').all() as unknown as readonly { readonly name: string }[];
+  if (!columns.some((column) => column.name === 'built_at_commit')) db.exec('ALTER TABLE search_projects ADD COLUMN built_at_commit TEXT');
+}
+
 /** One transaction: at another version the `search_*` tables go, by name, and nothing else does. */
 function ensureSchema(db: DatabaseSync): void {
   const { user_version: version } = db.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -230,7 +254,8 @@ function prepareStatements(db: DatabaseSync): Statements {
     recordProject: db.prepare(
       'INSERT OR REPLACE INTO search_projects (project, chunking_version, built_at_ms, sources, chunks) VALUES (?, ?, ?, ?, ?)',
     ),
-    projectVersion: db.prepare('SELECT chunking_version FROM search_projects WHERE project = ?'),
+    recordCommit: db.prepare('UPDATE search_projects SET built_at_commit = ? WHERE project = ?'),
+    projectVersion: db.prepare('SELECT chunking_version, built_at_commit FROM search_projects WHERE project = ?'),
     matchChunks: db.prepare(`
       SELECT c.id, c.project, c.source, c.path, c.start_line, c.end_line, c.row_lines, c.text, c.mtime_ms, bm25(search_chunks_fts) AS rank
       FROM search_chunks_fts
@@ -279,12 +304,27 @@ function resultCapOf(maxResults: number | undefined): number | null {
 export interface SearchIndexDeps {
   readonly owner: SearchIndexOwner;
   readonly clock: SearchClock;
+  /**
+   * Where HEAD is, asked when the index is built and at every search. Absent, or answering anything but a commit name, every
+   * citation is marked stale (`head-unknown`): an index that cannot say where it stands is never silently fresh.
+   */
+  readonly head?: SearchHead;
 }
 
 /** The time, or null when the clock does not give a finite number. */
 function timeOf(clock: SearchClock): number | null {
   const now = clock.nowMs();
   return typeof now === 'number' && Number.isFinite(now) ? now : null;
+}
+
+/** The commit HEAD is at, or null: a head that is absent, throws or answers anything but a commit name says nothing. */
+function headCommitOf(head: SearchHead | undefined): string | null {
+  try {
+    const commit: unknown = head?.headCommit();
+    return isCommitName(commit) ? commit : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Record the owner in a new file, and refuse a file that already belongs to another. */
@@ -302,7 +342,7 @@ function indexOver(db: DatabaseSync, statements: Statements, deps: SearchIndexDe
 
   const statusOf = (project: string): ProjectIndexStatus => {
     if (project !== deps.owner.project) return 'not-built';
-    const row = statements.projectVersion.get(project) as { chunking_version: number } | undefined;
+    const row = statements.projectVersion.get(project) as { chunking_version: number; built_at_commit: string | null } | undefined;
     if (row === undefined) return 'not-built';
     return row.chunking_version === MARKDOWN_CHUNKING_VERSION ? 'current' : 'stale';
   };
@@ -315,12 +355,18 @@ function indexOver(db: DatabaseSync, statements: Statements, deps: SearchIndexDe
       if (now === null) return { ok: false, problem: 'the clock did not give a time, so nothing was built' };
       const built = recordsOf(project, sources, options?.chunking ?? DEFAULT_SEARCH_CHUNKING);
       if (!built.ok) return built;
+      const builtAt = isCommitName(options?.builtAtCommit) ? options.builtAtCommit : null;
       const indexed = new Set(built.records.map((record) => record.path)).size;
       writeProject(db, statements, project, indexed, built.records, now);
+      // The commit is recorded AFTER the rows. The rebuilt row starts with none, so a rebuild that stops between the two reads as
+      // `built-commit-unknown`, which is stale: the failure leans to marking, never to a fresh mark it did not earn.
+      statements.recordCommit.run(builtAt, project);
       return { ok: true, project, sources: indexed, chunks: built.records.length, skipped: built.skipped };
     },
 
     statusOf,
+
+    currentHead: () => headCommitOf(deps.head),
 
     search(request) {
       if (!isProjectId(request.project)) return { ok: false, reason: 'invalid-project' };
@@ -332,6 +378,7 @@ function indexOver(db: DatabaseSync, statements: Statements, deps: SearchIndexDe
       const status = statusOf(request.project);
       if (status === 'not-built') return { ok: false, reason: 'not-built' };
       if (status === 'stale') return { ok: false, reason: 'stale' };
+      const builtCommit = (statements.projectVersion.get(request.project) as { built_at_commit: string | null } | undefined)?.built_at_commit ?? null;
 
       const { matchQuery } = planKeywordSearch({ query: request.query, canonicalVariants: true, matchAny: request.matchAny === true });
       const match = matchQuery === null ? null : compileFts5Match(matchQuery);
@@ -348,6 +395,7 @@ function indexOver(db: DatabaseSync, statements: Statements, deps: SearchIndexDe
           vectorCandidates: request.vectorCandidates ?? NO_VECTOR_CANDIDATES,
           maxResults,
           nowMs: now,
+          freshness: citationFreshnessOf(builtCommit, headCommitOf(deps.head)),
           ...(request.minScore === undefined ? {} : { minScore: request.minScore }),
           ...(request.mmr === undefined ? {} : { mmr: request.mmr }),
           ...(request.temporalDecay === undefined ? {} : { temporalDecay: request.temporalDecay }),
@@ -373,6 +421,7 @@ export function openSearchIndex(location: string, deps: SearchIndexDeps): Search
   const db = new Database(location);
   try {
     ensureSchema(db);
+    addBuildCommitColumn(db);
     bindOwner(db, deps.owner);
     return indexOver(db, prepareStatements(db), deps);
   } catch (error) {

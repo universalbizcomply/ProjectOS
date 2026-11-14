@@ -1,0 +1,777 @@
+# PROJECTOS-MEMORY-PROVENANCE1A: provenance and freshness ranking, committed bytes only, stale citations, retention and recorde6 0eletion
+
+**Phase:** PROJECTOS-MEMORY-PROVENANCE1A, plan v1.36 item 3.3 (Stage 3), row 8 of `docs/changes/delta_spec.md` (revision 2, approved).
+**Branch:** `projectos-memory-provenance1a`, worktree `C:/dev/ProjectOS-worktrees/memory-provenance1a-v136`, based on `7fc020da`.
+Not pushed, not merged, phase not closed, `docs/06_Plan.md` not edited. `validate-all` is the lead's and was not run here.
+
+**State:** built and self-checked. No review has seen it yet (ECC SECURITY is the one this phase owes). Everything below is what was
+run and seen in this worktree; where a check could not run as written, it says so.
+
+## What was asked and what exists
+
+Nothing calls the new code from a route. The context manager (3.4) and the loop wiring (Stage 4.1) are the first callers. Everything
+here is pure code in core with tests, plus two agent files that take their git and file system as injected ports.
+
+## Existing code found (B1, before any change)
+
+| Where | What it was | Used how |
+|---|---|---|
+| `agent/src/closureGate.ts` (`readCommittedDecision`), `agent/src/installation/tenantRegistry.ts` (`committedBytes`), `agent/src/installation/projectAllowlist.ts` (`installationAllowsProject`, `blobNameOf`) | The host already reads authority records from git objects, not the working tree: `git show HEAD:./<path>` after a `diff` check, the bytes hashed back to the blob name, `--no-replace-objects` | **Extended in kind**: the same discipline for memory files. `blobNameOf` is imported, not copied. What those do not need and this does: the tree entry (so a symlink, a submodule and a tree are refused by mode), and a working-tree comparison that refuses instead of choosing a side |
+| `agent/src/search/{ports,localIndex,projectIndex,storeSources}.ts`, `nodeHost.ts` | STORES1A's ports (`SearchClock`, `DocumentFs`, `EntryProbe`), the per-project index, the store walk | Extended: `ports.ts` gains `GitRunner`, `SearchHead`, `gitRunnerOver`, `searchHeadOver`; `localIndex.ts` records the commit; `projectIndex.ts` passes the head. `DocumentFs` is the working-tree port of the committed read. Nothing replaced |
+| `core/src/search/{citation,citedSearch,untrustedExcerpt,index}.ts` | The citation door, the ranked search, the fence | Extended: a citation carries a freshness, the ranked search sets it, the fence shows it |
+| `core/src/memory/*`, `core/src/tenant.ts`, `core/src/execution/evidence.ts` (`canonicalStringify`, `sha256Hex`) | The store, the proposal, the tenant and project id shapes, the hash and the canonical JSON | Read-only. The new core files import `tenant.ts` and `evidence.ts` and nothing else outside the memory directory |
+| `projectos/security/action-registry.json` | The seven O1 entries, committed in `dc09fb13` | Read only, by the validator (MP-1). `actionRegistry.ts` has no floor for `memory-delete`, so the validator is the pin |
+| `docs/architecture/memory-classes.md` | The six classes and their retention | The retention table in `retention.ts` uses that list, in that order, under those names; MP-5 parses the doc and compares |
+| `agent/src/memory/{proposalQueue,storeDigest,proposalDoor}.ts` | STORES1A's queue, digest an37 28oor | Not touched. Deleting approved memory is not a proposal: it is its own owner-only action |
+| `agent/src/system.ts` (`removeFile`, `createExclusive`, `exec`) | The `System` port | Not touched. The deletion files port and the git runner are narrow structural subsets a real `System` satisfies (`gitRunnerOver(system, root)`) |
+
+## Which action covers which deletion (the decision, stated)
+
+The registry (O1) has exactly two entries that touch deletion, and no weaker one:
+
+| Entry | Class | Registered for |
+|---|---|---|
+| `memory-delete` | **P5**, owner only, every time | "approved memory or anything a decision cites" |
+| `memory-index-rebuild` | P2, local | "derived indexes only" |
+| `memory-propose` | P2 | a worker asking for a memory write: it creates a pending proposal, it deletes nothing |
+| `context-write` | P2, local | the loop writing a session's fenced context file: a write, not a deletion |
+
+So, in `core/src/memory/retention.ts` and `agent/src/memory/memoryDeletion.ts`:
+
+- **Classes 1 to 4 are ALL `memory-delete` (P5, owner only).** Approved memory and what a committe23 21ecision cites are named by the
+  registry. Everything else in those stores (a pending or rejected proposal, an execution record no decision cites, a finding, a
+  promoted skill) has **no entry of its own**, so this module gives it the **strictest** entry instead of none. It over-covers on
+  purpose: the cost is an owner prompt to remove an uncited execution record, and a lighter entry for those is the owner's to
+  register. Whether a decision cites the item is recorded (`citedByDecision`: `true`, `false` or `unknown` when the decisions could
+  not be read) and never lowers the bar.
+- **Class 5, the retrieval index, is `memory-index-rebuild` (P2, local, no owner).** `deleteDerivedIndex` removes only the one file
+  that `searchIndexFileName` names from the owner by hash, so a request cannot aim it at another path.
+- **Class 6** has no store and no entry: a deletion there is not representable.
+- **Owner question 3 of STORES1A (who deletes a promoted skill?) is not answered, only failed closed:** a skill is `memory-delete`
+  until the owner registers something else.
+
+## What was built
+
+| Item | Path | Result |
+|---|---|---|
+| Provenance ranking | `core/src/memory/provenance.ts` | Seven kinds in four tiers: committe28 22ecision, then approved and plan memory, then execution record and finding, then summary and recollection. Rank is computed from `{ id, kind, timeMs, committed?, contradicts? }`; an item carrying text or any other field is refused. A claim to tier 0 or 1 needs a proof MINTED by a committed read (fix round 1: a plain `{ commit, blob }` is no proof) AT THE CURRENT HEAD (final round: `rankByProvenance(items, headCommit)`), else it ranks as a recollection and says `unverifiedClaim`. A proven decision outranks anything that names it in `contradicts`, which is marked `overruledBy`. Order does not decide (duplicates keep the higher tier; NFKC + lower-case ids) |
+| A summary never replaces a decision | `provenance.ts` (`provenanceReplacementProblem`) | A machine-readable code: `PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION`, `PROVENANCE_DECISION_NOT_REPLACEABLE`, `PROVENANCE_LOWER_RANK_CANNOT_REPLACE`. Null is **not** an approval |
+| Committed bytes, judged | `core/src/memory/committedBytes.ts` | `judgeCommittedRead(facts)`: one-spelling path in a decision, plan-memory or approved-memory shape; HEAD a commit name; the tree entry a regular blob (symlink, submodule, tree and odd modes each refused by code); bytes within 256 KiB counted in UTF-8; a working copy that is absent, a link, not a file, unreadable or **different** is refused (LF/CRLF compared as LF, nothing else forgiven). Returns the committed text with the proof |
+| Committed bytes, asked | `agent/src/memory/committedBytes.ts` | `readCommittedMemoryFile(ports, root, path)`: path judged first (git is asked nothing for a bad path), one `rev-parse`, `ls-tree -z <commit> -- <path>` for the exact entry, `cat-file -s`, `cat-file blob <oid>` hashed back with `blobNameOf`, then the working tree through `DocumentFs` (every directory on the way asked, a link never followed, the exact name in the listing). `readCommittedDecisionTexts(git)` lists decisions at HEAD, or null (unknown) |
+| Stale citations | `core/src/search/citation.ts`, `citedSearch.ts`, `untrustedExcerpt.ts` | `citationFreshnessOf(builtAt, head)`: fresh only when both are commit names and equal; stale with `head-moved`, `head-unknown` or `built-commit-unknown`. A value on the citation, set by the ranked search, shown in the fence header (`freshness=stale:head-moved`) and in the fence id, judged again by the renderer. A hit nobody judged carries none and claims none |
+| The index records its commit | `agent/src/search/{localIndex,projectIndex,ports}.ts` | `built_at_commit` beside the build time; HEAD asked at build and at every search through `SearchHead`; no head port, or a head that throws or is not a commit name, marks every citation stale. Schema version stays 2: the column is additive and added in place to an older file |
+| Retention per class | `core/src/memory/retention.ts` | `MEMORY_RETENTION`: the six classes of `memory-classes.md`, each with store, retention, `autoDelete: false`, delete action and class, owner required |
+| Recorde13 7eletion | `retention.ts`, `core/src/memory/deletionLedger.ts`, `agent/src/memory/memoryDeletion.ts` | `judgeMemoryDeletion` (owner port answering exactly `true`, frozen claim bound to hash, tenant, project, path and reason, asked once, hash must equal the item's now); the append-only ledger (numbered files, exclusive create, hash chain); `deleteMemoryItem` and `deleteDerivedIndex` |
+| Shared shapes | `core/src/memory/memoryShapes.ts` | `plainRecordOf` (one read into a frozen null-prototype copy; accessors, symbol keys, `__proto__`/`constructor`/`prototype` and unlisted fields refused), `isGitObjectId`, `memoryPathShapeProblem` |
+| Core barrel | `core/src/index.ts` | Five lines. The new modules are exported here and **not** through `memory/index.ts`, so `port-memory1a`'s copy of that barrel is unchanged |
+| Validator | `validators/val-projectos-memory-provenance1a.cjs` | 14 rules; 204 text and 125 behavioural named mutations (156 and 83 at the first commit, 190 and 111 after fix round 1); registered in both runners after `memory-stores1a` and before `connector-contract1a` |
+
+### What the deletion does, in order
+
+1. Read the request once; a request that cannot be read has no tenant and project to key an entry under, so it is refused and **not recorded** (`recorded: false`).
+2. Ask the clock (injected, whole milliseconds, refuse NaN / negative / fractional) and read the whole ledger, verifying its chain. A broken chain or a foreign file refuses the deletion.
+3. Look at the item without following a link (every directory on the way); a link, a directory or an item over 1 MiB is `DELETE_ITEM_NOT_REGULAR`.
+4. Judge: class from the path, absent, hash, then the owner. Any refusal is appended as `refused` with its code, the requested item hash and the reason.
+5. Append `authorised`. If that cannot be written, **nothing is removed**.
+6. Read the item's hash again. If it changed after the owner said yes, refuse (`DELETE_HASH_MISMATCH`, recorded). Otherwise remove it, and append `deleted` or `delete-failed`. If only the closing entry cannot be written the deletion stands and says `recorded: false`.
+
+## Acceptance criteria
+
+| Criterion | Evidence |
+|---|---|
+| A committe20 18ecision ranks above any memory or summary that contradicts it, and a summary cannot replace a decision | `core/test/memory-provenance.test.ts` ("a committe20 15ecision ranks above a newer memory or summary that contradicts it, which is marked as overruled", "a summary never replaces a decision"; the file has 55 tests), `agent/test/memoryCommittedBytes.test.ts` ("turns into a ranking item that outranks a newer summary that contradicts it"). MP-2 |
+| A memory or decision file whose working-tree bytes differ from HEAD is refused | `core/test/memory-committed-bytes.test.ts` ("a file whose working-tree bytes differ from HEAD is refused"; the file has 64 tests), `agent/test/memoryCommittedBytes.test.ts` (38 tests: a fake git, and 5 against a real git repository in a temp directory: edited, deleted, uncommitted, staged-only, committed symlink). MP-3 |
+| A citation from an index built before HEAD is marked stale | `core/test/search-freshness.test.ts` (30), `agent/test/searchFreshness.test.ts` (25, with SQLite: moved head, no head, unreadable head, rebuild, migration, render). MP-4 |
+| Deleting approved memory without the owner is refused; every deletion is recorded | `core/test/memory-retention.test.ts` (44), `core/test/memory-deletion-ledger.test.ts` (10), `agent/test/memoryDeletion.test.ts` (34: refused with no verifier or a verifier that does not say exactly true, recorded with item hash and reason; authorised then deleted in one chain; ledger down stops the deletion; changed after the owner said yes). MP-5, MP-6, MP-7 |
+| Validator pin and named mutations, each named after the rule body and killed by its own rule | The mutation table. MP-1 pins `memory-delete` as P5 from the registry JSON and refuses if any of the seven O1 entries is missing |
+
+### Failing test first, with the red run captured
+
+Every core rule and every agent rule had its test written against a stub that exported the right names and threw. The first run was
+red, before any implementation. From the captured runs (names are in the appendix):
+
+| Test file | Red run (against the stub) |
+|---|---|
+| `core/test/memory-provenance.test.ts` | 55 failed |
+| `core/test/memory-committed-bytes.test.ts` | 63 failed |
+| `core/test/memory-retention.test.ts` | 42 failed |
+| `core/test/memory-deletion-ledger.test.ts` | 9 failed |
+| `core/test/search-freshness.test.ts` | 29 failed, 1 passed (the premise "a hit made with no freshness has none", true before the change) |
+| `agent/test/memoryCommittedBytes.test.ts` | 38 failed (after a syntax error in the test file itself was fixed: a legacy octal escape, not a code failure) |
+| `agent/test/memoryDeletion.test.ts` | 32 failed |
+| `agent/test/searchFreshness.test.ts` | 23 failed, 1 passed (the premise "a head that throws while the index is built still rebuilds", true before the change) |
+| **Total** | **291 failed, 2 premises passed** |
+
+Tests added after that run were each seen red on their own before the code: `committedSize` (core committed bytes), `memoryDeletionRequestOf`
+(core retention), `memoryClass: null` in a ledger entry (core ledger). The tests below were **not** red first, and say so:
+
+- The three migration tests in `agent/test/searchFreshness.test.ts` ("keeps schema version 2...", "a file made before the column existed...",
+  "a rebuild that stops before the commit is recorded...") and the "ledger is not a memory item" test in `memoryDeletion.test.ts` and its path in
+  `memory-retention.test.ts` were written with, or after, the change that made them true. The migration rule is covered by two named
+  mutations that fail only when the code runs (`an-old-file-is-not-migrated`, `the-migration-is-not-run-when-run`).
+- Two assertions in `agent/test/searchIndex.test.ts` (a pre-existing file) changed to include `freshness: { state: 'stale', reason: 'head-unknown' }`:
+  an index opened with no head port is stale by design.
+- The validator is not red-first: its proof is the mutations.
+
+## Mutations
+
+Each mutation is applied and counts only when its own rule fires, and no rule it did not declare. A behavioural mutation changes a copy of
+the source that runs against real SQLite, a fake git and an in-memory file system, and counts only when exactly its own rule's probes fail
+(plus the rules it declares: a few retention or ledger mutations break an owner or a record probe too, and say so in the validator). The
+unmutated tree passing every pin and every probe is the positive control.
+
+| Rule | Says | Text | Behavioural |
+|---|---|---|---|
+| MP-1 | an action is unregistered or not owner-only | 6 | 0 |
+| MP-2 | recollection outranks a decision | 41 | 32 |
+| MP-3 | a working-tree copy is read as authority | 23 | 21 |
+| MP-4 | a stale citation reads as fresh | 32 | 26 |
+| MP-5 | a class is retained or deleted by the wrong action | 13 | 7 |
+| MP-6 | memory is deleted without the owner | 26 | 24 |
+| MP-7 | a deletion is not recorded, or removes more than it says | 20 | 15 |
+| MP-8 | core is not pure or not browser-safe | 10 | 0 |
+| MP-9 | the agent reaches a process, a clock or a file around its ports | 7 | 0 |
+| MP-10 | stored text is read as authority | 6 | 0 |
+| MP-11 | a file has no statement of origin | 4 | 0 |
+| MP-12 | not registered: a runner or the core barrel does not name this phase | 9 | 0 |
+| MP-13 | the proof does not run | 4 | 0 |
+| MP-14 | a file is not tracked | 3 | 0 |
+| **Total** | | **204** | **125** |
+
+Rules named after the body: MP-3 holds the path shape (alternate stream, dot segment, trailing dot or space, control character, no bound,
+an execution record read as committed), the judge (differing copy, symlink, submodule, linked copy, absent copy, byte cap, missing head,
+path not judged first, the working copy returned instead of the committed bytes) and the agent's reader (blob not hashed, git asked before
+the path is judged, another path read as this one, a case variant, a followed link, a linked or unhashe10 0ecision). MP-8 pins no `node:`
+import in core under `memory/` or `search/` other than the three files that already imported `node:crypto`, no clock, no environment, and a
+closed import list for the five new core files. The mutation that adds `node:fs` to `provenance.ts`, `node:util` to the committed read,
+`node:crypto` to `retention.ts`, `node:os` to the citation and `node:buffer` to the fence are each killed by MP-8.
+
+## Checks, with counts (read from the exit codes, not from a doc)
+
+| Check | Result |
+|---|---|
+| core `npm run -s build` | exit 0 |
+| core `npx vitest run` | 108 files, 4,571 tests, all pass |
+| core `src` and the new core tests type-checked (temporary tsconfig) | exit 0, no output. (`test/search-citation.test.ts`, which this phase did not touch, already had one type error at line 317 under a strict test config: not mine, not changed) |
+| agent typecheck, **alias**: `tsc` over `agent/src` with `@projectos/core` mapped to this worktree's `core/dist` | exit 0, no output |
+| agent `src` and the five new or changed tests type-checked through the alias (`tsconfig.test.json` extended) | exit 0, no output |
+| agent tests, **alias**: vitest with `@projectos/core` aliased to this worktree's `core/dist` | 120 files; 119 pass, 3,761 tests pass, 10 skipped. The one failing file is `tenantSidecar.test.ts`, the alias artefact described below |
+| esbuild browser bundle of this worktree's `core/src/index.ts` (control-center's esbuild, `platform: 'browser'`, `node:crypto` and `node:buffer` aliased as `coreBrowserLoad.test.ts` does), evaluated in a bare context | exit 0, 851,516 bytes; a top-level `Buffer` beside the barrel fails as the positive control; `grep "from 'node:" core/src/memory core/src/search` lists only `prompt.ts`, `proposal.ts` and `store.ts`, all `node:crypto` and all there before this phase |
+| `val-projectos-memory-provenance1a` | PASS at the first commit (before fix round 1), exit 0, about 32 s: 7 new and 9 changed files judged; 156 text and 83 behavioural mutations killed. The numbers after fix round 1 are in its own section. Also run as validate-all runs it: `Array.isArray(run())` is `true` |
+| `val-projectos-memory-stores1a` | **3 errors, none a defect of the code**: see "Out-of-path edits" |
+| `val-projectos-port-search1a` | PASS: 22 real files; 113 text and 26 behavioural mutations killed |
+| `val-projectos-port-memory1a` | PASS: 20 rules; 199 named mutations killed |
+| `val-projectos-port-credit1a` | PASS: 185 real files judged; 157 fixture and 59 record mutations killed, exit 0 |
+| `val-projectos-port-skills1a`, `val-projectos-port-context1a` (they read the scan and the memory barrel) | `port-skills1a` PASS (21 rules; 440 mutations, exit 0, 49 s); `port-context1a` PASS (18 rules; 320 mutations, exit 0, 248 s) |
+| `validate-no-secrets` | PASS, exit 0 |
+
+**The one agent failure under the alias is the alias, not the code.** `test/tenantSidecar.test.ts` builds the agent with its own `tsconfig.json`
+in `beforeAll`, and the agent's `@projectos/core` junction points at another worktree whose `core/dist` does not have the new exports, so its
+`tsc` stops and the file's 10 tests are skipped. Run on the merged stack, where the junction resolves to the merged core, it compiles.
+
+### Other validators
+
+Each ran in its own process and its exit code was read: all **exit 0 and PASS**: `val-projectos-connector-contract1a` (293 mutations),
+`-kernel-followup1a` (88), `-port-agents1a` (65 text, 132 behaviour), `-port-approvals1a` (64 text, 81 behaviour), `-port-computer1a`
+(120 text, 306 behaviour), `-port-mcp1a` (281 text, 107 behavioural), `-port-providers1a` (221 text, 89 behavioural), `-port-research1a` (205 text,
+165 behavioural), `-port-routines1a` (83 text, 108 behaviour), `-tenant-contract1a` (346), `-tenant-credentials1a` (279), `-tenant-csp1a` (106),
+`-tenant-principal1a` (210), `-tenant-rls1a` (205 text, 43 database), `-validator-scratch-lifecycle1a`, `validate-speed-validation-cache`,
+`validate-v2-closure-evidence`, `val-projectos-v3-validation-evidence1a`. That is every validator a grep of the touched paths found, except
+`validate-all` (the lead's) and the files that are libraries. `validate-all` itself was not run.
+
+## Converge (B9)
+
+**Unbuilt on purpose.**
+- Nothing calls any of it: not the context manager (3.4), not the loop, not a CLI command. `agent/src/index.ts` is unchanged (outside the write paths).
+- The owner verifier is a port. No production verifier exists here; the real one belongs with owner proof.
+- No automatic deletion and no retention timer: every class says `autoDelete: false`.
+- No code-intelligence memory (class 6).
+- The decisions' own writer is not touched: a committed decision is written by the closure machinery and this phase only reads it.
+- A decision cites an item by naming its path or hash in text; there is no structured citation field, so `citedByDecision` is a substring match that only ever adds protection.
+
+**Drift.** None. The delta row asked for: ranking by provenance and freshness (done), committed bytes only with a differing working copy refused (done),
+a summary never overwrites a decision (done as a refusal code), stale-citation marking (done), retention and deletion per class with each deletion
+recorded and `memory-delete` P5 (done).
+
+**PROTECTED files untouched.** `git diff --stat 7fc020da..HEAD` lists only files under `projectos/core/src/{memory,search}/`, `projectos/core/src/index.ts`,
+`projectos/core/test/`, `projectos/agent/src/{memory,search}/`, `projectos/agent/test/`, `projectos/validators/val-projectos-memory-provenance1a.cjs`,
+`projectos/validators/validate-all.cjs`, `projectos/speed/cached-runner.cjs` and this file. No `taskEnvelope.ts`, `actionRegistry.ts`, `tenant.ts`,
+`verification.ts`, `action-registry.json`, `val-projectos-tenant-contract1a.cjs`, `run.ts`, `system.ts`, `docs/06_Plan.md` or any other validator.
+
+## Out-of-path edits needed
+
+**1. Two validators outside this phase's write paths go stale from the change, and were not edited.** Each is a pin on text this phase had to change.
+
+- `val-projectos-memory-stores1a.cjs` fails three rules (MS-15 twice, MS-3 once). Everything else it pins still holds.
+  - **MS-15, in `validate-all` and in `cached-runner`**: it pins "this validator is immediately before `val-projectos-connector-contract1a`". The brief put
+    `val-projectos-memory-provenance1a` between them, so that pin is false by design. The edit: set its `NEXT_VALIDATOR` to `val-projectos-memory-provenance1a`, and in
+    its mutation `the-cached-runner-entry-is-removed` replace the anchor `// PROJECTOS-CONNECTOR-CONTRACT1A` after its entry with the comment that now follows it
+    (`// PROJECTOS-MEMORY-PROVENANCE1A`).
+  - **MS-3, `projectIndex.ts`**: it pins the text `openSearchIndex(where.location, { owner, clock: deps.clock })`. The call now also passes the head:
+    `openSearchIndex(where.location, { owner, clock: deps.clock, ...(deps.head === undefined ? {} : { head: deps.head }) })`. Update the pin and the mutation text that reads it.
+- Everything else that would have gone stale was **avoided** rather than reported: the schema version stays 2 (an additive column added in place), the
+  `writeProject(..., built.records, now);` line is unchanged (the commit is recorded after the rows), `fenceIdOf`'s `\n${hit.untrustedText}` ending is unchanged
+  (the mark goes before the text), `untrustedExcerpt.ts` still reads `const id = fenceIdOf(hit);`, the rank pre-filter line is unchanged, `citation.ts` imports nothing new,
+  and `localIndex.ts` and `ports.ts` import only names the search barrel exports, so `port-search1a`'s shim loads them. `port-search1a` and `port-memory1a` pass untouched.
+
+**2. Wiring is Stage 4.1 (named, not made).** The pieces are ready; the call sites are in files outside this phase's paths:
+
+- The context manager (3.4) asks for retrieval items: read decisions, plan memory and approved memory with `readCommittedMemoryFile(ports, root, path)`, turn each read into an item with
+  `committedItemOf(read, timeMs, contradicts?)`, add the index's hits (as `execution-record`, `finding` or `summary` items with no proof), and order them with `rankByProvenance`.
+  Open the per-project index with `openProjectSearchIndex(directory, owner, { clock, ensureDirectory, head: searchHeadOver(gitRunnerOver(system, root)) })`.
+- Whatever lets a model or a worker stand one stored item in for another (the proposal door's approval, a future summary writer) must call `provenanceReplacementProblem(writer, target)` first.
+- A deletion command, when there is one, calls `deleteMemoryItem` with a verifier that asks the owner at the console (a port that answers exactly `true`), `deleteDerivedIndex` for an index, and
+  `readCommittedDecisionTexts(gitRunnerOver(system, root))` as `committedDecisions`. `agent/src/index.ts` should export the new agent names.
+- `docs/architecture/memory-classes.md` still says marking a stale citation and retention are "plan 3.3" (class 5 retention cell). It is outside this phase's paths, and `val-projectos-memory-stores1a` pins that cell's text (MS-2), so it was not edited. A later phase can say "built in 3.3" together with that pin.
+
+## Residuals and owner questions
+
+- **Owner question: a lighter deletion entry.** Deleting an uncited execution record or a rejected proposal is `memory-delete` (P5) here only because the registry has no weaker entry. If the owner wants a P2 entry for those, it is one registry act, and `retention.ts` changes in one place.
+- **The owner verifier has no production implementation.** A port answering exactly `true`; the claim is frozen and bound, but a real console prompt is owner-proof work.
+- **A malformed deletion request is refused and not recorded.** It has no valid tenant and project to key an entry to. A request with a valid owner and a path the ledger cannot hold is recorded under `unrecordable-path:<sha256>`.
+- **The ledger's last entry is not anchored.** The chain finds a changed, removed or foreign entry; it cannot show that the newest entries were cut off, and someone who can write the whole directory can rewrite the whole chain. A head hash kept elsewhere (the closure ledger, a commit) would anchor it.
+- **A deletion removes the working-tree file only.** Git still holds a committed decision or memory file in history, so deleting one does not erase its committed bytes: `readCommittedMemoryFile` still reads it at HEAD, and it reads as absent in the working tree, which that function refuses. A deleted decision therefore stops being readable until it is committed as deleted.
+- **The item hash is over decoded text,** as the store digest's is, not over raw bytes. Two files that differ only in bytes that decode alike hash alike. Items over 1 MiB are not deleted here.
+- **A transparent Proxy is not detected in core** (`plainRecordOf`), as in STORES1A: it needs a port core does not have. The items to rank and the facts to judge are built by the agent's own code, not parsed from a worker's JSON.
+- **An index built from a dirty working tree at HEAD reads fresh.** The mark says whether HEAD has moved since the index was built, nothing more. Authority files are protected by the committed read, not by the mark. The documents indexed from the working tree can still be uncommitted.
+- **A caller that does not pass `builtAtCommit` records none** (fix round 1, L9): every citation then reads `built-commit-unknown`. The rule is only as good as the caller taking `currentHead()` before it collects the sources.
+- **An index record written before this phase has no commit,** so every citation from it is stale (`built-commit-unknown`) until the project is rebuilt, which is the intended direction.
+- **Case-folded ids in the ranking.** Two items whose ids differ only by case or width are one item and the lower tier is refused as a duplicate. Git paths are case-sensitive, so two committed files `A.md` and `a.md` would collide; that is a refusal, never a promotion.
+- **`citedByDecision` is a substring match** on a decision's text for the item's path or hash. It reads no meaning and can only add protection; a decision that cannot be read (git failed, a link, an unhashed blob, over 500 files or 8 MiB) marks the item `unknown`, which also needs the owner.
+- **The validator is 1,183 lines (1,046 at the first commit),** over the 800 the style rule names, like its siblings (1,089 to 1,448): its pins, probes and mutations share names. The new core and agent source files are all under 300 lines.
+- **The behavioural copy is not the build.** It runs under type stripping with a local shim for `@projectos/core`, a fake git, and the real `blobNameOf` cut out of the installation file. `tsc` and the suites cover the real build.
+- **Equivalent mutations dropped from the behavioural set** (kept as text pins): removing the throw in the fence's mark reader (the next line throws on null anyway), and removing the size bound on a ledger entry (a 60,000-character entry fails to parse anyway; the bound only saves the parse).
+- **`node:sqlite` is experimental** in Node 24.14.1 and prints a warning when an index opens.
+
+## Commits
+
+- `feat(memory): provenance ranking, committed bytes only, stale citations, retention and recorded deletion`: the core rules, the agent files, their tests, the validator, the registration and this file. One commit on the branch, not pushed.
+
+
+## Fix round 1 (ECC security review): item, test, red evidence, mutation
+
+The lead committed `de9e7b01` (the three stale pins in `val-projectos-memory-stores1a`). This round touched that file once more, for a mutation anchor the fix itself moved
+(`a-rebuild-can-be-handed-the-time`, which anchored on the old `options?: { readonly chunking?: SearchChunking },` line of `rebuildProject`).
+
+Each test was written first and seen red: the test files were updated, the code was not, and the run below was taken before any fix (65 failed; names in the appendix at the end).
+The one thing added before that run was `core/src/memory/committedProof.ts` as an unused module, so the tests that build a proof through a committed read could run and fail by assertion, not by a missing import.
+Tests that already passed against the old code are characterisation (an explicit `null` proof ranks as a recollection; a throwing item is a refusal; a hit with no freshness gives the admitted citation none).
+
+| Item | What it was | Test (red first) | Named mutations (text, and when run where it says so), each killed by its own rule |
+|---|---|---|---|
+| H1 (HIGH) | `proofOf` accepted any two 40-hex strings, so a forged `committed` made anything a tier-0 decision, and a proof from an approved-memory read could ride on a decision claim | `core/test/memory-provenance.test.ts` "a forged proof never makes a tier-0 decision" (plain hex pair, a copy, a `structuredClone`, a JSON round-trip, an object inheriting from a proof, a proof of another path, a proof of another kind, junk values), "a proof is minted by a committed read and by nothing else", and the replacement tests with forged and wrong-kind writer proofs; `core/test/memory-committed-bytes.test.ts` "carries a minted proof of what it read", "each read mints its own proof"; `agent/test/memoryCommittedBytes.test.ts` "a forged proof and a copy of a real one rank as nothing" | MP-2: `a-copied-proof-is-trusted`, `a-proof-of-another-path-is-trusted`, `a-proof-of-another-kind-is-trusted`, `a-writer-proof-of-another-kind-is-trusted`, `a-minted-proof-is-not-registered`, `any-object-is-a-proof`, `a-read-mints-a-plain-object`, `the-agent-mints-a-proof`, `the-barrel-exports-the-minting`, `the-barrel-forgets-the-proof-question`, `the-ranking-mints-a-proof` (the first seven also when run); MP-8: `the-proof-reads-a-file` |
+| M2 | `admitCitedAnswer` rebuilt citations without freshness, so an answer citing a stale hit lost the mark, and a citation claiming `fresh` was accepted | `core/test/search-freshness.test.ts` "an answer keeps the freshness of the hit it cites" (6 tests) | MP-4: `a-forged-answer-freshness-is-admitted`, `the-admitted-citation-drops-freshness`, `a-kinder-hit-is-chosen`, `a-stated-freshness-is-not-compared` (all four also when run) |
+| M3 | A deletion request was not bound to the checkout: another tenant and project, with an approving verifier, deleted a file under `/r` and the ledger recorded the other tenant | `agent/test/memoryDeletion.test.ts` "a deletion is bound to the checkout it is asked in" (3 refused pairs, bad bindings, an index of another project); `core/test/memory-retention.test.ts` "binds the root, the tenant, the project and the item hash in the hash of the claim", "refuses a binding it cannot use, before the owner is asked" | MP-6: `a-request-for-another-project-is-deleted`, `an-unbound-checkout-is-deleted`, `an-index-of-another-project-is-deleted`, `a-deletion-needs-no-checkout`, `the-claim-names-no-checkout`, `the-checkout-is-not-passed-to-the-judge` (all also when run) |
+| M4 | `contradicts` was checked with `.some()` and then re-read with a spread: a getter, or an own `some` on the array, made `rankByProvenance` throw | `core/test/memory-provenance.test.ts` "a hostile contradiction list becomes a refusal and never an exception" (a getter element, an own `some`, a hole, an extra own key, a Proxy item whose traps throw) and "refuses a list that is not a list, one with a getter or a hole" | MP-2: `contradicts-is-not-copied`, `the-items-are-not-copied`, `a-getter-element-is-read`, `an-extra-key-on-a-list-is-read` (when run), `a-throwing-item-throws` (text only: `plainRecordOf` already catches a trap, so no input separates it when run) |
+| L7 | Two real decisions with case-variant ids gave one `PROVENANCE_DUPLICATE_ID` and one vanished from `ranked` | `core/test/memory-provenance.test.ts` "items whose ids differ only by case or width" (3 tests) | MP-2: `a-colliding-item-keeps-its-place`, `a-colliding-item-vanishes-unsaid`, `a-collision-is-not-named` (also when run) |
+| L8 | `citedByDecision` went only to the ledger | `core/test/memory-retention.test.ts` "shows the owner what a decision cites, and binds it in the hash of the claim"; `agent/test/memoryDeletion.test.ts` "shows the owner that a committed decision cites the item, and that the decisions could not be read" | MP-6: `the-claim-hides-a-citing-decision`, `the-claim-hash-binds-nothing` (also when run) |
+| L9 | `localIndex` read HEAD after the caller collected the sources, so a commit in between marked a stale index fresh | `agent/test/searchFreshness.test.ts` "the commit recorded is the one taken BEFORE the sources were collected" (a commit made in between reads stale; no second HEAD read at build; no commit given records none; a value that is not a commit name records none; `currentHead`) | MP-4: `the-build-reads-head-after-the-sources`, `the-index-cannot-say-its-head` (also when run) |
+
+### What changed in the API, in one place
+
+- A proof is `CommittedRead.proof`, minted in `committedProof.ts`, frozen, registered in a module-private `WeakSet`, carrying `{ commit, blob, path, kind }`. The core barrel exports the question (`isCommittedProof`) and the type, **not** `mintCommittedProof`; MP-2 pins that no other file reaches it. `ProvenanceItem.committed` must be that object: a plain object is refused `PROVENANCE_PROOF_NOT_MINTED`, a proof of another file `..._PATH_MISMATCH`, of another kind `..._KIND_MISMATCH`. An item with no proof still ranks as a recollection. Ids of items that claim a committed kind are therefore paths.
+- `rankByProvenance` returns `collisions` (groups of ids that differ only by case or width) and a refusal's `ids`. Items and lists are read from their data properties once; a hostile one is a refusal value.
+- `admitCitedAnswer` returns citations rebuilt from the covering hit's freshness, and a new refusal `citation-freshness-mismatch`.
+- `MemoryDeletionPorts` and `IndexDeletionPorts` gain `owner: { tenant, project }`, the pair the checkout belongs to. A request for another pair is `DELETE_NOT_THIS_PROJECT`, refused before the verifier is asked and recorded under the checkout's own pair; a binding that is not a tenant and a project is `DELETE_BINDING_INVALID`, unrecorded. The owner's claim names `root`, `citedByDecision` and a `claimHash` over every field.
+- `SearchIndex.rebuildProject` takes `options.builtAtCommit` (take `index.currentHead()` first, collect, then build) and `SearchIndex.currentHead()` exists.
+
+### Recorded only, not changed
+
+- **L5. A ledger whose tail is cut, or that is wiped, is undetectable** (and a wiped ledger reads as a valid ledger of no entries). The chain finds a changed, removed or foreign entry in the middle; anchoring the head hash elsewhere (the closure ledger, a commit) is what would find a cut tail. Already a residual above.
+- **L6. A failed closing write leaves `authorised` with no result entry and the call returns `ok: true` with `recorded: false`.** The file is gone and the ledger says only that the deletion was authorised. Stated plainly: a deletion with `recorded: false` must be read as "deleted, and the record is incomplete".
+- **A verifier that hangs is not covered.** The owner port is synchronous; a verifier that never returns blocks the caller, and no timeout exists here.
+- **The real `System.exec`, `createExclusive` and `removeFile` adapters were not exercised.** Git ran through a test runner and in-memory file systems; `gitRunnerOver` was tested against a fake `exec`, never against the runtime's bound `git`.
+- **`core/src/research/researchLoop.ts` (about line 167) rebuilds answer citations itself, without freshness.** It is outside this phase's write paths and was not edited. `admitCitedAnswer` now carries the stale mark and refuses a forged one, but a research answer that builds its own `SearchCitation` list before the door keeps no mark until that file passes freshness through. Wiring or a later research phase owns it.
+
+### Fix-round checks, with counts
+
+| Check | Result |
+|---|---|
+| core `npm run -s build` | exit 0 |
+| core `npx vitest run` | 108 files, 4,599 tests, all pass |
+| core `src` and the five new or changed core tests type-checked (temporary tsconfig) | exit 0, no output |
+| agent `src` type-checked through the **alias** (`@projectos/core` mapped to this worktree's `core/dist`) | exit 0, no output |
+| agent `src` and the five new or changed tests type-checked through the alias (`tsconfig.test.json` extended) | exit 0, no output |
+| agent tests, **alias** vitest config (an untracked temporary file, deleted afterwards) | 120 files; 119 pass, 3,777 tests pass, 10 skipped. The one failing file is `tenantSidecar.test.ts`, the alias artefact described above |
+| esbuild browser bundle of `core/src/index.ts` (control-center's esbuild, `platform: 'browser'`), evaluated in a bare context | exit 0, 846,993 bytes; the `Buffer` positive control fails as it should |
+| `val-projectos-memory-provenance1a` | PASS, exit 0, about 41 s: 8 new and 9 changed files judged; 190 text and 111 behavioural mutations killed; `Array.isArray(run())` is `true` |
+| `val-projectos-memory-stores1a` | PASS, exit 0 (198 text and 84 behavioural mutations killed) |
+| `val-projectos-port-search1a` | PASS, exit 0 (113 text and 26 behavioural mutations killed) |
+| `val-projectos-port-memory1a` | PASS, exit 0 (20 rules; 199 named mutations) |
+| `val-projectos-port-credit1a` | PASS, exit 0 (186 real files judged; 157 fixture and 59 record mutations killed) |
+| `val-projectos-port-skills1a` | PASS, exit 0 (21 rules; 440 mutations, 145 s) |
+| `val-projectos-port-context1a` | PASS, exit 0 (18 rules; 320 mutations, 410 s) |
+| `validate-no-secrets` | PASS, exit 0 |
+
+`validate-all` was not run. The 19 other validators that read a touched path were run after round 1 and are unchanged by this round's edits, which stay inside the same files; they were not re-run.
+
+### Converge after fix round 1
+
+**Unbuilt on purpose, now also:** the research loop's own citation rebuild (above); a verifier timeout; a production owner verifier; the ledger anchor.
+**Drift:** none. Every edit is under the write paths, plus the one validator edit the lead allowed (`val-projectos-memory-stores1a.cjs`, one mutation anchor).
+**PROTECTED files untouched:** `git diff --stat 7fc020da..HEAD` still lists none of `taskEnvelope.ts`, `actionRegistry.ts`, `tenant.ts`, `verification.ts`, `action-registry.json`, `val-projectos-tenant-contract1a.cjs`, `run.ts`, `system.ts`, `docs/06_Plan.md` or `researchLoop.ts`.
+
+
+## Final bounded round: item, test, red evidence, mutation
+
+The recheck confirmed H1, M2, M4, L7 and L8 fixed and M3 and L9 fixed at the API; no CRITICAL or HIGH. This round closes what it left: two MEDIUM and three LOW.
+Each test was written first and seen red before any fix (39 failed, names in the last appendix). A few new tests already passed against the old code and are characterisation, not proof of a fix: the current-head case of N2, and the cap test at the limit for N1.
+No validator outside this phase's own was edited this round (`val-projectos-memory-stores1a.cjs` was not touched).
+
+| Item | What it was | Test (red first) | Named mutations (all text, and when run where it says so), each killed by its own rule |
+|---|---|---|---|
+| N1 (MEDIUM) | `admitCitedAnswer` re-parsed every covering hit's freshness for every citation and the citations were uncapped: 50,000 citations by 200 hits took 6.4 s | `core/test/search-freshness.test.ts` "an answer is judged once per hit and is capped": the freshness getter of each hit is read at most once however many citations cover it; 50,000 citations are refused `answer-too-large` in under 2,000 ms; 1,001 hits are refused; 200 citations by 200 hits at the cap are still judged in under 2,000 ms | MP-4: `an-answer-has-no-cap`, `a-hit-is-judged-for-every-citation` (both also when run). New caps `MAX_ANSWER_CITATIONS = 200`, `MAX_ANSWER_HITS = 1000`; new refusal `answer-too-large` |
+| N2 (MEDIUM) | A proof had no HEAD binding, so a proof from an older HEAD still ranked tier 0 after the decision was removed; the claim hash had no position, so an approval could be replayed | `core/test/memory-provenance.test.ts` "a proof is bound to the HEAD it was minted at" (a proof of another commit, the current head, seven values that are not a head); `core/test/memory-retention.test.ts` "names the ledger position at ask time in the claim and its hash", "refuses a ledger position that is not a count and a hash"; `agent/test/memoryDeletion.test.ts` "the owner is shown the ledger position, which moves with every attempt" | MP-2: `a-proof-of-an-old-head-ranks`, `a-missing-head-ranks` (also when run). MP-6: `a-ledger-position-is-not-checked`, `the-claim-hides-the-ledger-position`, `the-ledger-position-is-not-passed` (also when run) |
+| L1 | `deleteMemoryItem` appended to the ledger before validating the root: root `''`, a newline or 600 characters gave `recorded: true` | `agent/test/memoryDeletion.test.ts` "a deletion is judged before anything is written" (four bad roots write nothing; an index deletion with a bad root writes nothing) | MP-6: `a-bad-root-writes-the-ledger` (also when run) |
+| L2 | `judgeMemoryDeletion(req, null)` threw, and `citedByDecision: { x: 1 }` reached the verifier | `core/test/memory-retention.test.ts` "facts that are not what they should be are refusal values, never an exception" (null, undefined, a string, a getter, an unlisted field, `citedByDecision` anything but true, false or `'unknown'`, a bad item hash, a claim of plain values only, all frozen) | MP-6: `the-facts-are-not-read-once`, `citedByDecision-is-anything`, `a-deletion-needs-no-checkout` (also when run) |
+| L3 | `provenanceReplacementProblem` did not bind a writer's proof to the target path | `core/test/memory-provenance.test.ts` "a writer is trusted only for the file it read" (a proof of the target's path; a proof of another path; a target that names no path; a decision over a decision of another path; a writer whose proof is of another kind; a target path that is not a string) | MP-2: `a-writer-proof-is-not-bound-to-the-target`, `the-writer-is-not-bound-to-the-target-path` (also when run) |
+| L4 | When two covering stale hits carried different reasons, the refusal depended on their order | `core/test/search-freshness.test.ts` "two covering hits that are stale for different reasons" (a stated reason that either hit carries is accepted in both orders; a citation that states none gets the same canonical mark in both orders; fresh, and a reason neither hit carries, are refused in both orders; a stale hit still outweighs a fresh one) | MP-4: `a-stated-stale-reason-is-not-compared`, `the-stale-choice-follows-the-order` (both also when run) |
+
+### What changed in the API, in one place
+
+- `rankByProvenance(items, headCommit)`: the current head is **required**. A proof minted at another commit is refused `PROVENANCE_PROOF_STALE_HEAD`; with no valid head every item that offers a proof is refused `PROVENANCE_HEAD_MISSING`, so nothing ranks above a recollection. An item that claims a committed kind with no proof is unchanged: a recollection either way.
+- `provenanceReplacementProblem(writer, target)`: the target may state a `path` (or carry a proof, whose path is used). A writer's proof counts only if it read that path and is of the kind the writer claims; otherwise the writer is a recollection.
+- `admitCitedAnswer`: each hit is judged once into a map; more than 200 citations or 1,000 hits is `answer-too-large`; among several stale covering hits a stated reason must be one of theirs, and none stated gets the earliest reason in `STALE_REASONS`.
+- `judgeMemoryDeletion`: the facts are read once and validated (`DELETE_BINDING_INVALID` for anything else); they now include `ledger: { count, lastHash }`. The owner's claim gains `ledgerCount` and `ledgerHead`, inside `claimHash`. `deletionRootProblem` is exported, and the agent judges the root before it touches the clock or the ledger.
+
+### Recorded only, not changed
+
+- **`ports.owner` is asserted by the caller and nothing ties it to `root`.** The binding stops a request for another pair from being deleted in this checkout, but whoever builds the ports says which pair the checkout belongs to. Wiring (Stage 4.1) must take the owner from something stronger: the installation's tenant and project registry for that root, or owner proof.
+- **`judgeCommittedRead` is exported and trusts the facts it is handed** (the head, the tree entry, the blob). The minted proof proves only that this function accepted those facts. Wiring must feed it from the git port (`readCommittedMemoryFile`) and never from anywhere else.
+- **Real case-distinct files `Notes.md` and `notes.md` are both reported as a collision.** Ranking keeps every item that has a proof (a proof is bound to its own path, so neither can stand for the other) and lists the pair in `collisions`; an item with no proof that collides is refused naming every id. Nothing in the pair is dropped unsaid. On a case-insensitive file system such a pair could not both exist in the working tree, and the committed read refuses the one whose exact name is not on disk.
+- **L9 is enforced only by the shape of the API.** `builtAtCommit` is supplied by the caller; nothing forces it to have been taken before the sources were collected, and `rebuildProject` has no production caller yet. A caller that passes none records none, which reads stale.
+- **A claim position is only as good as the verifier that binds to `claimHash`.** Core puts the root, the tenant, the project, the item hash, what cites it and the ledger position in the hash; whether the owner's console shows and checks them is the verifier's.
+
+### Final-round checks, with counts
+
+| Check | Result |
+|---|---|
+| core `npm run -s build` | exit 0 |
+| core `npx vitest run` | 108 files, 4,642 tests, all pass |
+| core `src` and the five new or changed core tests type-checked (temporary tsconfig) | exit 0, no output |
+| agent `src` and the five new or changed tests type-checked through the **alias** | exit 0, no output |
+| agent tests, **alias** vitest config (an untracked temporary file, deleted afterwards) | 120 files; 119 pass, 3,783 tests pass, 10 skipped. The one failing file is `tenantSidecar.test.ts`, the alias artefact described above |
+| esbuild browser bundle of `core/src/index.ts` (control-center's esbuild, `platform: 'browser'`), bare context | exit 0, 849,476 bytes; the `Buffer` positive control fails as it should |
+| `val-projectos-memory-provenance1a` | PASS, exit 0, about 47 s: 8 new and 9 changed files judged; 204 text and 125 behavioural mutations killed |
+| `val-projectos-memory-stores1a` | PASS, exit 0 (198 text and 84 behavioural mutations killed) |
+| `val-projectos-port-search1a` | PASS, exit 0 (113 text and 26 behavioural mutations killed) |
+| `val-projectos-port-memory1a` | PASS, exit 0 (20 rules; 199 named mutations) |
+| `val-projectos-port-credit1a` | PASS, exit 0 (186 real files judged; 157 fixture and 59 record mutations killed) |
+| `val-projectos-port-skills1a` | PASS, exit 0 (21 rules; 440 mutations, 144 s) |
+| `val-projectos-port-context1a` | PASS, exit 0 (18 rules; 320 mutations, **478 s**) |
+| `validate-no-secrets` | PASS, exit 0 |
+
+`validate-all` was not run.
+
+### Converge after the final round
+
+**Unbuilt on purpose, now also:** a production owner verifier and owner for a checkout (above); a caller that takes `currentHead()` before collecting; the research loop's own citation rebuild (still outside the paths).
+**Drift:** none. Every edit is under the write paths. No validator but this phase's own was edited.
+**PROTECTED files untouched:** `git diff --stat 7fc020da..HEAD` lists none of `taskEnvelope.ts`, `actionRegistry.ts`, `tenant.ts`, `verification.ts`, `action-registry.json`, `val-projectos-tenant-contract1a.cjs`, `run.ts`, `system.ts`, `docs/06_Plan.md` or `researchLoop.ts`.
+
+## Appendix: the failing run, test names (against the stub, before the implementation)
+
+Names are as vitest printed them; names from `it.each` are shown once with a count, and quoted values are replaced by `%s`.
+
+**memory-committed-bytes.test.ts**: 63 failed
+
+- the path of a committed read allows .projectops/memory/MEMORY.md
+- the path of a committed read allows .projectops/memory/USER.md
+- the path of a committed read allows .projectops/plan-main.json
+- the path of a committed read allows .projectops/current-state-main.json
+- the path of a committed read allows .projectops/closure/decisions/PROJECTOS-MEMORY-PROVENANCE1A.json
+- the path of a committed read refuses %s with COMMITTED_PATH_INVALID
+- the path of a committed read refuses %s with COMMITTED_PATH_ESCAPES (x10)
+- the path of a committed read refuses %s with COMMITTED_PATH_NOT_A_MEMORY_FILE (x7)
+- the path of a committed read refuses %s with COMMITTED_PATH_NOT_NORMAL (x6)
+- the path of a committed read refuses what is not a string, and a,000 character path at once
+- a file whose working-tree bytes differ from HEAD is refused reads the committed bytes when the working tree is the same: the positive control
+- a file whose working-tree bytes differ from HEAD is refused the bytes it returns are the committed bytes, not the working tree, and the result is froz
+- a file whose working-tree bytes differ from HEAD is refused a CRLF working copy of the same text is the same bytes, which a Windows checkout needs
+- a file whose working-tree bytes differ from HEAD is refused refuses a working copy with one character changed, and returns no text
+- a file whose working-tree bytes differ from HEAD is refused refuses a working copy with a line added, and returns no text
+- a file whose working-tree bytes differ from HEAD is refused refuses a working copy with emptied, and returns no text
+- a file whose working-tree bytes differ from HEAD is refused refuses a working copy with a trailing space, and returns no text
+- a file whose working-tree bytes differ from HEAD is refused refuses a working copy with a lone carriage return, and returns no text
+- a file whose working-tree bytes differ from HEAD is refused refuses a working copy with a different decision of the same length, and returns no text
+- a file whose working-tree bytes differ from HEAD is refused refuses a working tree that is {%s:%s} (x7)
+- a file whose working-tree bytes differ from HEAD is refused refuses a working tree that is {%s:%s,%s:5}
+- a file whose working-tree bytes differ from HEAD is refused refuses a working tree that is null
+- what HEAD holds must be a regular file of the project refuses the HEAD entry {%s:%s,%s:%s,%s:%s} with COMMITTED_SYMLINK
+- what HEAD holds must be a regular file of the project refuses the HEAD entry {%s:%s,%s:%s,%s:%s} with COMMITTED_NOT_REGULAR (x4)
+- what HEAD holds must be a regular file of the project refuses the HEAD entry {%s:%s,%s:%s,%s:%s} with COMMITTED_FACTS_INVALID (x2)
+- what HEAD holds must be a regular file of the project refuses the HEAD entry {%s:%s,%s:%s} with COMMITTED_FACTS_INVALID
+- what HEAD holds must be a regular file of the project refuses the HEAD entry %s with COMMITTED_FACTS_INVALID
+- what HEAD holds must be a regular file of the project refuses the HEAD entry null with COMMITTED_NOT_IN_HEAD
+- what HEAD holds must be a regular file of the project allows an executable regular file
+- what HEAD holds must be a regular file of the project refuses a repository with no HEAD, and a HEAD that is not a commit name
+- what HEAD holds must be a regular file of the project refuses bytes that could not be read, and bytes over the cap counted in UTF-8 and not in charact
+- what HEAD holds must be a regular file of the project judges the path first, so a path that escapes reaches no other rule
+- what HEAD holds must be a regular file of the project refuses facts that are not plain data: a getter, a Proxy-shaped accessor, an inherited field
+
+**memory-deletion-ledger.test.ts**: 9 failed
+
+- every deletion and every refused attempt is recorded, with the item hash and the reason writes an entry that carries the item hash, the reason, the ac
+- every deletion and every refused attempt is recorded, with the item hash and the reason a refused attempt with no item hash yet (the item was absent) 
+- every deletion and every refused attempt is recorded, with the item hash and the reason refuses a record it could not trust: an unknown outcome, a bad
+- the record is append-only: a change is found verifies an unbroken chain and names its last hash
+- the record is append-only: a change is found finds an entry whose field was changed after it was written
+- the record is append-only: a change is found finds an entry removed from the middle, an entry out of order, and an entry from another chain
+- the record is append-only: a change is found finds the first entry deleted, because the second no longer follows the genesis
+- the record is append-only: a change is found finds an entry whose name and sequence disagree, a name that is not an entry, and text that is not JSON
+- the record is append-only: a change is found a chain of,000 characters of text in one entry is refused by size and not parsed
+
+**memory-provenance.test.ts**: 55 failed
+
+- a committed decision outranks recollection orders the seven kinds: decision, then approved and plan memory, then execution and findings, then summarie
+- a committed decision outranks recollection a committed decision ranks above a newer memory or summary that contradicts it, which is marked as overrule
+- a committed decision outranks recollection an item that is overruled sorts after an item in its own tier that is not
+- a committed decision outranks recollection a decision claimed without proof of the committed bytes ranks as a recollection, and says so
+- a committed decision outranks recollection a proof that is not a commit and a blob name does not make a decision
+- a committed decision outranks recollection the rank comes from provenance fields and never from text: an item carrying text is refused
+- a committed decision outranks recollection an id that reads like a decision does not rank like one
+- a committed decision outranks recollection inside a tier the newer item ranks first, then the id decides, so the order is the same however the input i
+- a committed decision outranks recollection two items with one id keep the higher tier, whichever came first, and the other is refused
+- a committed decision outranks recollection ids are compared in one canonical form, so a case or width variant cannot shadow an item
+- a committed decision outranks recollection a contradiction names a decision that is there and proven, or it names nothing
+- a committed decision outranks recollection a decision is never overruled by what it is said to contradict
+- a committed decision outranks recollection refuses an unknown kind, by code, and keeps the rest
+- a committed decision outranks recollection refuses a time that is not finite, by code, and keeps the rest
+- a committed decision outranks recollection refuses an infinite time, by code, and keeps the rest
+- a committed decision outranks recollection refuses a negative time, by code, and keeps the rest
+- a committed decision outranks recollection refuses a time as a string, by code, and keeps the rest
+- a committed decision outranks recollection refuses an empty id, by code, and keeps the rest
+- a committed decision outranks recollection refuses an id with a control character, by code, and keeps the rest
+- a committed decision outranks recollection refuses an id with a leading space, by code, and keeps the rest
+- a committed decision outranks recollection refuses an id that is not a string, by code, and keeps the rest
+- a committed decision outranks recollection refuses a contradiction list that is not a list, by code, and keeps the rest
+- a committed decision outranks recollection refuses a contradiction list of, by code, and keeps the rest
+- a committed decision outranks recollection refuses a contradiction that is not an id, by code, and keeps the rest
+- a committed decision outranks recollection refuses an item that is a list, by code, and keeps the rest
+- a committed decision outranks recollection refuses an item that is null, by code, and keeps the rest
+- a committed decision outranks recollection refuses an item that is a string, by code, and keeps the rest
+- a committed decision outranks recollection refuses a getter, a symbol key, a prototype key and a non-plain prototype, so a second read cannot differ
+- a committed decision outranks recollection refuses a list that is not a list, and one over the cap, whole and unread
+- a committed decision outranks recollection returns frozen results, and changing the input afterwards changes nothing
+- a committed decision outranks recollection an id of,000 characters is refused at once, and hostile text in an id takes no time
+- a summary never replaces a decision refuses a summary writing over a decision, with its own code
+- a summary never replaces a decision refuses a recollection writing over a decision, with its own code
+- a summary never replaces a decision refuses an unproven decision claim writing over a decision, because it is a recollection
+- a summary never replaces a decision a decision is not replaceable through this door by anything, a decision included
+- a summary never replaces a decision a lower rank never replaces a higher one
+- a summary never replaces a decision the same tier or a higher one is not refused here, and that is not an approval
+- a summary never replaces a decision a writer or target that cannot be read is refused
+- the kind of a stored file comes from where it is, never from what it says .projectops/closure/decisions/PROJECTOS-X.json is committed-decision
+- the kind of a stored file comes from where it is, never from what it says .projectops/memory/MEMORY.md is approved-memory
+- the kind of a stored file comes from where it is, never from what it says .projectops/memory/USER.md is approved-memory
+- the kind of a stored file comes from where it is, never from what it says .projectops/plan-main.json is plan-memory
+- the kind of a stored file comes from where it is, never from what it says .projectops/current-state-main.json is plan-memory
+- the kind of a stored file comes from where it is, never from what it says .projectops/execution/s1.findings.json is finding
+- the kind of a stored file comes from where it is, never from what it says .projectops/execution/s1.evidence.json is execution-record
+- the kind of a stored file comes from where it is, never from what it says docs/decision.md is not a stored kind
+- the kind of a stored file comes from where it is, never from what it says .projectops/memory/proposals/p1.json is not a stored kind
+- the kind of a stored file comes from where it is, never from what it says .projectops/memory/MEMORY.md. is not a stored kind
+- the kind of a stored file comes from where it is, never from what it says .Projectops/memory/MEMORY.md is not a stored kind
+- the kind of a stored file comes from where it is, never from what it says .projectops/memory/memory.md is not a stored kind
+- the kind of a stored file comes from where it is, never from what it says .projectops/closure/decisions/../x.json is not a stored kind
+- the kind of a stored file comes from where it is, never from what it says /.projectops/memory/MEMORY.md is not a stored kind
+- the kind of a stored file comes from where it is, never from what it says  is not a stored kind
+- the kind of a stored file comes from where it is, never from what it says null is not a stored kind
+- the kind of a stored file comes from where it is, never from what it says a path of,000 characters is judged at once
+
+**memory-retention.test.ts**: 42 failed
+
+- retention is written down per class, from the six classes of memory-classes.md has the six classes, in order, under the names the classes file gives t
+- retention is written down per class, from the six classes of memory-classes.md no class deletes by itself, and every class says how long it keeps what
+- retention is written down per class, from the six classes of memory-classes.md deleting in the four stores of record is memory-delete, P5, owner only;
+- retention is written down per class, from the six classes of memory-classes.md puts .projectops/plan-main.json in programme-project-memory
+- retention is written down per class, from the six classes of memory-classes.md puts .projectops/current-state-main.json in programme-project-memory
+- retention is written down per class, from the six classes of memory-classes.md puts .projectops/project-config.json in programme-project-memory
+- retention is written down per class, from the six classes of memory-classes.md puts .projectops/closure/decisions/PROJECTOS-X.json in programme-projec
+- retention is written down per class, from the six classes of memory-classes.md puts .projectops/execution/s1.findings.json in execution-memory
+- retention is written down per class, from the six classes of memory-classes.md puts .projectops/continuity/state.json in execution-memory
+- retention is written down per class, from the six classes of memory-classes.md puts .projectops/memory/MEMORY.md in curated-memory
+- retention is written down per class, from the six classes of memory-classes.md puts .projectops/memory/proposals/p1.json in curated-memory
+- retention is written down per class, from the six classes of memory-classes.md puts .projectops/skills/promoted/review.json in skills
+- retention is written down per class, from the six classes of memory-classes.md does not put %s in a class (x8)
+- retention is written down per class, from the six classes of memory-classes.md does not put null in a class
+- retention is written down per class, from the six classes of memory-classes.md does not put in a class
+- deleting approved memory, or what a decision cites, needs the owner is refused with no verifier, and with a verifier that does not answer exactly true
+- deleting approved memory, or what a decision cites, needs the owner is allowed as memory-delete, P5, when the verifier answers exactly true
+- deleting approved memory, or what a decision cites, needs the owner asks the owner about this item, this hash, this tenant and this project, in a froz
+- deleting approved memory, or what a decision cites, needs the owner asks once, and a verifier that answers true the first time and false the second ch
+- deleting approved memory, or what a decision cites, needs the owner approved memory is memory-delete, P5, with no owner and with one
+- deleting approved memory, or what a decision cites, needs the owner plan memory is memory-delete, P5, with no owner and with one
+- deleting approved memory, or what a decision cites, needs the owner a decision is memory-delete, P5, with no owner and with one
+- deleting approved memory, or what a decision cites, needs the owner an execution record is memory-delete, P5, with no owner and with one
+- deleting approved memory, or what a decision cites, needs the owner a proposal is memory-delete, P5, with no owner and with one
+- deleting approved memory, or what a decision cites, needs the owner a promoted skill is memory-delete, P5, with no owner and with one
+- deleting approved memory, or what a decision cites, needs the owner an item a decision cites is owner-only whether or not the decision source could be
+- deleting approved memory, or what a decision cites, needs the owner refuses what is not a memory item, an item that is not there, and a hash that is n
+- deleting approved memory, or what a decision cites, needs the owner asks the owner nothing when the request itself is refused
+- deleting approved memory, or what a decision cites, needs the owner refuses a request with a getter or a prototype key, so a second read cannot differ
+- deleting approved memory, or what a decision cites, needs the owner a reason of,000 characters is refused at once
+- deleting a derived index is memory-index-rebuild, and needs no owner names the action and the class, and asks nobody
+- deleting a derived index is memory-index-rebuild, and needs no owner refuses an owner that is not a tenant and a project, and a reason it cannot recor
+- an item a committed decision cites is found by its path or its hash finds the path, the hash, and neither
+- an item a committed decision cites is found by its path or its hash only ever adds protection: it reads no meaning, and a long text is searched in lin
+- an item a committed decision cites is found by its path or its hash an empty path or hash cites nothing rather than everything
+
+**search-freshness.test.ts**: 29 failed, 1 passed (a premise: the mark is a value on the citation, and a hit without one claims nothing a hit made with )
+
+- a citation from an index built before HEAD is marked stale is fresh only when the commit the index was built at is the commit HEAD is at
+- a citation from an index built before HEAD is marked stale is stale when HEAD has moved, and says so
+- a citation from an index built before HEAD is marked stale is stale, never fresh, when either commit is unknown
+- a citation from an index built before HEAD is marked stale does not take %s as a commit, so it is never fresh (x8)
+- a citation from an index built before HEAD is marked stale does not take as a commit, so it is never fresh
+- a citation from an index built before HEAD is marked stale does not take undefined as a commit, so it is never fresh
+- a citation from an index built before HEAD is marked stale does not take {} as a commit, so it is never fresh
+- a citation from an index built before HEAD is marked stale two spellings of one commit are not one commit
+- a citation from an index built before HEAD is marked stale a-character commit name is a commit name too
+- the mark is a value on the citation, and a hit without one claims nothing carries the judged freshness on the citation
+- the mark is a value on the citation, and a hit without one claims nothing refuses a freshness it cannot read, {%s:%s,%s:%s}, as no-freshness (x2)
+- the mark is a value on the citation, and a hit without one claims nothing refuses a freshness it cannot read, {%s:%s}, as no-freshness (x2)
+- the mark is a value on the citation, and a hit without one claims nothing refuses a freshness it cannot read, %s, as no-freshness
+- the mark is a value on the citation, and a hit without one claims nothing refuses a freshness it cannot read, null, as no-freshness
+- the mark is a value on the citation, and a hit without one claims nothing refuses a freshness it cannot read, {%s:%s,%s:1}, as no-freshness
+- the mark is a value on the citation, and a hit without one claims nothing every hit of a ranked search carries the freshness the search was given
+- a stale citation is still rendered, with the mark shows the stale mark and the reason in the header, and still shows the text
+- a stale citation is still rendered, with the mark shows a fresh mark for a fresh citation, and none for a hit that was never judged
+- a stale citation is still rendered, with the mark judges the mark again, so a hand-made hit cannot show a mark it was not given or hide a stale one in
+- a stale citation is still rendered, with the mark changing the mark changes the fence, so a stale excerpt cannot be passed off as a fresh one with the
+
+**memoryCommittedBytes.test.ts**: 38 failed
+
+- a memory file whose working-tree bytes differ from HEAD is refused reads the committed bytes, with the commit and the blob that prove it, when the wor
+- a memory file whose working-tree bytes differ from HEAD is refused refuses a working copy that was edited, an3 0oes not fall back to HEAD: no text com
+- a memory file whose working-tree bytes differ from HEAD is refused refuses one flipped character at the same length
+- a memory file whose working-tree bytes differ from HEAD is refused accepts a CRLF working copy of the same text, which a Windows checkout produces
+- a memory file whose working-tree bytes differ from HEAD is refused refuses a file that is not committed, and a working file that is gone
+- a memory file whose working-tree bytes differ from HEAD is refused refuses a working copy that is a link, and a store directory on the way that is a l
+- a memory file whose working-tree bytes differ from HEAD is refused refuses a working path that is a directory or another kind of entry
+- a memory file whose working-tree bytes differ from HEAD is refused refuses a case variant on disk, which a case-insensitive file system would open as 
+- a memory file whose working-tree bytes differ from HEAD is refused refuses a working file over the cap without reading it
+- what HEAD holds must be a regular file refuses a symlink
+- what HEAD holds must be a regular file refuses a submodule
+- what HEAD holds must be a regular file refuses a tree
+- what HEAD holds must be a regular file refuses a repository with no HEAD, and one whose git cannot be run
+- what HEAD holds must be a regular file refuses bytes that do not hash to the blob git named, so what git showed is not those bytes
+- what HEAD holds must be a regular file refuses a blob over the cap by the size git reports, and never asks for its bytes
+- what HEAD holds must be a regular file takes the tree entry only when it names exactly the path asked for
+- what HEAD holds must be a regular file pins every later call to the one commit and blob it first named, so a HEAD that moves in between changes nothin
+- what HEAD holds must be a regular file asks git nothing about %s (x12)
+- a committed read is what ranks as a decision turns into a ranking item that outranks a newer summary that contradicts it
+- the committe4 0ecisions, read for the deletion rule lists every decision at HEAD as text
+- the committe9 0ecisions, read for the deletion rule is an empty list, and not a failure, for a repository with no decisions
+- the committe4 0ecisions, read for the deletion rule answers null, which is unknown and not none, when git cannot be asked, a decision is a link, bytes
+- against a real git repository reads the committed bytes of a clean file, with the real commit and blob
+- against a real git repository refuses an edited working copy, a deleted one, and an uncommitted new one
+- against a real git repository refuses a symlink that HEAD holds, committed without needing a link on disk
+- against a real git repository follows HEAD: a new commit changes the commit named, and the old edit is no longer what is committed
+- against a real git repository lists the decisions at HEAD, and only those at HEAD
+
+**memoryDeletion.test.ts**: 32 failed
+
+- deleting approved memory without the owner is refused, and recorded refuses with no verifier at all, keeps the item, and records the refusal with the 
+- deleting approved memory without the owner is refused, and recorded refuses when the verifier answers false, and records it
+- deleting approved memory without the owner is refused, and recorded refuses when the verifier answers the string true, and records it
+- deleting approved memory without the owner is refused, and recorded refuses when the verifier answers a Promise, and records it
+- deleting approved memory without the owner is refused, and recorded refuses when the verifier answers a throw, and records it
+- deleting approved memory without the owner is refused, and recorded asks the owner once, about this item, this hash, this tenant and this project
+- deleting approved memory without the owner is refused, and recorded with the owner, deletes the item and records an authorisation and then the deletio
+- deleting approved memory without the owner is refused, and recorded a decision is memory-delete too: refused with no owner, allowed with one, and reco
+- deleting approved memory without the owner is refused, and recorded plan memory is memory-delete too: refused with no owner, allowed with one, and rec
+- deleting approved memory without the owner is refused, and recorded an execution record is memory-delete too: refused with no owner, allowed with one,
+- deleting approved memory without the owner is refused, and recorded a pending proposal is memory-delete too: refused with no owner, allowed with one, 
+- deleting approved memory without the owner is refused, and recorded a promoted skill is memory-delete too: refused with no owner, allowed with one, an
+- deleting approved memory without the owner is refused, and recorded records whether a committe6 0ecision cites the item, and treats a decision it coul
+- every refused attempt is recorded, whatever the refusal a hash that is not the item: refused, the owner is not asked, the item stays
+- every refused attempt is recorded, whatever the refusal an item that is not there: refused and recorded, with no hash
+- every refused attempt is recorded, whatever the refusal something that is not a memory item (a document): refused and recorded with no class
+- every refused attempt is recorded, whatever the refusal a path that is a link, a directory, or lies behind a link: refused and recorded, never removed
+- every refused attempt is recorded, whatever the refusal a request that cannot be read has no tenant and project to record it under: refused, and says 
+- every refused attempt is recorded, whatever the refusal a clock that gives no time refuses the deletion, because an entry cannot be made without one
+- nothing is deleted that is not recorded first a ledger that cannot take an entry stops the deletion before it starts
+- nothing is deleted that is not recorded first a ledger whose chain is broken, or that holds a foreign file, is not extended and nothing is deleted
+- nothing is deleted that is not recorded first a second attempt extends the same chain, and the first entries are never rewritten or removed
+- nothing is deleted that is not recorded first removes only the item: the ledger is created into and never removed from, and no write port exists
+- nothing is deleted that is not recorded first when the removal itself fails, the failure is recorded and the outcome says so
+- nothing is deleted that is not recorded first when only the closing entry cannot be written, the deletion stands and says it is not fully recorded
+- nothing is deleted that is not recorded first an item that changes between the owner saying yes and the removal is not removed: the approval was for o
+- deleting a derived index is memory-index-rebuild, needs no owner, and is recorded removes that owner's file and nothing else, asks nobody, and records
+- deleting a derived index is memory-index-rebuild, needs no owner, and is recorded cannot be aimed at anything else: the file name comes from the owner
+- deleting a derived index is memory-index-rebuild, needs no owner, and is recorded an index that is not there is refused and recorded, not reported as 
+- deleting a derived index is memory-index-rebuild, needs no owner, and is recorded a failed removal is recorded, and a ledger that cannot take an entry
+- the deletion ledger is read back whole lists its entries in order with the chain verified, and refuses a ledger that was changed
+- the deletion ledger is read back whole an empty ledger is a valid ledger of no entries
+
+**searchFreshness.test.ts**: 23 failed, 1 passed (a premise: a citation from an index built before HEAD is marked stale a head that throws while the in)
+
+- a citation from an index built before HEAD is marked stale records the commit the index was built at, and a citation from it is fresh while HEAD has n
+- a citation from an index built before HEAD is marked stale marks the citation stale when HEAD has moved, and still returns it with its text
+- a citation from an index built before HEAD is marked stale a rebuild at the new HEAD makes it fresh again
+- a citation from an index built before HEAD is marked stale asks for HEAD at each search, so a commit made after the first search is seen by the second
+- a citation from an index built before HEAD is marked stale an index opened with no head port marks every citation stale, never fresh
+- a citation from an index built before HEAD is marked stale an index built when HEAD answered a null is stale, even when HEAD is readable later
+- a citation from an index built before HEAD is marked stale an index built when HEAD answered text that is not a commit is stale, even when HEAD is rea
+- a citation from an index built before HEAD is marked stale an index built when HEAD answered an upper-case spelling is stale, even when HEAD is readab
+- a citation from an index built before HEAD is marked stale an index built when HEAD answered a name with a newline is stale, even when HEAD is readabl
+- a citation from an index built before HEAD is marked stale a head that throws, or answers something that is not a commit, marks the citation stale and
+- a citation from an index built before HEAD is marked stale every hit of one search carries the same mark
+- a citation from an index built before HEAD is marked stale a stale hit is rendered with its mark, and the mark is not in the indexed text
+- the index file records the commit, and an older file is rebuilt is schema version, with the build commit beside the build time
+- the index file records the commit, and an older file is rebuilt a version file is dropped and rebuilt on open, and answers not-built until it is
+- the head port reads HEAD through git, and nothing else asks `rev-parse --verify HEAD` and answers the trimmed commit
+- the head port reads HEAD through git, and nothing else answers null when git failed
+- the head port reads HEAD through git, and nothing else answers null when no status
+- the head port reads HEAD through git, and nothing else answers null when empty output
+- the head port reads HEAD through git, and nothing else answers null when output that is not a commit
+- the head port reads HEAD through git, and nothing else answers null when two lines
+- the head port reads HEAD through git, and nothing else answers null, an7 0oes not throw, when git cannot be run at all
+- the head port reads HEAD through git, and nothing else runs git with replacement objects off and the root named, with no shell, through the system por
+- the head port reads HEAD through git, and nothing else turns a throw from the system into a failed result
+
+### Appendix: the failing run of fix round 1 (before any fix; the test files updated first)
+
+65 failed. Names as vitest printed them, with the describe path first.
+
+**memory-committed-bytes.test.ts**: 2 failed
+
+- a file whose working-tree bytes differ from HEAD is refused carries a minted proof of what it read: the commit, the blob, the one path and the kind that path is
+- a file whose working-tree bytes differ from HEAD is refused each read mints its own proof, and a refused read mints none
+
+**memory-provenance.test.ts**: 24 failed
+
+- a committed decision outranks recollection orders the seven kinds: decision, then approved and plan memory, then execution and findings, then summaries
+- a committed decision outranks recollection a committed decision ranks above a newer memory or summary that contradicts it, which is marked as overruled
+- a committed decision outranks recollection an item that is overruled sorts after an item in its own tier that is not
+- a committed decision outranks recollection a proof is minted by a committed read and by nothing else: it is frozen and registered
+- a committed decision outranks recollection a forged proof never makes a tier-0 decision refuses a plain object with two well-formed hex names, and the real decision stays
+- a committed decision outranks recollection a forged proof never makes a tier-0 decision refuses a copy of a real proof, a structuredClone of it and a JSON round-trip of i
+- a committed decision outranks recollection a forged proof never makes a tier-0 decision refuses a real proof of another path, because a proof names the one file it read
+- a committed decision outranks recollection a forged proof never makes a tier-0 decision refuses a proof from an approved-memory read attached to a decision claim, because
+- a committed decision outranks recollection a forged proof never makes a tier-0 decision refuses {"commit":"HEAD","blob":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"} as a p
+- a committed decision outranks recollection a forged proof never makes a tier-0 decision refuses {"commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} as a proof
+- a committed decision outranks recollection a forged proof never makes a tier-0 decision refuses "yes" as a proof
+- a committed decision outranks recollection a forged proof never makes a tier-0 decision refuses 7 as a proof
+- a committed decision outranks recollection a forged proof never makes a tier-0 decision refuses [] as a proof
+- a committed decision outranks recollection a forged proof never makes a tier-0 decision a real proof on an item that needs none changes nothing
+- a committed decision outranks recollection an id that reads like a decision does not rank like one
+- a committed decision outranks recollection two items with one id keep the higher tier, whichever came first, and the other is refused
+- a committed decision outranks recollection items whose ids differ only by case or width two real decisions are both ranked and the collision is named, so neither vanishes
+- a committed decision outranks recollection items whose ids differ only by case or width a lower item that collides with a decision is refused naming BOTH ids, and the dec
+- a committed decision outranks recollection items whose ids differ only by case or width two items below the committed tiers that collide are both refused, naming both, an
+- a committed decision outranks recollection a hostile contradiction list becomes a refusal and never an exception refuses a list whose element is a getter that answers dif
+- a committed decision outranks recollection a hostile contradiction list becomes a refusal and never an exception refuses a list with an own `some` that lies, and a list w
+- a committed decision outranks recollection refuses a list that is not a list, one with a getter or a hole, and one over the cap, whole and unread
+- a summary never replaces a decision a decision is not replaceable through this door by anything, a decision included
+- a summary never replaces a decision the same tier or a higher one is not refused here, and that is not an approval
+
+**memory-retention.test.ts**: 4 failed
+
+- deleting approved memory, or what a decision cites, needs the owner asks the owner about this item, this hash, this tenant and this project, in a frozen claim
+- deleting approved memory, or what a decision cites, needs the owner shows the owner what a decision cites, and binds it in the hash of the claim
+- deleting approved memory, or what a decision cites, needs the owner binds the root, the tenant, the project and the item hash in the hash of the claim
+- deleting approved memory, or what a decision cites, needs the owner refuses a binding it cannot use, before the owner is asked
+
+**search-freshness.test.ts**: 4 failed
+
+- an answer keeps the freshness of the hit it cites copies the stale mark of the covering hit onto the admitted citation, which the answer did not carry
+- an answer keeps the freshness of the hit it cites refuses a citation that claims fresh where the hit is stale, and one that claims a mark where the hit has none
+- an answer keeps the freshness of the hit it cites accepts a citation that states the freshness of its hit, and refuses one with a freshness that is not a known shape
+- an answer keeps the freshness of the hit it cites when two hits cover the lines and one is stale, the stale mark is the one that stays
+
+**memoryCommittedBytes.test.ts**: 2 failed
+
+- a committed read is what ranks as a decision turns into a ranking item that outranks a newer summary that contradicts it
+- a proof made by hand is not a decision a forged proof and a copy of a real one rank as nothing, and the real decision stays first
+
+**memoryDeletion.test.ts**: 7 failed
+
+- deleting approved memory without the owner is refused, and recorded asks the owner once, about this item, this hash, this tenant and this project
+- every refused attempt is recorded, whatever the refusal shows the owner that a committed decision cites the item, and that the decisions could not be read
+- a deletion is bound to the checkout it is asked in refuses another tenant and project before the owner is asked, deletes nothing, and records the attempt under the checko
+- a deletion is bound to the checkout it is asked in refuses another tenant before the owner is asked, deletes nothing, and records the attempt under the checkout it was ma
+- a deletion is bound to the checkout it is asked in refuses another project before the owner is asked, deletes nothing, and records the attempt under the checkout it was m
+- a deletion is bound to the checkout it is asked in a binding that is not a tenant and a project is refused unrecorded, and nothing happens
+- a deletion is bound to the checkout it is asked in a derived index of another tenant or project is not removed from this checkout, and the attempt is recorded under this 
+
+**searchFreshness.test.ts**: 22 failed
+
+- a citation from an index built before HEAD is marked stale marks the citation stale when HEAD has moved, and still returns it with its text
+- a citation from an index built before HEAD is marked stale a rebuild at the new HEAD makes it fresh again
+- a citation from an index built before HEAD is marked stale asks for HEAD at each search, so a commit made after the first search is seen by the second
+- a citation from an index built before HEAD is marked stale an index opened with no head port marks every citation stale, never fresh
+- a citation from an index built before HEAD is marked stale an index built when HEAD answered a null is stale, even when HEAD is readable later
+- a citation from an index built before HEAD is marked stale an index built when HEAD answered text that is not a commit is stale, even when HEAD is readable later
+- a citation from an index built before HEAD is marked stale an index built when HEAD answered an upper-case spelling is stale, even when HEAD is readable later
+- a citation from an index built before HEAD is marked stale an index built when HEAD answered a name with a newline is stale, even when HEAD is readable later
+- a citation from an index built before HEAD is marked stale a head that throws, or answers something that is not a commit, marks the citation stale and does not break the 
+- a citation from an index built before HEAD is marked stale a stale hit is rendered with its mark, and the mark is not in the indexed text
+- the commit recorded is the one taken BEFORE the sources were collected a commit made while the sources were being collected leaves the index stale, not fresh
+- the commit recorded is the one taken BEFORE the sources were collected does not ask HEAD again at build time: the value it is given is the one recorded
+- the commit recorded is the one taken BEFORE the sources were collected a build given no commit records none, so every citation reads built-commit-unknown, never fresh
+- the commit recorded is the one taken BEFORE the sources were collected a commit that is "HEAD" is recorded as none
+- the commit recorded is the one taken BEFORE the sources were collected a commit that is "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" is recorded as none
+- the commit recorded is the one taken BEFORE the sources were collected a commit that is "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" is recorded as none
+- the commit recorded is the one taken BEFORE the sources were collected a commit that is 7 is recorded as none
+- the commit recorded is the one taken BEFORE the sources were collected a commit that is {} is recorded as none
+- the commit recorded is the one taken BEFORE the sources were collected currentHead says what the head port says, and null when it has none, throws or answers something el
+- the index file records the commit, and a file from before this phase gains the column keeps schema version 2, with the build commit beside the build time
+- the index file records the commit, and a file from before this phase gains the column a file made before the column existed gets it on open, keeps its rows, and reads sta
+- the index file records the commit, and a file from before this phase gains the column a rebuild that stops before the commit is recorded reads as unknown, which is stale
+
+### Appendix: the failing run of the final round (before any fix; the test files updated first)
+
+39 failed. Names as vitest printed them, describe path first.
+
+**core memory-provenance.test.ts**: 12 failed
+
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at refuses a proof minted at another commit, with its own code, so a decision remove
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head undefined nothing ranks above a recollection, and each proof is ref
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head null nothing ranks above a recollection, and each proof is refused
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head "HEAD" nothing ranks above a recollection, and each proof is refuse
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" nothing ranks above a re
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" nothing ranks above a 
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head 7 nothing ranks above a recollection, and each proof is refused
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head {} nothing ranks above a recollection, and each proof is refused
+- a summary never replaces a decision a writer is trusted only for the file it read binds the writer proof to the path of the target, whether the target says it in a proof 
+- a summary never replaces a decision a writer is trusted only for the file it read a proof of another path is no proof: the writer is a recollection, and is refused for ra
+- a summary never replaces a decision a writer is trusted only for the file it read a target that names no path leaves the writer proof unbound, so it is a recollection
+- a summary never replaces a decision a writer is trusted only for the file it read a decision written over a decision of another path is a recollection writing over a deci
+
+**core memory-retention.test.ts**: 15 failed
+
+- deleting approved memory, or what a decision cites, needs the owner names the ledger position at ask time in the claim and its hash, so an approval for an old position ca
+- deleting approved memory, or what a decision cites, needs the owner refuses a ledger position that is not a count and a hash, before the owner is asked
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses facts that are n
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses facts that are u
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses facts with a get
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses citedByDecision 
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses citedByDecision 
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses citedByDecision 
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses citedByDecision 
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses citedByDecision 
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses citedByDecision 
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses a current item h
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses a current item h
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses a current item h
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses a current item h
+
+**core search-freshness.test.ts**: 6 failed
+
+- an answer is judged once per hit and is capped reads the freshness of each hit once, however many citations cover it
+- an answer is judged once per hit and is capped refuses an answer over the citation cap with a code, without judging any of it
+- an answer is judged once per hit and is capped refuses an answer over the hit cap too, and an answer at both caps is still judged
+- an answer is judged once per hit and is capped two covering hits that are stale for different reasons accepts a stated reason that either hit carries, in either order (mo
+- an answer is judged once per hit and is capped two covering hits that are stale for different reasons accepts a stated reason that either hit carries, in either order (un
+- an answer is judged once per hit and is capped two covering hits that are stale for different reasons chooses the same mark for a citation that states none, whichever ord
+
+**agent memoryDeletion.test.ts**: 6 failed
+
+- a deletion is judged before anything is written a checkout root of "" is refused before the ledger is touched
+- a deletion is judged before anything is written a checkout root of "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+- a deletion is judged before anything is written a checkout root of "/work\nproject" is refused before the ledger is touched
+- a deletion is judged before anything is written a checkout root of "/work‮project" is refused before the ledger is touched
+- a deletion is judged before anything is written the same refusal for an index deletion: a bad root writes no entry
+- a deletion is judged before anything is written the owner is shown the ledger position, which moves with every attempt, so an old approval cannot be replayed

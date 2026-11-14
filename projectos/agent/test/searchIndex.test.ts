@@ -517,7 +517,7 @@ describe('the index is rebuildable from source files', () => {
     rebuildFromTree(search);
 
     expect(answers(search, 'plum').map(([citation]) => citation)).toEqual([
-      { project: PROJECT, path: 'moved.md', startLine: 1, endLine: 3 },
+      { project: PROJECT, path: 'moved.md', startLine: 1, endLine: 3, freshness: { state: 'stale', reason: 'head-unknown' } },
     ]);
     expect(search.search({ project: PROJECT, query: 'nothing' })).toMatchObject({ ok: true, hits: [] });
   });
@@ -688,7 +688,7 @@ describe('indexed content is untrusted data', () => {
   };
 
   it('what a document says about itself changes nothing about its citation', () => {
-    expect(hit(injected()).citation).toEqual({ project: PROJECT, path: 'docs/notes.md', startLine: 1, endLine: 10 });
+    expect(hit(injected()).citation).toEqual({ project: PROJECT, path: 'docs/notes.md', startLine: 1, endLine: 10, freshness: { state: 'stale', reason: 'head-unknown' } });
   });
 
   it('the text comes back only as untrusted data, under a name that says so', () => {

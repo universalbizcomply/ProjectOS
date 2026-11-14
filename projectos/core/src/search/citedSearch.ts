@@ -14,6 +14,7 @@
  */
 import {
   admitSearchResult,
+  type CitationFreshness,
   type CitationRefusal,
   type CitedSearchHit,
   type SearchResultAdmission,
@@ -58,6 +59,8 @@ export function rankCitedResults(params: {
   readonly mmr?: MMRConfig;
   readonly temporalDecay?: TemporalDecayConfig;
   readonly nowMs: number;
+  /** The freshness of the index these rows came from, set on every hit's citation. Absent: the hits carry none. */
+  readonly freshness?: CitationFreshness;
 }): CitedSearchOutcome {
   const judge = <T extends KeywordCandidate | VectorCandidate>(rows: readonly T[]) =>
     rows.map((row) => ({ row, admission: admitSearchResult(row, params.project) }));
@@ -88,7 +91,7 @@ export function rankCitedResults(params: {
 
   // Each row came through the door above, and this is the same door, so a hit has no second maker.
   const hits = selected.flatMap((result) => {
-    const admission = admitSearchResult(result, params.project);
+    const admission = admitSearchResult(result, params.project, params.freshness);
     return admission.ok ? [admission.hit] : [];
   });
   return { hits, refused };

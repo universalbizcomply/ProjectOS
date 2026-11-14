@@ -20,19 +20,28 @@ export {
   type RankedHybridResult,
 } from './hybrid.js';
 export {
+  MAX_ANSWER_CITATIONS,
+  MAX_ANSWER_HITS,
   SEARCH_SOURCE_KINDS,
+  STALE_REASONS,
   admitCitedAnswer,
   admitSearchResult,
+  citationFreshnessMarkOf,
+  citationFreshnessOf,
+  citationFreshnessOfValue,
+  isCommitName,
   citationPathProblem,
   type AnswerAdmission,
   type AnswerRefusalReason,
   type CitationRefusal,
   type CitationRefusalReason,
+  type CitationFreshness,
   type CitedAnswer,
   type CitedSearchHit,
   type SearchCitation,
   type SearchResultAdmission,
   type SearchSourceKind,
+  type StaleReason,
 } from './citation.js';
 export {
   DEFAULT_SEARCH_CHUNKING,
