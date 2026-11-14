@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PORT-AGENTS1A",
   "project": "ProjectOS",
   "objective": "Port delta phase 9 (C7, C12). Port the OpenClaw (MIT) routing and binding model re-keyed on the envelope tenant and domain, and translate the Hermes (MIT) delegation dispatch rules. Pure rules only: agent records, queue-state rules the existing agent/src/workforce/ dispatch can adopt in Stage 4, delegation and same-tenant messages. The workforce dispatch stays the only queue (PRD non-goal: no second work queue or orchestrator).",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-14T12:37:44.557Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-14T12:37:46.011Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PORT-AGENTS1A:owner-closure:ba1f7644"
     }
   ]
 }
