@@ -19,9 +19,10 @@
  * A REFUSAL IS A VALUE. Each carries a machine-readable code for the audit record and a neutral message that quotes none of
  * the worker's text, and one bad entry does not hide a good one: every entry is answered.
  *
- * Pure: no I/O.
+ * Pure: no I/O, and no `node:` import, because core loads in a browser. A Proxy cannot be told from a plain object in pure JavaScript, so
+ * the caller injects the test (`util.types.isProxy` in the agent). It is REQUIRED and fails closed: a missing port, one that throws and
+ * one that answers anything but `false` refuse the record, never pass it.
  */
-import { types } from 'node:util';
 import { MEMORY_ENTRY_KINDS, MEMORY_OPS, type MemoryEntryKind, type MemoryOp } from './proposal.js';
 import { MEMORY_TARGETS, type MemoryTarget } from './store.js';
 
@@ -95,35 +96,56 @@ const refusal = (index: number | null, code: ProposalDoorCode, message: string):
 
 const isPlainProto = (value: object): boolean => [Object.prototype, null].includes(Object.getPrototypeOf(value) as object | null);
 
-/** A Proxy answers every question the reader asks as its handler likes, so it is refused before anything is asked of it. */
-const isProxy = (value: object): boolean => types.isProxy(value);
+/** The injected test for a Proxy. It answers exactly `false` for an object that is not one. */
+export type ProxyProbe = (value: object) => boolean;
+
+/**
+ * A Proxy answers every question the reader asks as its handler likes, so it is refused before anything is asked of it. A probe
+ * that throws or answers anything but `false` counts as a Proxy: the check fails closed.
+ */
+function proxied(isProxy: ProxyProbe, value: object): boolean {
+  try {
+    return isProxy(value) !== false;
+  } catch {
+    return true;
+  }
+}
 
 /** The own, enumerable data fields of a plain object, copied once; null for an accessor, a symbol key or a Proxy. */
-function fieldsOf(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== 'object' || value === null || isProxy(value) || Array.isArray(value) || !isPlainProto(value)) return null;
-  const keys = Reflect.ownKeys(value);
-  if (keys.length > MAX_DOOR_FIELDS) return null;
-  const copy: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-  for (const key of keys) {
-    if (typeof key !== 'string' || PROTOTYPE_KEYS.includes(key)) return null;
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor === undefined || !('value' in descriptor) || descriptor.enumerable !== true) return null;
-    if (descriptor.value !== undefined) copy[key] = descriptor.value;
+function fieldsOf(value: unknown, isProxy: ProxyProbe): Record<string, unknown> | null {
+  try {
+    if (typeof value !== 'object' || value === null || proxied(isProxy, value) || Array.isArray(value) || !isPlainProto(value)) return null;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length > MAX_DOOR_FIELDS) return null;
+    const copy: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+    for (const key of keys) {
+      if (typeof key !== 'string' || PROTOTYPE_KEYS.includes(key)) return null;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || !('value' in descriptor) || descriptor.enumerable !== true) return null;
+      if (descriptor.value !== undefined) copy[key] = descriptor.value;
+    }
+    return copy;
+  } catch {
+    // A handler that throws on a read is a Proxy, or something that behaves like one.
+    return null;
   }
-  return copy;
 }
 
 /** The elements of a plain array, copied once, or null. Holes and accessors are refused. */
-function elementsOf(value: unknown, max: number): readonly unknown[] | null | 'too-many' {
-  if (typeof value !== 'object' || value === null || isProxy(value) || !Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return null;
-  if (value.length > max) return 'too-many';
-  const copy: unknown[] = [];
-  for (let position = 0; position < value.length; position += 1) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, String(position));
-    if (descriptor === undefined || !('value' in descriptor)) return null;
-    copy.push(descriptor.value);
+function elementsOf(value: unknown, max: number, isProxy: ProxyProbe): readonly unknown[] | null | 'too-many' {
+  try {
+    if (typeof value !== 'object' || value === null || proxied(isProxy, value) || !Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return null;
+    if (value.length > max) return 'too-many';
+    const copy: unknown[] = [];
+    for (let position = 0; position < value.length; position += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(position));
+      if (descriptor === undefined || !('value' in descriptor)) return null;
+      copy.push(descriptor.value);
+    }
+    return copy;
+  } catch {
+    return null;
   }
-  return copy;
 }
 
 const oneOf = <T extends string>(allowed: readonly T[], value: unknown): value is T => typeof value === 'string' && (allowed as readonly string[]).includes(value);
@@ -169,11 +191,11 @@ function memoryRequestOf(index: number, fields: Record<string, unknown>): Read<F
   };
 }
 
-function skillRequestOf(index: number, fields: Record<string, unknown>): Read<FindingsSkillRequest> {
+function skillRequestOf(index: number, fields: Record<string, unknown>, isProxy: ProxyProbe): Read<FindingsSkillRequest> {
   if (unknownFieldOf(fields, SKILL_FIELDS) !== null) {
     return { ok: false, refusal: refusal(index, 'PROPOSAL_DOOR_UNKNOWN_FIELD', 'That entry names a field the door does not take. A skill is proposed as a package, and its origin is the kernel\'s to say.') };
   }
-  const listed = elementsOf(fields['files'], MAX_DOOR_SKILL_FILES);
+  const listed = elementsOf(fields['files'], MAX_DOOR_SKILL_FILES, isProxy);
   if (listed === 'too-many') {
     return { ok: false, refusal: refusal(index, 'PROPOSAL_DOOR_TOO_LARGE', `A skill package holds at most ${MAX_DOOR_SKILL_FILES} files. Nothing was read.`) };
   }
@@ -183,7 +205,7 @@ function skillRequestOf(index: number, fields: Record<string, unknown>): Read<Fi
   const files: { readonly path: string; readonly text: string }[] = [];
   let total = 0;
   for (const listedFile of listed) {
-    const file = fieldsOf(listedFile);
+    const file = fieldsOf(listedFile, isProxy);
     if (file === null) return { ok: false, refusal: refusal(index, 'PROPOSAL_DOOR_NOT_PLAIN', 'A skill file is plain data, with no accessors.') };
     if (unknownFieldOf(file, SKILL_FILE_FIELDS) !== null) {
       return { ok: false, refusal: refusal(index, 'PROPOSAL_DOOR_UNKNOWN_FIELD', 'A skill file is a path and its text, and nothing else.') };
@@ -201,14 +223,14 @@ function skillRequestOf(index: number, fields: Record<string, unknown>): Read<Fi
   return { ok: true, value: Object.freeze({ class: 'skill', index, files: Object.freeze(files) }) };
 }
 
-function entryOf(index: number, listed: unknown): Read<FindingsProposalRequest> {
+function entryOf(index: number, listed: unknown, isProxy: ProxyProbe): Read<FindingsProposalRequest> {
   if (typeof listed !== 'object' || listed === null || Array.isArray(listed)) {
     return { ok: false, refusal: refusal(index, 'PROPOSAL_DOOR_NOT_AN_OBJECT', 'A proposals entry is an object.') };
   }
-  const fields = fieldsOf(listed);
+  const fields = fieldsOf(listed, isProxy);
   if (fields === null) return { ok: false, refusal: refusal(index, 'PROPOSAL_DOOR_NOT_PLAIN', 'A proposals entry is plain data, with no accessors, symbols or proxies.') };
   if (fields['class'] === 'memory') return memoryRequestOf(index, fields);
-  if (fields['class'] === 'skill') return skillRequestOf(index, fields);
+  if (fields['class'] === 'skill') return skillRequestOf(index, fields, isProxy);
   return { ok: false, refusal: refusal(index, 'PROPOSAL_DOOR_UNKNOWN_CLASS', "A proposals entry's class is 'memory' or 'skill'.") };
 }
 
@@ -216,11 +238,14 @@ function entryOf(index: number, listed: unknown): Read<FindingsProposalRequest> 
  * The requests in a findings record's `proposals` entry, and a refusal for each entry that is not one. A record with no
  * `proposals` entry asks for nothing. `record` is the parsed findings record, and it is read once.
  */
-export function readFindingsProposals(record: unknown): FindingsProposalsRead {
-  const fields = fieldsOf(record);
+export function readFindingsProposals(record: unknown, isProxy: ProxyProbe): FindingsProposalsRead {
+  if (typeof isProxy !== 'function') {
+    return { requests: [], refused: [refusal(null, 'PROPOSAL_DOOR_NOT_PLAIN', 'There is no way to tell a proxy from plain data here, so nothing was read.')] };
+  }
+  const fields = fieldsOf(record, isProxy);
   if (fields === null) return { requests: [], refused: [refusal(null, 'PROPOSAL_DOOR_NOT_PLAIN', 'The findings record is plain data, with no accessors, symbols or proxies.')] };
   if (!('proposals' in fields)) return { requests: [], refused: [] };
-  const listed = elementsOf(fields['proposals'], MAX_FINDINGS_PROPOSALS);
+  const listed = elementsOf(fields['proposals'], MAX_FINDINGS_PROPOSALS, isProxy);
   if (listed === 'too-many') {
     return { requests: [], refused: [refusal(null, 'PROPOSAL_DOOR_TOO_MANY', `A findings record may ask for at most ${MAX_FINDINGS_PROPOSALS} proposals. None was read.`)] };
   }
@@ -235,7 +260,7 @@ export function readFindingsProposals(record: unknown): FindingsProposalsRead {
       ],
     };
   }
-  const read = listed.map((entry, index) => entryOf(index, entry));
+  const read = listed.map((entry, index) => entryOf(index, entry, isProxy));
   return {
     requests: Object.freeze(read.flatMap((one) => (one.ok ? [one.value] : []))),
     refused: Object.freeze(read.flatMap((one) => (one.ok ? [] : [one.refusal]))),

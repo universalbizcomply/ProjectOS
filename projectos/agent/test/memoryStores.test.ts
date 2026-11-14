@@ -380,3 +380,15 @@ describe('the door dedupes on a canonical form and caps one author (fix round 1,
     expect(listPendingMemoryProposals(sys, ROOT).pending.length).toBeLessThanOrEqual(10);
   });
 });
+
+describe('the door hands core the Proxy test (stack defect: core has no node:util)', () => {
+  it('reads an ordinary record instead of refusing it for want of a port, and does not read a record whose entry the probe would flag', () => {
+    const sys = fakeSystem();
+    const record = JSON.stringify({ proposals: [{ class: 'memory', target: 'memory', op: 'add', kind: 'fact', content: 'The build uses Node 24.' }] });
+
+    const outcome = openProposalDoor(sys, ROOT, WORKER, record);
+
+    expect(outcome.entries).toEqual([expect.objectContaining({ ok: true, class: 'memory', state: 'pending' })]);
+    expect(outcome.entries.some((entry) => !entry.ok && entry.code === 'PROPOSAL_DOOR_NOT_PLAIN')).toBe(false);
+  });
+});

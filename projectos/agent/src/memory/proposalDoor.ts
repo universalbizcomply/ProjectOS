@@ -12,13 +12,14 @@
  * the findings record is the worker's, and text from it must not ride under the owner's authority. A skill is always a
  * proposal; its origin is never read from the record.
  *
- * THE RECORD IS DATA. It is parsed once from text, size-capped before parsing, read by core's `readFindingsProposals`, and
- * every entry is answered, accepted or refused, each with a machine-readable code and no worker text. Asked twice with the same
+ * THE RECORD IS DATA. It is parsed once from text, size-capped before parsing, read by core's `readFindingsProposals`, which
+ * is handed `util.types.isProxy` here (core loads in a browser and may not import `node:util`), and every entry is answered, accepted or refused, each with a machine-readable code and no worker text. Asked twice with the same
  * record, an entry that is already pending comes back as a duplicate of that proposal, not a second one.
  *
  * WIRING IS NOT HERE. The loop does not call this yet: it belongs after `readFindings` in the run, and that code is outside
  * this phase's paths (Stage 4.1). See `docs/finish/PROJECTOS-MEMORY-STORES1A.md`.
  */
+import { types } from 'node:util';
 import { normalizedEntryKey, readFindingsProposals, type FindingsMemoryRequest, type FindingsSkillRequest, type ProposalDoorCode, type Role } from '@projectos/core';
 import { listPendingSkillProposals, proposeSkill } from '../skills/skillQueue.js';
 import type { System } from '../system.js';
@@ -133,7 +134,7 @@ export function openProposalDoor(sys: System, root: string, caller: ProposalDoor
   }
   const parsed = parsedRecord(findingsText);
   if (!parsed.ok) return { findings: 'unreadable', entries: [whole('PROPOSAL_DOOR_UNREADABLE', 'The findings record is not valid JSON, so it asked for nothing.')] };
-  const read = readFindingsProposals(parsed.record);
+  const read = readFindingsProposals(parsed.record, (value) => types.isProxy(value));
   const accepted = read.requests.map((one) => (one.class === 'memory' ? memoryEntry(sys, root, caller, one) : skillEntry(sys, root, caller, one)));
   const refused = read.refused.map((one): DoorEntryOutcome => ({ ok: false, index: one.index, class: null, code: one.code, message: one.message }));
   return { findings: 'read', entries: [...accepted, ...refused].sort((a, b) => (a.index ?? -1) - (b.index ?? -1)) };

@@ -357,6 +357,63 @@ as in the first round (233 s then, 276 s now), so the long run is the validator'
 Nothing new is unbuilt. No file outside the write paths was touched, no PROTECTED file is in `git diff --stat 841f3286..HEAD`, and
 `validate-all` was not run.
 
+## Stack defect: core must stay browser-pure
+
+**What broke.** On the merged stack, `control-center/test/coreBrowserLoad.test.ts` failed 7 tests with "Could not resolve
+node:util" at `core/src/memory/proposalDoor.ts`. The door used `util.types.isProxy` to refuse a Proxy. Core loads in a webview, where
+the test aliases `node:crypto` and `node:buffer` to stubs and nothing else under `node:` exists. No suite on this branch loaded core
+as a browser does, so none of my runs could see it.
+
+**The lesson.** Core must stay browser-pure: no `node:` import except `node:crypto` (aliased) and `node:buffer` (aliased). A
+check that needs Node goes behind a port that the agent supplies.
+
+**The fix.** A transparent Proxy cannot be told from plain data in pure JavaScript, so `readFindingsProposals(record, isProxy)` takes
+the test as a REQUIRED port. It fails closed: a missing port, one that is not a function, one that throws, and one that answers
+anything but `false` all refuse, with the existing `PROPOSAL_DOOR_NOT_PLAIN`. The descriptor and key reads are wrapped in `try`, so a
+Proxy whose handler throws is refused instead of throwing. `agent/src/memory/proposalDoor.ts` passes `types.isProxy` from
+`node:util`.
+
+| Where | What |
+|---|---|
+| `core/test/memory-proposal-door.test.ts` "the Proxy test is a required, fail-closed port" | no port, a non-function, a throwing port, six non-`false` answers, a flag on one entry, a Proxy whose handler throws on every read |
+| `agent/test/memoryStores.test.ts` "the door hands core the Proxy test" | an ordinary record is read, not refused for want of a port |
+| `val-projectos-memory-stores1a`, MS-9 | `the-proxy-probe-is-optional`, `an-answer-other-than-false-clears-a-value`, `a-throwing-probe-is-not-a-proxy`, `the-field-reads-are-not-guarded`, `the-element-reads-are-not-guarded`, `the-agent-supplies-no-probe`, `the-agent-supplies-a-probe-that-says-no`; the Proxy mutations on `proxied(isProxy, value)`; two probes |
+| `val-projectos-memory-stores1a`, **new rule MS-19** | no `node:` import under `core/src/memory` or `core/src/search` other than `node:crypto`: five mutations (a `node:util` back in the door, in `store.ts`, `node:fs` in the search barrel, `node:os` in the key, `node:buffer` in the prompt), each killed by MS-19. Two older mutations that add `node:fs` now also name MS-19, which is true of them |
+
+Two behavioural mutations for the port were dropped as equivalent: with the `typeof` check removed, the `try` around `proxied` still
+refuses a missing port, and a JSON-parsed record in the agent cannot hold a Proxy. Both stay as text pins.
+
+**Browser check, from this worktree.** A scratch script (`scratchpad/browser_load.mjs`, outside the repo) runs the control-center
+test's own recipe: esbuild from `control-center/node_modules`, `stdin` of `export * from './index.ts'` resolved in this worktree's
+`core/src`, `platform: 'browser'`, `treeShaking: false`, `node:crypto` and `node:buffer` aliased to the control-center shims, then
+evaluated in a bare `vm` context. Result: exit 0, 813,893 bytes, "evaluated in a bare context: ok". `grep -rn "from 'node:"` over
+`core/src/memory` and `core/src/search` lists only the three ported files' `node:crypto`; none of my files has one.
+
+### Stack-defect checks, with counts
+
+| Check | Result |
+|---|---|
+| esbuild browser bundle of this worktree's `core/src/index.ts`, evaluated bare (`node scratchpad/browser_load.mjs`) | exit 0 |
+| core `npm run -s build` | exit 0 |
+| core `npx vitest run` | 103 files, 4,368 tests, all pass |
+| core tests and `src`, agent `src` and agent new tests type-checked (alias tsconfigs) | exit 0, no output |
+| agent tests, **alias** (core rebuilt first) | 117 files; 116 pass, 3,665 tests pass, 10 skipped (`tenantSidecar.test.ts`, the alias artefact) |
+| `val-projectos-memory-stores1a` | PASS: 198 text and 84 behavioural mutations killed, 19 rules |
+| `val-projectos-port-search1a` | PASS, exit 0 |
+| `val-projectos-port-memory1a` | PASS: 20 rules; 199 mutations, exit 0 |
+| `val-projectos-port-credit1a` | PASS: 178 real files, exit 0 |
+| `val-projectos-port-skills1a` | PASS: 21 rules; 440 mutations, exit 0, 48 s |
+| `val-projectos-port-context1a` | PASS: 18 rules; 320 mutations, exit 0, 248 s |
+| `validate-no-secrets` | PASS, exit 0 |
+
+I did not run `control-center/test/coreBrowserLoad.test.ts` itself: it resolves `../core/src` from the control-center directory of
+the plan worktree. The scratch bundle above is the same recipe against this worktree's core. `validate-all` was not run.
+
+### Converge after the stack defect
+
+Unbuilt: nothing new. Drift: none. Only `core/src/memory/proposalDoor.ts`, `agent/src/memory/proposalDoor.ts`, their tests,
+`val-projectos-memory-stores1a.cjs` and this file changed. No PROTECTED file is in the diff.
+
 ## Commits
 
 - `f720153c` feat(memory): core rules for the proposal door, direct-write refusal, rendered cap and index key
@@ -365,4 +422,5 @@ Nothing new is unbuilt. No file outside the write paths was touched, no PROTECTE
 - `fb3af05d` docs(finish): state exactly which validators were run
 - `d37aa323` fix(memory): ECC security review round 1 for MEMORY-STORES1A
 - `43d758ab` docs(finish): fix round 1 checks and converge
-- The final-round commit (N1 to N4) that adds this section.
+- `322c3387` fix(memory): final round (N1 to N4)
+- The stack-defect commit (node:util out of core, MS-19) that adds the last section.
