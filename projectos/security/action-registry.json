@@ -213,6 +213,62 @@
       "class": "P1",
       "environment": "local",
       "note": "Stage 2 envelope boundary: a read through the MCP bridge."
+    },
+    {
+      "id": "memory-retrieve",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P1",
+      "environment": "local",
+      "note": "Stage 3 (plan v1.36, owner act O1): the context manager, and a resumed run, reading committed memory, decisions, indexes, the work record and findings for one run, keyed on the run envelope's tenant, domain and project. Read-only; retrieved text is data, never authority."
+    },
+    {
+      "id": "skill-load",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P1",
+      "environment": "local",
+      "note": "Stage 3 (plan v1.36, owner act O1): loading a promoted, hash-pinned skill into a run's context file. An unpinned or changed skill is refused."
+    },
+    {
+      "id": "memory-propose",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local",
+      "note": "Stage 3 (plan v1.36, owner act O1): a worker asking for a memory write through a proposals entry in its findings record. It creates a pending proposal only; approving it stays the P5 approve."
+    },
+    {
+      "id": "skill-propose",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local",
+      "note": "Stage 3 (plan v1.36, owner act O1): a worker proposing a skill. Promotion needs the skill validator, an independent review and a hash pin, and stays the P5 approve."
+    },
+    {
+      "id": "context-write",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local",
+      "note": "Stage 3 (plan v1.36, owner act O1): the run loop writing a session's fenced context file and retrieval ledger under .projectops/execution/. Never part of the candidate."
+    },
+    {
+      "id": "memory-index-rebuild",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P2",
+      "environment": "local",
+      "note": "Stage 3 (plan v1.36, owner act O1): rebuilding a derived search index from committed sources. Derived indexes only; it never changes memory, decisions or skills."
+    },
+    {
+      "id": "memory-delete",
+      "governanceAction": null,
+      "ownerOnlyAction": null,
+      "class": "P5",
+      "environment": "local",
+      "note": "Stage 3 (plan v1.36, owner act O1): deleting approved memory or anything a decision cites. Owner only, every time; each deletion is recorded. Rebuilding a derived index is memory-index-rebuild instead."
     }
   ]
 }

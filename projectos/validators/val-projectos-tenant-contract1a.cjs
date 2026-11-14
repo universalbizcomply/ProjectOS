@@ -282,6 +282,8 @@ const ACTION_TABLE = {
   "cross-tenant-access": "P5/production", "tenant-registry-change": "P5/local", "action-registry-change": "P5/local",
   "run-start": "P2/local", "credential-release": "P5/local", "broker-call": "P3/production",
   "project-selection": "P1/local", "bridge-read": "P1/local",
+  "memory-retrieve": "P1/local", "skill-load": "P1/local", "memory-propose": "P2/local", "skill-propose": "P2/local",
+  "context-write": "P2/local", "memory-index-rebuild": "P2/local", "memory-delete": "P5/local",
 };
 /** The class ADR-K1 §3 and §4 give each protected spelling. */
 const CLASS_OF = { "phase-closure": "P5", close_phase: "P5", approve: "P5", reject: "P5", override_gate: "P5", "secrets-handling": "P5", "payment-or-live-charge": "P5", commit: "P3", push: "P3" };
