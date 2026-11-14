@@ -180,7 +180,7 @@ The four narrowed validators went from 320 to 326 mutations (`port-context1a`), 
 | `val-projectos-tenant-credentials1a`, `-tenant-principal1a`, `-tenant-contract1a`, `-tenant-csp1a`, `-tenant-rls1a`, `-v3-active-phase-consistency1a`, `-validator-scratch-lifecycle1a`, `-v3-validation-evidence1a` | PASS, exit 0 |
 | `val-projectos-connector-contract1a`, `-port-agents1a`, `-port-mcp1a`, `-port-computer1a`, `-port-providers1a`, `-port-research1a`, `-port-routines1a` | PASS, exit 0 |
 | `validate-speed-validation-cache`, `validate-v2-closure-evidence`, `validate-no-secrets` | PASS, exit 0 |
-| `val-projectos-port-credit1a` | first run failed `PC-24 not tracked` for the three new core files (they were intent-to-add only); re-run after the commit, see the line at the end of this section |
+| `val-projectos-port-credit1a` | first run failed `PC-24 not tracked` for the three new core files (they were intent-to-add only); re-run after the commit: PASS, exit 0 (189 real files judged; 157 fixture and 59 record mutations) |
 
 **The one agent failure file under the alias is the alias, not the code.** `test/tenantSidecar.test.ts` builds the agent with its own `tsconfig.json` in `beforeAll`, and the agent's `@projectos/core` junction points at another worktree whose `core/dist` lacks the new exports, so its `tsc` stops and its 10 tests are skipped. On the merged stack the junction resolves to the merged core.
 
