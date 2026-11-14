@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-PORT-ROUTINES1A",
+  "evidenceSubjectHead": "e77c4acf63ff735dd7c6da0977bbec09ea91aad4",
+  "baselineCommit": "b5073c1a8862f7e2a446ca0dc61b66a79a8e61f8",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-14T04:48:43.427Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-PORT-ROUTINES1A, phase 36 of 47 of plan v1.36, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. e77c4acf on the plan worktree (routine floors: exact 15-minute minimum, scoped guard and spend caps, a linear prompt scan, as pure core).",
+    "validatorsPass: val-projectos-port-routines1a (109 scenarios, 108 behaviour and 83 text mutations killed), val-projectos-port-credit1a and validate-no-secrets PASS. validate-all 169/170 at e77c4acf; the one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4.",
+    "checksPass: core 3523/3523, agent 3529/3529, control-center 952/952 at e77c4acf on the plan worktree, normal package resolution, after a rebuild of core and agent.",
+    "reviewsComplete: Claude self-review; ECC SECURITY (no CRITICAL, one MEDIUM bypass of the 15-minute floor reproduced and fixed); one recheck (5 fixed, 4 partial, 2 new MEDIUM) and a final fix round, re-verified by the lead with a scratch reproduction of every failing input. No Agency specialist for this phase (none routed).",
+    "unresolved: zero CRITICAL/HIGH. Residuals are named in docs/finish/PROJECTOS-PORT-ROUTINES1A.md: the 30-minute catch-up window and the 500 and 2000 cent caps are the implementer's choices and need owner confirmation; overlap and spend rest on what the wiring phase's ports answer; a crashed run holds the guard until its 60-minute lease lapses.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
