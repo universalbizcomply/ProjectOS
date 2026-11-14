@@ -6,6 +6,7 @@
 // Also-Credits: pi-mono (Copyright (c) 2025 Mario Zechner, MIT)
 // Port-Strategy: ADAPT
 // Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: imports cut to ProjectOS equivalents; only the web sources are kept (email, webhook, API, browser and channel sources are cut); the boundary id is the SHA-256 of the label and the sanitized text it holds, where upstream drew random bytes, so the wrapper is deterministic and text cannot name its own boundary; the hook-source re-export and the prompt builder are cut; truncation of sanitized text is cut, because the page is cut before it is sanitized; the folded marker scan is kept whole
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED (review round 1): header values lose invisible characters as well as markers and special tokens
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 /**
@@ -29,6 +30,7 @@
  */
 
 import { sha256Hex } from '../execution/evidence.js';
+import { stripInvisibleUnicode } from './readableText.js';
 
 const SUSPICIOUS_PATTERNS: readonly RegExp[] = [
   /ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?)/i,
@@ -175,7 +177,7 @@ const LABEL_NAME = /^[A-Za-z][A-Za-z ]{0,19}$/;
 const MAX_LABEL_CHARS = 300;
 
 function headerValue(value: string): string {
-  return sanitizeExternalContentText(value).replace(/[\r\n\u2028\u2029]+/g, ' ').replace(/[<>]/g, '').slice(0, MAX_LABEL_CHARS);
+  return stripInvisibleUnicode(sanitizeExternalContentText(value)).replace(/[\r\n\u2028\u2029]+/g, ' ').replace(/[<>]/g, '').slice(0, MAX_LABEL_CHARS);
 }
 
 /** Wrap untrusted content before it goes into a model's context. The boundary id is derived from what the boundary holds. */

@@ -1,4 +1,4 @@
-import { createWebsitePolicy, type HttpFetchRequest, type HttpFetchResponse, type ResolverPort, type WebsitePolicy } from '../src/research/index.js';
+import { createWebsitePolicy, type HttpFetchRequest, type HttpFetchResponse, type ResolverPort, type TimerPort, type WebsitePolicy } from '../src/research/index.js';
 
 export const SCOPE = { tenant: 'acme-co', project: 'alpha-project' } as const;
 export const OTHER_TENANT = { tenant: 'other-co', project: 'alpha-project' } as const;
@@ -35,6 +35,8 @@ export interface FakePage {
   readonly body?: string;
   readonly truncated?: boolean;
   readonly bytesRead?: number;
+  /** The address the port says it connected to. Absent: the first pinned address. `null`: the port gives none. */
+  readonly connectedAddress?: string | null;
 }
 
 /** An HTTP port that answers from a table keyed by canonical URL, and records every request it was given. */
@@ -52,7 +54,8 @@ export function fetchOf(table: Readonly<Record<string, FakePage | Error>>) {
       body,
       bytesRead: entry.bytesRead ?? body.length,
       truncated: entry.truncated ?? false,
-    };
+      ...(entry.connectedAddress === null ? {} : { connectedAddress: entry.connectedAddress ?? request.pinnedAddresses[0] ?? '' }),
+    } as HttpFetchResponse;
   };
   return { fetch, requests };
 }
@@ -63,3 +66,28 @@ export function clockOf(start = 1_000_000, step = 10) {
   let now = start;
   return { clock: () => (now += step), set: (value: number) => void (now = value) };
 }
+
+/** A timer port over setTimeout. When it expires it can advance the injected clock, so a deadline read from the clock is reached too. */
+export function timerOf(advance?: (ms: number) => void): TimerPort {
+  return {
+    within: async (ms, work) => {
+      const controller = new AbortController();
+      let handle: ReturnType<typeof setTimeout> | undefined;
+      const expired = new Promise<{ readonly done: false }>((resolve) => {
+        handle = setTimeout(() => {
+          controller.abort();
+          advance?.(ms);
+          resolve({ done: false });
+        }, ms);
+      });
+      try {
+        return await Promise.race([work(controller.signal).then((value) => ({ done: true as const, value })), expired]);
+      } finally {
+        clearTimeout(handle);
+      }
+    },
+  };
+}
+
+/** Never settles: a hung planner, provider, resolver or port. */
+export const hang = <T>(): Promise<T> => new Promise<T>(() => undefined);

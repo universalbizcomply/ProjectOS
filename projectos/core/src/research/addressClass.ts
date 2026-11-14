@@ -5,6 +5,7 @@
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
 // Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: translated from Python to TypeScript with a hand-written address parser; the address classes are written out as ranges; IPv4-mapped, IPv4-translated and IPv4-compatible IPv6 are classified by the IPv4 they carry; NAT64, 6to4, Teredo and every IPv6 range outside 2000::/3 are refused, where upstream allowed what Python called global; the allow-private toggle, the fake-IP declaration and the trusted-private-host exception are cut, so the only answers are public and refused
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED (review round 1): the Azure WireServer address joins the metadata set, and a function that writes an address in one spelling is added so the guard can compare the address a port connected to with the ones it pinned
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 /**
@@ -42,7 +43,7 @@ const PUBLIC: AddressClass = { blocked: false };
 const refuse = (reason: AddressReason): AddressClass => ({ blocked: true, reason });
 
 /** The cloud metadata and credential endpoints, the commonest SSRF target. Always refused. */
-const METADATA_V4: readonly string[] = ['169.254.169.254', '169.254.170.2', '169.254.169.253', '100.100.100.200'];
+const METADATA_V4: readonly string[] = ['169.254.169.254', '169.254.170.2', '169.254.169.253', '100.100.100.200', '168.63.129.16'];
 const METADATA_V6_HEXTETS = [0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254] as const;
 
 const DOTTED = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
@@ -150,4 +151,19 @@ export function classifyAddress(text: unknown): AddressClass {
   if (v4 !== null) return classifyIpv4(v4);
   const v6 = parseIpv6(text);
   return v6 === null ? refuse('unparseable-address') : classifyIpv6(v6);
+}
+
+/**
+ * One spelling of an address, so two spellings of it compare equal: dotted for IPv4 and for the IPv4 an IPv6 wrapper
+ * carries (`::ffff:1.1.1.1`, `::ffff:101:101`), and eight lower-case groups without compression otherwise. Null for text
+ * that is not an address. The guard compares the address a port says it connected to with the ones it pinned, in this form.
+ */
+export function normalizeAddress(text: unknown): string | null {
+  if (typeof text !== 'string') return null;
+  const v4 = parseIpv4(text);
+  if (v4 !== null) return v4.join('.');
+  const g = parseIpv6(text);
+  if (g === null) return null;
+  if ((zeros(g, 0, 5) && g[5] === 0xffff) || (zeros(g, 0, 4) && g[4] === 0xffff && g[5] === 0)) return v4Of(g[6] as number, g[7] as number).join('.');
+  return g.map((group) => group.toString(16)).join(':');
 }

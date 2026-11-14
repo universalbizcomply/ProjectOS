@@ -19,6 +19,9 @@ import {
   runResearch,
   type HttpFetchPort,
   type PlannerPort,
+  type PlannerPrice,
+  type ResearchTimeouts,
+  type TimerPort,
   type ResearchClock,
   type ResearchRequest,
   type ResearchRun,
@@ -38,6 +41,11 @@ export interface ResearchRuntimeParams {
   readonly fetch: HttpFetchPort;
   readonly clock: ResearchClock;
   readonly planner: PlannerPort;
+  /** What one planner call costs. Both zero for a free planner; otherwise every call is charged to the run's budget and asked of `grant`. */
+  readonly plannerPrice: PlannerPrice;
+  /** The only way a wait is bounded: the core opens no timer. */
+  readonly timer: TimerPort;
+  readonly timeouts?: Partial<ResearchTimeouts>;
   readonly grant: SpendGrant;
   readonly providers: readonly WebSearchProvider[];
   readonly extractors?: readonly WebContentExtractor[];
@@ -73,6 +81,9 @@ export function createResearchRuntime(params: ResearchRuntimeParams): ResearchRu
     providers: params.providers,
     grant: params.grant,
     planner: params.planner,
+    plannerPrice: params.plannerPrice,
+    timer: params.timer,
+    ...(params.timeouts === undefined ? {} : { timeouts: params.timeouts }),
   };
   return { ok: true, runtime: { policyCommit: loaded.commit, run: (request) => runResearch(request, deps) } };
 }

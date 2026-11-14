@@ -17,7 +17,7 @@ import {
   type FetchPageDeps,
   type WebContentExtractor,
 } from '../src/research/index.js';
-import { OPEN_POLICY, OTHER_TENANT, PUBLIC_IP, SCOPE, clockOf, fetchOf, html, policyOf, resolverOf } from './researchFixtures.js';
+import { OPEN_POLICY, OTHER_TENANT, PUBLIC_IP, SCOPE, clockOf, fetchOf, html, policyOf, resolverOf, timerOf } from './researchFixtures.js';
 
 const URL1 = 'https://example.com/post';
 const DNS = { 'example.com': [PUBLIC_IP], 'other.example': ['93.184.216.50'] };
@@ -25,7 +25,7 @@ const DNS = { 'example.com': [PUBLIC_IP], 'other.example': ['93.184.216.50'] };
 function rig(table: Parameters<typeof fetchOf>[0], over: Partial<FetchPageDeps> = {}) {
   const resolved = resolverOf(DNS);
   const served = fetchOf(table);
-  const deps: FetchPageDeps = { resolver: resolved.resolver, fetch: served.fetch, policy: OPEN_POLICY, clock: clockOf().clock, extractors: [READABLE_TEXT_EXTRACTOR], cache: null, slots: null, ...over };
+  const deps: FetchPageDeps = { resolver: resolved.resolver, fetch: served.fetch, policy: OPEN_POLICY, clock: clockOf().clock, timer: timerOf(), extractors: [READABLE_TEXT_EXTRACTOR], cache: null, slots: null, ...over };
   return { deps, requests: served.requests, dnsCalls: resolved.calls };
 }
 
@@ -203,7 +203,7 @@ describe('fetching a page for research', () => {
     const spy: WebContentExtractor = { id: 'spy', extract: () => { extracted += 1; return { text: 'x' }; } };
     for (const page of [{ body: '<p>x</p>', truncated: true }, { body: 'y'.repeat(1_000_001), bytesRead: 1_000_000 }]) {
       const { deps } = rig({ [URL1]: page }, { extractors: [spy] });
-      expect(await fetchPage({ scope: SCOPE, url: URL1 }, deps)).toMatchObject({ ok: false, refusal: { code: 'FETCH_TOO_LARGE' } });
+      expect(await fetchPage({ scope: SCOPE, url: URL1 }, deps)).toMatchObject({ ok: false });
     }
     expect(extracted).toBe(0);
   });

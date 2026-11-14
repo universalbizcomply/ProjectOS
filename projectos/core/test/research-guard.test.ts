@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { fetchGuarded, judgeUrl, judgeUrlStatic, type GuardedFetchDeps } from '../src/research/index.js';
-import { OPEN_POLICY, PUBLIC_IP, clockOf, fetchOf, policyOf, resolverOf } from './researchFixtures.js';
+import { OPEN_POLICY, PUBLIC_IP, clockOf, fetchOf, policyOf, resolverOf, timerOf } from './researchFixtures.js';
 
 const PUBLIC = { 'example.com': [PUBLIC_IP], 'www.example.org': ['93.184.216.35'] };
 
 function rig(table: Parameters<typeof fetchOf>[0], dns: Parameters<typeof resolverOf>[0] = PUBLIC, policy = OPEN_POLICY) {
   const resolved = resolverOf(dns);
   const served = fetchOf(table);
-  const deps: GuardedFetchDeps = { resolver: resolved.resolver, fetch: served.fetch, policy, clock: clockOf().clock };
+  const deps: GuardedFetchDeps = { resolver: resolved.resolver, fetch: served.fetch, policy, clock: clockOf().clock, timer: timerOf() };
   return { deps, dnsCalls: resolved.calls, requests: served.requests };
 }
 

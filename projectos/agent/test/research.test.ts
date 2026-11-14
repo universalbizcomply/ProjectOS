@@ -1,4 +1,4 @@
-import { createWebsitePolicy, type HttpFetchRequest, type HttpFetchResponse, type PlannerView } from '@projectos/core';
+import { createWebsitePolicy, type HttpFetchRequest, type HttpFetchResponse, type PlannerView, type TimerPort } from '@projectos/core';
 import { describe, expect, it } from 'vitest';
 import { createResearchRuntime, loadCommittedWebsitePolicy, type CommittedRead, type ResearchRuntimeParams } from '../src/research/index.js';
 
@@ -9,6 +9,26 @@ const reader = (text: string, commit = COMMIT): CommittedRead => (path) => (path
 const SCOPE = { tenant: 'acme-co', project: 'alpha-project' };
 const OTHER = { tenant: 'other-co', project: 'alpha-project' };
 const PAGE = 'https://example.com/bread';
+const QUESTION = `What does bread need? Read ${PAGE}`;
+
+/** A timer over setTimeout, for the tests. The runtime itself opens none. */
+const timer: TimerPort = {
+  within: async (ms, work) => {
+    const controller = new AbortController();
+    let handle: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<{ readonly done: false }>((resolve) => {
+      handle = setTimeout(() => {
+        controller.abort();
+        resolve({ done: false });
+      }, ms);
+    });
+    try {
+      return await Promise.race([work(controller.signal).then((value) => ({ done: true as const, value })), expired]);
+    } finally {
+      clearTimeout(handle);
+    }
+  },
+};
 
 function params(over: Partial<ResearchRuntimeParams> = {}) {
   const requests: HttpFetchRequest[] = [];
@@ -16,7 +36,7 @@ function params(over: Partial<ResearchRuntimeParams> = {}) {
   const fetch = async (request: HttpFetchRequest): Promise<HttpFetchResponse> => {
     requests.push(request);
     const body = '<html><head><title>Bread</title></head><body><p>Bread needs flour.</p><p>Bread needs water.</p></body></html>';
-    return { status: 200, headers: { 'content-type': 'text/html' }, body, bytesRead: body.length, truncated: false };
+    return { status: 200, headers: { 'content-type': 'text/html' }, body, bytesRead: body.length, truncated: false, connectedAddress: request.pinnedAddresses[0] ?? '' };
   };
   const base: ResearchRuntimeParams = {
     read: reader(POLICY_TEXT),
@@ -31,6 +51,8 @@ function params(over: Partial<ResearchRuntimeParams> = {}) {
       return { kind: 'answer', text: 'Bread needs flour and water.', citations: [{ path, startLine: 1, endLine: 2 }] };
     },
     grant: () => true,
+    plannerPrice: { baseMicroUsd: 0, perKiloCharMicroUsd: 0 },
+    timer,
     providers: [],
     ...over,
   };
@@ -71,6 +93,16 @@ describe('the website blocklist is loaded from committed bytes only', () => {
   });
 });
 
+describe('the committed blocklist can be an allow-list', () => {
+  it('loads a committed allow-list, and refuses a mode that is neither block nor allow', () => {
+    const allow = loadCommittedWebsitePolicy({ read: reader(JSON.stringify({ schema: 1, enabled: true, mode: 'allow', domains: ['example.com'] })), path: POLICY_PATH });
+    expect(allow.ok && allow.policy.mode).toBe('allow');
+    const plain = loadCommittedWebsitePolicy({ read: reader(POLICY_TEXT), path: POLICY_PATH });
+    expect(plain.ok && plain.policy.mode).toBe('block');
+    expect(loadCommittedWebsitePolicy({ read: reader(JSON.stringify({ schema: 1, enabled: true, mode: 'permit', domains: [] })), path: POLICY_PATH }).ok).toBe(false);
+  });
+});
+
 describe('the research runtime is made once, with its stores shared and its policy committed', () => {
   it('runs a cited research end to end through fakes: the positive control', async () => {
     const { base, requests } = params();
@@ -78,7 +110,7 @@ describe('the research runtime is made once, with its stores shared and its poli
     expect(made.ok).toBe(true);
     if (!made.ok) return;
     expect(made.runtime.policyCommit).toBe(COMMIT);
-    const out = await made.runtime.run({ scope: SCOPE, question: 'What does bread need?' });
+    const out = await made.runtime.run({ scope: SCOPE, question: QUESTION });
     expect(out.ok).toBe(true);
     expect(out).toMatchObject({ ok: true, steps: 2, value: { answer: { text: 'Bread needs flour and water.' }, sources: [{ url: PAGE }] } });
     expect(requests).toHaveLength(1);
@@ -101,7 +133,7 @@ describe('the research runtime is made once, with its stores shared and its poli
     });
     const made = createResearchRuntime(base);
     if (!made.ok) throw new Error('setup');
-    const out = await made.runtime.run({ scope: SCOPE, question: 'q', maxSteps: 2 });
+    const out = await made.runtime.run({ scope: SCOPE, question: QUESTION, maxSteps: 2 });
     expect(out).toMatchObject({ ok: false, refusal: { code: 'STEP_CAP' } });
     expect(requests).toHaveLength(0);
   });
@@ -110,9 +142,9 @@ describe('the research runtime is made once, with its stores shared and its poli
     const { base, requests } = params();
     const made = createResearchRuntime(base);
     if (!made.ok) throw new Error('setup');
-    const first = await made.runtime.run({ scope: SCOPE, question: 'q' });
-    const again = await made.runtime.run({ scope: SCOPE, question: 'q' });
-    const other = await made.runtime.run({ scope: OTHER, question: 'q' });
+    const first = await made.runtime.run({ scope: SCOPE, question: QUESTION });
+    const again = await made.runtime.run({ scope: SCOPE, question: QUESTION });
+    const other = await made.runtime.run({ scope: OTHER, question: QUESTION });
     expect([first.ok, again.ok, other.ok]).toEqual([true, true, true]);
     expect(requests).toHaveLength(2);
   });
@@ -124,14 +156,25 @@ describe('the research runtime is made once, with its stores shared and its poli
     const slow = { ...base, slotsPerScope: 1, fetch: async (request: HttpFetchRequest) => { await gate; return base.fetch(request); } };
     const made = createResearchRuntime(slow);
     if (!made.ok) throw new Error('setup');
-    const running = made.runtime.run({ scope: SCOPE, question: 'q' });
+    const running = made.runtime.run({ scope: SCOPE, question: QUESTION });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    const blocked = await made.runtime.run({ scope: { tenant: 'acme-co', project: 'alpha-project' }, question: 'q2', maxSteps: 1 });
+    const blocked = await made.runtime.run({ scope: { tenant: 'acme-co', project: 'alpha-project' }, question: QUESTION, maxSteps: 1 });
     expect(blocked).toMatchObject({ ok: false });
     release();
     expect((await running).ok).toBe(true);
-    const later = await made.runtime.run({ scope: SCOPE, question: 'q3' });
+    const later = await made.runtime.run({ scope: SCOPE, question: QUESTION });
     expect(later.ok).toBe(true);
+  });
+
+  it('charges a priced planner to the run, and refuses it with no budget before the planner is called', async () => {
+    const { base, views } = params({ plannerPrice: { baseMicroUsd: 100, perKiloCharMicroUsd: 1 } });
+    const made = createResearchRuntime(base);
+    if (!made.ok) throw new Error('setup');
+    expect(await made.runtime.run({ scope: SCOPE, question: QUESTION })).toMatchObject({ ok: false, refusal: { code: 'BUDGET_REQUIRED' } });
+    expect(views).toHaveLength(0);
+    const funded = await made.runtime.run({ scope: SCOPE, question: QUESTION, budget: { maxMicroUsd: 10_000 } });
+    expect(funded).toMatchObject({ ok: true });
+    expect(funded.spentMicroUsd).toBeGreaterThanOrEqual(200);
   });
 });
 

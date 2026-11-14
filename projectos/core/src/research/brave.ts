@@ -6,6 +6,7 @@
 // Also-Credits: pi-mono (Copyright (c) 2025 Mario Zechner, MIT)
 // Port-Strategy: ADAPT
 // Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: config, secret references, the response cache, diagnostics logging and the plugin SDK are cut; only the web mode is kept, so the llm-context mode and its date rules are cut; the credential is not read here, a header function is handed in and its answer is not stored or logged; the fetch is an injected port and never follows a redirect; the country and language code lists are kept and a code outside them is refused where upstream widened a country to ALL; the price of a query is part of the adapter's own configuration; results are bounded and wrapped later, not here
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED (review round 1): the adapter is not made without a cross-run ledger port, asks it before every query and sends nothing unless it answers exactly true; the query carries the run scope so the ledger can name it
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 /**
@@ -21,6 +22,7 @@
  * call never follows a redirect, so the header cannot be carried to a host it was not configured for.
  */
 
+import type { ResearchScope } from './ports.js';
 import { fetchGuarded, headerOf, judgeUrlStatic, type GuardMode, type GuardedFetchDeps } from './ssrfGuard.js';
 import { researchOk, researchRefused, type ResearchResult } from './refusal.js';
 import { SearchProviderError, providerFailure, resultsOf, type ProviderQuery, type SearchResult, type WebSearchProvider } from './searchProvider.js';
@@ -51,6 +53,8 @@ export interface BraveConfig {
   readonly country?: string;
   readonly searchLang?: string;
   /** Returns the auth header. Called once per query. The module never names, stores or logs what it returns. */
+  /** Asked before every query, and the query is not sent unless it answers exactly `true`. The owner's spend across runs lives here. */
+  readonly ledger: (request: { readonly scope: ResearchScope; readonly provider: 'brave'; readonly microUsd: number }) => boolean | Promise<boolean>;
   readonly headersFor: () => Promise<Readonly<Record<string, string>>> | Readonly<Record<string, string>>;
 }
 
@@ -89,6 +93,7 @@ export function createBraveProvider(config: BraveConfig, deps: GuardedFetchDeps)
   const price = config.microUsdPerQuery;
   if (typeof price !== 'number' || !Number.isSafeInteger(price) || price < 1) return researchRefused('INVALID_REQUEST', 'Brave is paid: its price per query must be a whole number of micro-USD, at least 1');
   if (typeof config.headersFor !== 'function') return researchRefused('INVALID_REQUEST', 'a function that supplies the auth header is required');
+  if (typeof config.ledger !== 'function') return researchRefused('INVALID_REQUEST', 'Brave is paid and is not enabled without a cross-run ledger that answers exactly true');
   const country = config.country === undefined ? undefined : config.country.toUpperCase();
   if (country !== undefined && !BRAVE_COUNTRY_CODES.has(country)) return researchRefused('INVALID_REQUEST', 'the Brave country is not one of its supported codes');
   const lang = config.searchLang === undefined ? undefined : normalizedLang(config.searchLang);
@@ -99,7 +104,16 @@ export function createBraveProvider(config: BraveConfig, deps: GuardedFetchDeps)
     id: 'brave',
     paid: true,
     microUsdPerQuery: price,
-    search: async ({ query, count }: ProviderQuery): Promise<readonly SearchResult[]> => {
+    search: async ({ query, count, scope }: ProviderQuery, signal?: AbortSignal): Promise<readonly SearchResult[]> => {
+      void signal;
+      // The cross-run ledger is asked first: without its yes, nothing is read and nothing is sent.
+      let approved = false;
+      try {
+        approved = (await config.ledger({ scope, provider: 'brave', microUsd: price })) === true;
+      } catch {
+        approved = false;
+      }
+      if (!approved) throw new SearchProviderError('not_sent', 'the cross-run ledger did not confirm this query');
       // The credential is asked for first: with none there is nothing to send, so nothing is charged.
       const headers = await authHeaders(config);
       const url = new URL(`${base}${BRAVE_SEARCH_PATH}`);

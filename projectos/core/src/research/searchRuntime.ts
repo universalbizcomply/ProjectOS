@@ -6,6 +6,7 @@
 // Also-Credits: pi-mono (Copyright (c) 2025 Mario Zechner, MIT)
 // Port-Strategy: ADAPT
 // Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: config, auth-profile and plugin discovery are cut, and the providers are a list handed in; the candidate loop is kept (an explicit provider is not replaced, an implicit one falls back, the first failure is kept); a paid candidate is asked for a budget, a grant and room before it is called, and a failure is accounted by whether anything could have been sent; the structured missing-credential result and its not-set-up wording become a refusal that carries no provider text; the OAuth refresh and HTTP-status diagnostics are cut; the query and the count are judged, and the provider's results are bounded
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED (review round 1): every search call is made through an injected timer and a hang is a TIMEOUT; results are screened for hidden characters, special tokens and instructions before they are returned, and what was dropped is reported by index and reason
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 /**
@@ -23,9 +24,11 @@
  * Pure: the provider holds the injected fetch.
  */
 
-import type { ResearchScope } from './ports.js';
+import type { ResearchScope, TimerPort } from './ports.js';
 import { isResearchScope } from './pageCache.js';
 import { researchOk, researchRefused, type ResearchRefusal, type ResearchResult } from './refusal.js';
+import { screenSearchResults, type DroppedResult } from './resultScreen.js';
+import { callWithin, timeoutOf, type ResearchTimeouts } from './timing.js';
 import { reservePaidQuery, type SpendBook, type SpendGrant } from './searchBudget.js';
 import { PROVIDER_ID, SearchProviderError, countOf, priceOf, queryProblem, resultsOf, type SearchResult, type WebSearchProvider } from './searchProvider.js';
 
@@ -43,12 +46,17 @@ export interface WebSearchDeps {
   readonly grant: SpendGrant;
   readonly signal?: AbortSignal;
   readonly assertCurrent?: () => void;
+  readonly timer: TimerPort;
+  /** Shorter waits than the defaults, never longer. */
+  readonly timeouts?: Partial<ResearchTimeouts>;
 }
 
 export interface WebSearchOutcome {
   readonly provider: string;
   readonly query: string;
   readonly results: readonly SearchResult[];
+  /** Results that were screened out, by index and closed reason. Never their text. */
+  readonly dropped: readonly DroppedResult[];
   /** Micro-USD charged to the run so far, across every query it made. */
   readonly spentMicroUsd: number;
 }
@@ -63,8 +71,8 @@ const stopped = (deps: WebSearchDeps): boolean => {
   }
 };
 
-const failed = (id: string, kind: 'failed' | 'unconfigured'): ResearchRefusal =>
-  (kind === 'unconfigured' ? researchRefused('NOT_CONFIGURED', `the search provider '${id}' has no setup on this machine`) : researchRefused('SEARCH_FAILED', `the search provider '${id}' failed`)).refusal;
+const failed = (id: string, kind: 'failed' | 'unconfigured' | 'timeout'): ResearchRefusal =>
+  (kind === 'unconfigured' ? researchRefused('NOT_CONFIGURED', `the search provider '${id}' has no setup on this machine`) : kind === 'timeout' ? researchRefused('TIMEOUT', `the search provider '${id}' did not answer in time`) : researchRefused('SEARCH_FAILED', `the search provider '${id}' failed`)).refusal;
 
 function candidatesOf(providers: readonly WebSearchProvider[], providerId: unknown): readonly WebSearchProvider[] | ResearchRefusal {
   const usable = providers.filter((provider) => typeof provider === 'object' && provider !== null && PROVIDER_ID.test(provider.id));
@@ -74,7 +82,11 @@ function candidatesOf(providers: readonly WebSearchProvider[], providerId: unkno
 }
 
 /** Ask one candidate. Returns its results, or the refusal that made it unavailable, so the next candidate can be tried. */
-async function askOne(provider: WebSearchProvider, request: { readonly scope: ResearchScope; readonly query: string; readonly count: number }, deps: WebSearchDeps) {
+async function askOne(
+  provider: WebSearchProvider,
+  request: { readonly scope: ResearchScope; readonly query: string; readonly count: number },
+  deps: WebSearchDeps,
+): Promise<{ readonly results: readonly SearchResult[]; readonly dropped: readonly DroppedResult[] } | { readonly refusal: ResearchRefusal }> {
   const price = priceOf(provider);
   if (price === null) return { refusal: researchRefused('INVALID_REQUEST', `the search provider '${provider.id}' declares a price that cannot be used`).refusal };
   if (price.paid) {
@@ -82,15 +94,25 @@ async function askOne(provider: WebSearchProvider, request: { readonly scope: Re
     // A refusal for money asks nothing of the provider. A later free provider may still answer, and a later paid one is refused the same way.
     if (reserved !== null) return { refusal: reserved.refusal };
   }
-  try {
-    const answer = await provider.search({ query: request.query, count: request.count });
-    return { results: resultsOf(answer, request.count) };
-  } catch (error) {
-    const kind = error instanceof SearchProviderError ? error.kind : 'maybe_sent';
-    // Only a failure before anything could have been sent gives the money back.
-    if (price.paid && (kind === 'not_sent' || kind === 'not_configured')) deps.spend.release(price.microUsd);
-    return { refusal: failed(provider.id, kind === 'not_configured' ? 'unconfigured' : 'failed') };
+  let thrown: unknown;
+  const timed = await callWithin(deps.timer, timeoutOf(deps.timeouts, 'searchMs'), async (signal) => {
+    try {
+      return { answer: await provider.search({ query: request.query, count: request.count, scope: request.scope }, signal) };
+    } catch (error) {
+      thrown = error;
+      return null;
+    }
+  });
+  // A call that timed out may have been sent, so its price stays charged.
+  if (timed.kind === 'timeout') return { refusal: failed(provider.id, 'timeout') };
+  if (timed.kind === 'value' && timed.value !== null) {
+    const screened = screenSearchResults(resultsOf(timed.value.answer, request.count));
+    return { results: screened.kept, dropped: screened.dropped };
   }
+  const kind = thrown instanceof SearchProviderError ? thrown.kind : 'maybe_sent';
+  // Only a failure before anything could have been sent gives the money back.
+  if (price.paid && (kind === 'not_sent' || kind === 'not_configured')) deps.spend.release(price.microUsd);
+  return { refusal: failed(provider.id, kind === 'not_configured' ? 'unconfigured' : 'failed') };
 }
 
 export async function runWebSearch(request: WebSearchRequest, deps: WebSearchDeps): Promise<ResearchResult<WebSearchOutcome>> {
@@ -106,7 +128,7 @@ export async function runWebSearch(request: WebSearchRequest, deps: WebSearchDep
     if (stopped(deps)) return researchRefused('SEARCH_FAILED', 'the search was cancelled');
     const asked = await askOne(provider, { scope: request.scope, query: request.query as string, count }, deps);
     if (stopped(deps)) return researchRefused('SEARCH_FAILED', 'the search was cancelled');
-    if ('results' in asked) return researchOk({ provider: provider.id, query: request.query as string, results: asked.results, spentMicroUsd: deps.spend.spent() });
+    if ('results' in asked) return researchOk({ provider: provider.id, query: request.query as string, results: asked.results, dropped: asked.dropped, spentMicroUsd: deps.spend.spent() });
     first ??= asked.refusal;
   }
   return { ok: false, refusal: first ?? researchRefused('SEARCH_FAILED', 'no search provider answered').refusal };

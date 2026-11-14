@@ -15,6 +15,7 @@
  * query that failed that way is not charged. Any other failure may have been billed and stays counted.
  */
 
+import type { ResearchScope } from './ports.js';
 import { researchRefused, type ResearchRefusal } from './refusal.js';
 
 export const MAX_SEARCH_COUNT = 10;
@@ -33,6 +34,8 @@ export interface SearchResult {
 export interface ProviderQuery {
   readonly query: string;
   readonly count: number;
+  /** Whose run this is. A provider that is paid asks the cross-run ledger about it. */
+  readonly scope: ResearchScope;
 }
 
 export interface WebSearchProvider {
@@ -40,7 +43,8 @@ export interface WebSearchProvider {
   readonly paid: boolean;
   /** Whole micro-USD one query costs. Zero for a free provider; at least one for a paid one. */
   readonly microUsdPerQuery: number;
-  readonly search: (query: ProviderQuery) => Promise<readonly SearchResult[]>;
+  /** `signal` is aborted when the run's wait for this call ends; the provider must stop on it. */
+  readonly search: (query: ProviderQuery, signal?: AbortSignal) => Promise<readonly SearchResult[]>;
 }
 
 export type SearchFailureKind = 'not_sent' | 'maybe_sent' | 'not_configured';

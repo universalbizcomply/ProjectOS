@@ -5,6 +5,7 @@
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
 // Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: translated from Python to TypeScript onto the WHATWG URL parser, so the host judged is the host a browser dials; userinfo, a backslash, whitespace, a control character and a percent-encoded host are refused where upstream refused only some; the credential-named query check is kept and the lists are shared with the rest of the guard; a canonical form is added, so two spellings of one target are one key
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED (review round 1): the credential-named query list is widened (key, session, auth, sig, x-api-key and the dashed spellings), and is compared in lower case
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 /**
@@ -41,10 +42,11 @@ export interface ParsedWebUrl {
 
 export type UrlParse = { readonly ok: true; readonly url: ParsedWebUrl } | { readonly ok: false; readonly reason: UrlRefusalReason };
 
-/** Credential-named query parameters. Narrow on purpose: `code`, `key` and `session` are page facets and stay out. */
+/** Credential-named query parameters, compared in lower case. `code` stays out: it is a page facet far more often than a secret. */
 const SENSITIVE_QUERY_NAMES: ReadonlySet<string> = new Set([
-  'access_token', 'api_key', 'apikey', 'auth_token', 'authorization', 'awsaccesskeyid', 'client_secret', 'credential', 'credentials', 'jwt', 'password', 'passwd', 'secret',
-  'session_id', 'signature', 'token', 'x_amz_security_token', 'x_amz_signature', 'x-amz-security-token', 'x-amz-signature',
+  'access_token', 'access-token', 'api_key', 'api-key', 'apikey', 'x-api-key', 'x_api_key', 'auth', 'auth_token', 'auth-token', 'authorization', 'awsaccesskeyid', 'client_secret', 'client-secret',
+  'credential', 'credentials', 'jwt', 'key', 'password', 'passwd', 'secret', 'session', 'session_id', 'session-id', 'sig', 'signature', 'token',
+  'x_amz_security_token', 'x_amz_signature', 'x-amz-security-token', 'x-amz-signature',
 ]);
 
 const SCHEME = /^([A-Za-z][A-Za-z0-9+.-]*):/;

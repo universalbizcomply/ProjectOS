@@ -30,6 +30,13 @@ export const URL_REFUSAL_REASONS = [
   'dns-unparseable',
   'dns-blocked-address',
   'dns-rebind',
+  'connected-address-not-pinned',
+  'redirect-downgrade',
+  'not-listed',
+  'url-too-long',
+  'too-many-hosts',
+  /** The one reason the planner is told for every address, name and DNS refusal. The exact one stays in the audit record. */
+  'not-fetchable',
 ] as const;
 export type UrlRefusalReason = (typeof URL_REFUSAL_REASONS)[number];
 
@@ -38,6 +45,7 @@ export const RESEARCH_REFUSAL_CODES = [
   'BAD_SCOPE',
   'BAD_CLOCK',
   'DEADLINE',
+  'TIMEOUT',
   'URL_REFUSED',
   'TOO_MANY_REDIRECTS',
   'FETCH_FAILED',

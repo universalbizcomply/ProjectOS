@@ -12,8 +12,12 @@
  * both fit a budget that holds one. A reservation is given back only when the provider failed before it could have
  * sent anything.
  *
- * WHAT THIS CANNOT PROVE. What the provider really billed: a later phase reconciles it with the cost ledger. The
- * budget is per run; no ledger spans runs yet.
+ * THE BUDGET HAS A CEILING. `MAX_RUN_BUDGET_MICRO_USD` is the most a run may be given, whatever its request says, so a caller that
+ * asks for a budget of the whole safe-integer range gets the ceiling. Planner calls are charged to the same book (`researchLoop.ts`).
+ *
+ * WHAT THIS CANNOT PROVE. What the provider really billed, and what the owner has spent across runs: the book is per run. A
+ * cross-run ledger belongs to the grant: the Brave adapter is not enabled without a ledger port that answers exactly true,
+ * and the planner's grant is asked for every call. Reconciliation with what was billed is a later phase.
  */
 
 import type { ResearchScope } from './ports.js';
@@ -36,11 +40,15 @@ export interface SpendRequest {
 /** True only when answered with exactly `true`. */
 export type SpendGrant = (request: SpendRequest) => boolean | Promise<boolean>;
 
+/** The most a run may be given, in micro-USD: two dollars. A request cannot raise it. */
+export const MAX_RUN_BUDGET_MICRO_USD = 2_000_000;
+const ceiling = (value: number): number => Math.min(value, MAX_RUN_BUDGET_MICRO_USD);
+
 const isMicro = (value: unknown, min: number): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= min;
 
 export function createSpendBook(budget: unknown): SpendBook {
   const asked = (budget as { maxMicroUsd?: unknown } | null | undefined)?.maxMicroUsd;
-  const capMicroUsd = isMicro(asked, 1) ? asked : null;
+  const capMicroUsd = isMicro(asked, 1) ? ceiling(asked) : null;
   let reserved = 0;
   return {
     capMicroUsd,

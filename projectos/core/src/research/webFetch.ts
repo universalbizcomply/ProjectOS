@@ -106,7 +106,8 @@ async function pageFrom(request: { readonly scope: ResearchScope; readonly url: 
   const text = sanitizeExternalContentText(cut);
   const title = readable.title === undefined ? undefined : sanitizeExternalContentText(readable.title);
   // A hit is refused here, before the text can reach a prompt. Past the scan's limit is a refusal too, never a pass.
-  const found = scanForThreats(title === undefined ? text : `${title}\n${text}`, 'context');
+  // The address is scanned too: it is shown in the evidence header, and it came from a server.
+  const found = [...scanForThreats(title === undefined ? text : `${title}\n${text}`, 'context'), ...scanForThreats(finalUrl.canonical, 'context')];
   if (found.length > 0) return researchRefused('THREAT_SCAN', 'the page matched the threat scan and is not used', { named: found });
   return researchOk({
     scope: request.scope,

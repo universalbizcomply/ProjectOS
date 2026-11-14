@@ -5,6 +5,7 @@
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
 // Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: translated from Python to TypeScript; the policy is a value handed in, with no config file, no shared-file reads and no cache; a malformed policy is refused whole, where upstream failed open; a decision carries a machine-readable reason and the rule that matched; rules are judged in punycode, as the guard sees hosts; a policy not made here is refused
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED (review round 1): an allow-list mode is added, so a policy can confine research to named hosts, and the mode is part of the digest
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 /**
@@ -19,6 +20,10 @@
  * `false`, and a policy object that this file did not make is refused at the door, so a hand-made `{ enabled: false }`
  * cannot stand in for a policy.
  *
+ * TWO MODES. `block` (the default) refuses the listed hosts. `allow` allows only them, and is what a run uses when the
+ * owner wants research confined to named sites; it also decides what the research loop may fetch that no search result or
+ * question named (see `urlProvenance.ts`).
+ *
  * A DECISION IS A VALUE. It says allowed, or not, with a closed reason, the host judged and the rule and source that
  * matched. Pure: no file, no clock.
  */
@@ -30,8 +35,12 @@ export interface WebsiteRule {
   readonly source: string;
 }
 
+export type WebsiteMode = 'block' | 'allow';
+
 export interface WebsitePolicy {
   readonly enabled: boolean;
+  /** `block`: the listed hosts are refused. `allow`: only the listed hosts are allowed. */
+  readonly mode: WebsiteMode;
   readonly rules: readonly WebsiteRule[];
   /** Covers everything the policy decides on, so two spellings of one policy have one digest. */
   readonly digest: string;
@@ -80,10 +89,11 @@ function normalizeRule(rule: unknown): { readonly pattern: string } | null | str
 
 /** Judge a policy before anything uses it. `domains` are rules; `source` says where they came from, for the decision. */
 export function createWebsitePolicy(input: unknown, source = 'config'): WebsitePolicyResult {
-  const row = input as { enabled?: unknown; domains?: unknown } | null;
+  const row = input as { enabled?: unknown; domains?: unknown; mode?: unknown } | null;
   if (typeof row !== 'object' || row === null || Array.isArray(row)) return { ok: false, problems: ['the website policy is not an object'] };
   const problems: string[] = [];
   if (typeof row.enabled !== 'boolean') problems.push('enabled must be true or false');
+  if (row.mode !== undefined && row.mode !== 'block' && row.mode !== 'allow') problems.push('mode must be block or allow');
   if (!Array.isArray(row.domains)) problems.push('domains must be a list');
   else if (row.domains.length > MAX_WEBSITE_RULES) problems.push(`there are more than ${MAX_WEBSITE_RULES} rules`);
   if (typeof source !== 'string' || source === '' || source.length > 200) problems.push('the source must be a short text');
@@ -97,8 +107,9 @@ export function createWebsitePolicy(input: unknown, source = 'config'): WebsiteP
   }
   if (problems.length > 0) return { ok: false, problems };
   const enabled = row.enabled === true;
-  const digest = sha256Hex(JSON.stringify({ enabled, rules: rules.map((rule) => rule.pattern).sort() }));
-  const policy: WebsitePolicy = Object.freeze({ enabled, rules: Object.freeze(rules), digest });
+  const mode: WebsiteMode = row.mode === 'allow' ? 'allow' : 'block';
+  const digest = sha256Hex(JSON.stringify({ enabled, mode, rules: rules.map((rule) => rule.pattern).sort() }));
+  const policy: WebsitePolicy = Object.freeze({ enabled, mode, rules: Object.freeze(rules), digest });
   MADE_HERE.add(policy);
   return { ok: true, policy };
 }
@@ -110,8 +121,7 @@ const matches = (host: string, pattern: string): boolean =>
 export function judgeWebsite(policy: WebsitePolicy, host: string): WebsiteDecision {
   if (typeof policy !== 'object' || policy === null || !MADE_HERE.has(policy)) return { allowed: false, reason: 'unknown-policy' };
   if (policy.enabled !== true) return { allowed: true };
-  for (const rule of policy.rules) {
-    if (matches(host, rule.pattern)) return { allowed: false, reason: 'website-policy', host, rule: rule.pattern, source: rule.source };
-  }
-  return { allowed: true };
+  const hit = policy.rules.find((rule) => matches(host, rule.pattern));
+  if (policy.mode === 'allow') return hit === undefined ? { allowed: false, reason: 'website-policy', host, rule: 'not-on-allow-list', source: 'allow-list' } : { allowed: true };
+  return hit === undefined ? { allowed: true } : { allowed: false, reason: 'website-policy', host, rule: hit.pattern, source: hit.source };
 }

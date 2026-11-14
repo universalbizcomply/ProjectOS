@@ -10,7 +10,7 @@ import {
   type WebSearchDeps,
   type WebSearchProvider,
 } from '../src/research/index.js';
-import { OPEN_POLICY, PUBLIC_IP, SCOPE, clockOf, fetchOf, resolverOf } from './researchFixtures.js';
+import { OPEN_POLICY, PUBLIC_IP, SCOPE, clockOf, fetchOf, resolverOf, timerOf } from './researchFixtures.js';
 
 const RESULT: SearchResult = { title: 'T', url: 'https://example.com/a', snippet: 'S' };
 
@@ -20,7 +20,7 @@ function provider(over: Partial<WebSearchProvider> & { id: string }): WebSearchP
   return Object.defineProperty({ ...made, search: async (q: Parameters<WebSearchProvider['search']>[0]) => { state.calls += 1; return made.search(q); } }, 'calls', { get: () => state.calls }) as WebSearchProvider & { calls: number };
 }
 
-const deps = (providers: readonly WebSearchProvider[], over: Partial<WebSearchDeps> = {}): WebSearchDeps => ({ providers, spend: createSpendBook({ maxMicroUsd: 1000 }), grant: () => true, ...over });
+const deps = (providers: readonly WebSearchProvider[], over: Partial<WebSearchDeps> = {}): WebSearchDeps => ({ providers, spend: createSpendBook({ maxMicroUsd: 1000 }), grant: () => true, timer: timerOf(), ...over });
 const ask = (d: WebSearchDeps, extra: Record<string, unknown> = {}) => runWebSearch({ scope: SCOPE, query: 'bread', ...extra }, d);
 
 describe('a search is judged before it is asked, and what comes back is bounded', () => {
@@ -177,7 +177,7 @@ describe('providers fall back only when none was named, and the first failure is
 function endpoint(table: Parameters<typeof fetchOf>[0], dns: Parameters<typeof resolverOf>[0] = { 'search.example': [PUBLIC_IP], 'api.search.brave.com': ['93.184.216.99'] }) {
   const resolved = resolverOf(dns);
   const served = fetchOf(table);
-  const guard: GuardedFetchDeps = { resolver: resolved.resolver, fetch: served.fetch, policy: OPEN_POLICY, clock: clockOf().clock };
+  const guard: GuardedFetchDeps = { resolver: resolved.resolver, fetch: served.fetch, policy: OPEN_POLICY, clock: clockOf().clock, timer: timerOf() };
   return { guard, requests: served.requests };
 }
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
@@ -240,7 +240,7 @@ describe('the SearXNG adapter sits behind an injected fetch', () => {
 describe('the Brave adapter is paid, holds no credential, and sends its header only to the endpoint', () => {
   const headersFor = async () => ({ 'X-Subscription-Token': 'brave-key-value' });
   const built = (over: Partial<Parameters<typeof createBraveProvider>[0]>, g: GuardedFetchDeps) => {
-    const made = createBraveProvider({ microUsdPerQuery: 300, headersFor, ...over }, g);
+    const made = createBraveProvider({ microUsdPerQuery: 300, headersFor, ledger: () => true, ...over }, g);
     if (!made.ok) throw new Error(JSON.stringify(made.refusal));
     return made.value;
   };
@@ -251,7 +251,7 @@ describe('the Brave adapter is paid, holds no credential, and sends its header o
     const brave = built({}, guard);
     expect(brave).toMatchObject({ id: 'brave', paid: true, microUsdPerQuery: 300 });
     expect(await brave.search({ query: 'bread', count: 5 })).toEqual([{ title: 'B', url: 'https://b.example/', snippet: 'D' }]);
-    expect(requests[0]?.headers).toEqual({ accept: 'application/json', 'x-subscription-token': 'brave-key-value' });
+    expect(requests[0]?.headers).toEqual({ accept: 'application/json', 'x-subscription-token': 'brave-key-value', 'accept-encoding': 'identity' });
   });
 
   it('through the runtime, a paid Brave search without a budget never reaches the fetch port', async () => {
@@ -290,13 +290,13 @@ describe('the Brave adapter is paid, holds no credential, and sends its header o
 
   it('refuses a price that is not a whole positive number, an unsupported country or language, and an unusable address', () => {
     const { guard } = endpoint({});
-    for (const microUsdPerQuery of [0, -1, 1.5, Number.NaN, undefined as never]) expect(createBraveProvider({ microUsdPerQuery, headersFor }, guard).ok, String(microUsdPerQuery)).toBe(false);
-    expect(createBraveProvider({ microUsdPerQuery: 1, headersFor, country: 'ZZ' }, guard).ok).toBe(false);
-    expect(createBraveProvider({ microUsdPerQuery: 1, headersFor, country: 'gb', searchLang: 'zh-TW' }, guard).ok).toBe(true);
-    expect(createBraveProvider({ microUsdPerQuery: 1, headersFor, searchLang: 'xx' }, guard).ok).toBe(false);
-    expect(createBraveProvider({ microUsdPerQuery: 1, headersFor: undefined as never }, guard).ok).toBe(false);
-    expect(createBraveProvider({ microUsdPerQuery: 1, headersFor, baseUrl: 'http://api.example/' }, guard).ok).toBe(false);
-    expect(createBraveProvider({ microUsdPerQuery: 1, headersFor, baseUrl: 'https://169.254.169.254/' }, guard).ok).toBe(false);
+    for (const microUsdPerQuery of [0, -1, 1.5, Number.NaN, undefined as never]) expect(createBraveProvider({ microUsdPerQuery, headersFor, ledger: () => true }, guard).ok, String(microUsdPerQuery)).toBe(false);
+    expect(createBraveProvider({ microUsdPerQuery: 1, headersFor, ledger: () => true, country: 'ZZ' }, guard).ok).toBe(false);
+    expect(createBraveProvider({ microUsdPerQuery: 1, headersFor, ledger: () => true, country: 'gb', searchLang: 'zh-TW' }, guard).ok).toBe(true);
+    expect(createBraveProvider({ microUsdPerQuery: 1, headersFor, ledger: () => true, searchLang: 'xx' }, guard).ok).toBe(false);
+    expect(createBraveProvider({ microUsdPerQuery: 1, headersFor: undefined as never, ledger: () => true }, guard).ok).toBe(false);
+    expect(createBraveProvider({ microUsdPerQuery: 1, headersFor, ledger: () => true, baseUrl: 'http://api.example/' }, guard).ok).toBe(false);
+    expect(createBraveProvider({ microUsdPerQuery: 1, headersFor, ledger: () => true, baseUrl: 'https://169.254.169.254/' }, guard).ok).toBe(false);
   });
 
   it('adds the country and the language to the query when they are set', async () => {

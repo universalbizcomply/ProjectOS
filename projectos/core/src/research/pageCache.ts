@@ -45,7 +45,11 @@ interface Held {
   readonly storedAtMs: number;
 }
 
-export const DEFAULT_PAGE_CACHE: PageCacheOptions = { ttlMs: 15 * 60_000, maxPagesPerScope: 32, maxScopes: 256 };
+/**
+ * The worst case is 8 pages x 50,000 characters x 2 bytes x 64 scopes: 51 MB of text, plus a title and a hash a page. A page's
+ * text is capped (`MAX_PAGE_TEXT_CHARS`), so that product is the bound, and a test pins it under 64 MB.
+ */
+export const DEFAULT_PAGE_CACHE: PageCacheOptions = { ttlMs: 15 * 60_000, maxPagesPerScope: 8, maxScopes: 64 };
 
 export function createPageCache(options: PageCacheOptions = DEFAULT_PAGE_CACHE): PageCache {
   if (!isCount(options.ttlMs) || !isCount(options.maxPagesPerScope) || !isCount(options.maxScopes)) throw new Error('the page cache needs a whole positive time, page count and scope count');

@@ -12,10 +12,18 @@
  * citation of a page that was not fetched, or of lines it does not have, is refused by code that already exists.
  */
 
+import { scanForThreats } from '../memory/threatScan.js';
 import { admitSearchResult, type SearchResultAdmission } from '../search/citation.js';
+import { stripInvisibleUnicode } from './readableText.js';
 import { wrapExternalContent } from './externalContent.js';
 import type { FetchedPage } from './webFetch.js';
 import type { SearchResult } from './searchProvider.js';
+
+/** A header value with its invisible characters stripped, or `[removed]` when it matches the threat scan. The header is outside the numbered text. */
+const labelOf = (value: string): string => {
+  const clean = stripInvisibleUnicode(value);
+  return scanForThreats(clean, 'context').length > 0 ? '[removed]' : clean;
+};
 
 /** The page text, one numbered line at a time, inside the untrusted fence. */
 export function renderResearchEvidence(page: FetchedPage): string {
@@ -28,8 +36,8 @@ export function renderResearchEvidence(page: FetchedPage): string {
     labels: [
       ['Citation', page.sourcePath],
       ['Lines', `1-${page.lineCount}`],
-      ['URL', page.finalUrl],
-      ...(page.title === undefined ? [] : ([['Title', page.title]] as const)),
+      ['URL', labelOf(page.finalUrl)],
+      ...(page.title === undefined ? [] : ([['Title', labelOf(page.title)]] as const)),
     ],
   });
 }

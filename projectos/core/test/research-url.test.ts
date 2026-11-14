@@ -41,10 +41,10 @@ describe('one URL is read one way, and two spellings of one target are one key',
   });
 
   it('refuses a credential-named query parameter and leaves page facets alone', () => {
-    for (const url of ['https://example.com/?token=abc', 'https://example.com/?api_key=abc', 'https://example.com/?X-Amz-Signature=abc', 'https://example.com/?a=1&password=x', 'https://example.com/?access%5Ftoken=x']) {
+    for (const url of ['https://example.com/?token=abc', 'https://example.com/?api_key=abc', 'https://example.com/?X-Amz-Signature=abc', 'https://example.com/?a=1&password=x', 'https://example.com/?access%5Ftoken=x', 'https://example.com/?key=color', 'https://example.com/?session=1']) {
       expect(parse(url), url).toMatchObject({ ok: false, reason: 'credential-in-query' });
     }
-    for (const url of ['https://example.com/?code=7', 'https://example.com/?key=color', 'https://example.com/?token=', 'https://example.com/?session=1']) expect(parse(url), url).toMatchObject({ ok: true });
+    for (const url of ['https://example.com/?code=7', 'https://example.com/?token=', 'https://example.com/?page=2&sort=asc']) expect(parse(url), url).toMatchObject({ ok: true });
   });
 
   it('holds a page to a short list of ports, and an API endpoint to none', () => {

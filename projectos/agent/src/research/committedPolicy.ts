@@ -5,7 +5,8 @@
  * THIS FILE READS NOTHING. It is handed a `CommittedRead`, which answers a repository path with the text at HEAD and
  * the commit it was read at, or null. A working-tree read has no commit to give, so it is refused: the blocklist
  * cannot be edited in place and trusted. The path is judged first, so a caller cannot pick other bytes with `..` or an
- * absolute path. The file is `{ "schema": 1, "enabled": true, "domains": [...] }`, and the policy is judged whole by
+ * absolute path. The file is `{ "schema": 1, "enabled": true, "mode": "block" | "allow", "domains": [...] }` (`mode` may be left out and
+ * is `block`), and the policy is judged whole by
  * the core: one bad rule, or a flag that is not exactly true or false, refuses the load, where upstream failed open.
  *
  * `CommittedRead` has the shape the model broker's agent half uses. It is written out here because a research file
@@ -46,8 +47,8 @@ export function loadCommittedWebsitePolicy(params: { readonly read: CommittedRea
   } catch {
     return { ok: false, problems: ['the website policy text is not JSON'] };
   }
-  const row = parsed as { schema?: unknown; enabled?: unknown; domains?: unknown } | null;
+  const row = parsed as { schema?: unknown; enabled?: unknown; domains?: unknown; mode?: unknown } | null;
   if (typeof row !== 'object' || row === null || row.schema !== POLICY_SCHEMA) return { ok: false, problems: [`the website policy is not schema ${POLICY_SCHEMA}`] };
-  const made = createWebsitePolicy({ enabled: row.enabled, domains: row.domains }, `${params.path}@${found.commit.slice(0, 12)}`);
+  const made = createWebsitePolicy({ enabled: row.enabled, domains: row.domains, ...(row.mode === undefined ? {} : { mode: row.mode }) }, `${params.path}@${found.commit.slice(0, 12)}`);
   return made.ok ? { ok: true, policy: made.policy, commit: found.commit } : { ok: false, problems: made.problems };
 }
