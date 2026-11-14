@@ -12,3 +12,11 @@ export {
   type MemoryProposalListing,
   type MemoryWriteRequest,
 } from './proposalQueue.js';
+export {
+  MAX_FINDINGS_RECORD_CHARS,
+  openProposalDoor,
+  type AgentDoorCode,
+  type DoorEntryOutcome,
+  type ProposalDoorCaller,
+  type ProposalDoorOutcome,
+} from './proposalDoor.js';

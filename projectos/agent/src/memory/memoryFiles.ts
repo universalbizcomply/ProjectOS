@@ -38,6 +38,7 @@ import {
   type MemoryStoreState,
   type MemoryTarget,
 } from '@projectos/core';
+import { containsSecret } from '../authoringEvidence.js';
 import { join, projectopsDir } from '../context.js';
 import type { System } from '../system.js';
 
@@ -105,10 +106,17 @@ export function readMemoryStore(sys: System, root: string, target: MemoryTarget)
   return memoryOk({ entries: entries.value, provenance: provenance.value });
 }
 
-/** The fenced, scanned block for one store. The only way memory text leaves this module for a prompt. */
+/**
+ * The fenced, scanned block for one store. The only way memory text leaves this module for a prompt.
+ *
+ * THE CREDENTIAL VOCABULARY IS THE AGENT'S (STORES1A). The queue refuses a credential at proposal and at approval, and a store
+ * written around the queue never met either, so the loader hands core the same vocabulary as a screen: an entry it does not
+ * clear is replaced by a placeholder and none of its text is sent. The rendered body is capped in core, and so are the
+ * hidden-text forms, so the loader adds nothing to them but the screen.
+ */
 export function loadMemoryBlock(sys: System, root: string, target: MemoryTarget): MemoryResult<MemoryPromptBlock> {
   const state = readMemoryStore(sys, root, target);
-  return state.ok ? renderMemoryBlock(target, state.value) : state;
+  return state.ok ? renderMemoryBlock(target, state.value, { secretScreen: containsSecret }) : state;
 }
 
 /** Temp file and rename, so a reader never sees a partial file. */
