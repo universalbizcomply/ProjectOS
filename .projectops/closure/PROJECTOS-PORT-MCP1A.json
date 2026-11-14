@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-PORT-MCP1A",
+  "evidenceSubjectHead": "e77c4acf63ff735dd7c6da0977bbec09ea91aad4",
+  "baselineCommit": "b5073c1a8862f7e2a446ca0dc61b66a79a8e61f8",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-14T04:49:11.036Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-PORT-MCP1A, phase 38 of 47 of plan v1.36, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. e77c4acf on the plan worktree (one governed MCP connection over injected ports: server pinned by hash, per-tool descriptor pins, spend bound, sampling off, as core and agent).",
+    "validatorsPass: val-projectos-port-mcp1a (281 text and 107 behavioural mutations killed), val-projectos-connector-contract1a (38 rules, 293 mutations), val-projectos-port-credit1a and validate-no-secrets PASS. validate-all 169/170 at e77c4acf; the one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4.",
+    "checksPass: core 3523/3523, agent 3529/3529, control-center 952/952 at e77c4acf on the plan worktree, normal package resolution, after a rebuild of core and agent.",
+    "reviewsComplete: Claude self-review; ECC SECURITY (no CRITICAL, two HIGH plus MEDIUMs, all fixed); Agency application-security-engineer (CONCERNS, all in-scope items fixed); one recheck (one new HIGH, the caller-supplied spend clock, fixed) and a final round re-verified by the lead, including a scratch reproduction of 28 launch-refusal bypasses.",
+    "unresolved: zero CRITICAL/HIGH. Residuals are named in docs/finish/PROJECTOS-PORT-MCP1A.md: the real spawn port and its confinement contract (SpawnConfinement is types and prose only), a binary-content hash pin and an argument schema per owner row, and a durable spend ledger. The per-call re-list narrows the rug-pull window to the gap before the send; it does not close it.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
