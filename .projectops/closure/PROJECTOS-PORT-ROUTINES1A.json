@@ -18,7 +18,7 @@
     "checksPass: core 3523/3523, agent 3529/3529, control-center 952/952 at e77c4acf on the plan worktree, normal package resolution, after a rebuild of core and agent.",
     "reviewsComplete: Claude self-review; ECC SECURITY (no CRITICAL, one MEDIUM bypass of the 15-minute floor reproduced and fixed); one recheck (5 fixed, 4 partial, 2 new MEDIUM) and a final fix round, re-verified by the lead with a scratch reproduction of every failing input. No Agency specialist for this phase (none routed).",
     "unresolved: zero CRITICAL/HIGH. Residuals are named in docs/finish/PROJECTOS-PORT-ROUTINES1A.md: the 30-minute catch-up window and the 500 and 2000 cent caps are the implementer's choices and need owner confirmation; overlap and spend rest on what the wiring phase's ports answer; a crashed run holds the guard until its 60-minute lease lapses.",
-    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push, or merge into main by anything other than a fast-forward (the stack of three phases carries its own merge commits, made on the plan worktree, and reaches main by fast-forward).",
     "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
   ]
 }

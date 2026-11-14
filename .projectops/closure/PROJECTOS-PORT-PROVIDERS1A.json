@@ -18,7 +18,7 @@
     "checksPass: core 3523/3523, agent 3529/3529, control-center 952/952 at e77c4acf on the plan worktree, normal package resolution, after a rebuild of core and agent.",
     "reviewsComplete: Claude self-review; ECC SECURITY (one HIGH, the budget floor, plus MEDIUMs, all fixed); Agency api-platform-engineer (CONCERNS, four HIGH, all fixed); one recheck (two new HIGH, concurrent duplicate and a sticky may-have-acted, both fixed) and a final round re-verified by the lead.",
     "unresolved: zero CRITICAL/HIGH. Residuals are named in docs/finish/PROJECTOS-PORT-PROVIDERS1A.md: per-provider grant on fallback, price staleness, cooldown per model, the self-declared commit stamp, month/phase/day caps (owned by the Stage 4.1 wiring phase), and a full in-memory store stays full until restart. The agent package was checked through an alias config during the build; on the plan worktree it builds and passes with normal package resolution.",
-    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push, or merge into main by anything other than a fast-forward (the stack of three phases carries its own merge commits, made on the plan worktree, and reaches main by fast-forward).",
     "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
   ]
 }

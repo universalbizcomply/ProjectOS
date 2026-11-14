@@ -18,7 +18,7 @@
     "checksPass: core 3523/3523, agent 3529/3529, control-center 952/952 at e77c4acf on the plan worktree, normal package resolution, after a rebuild of core and agent.",
     "reviewsComplete: Claude self-review; ECC SECURITY (no CRITICAL, two HIGH plus MEDIUMs, all fixed); Agency application-security-engineer (CONCERNS, all in-scope items fixed); one recheck (one new HIGH, the caller-supplied spend clock, fixed) and a final round re-verified by the lead, including a scratch reproduction of 28 launch-refusal bypasses.",
     "unresolved: zero CRITICAL/HIGH. Residuals are named in docs/finish/PROJECTOS-PORT-MCP1A.md: the real spawn port and its confinement contract (SpawnConfinement is types and prose only), a binary-content hash pin and an argument schema per owner row, and a durable spend ledger. The per-call re-list narrows the rug-pull window to the gap before the send; it does not close it.",
-    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push, or merge into main by anything other than a fast-forward (the stack of three phases carries its own merge commits, made on the plan worktree, and reaches main by fast-forward).",
     "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
   ]
 }
