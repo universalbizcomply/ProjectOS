@@ -79,11 +79,16 @@ const PORT_DIRS = [
   "projectos/core/src/routines",
   "projectos/core/src/modelBroker",
   "projectos/core/src/mcpConnectors",
+  "projectos/core/src/agents",
+  "projectos/core/src/computer",
+  "projectos/core/src/research",
   "projectos/agent/src/search",
   "projectos/agent/src/memory",
   "projectos/agent/src/skills",
   "projectos/agent/src/modelBroker",
   "projectos/agent/src/mcpConnectors",
+  "projectos/agent/src/computer",
+  "projectos/agent/src/research",
 ];
 /** Test trees the port phases hold. Most files there are ours, so one is judged only once it shows upstream marks. */
 const TEST_DIRS = ["projectos/core/test", "projectos/agent/test"];

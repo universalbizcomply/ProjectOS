@@ -136,11 +136,16 @@ A format with no comment syntax, such as JSON, cannot carry either mark, so it d
 - `projectos/core/src/routines/`
 - `projectos/core/src/modelBroker/`
 - `projectos/core/src/mcpConnectors/`
+- `projectos/core/src/agents/`
+- `projectos/core/src/computer/`
+- `projectos/core/src/research/`
 - `projectos/agent/src/search/`
 - `projectos/agent/src/memory/`
 - `projectos/agent/src/skills/`
 - `projectos/agent/src/modelBroker/`
 - `projectos/agent/src/mcpConnectors/`
+- `projectos/agent/src/computer/`
+- `projectos/agent/src/research/`
 
 Every file in these directories must be tracked by git. A file a port needs must not match an ignore rule. An ignored
 file passes every check on disk and is missing from a clean checkout, and force-adding it does not help the next
