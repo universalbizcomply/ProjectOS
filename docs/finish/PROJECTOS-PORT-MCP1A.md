@@ -3,8 +3,8 @@
 **Phase:** PROJECTOS-PORT-MCP1A, delta phase 12 / plan v1.36 row 6 (`docs/changes/delta_spec.md`), V4 Stage 3.
 **Branch:** `projectos-port-mcp1a`, worktree `C:/dev/ProjectOS-worktrees/port-mcp1a-v136`, base `d443a0fa`. Not pushed, not
 merged, phase not closed, no phase record created. `docs/06_Plan.md` is not edited.
-**State:** built and self-reviewed by the implementer only. ECC SECURITY and the Agency `application-security-engineer`
-review have not seen it. The shared credit-directories commit `86f18e23` is merged in (`192e53b4`), so `val-projectos-port-credit1a`
+**State:** built, then changed once after two independent reviews of `d7fbea07` (ECC security-reviewer and Agency
+`application-security-engineer`); see "Review round 1". The one recheck of that round has not been done. The shared credit-directories commit `86f18e23` is merged in (`192e53b4`), so `val-projectos-port-credit1a`
 passes. `validate-all` is the lead's and was not run here. See "Checks" and "Converge".
 
 Nothing was run from a vendor folder, `openbot-lower` was not opened, no `DO-NOT-PORT.txt` was read, and no `node:child_process`
@@ -29,13 +29,13 @@ is imported. `agent/src/mcp/` and `projectos/connectors/registry.json` are byte-
 
 | Item | Path | Result |
 |---|---|---|
-| Ported, core | `projectos/core/src/mcpConnectors/{serverKeys,toolCosts,serverRequests,contentBlocks,sessionLifecycle}.ts` | Five files from five upstream files, each credited |
-| Original, core | `projectos/core/src/mcpConnectors/{allowlist,toolCall,untrustedOutput,index}.ts` | The pin, the gate, the fence, the seam |
+| Ported, core | `projectos/core/src/mcpConnectors/{serverKeys,toolCosts,serverRequests,contentBlocks,sessionLifecycle}.ts` | Five files from five upstream files, each credited (`toolCosts` and `serverRequests` changed in round 1) |
+| Original, core | `projectos/core/src/mcpConnectors/{allowlist,toolCall,untrustedOutput,canonicalJson,index}.ts` | The pin, the gate, the fence, the canonical hashes (round 1), the seam |
 | Original, agent | `projectos/agent/src/mcpConnectors/{ports,rpcClient,connector,index}.ts` | Ports, a JSON-RPC client, one governed connection |
 | Export | `projectos/core/src/index.ts` | One line |
 | Notices | `THIRD_PARTY_NOTICES` | 5 entries, written by script from each file's own header |
-| Tests | `projectos/core/test/mcp-{allowlist,spend,requests,toolcall,lifecycle}.test.ts`, `projectos/agent/test/mcp{Connector,RpcClient}.test.ts` | 133 core, 35 agent |
-| Validator | `projectos/validators/val-projectos-port-mcp1a.cjs` | 22 rules plus MC-T, 152 text and 42 behavioural mutations; registered in `validate-all.cjs` and `speed/cached-runner.cjs`, same position |
+| Tests | `projectos/core/test/mcp-{allowlist,canonical,spend,requests,toolcall,lifecycle}.test.ts`, `projectos/agent/test/mcp{Connector,RpcClient}.test.ts` | 220 core, 67 agent |
+| Validator | `projectos/validators/val-projectos-port-mcp1a.cjs` | 29 rules plus MC-T, 243 text and 83 behavioural mutations; registered in `validate-all.cjs` and `speed/cached-runner.cjs`, same position |
 
 ## Ported paths and pins
 
@@ -70,7 +70,7 @@ Pi / pi-mono: searched all five upstream files for `pi-mono`, `mario`, `zechner`
 | The registry stays empty and CC-25 still passes | `projectos/connectors/registry.json` untouched. `mcpConnector.test.ts` "with the committed registry, which holds no connector, refuses the call and sends nothing" reads the committed file. MC-14 refuses a row. `val-projectos-connector-contract1a`: PASS (38 rules; 293 named mutations) |
 | Credit header and notices entry on every ported file; the credit validator passes | Headers on 5 files, 5 notices entries, MC-2 and MC-4. `val-projectos-port-credit1a`: PASS (73 real files judged; 152 fixture and 59 record mutations killed), exit 0, after the shared credit-dirs commit `86f18e23` |
 | The validator refuses any importer outside the module and its tests | MC-19 scans every other source file under `projectos/` by path (`mcpConnectors`) and by exported name, so an importer through the package barrel is caught. The one allowed line is the core barrel's own. Two mutations add an importer |
-| Validator pin and named mutations, each killed by its own rule | 194 mutations (152 text, 42 behavioural), each named after the rule body. A mutation counts only if its rule fires and no rule it did not declare |
+| Validator pin and named mutations, each killed by its own rule | 326 mutations (243 text, 83 behavioural), each named after the rule body. A mutation counts only if its rule fires and no rule it did not declare |
 
 ## Credit result: green
 
@@ -99,20 +99,26 @@ held patch was deleted as superseded. After the merge the validator passes.
 
 | Rule | Text mutations | Behavioural |
 |---|---|---|
-| MC-1 listing, MC-3 origin mark, MC-4 credit, MC-7 dependencies, MC-22 tracked | 2, 2, 1, 2, 1 | 0 |
-| MC-2 upstream record | 4 | 0 |
-| MC-5 core purity, MC-6 connector reach | 4, 4 | 0 |
+| MC-1 listing, MC-2 upstream record, MC-3 origin mark, MC-4 credit, MC-7 dependencies, MC-22 tracked | 2, 4, 3, 1, 2, 1 | 0 |
+| MC-5 core purity, MC-6 connector reach | 6, 4 | 0 |
 | MC-8 the pin | 11 | 3 |
 | MC-9 sampling off | 5 | 3 |
 | MC-10 owner answers | 13 | 5 |
-| MC-11 spend | 14 | 6 |
+| MC-11 spend: a window, a call cap, no session key | 21 | 11 |
 | MC-12 output is data | 21 | 6 |
-| MC-13 gate order | 10 | 3 |
+| MC-13 gate order | 10 | 2 |
 | MC-14 connector contract | 10 | 3 |
-| MC-15 session close | 17 | 10 |
+| MC-15 session close | 16 | 9 |
 | MC-16 install route | 7 | 3 |
-| MC-17 refused features, MC-18 protected files, MC-19 unwired, MC-20 exported, MC-21 registered, MC-T tests | 3, 2, 2, 12, 3, 2 | 0 |
-| **Total** | **152** | **42** |
+| MC-17 refused features, MC-18 protected files, MC-19 unwired, MC-20 exported, MC-21 registered, MC-T tests | 3, 2, 2, 14, 3, 2 | 0 |
+| MC-23 one tenant, three ways (H1) | 4 | 1 |
+| MC-24 start stored before the send, one call per key (H3) | 9 | 4 |
+| MC-25 rug pull (H4) | 14 | 7 |
+| MC-26 timeouts, byte cap before parse, failed send (M1) | 11 | 8 |
+| MC-27 elicitation rules (M2) | 13 | 9 |
+| MC-28 launch hygiene (M3) | 13 | 7 |
+| MC-29 spawn confinement named to the port (M4) | 16 | 2 |
+| **Total** | **243** | **83** |
 
 The unmutated copy passing every probe is the positive control, and the self-test names the rule it expects to fire and refuses a
 mutation that also fires a rule it did not declare. The probes run this phase's own TypeScript, with every core file it
@@ -129,16 +135,16 @@ pins only; `a-settled-session-keeps-its-old-scope` was dead code (settled items 
 
 | Check | Result |
 |---|---|
-| Tests first | The five core test files and the agent connector test were written against a module that did not exist. With `src/mcpConnectors` moved aside, `npx vitest run test/mcp-` failed all 5 files at import ("Failed to load url ../src/mcpConnectors/index.js"). The connector was then written, so the agent connector's RED run is the same fact in a weaker form: the agent test did not exist before `connector.ts`, an order slip, recorded rather than hidden. Four tests failed on the first agent run and were fixed in code |
-| Core `npx vitest run` | 64 files, **3015 tests passed**, exit 0 (the five new files are 133 of them) |
+| Tests first | Round 0: the module did not exist when the core tests were written (all 5 files failed at import). Round 1: the new and changed tests were written first and run against the round-0 code: **91 of 201 core tests failed** (the new descriptor, canonical, window, call-cap and cost-policy cases), before any fix |
+| Core `npx vitest run` | 65 files, **3102 tests passed**, exit 0 (the six mcp files are 220 of them) |
 | Core `npm run -s build` | exit 0 |
-| Agent tests (this phase's two files) | 2 files, **35 tests passed**, exit 0, through the alias config below |
-| Agent full suite | 111 files; 110 passed, 3449 tests passed, 10 skipped; **exit 1 from `tenantSidecar.test.ts` alone**, which is junction-induced, not this phase. See below |
-| Agent typecheck | exit 0 through a scratch tsconfig mapping `@projectos/core` to this worktree's `core/dist`. Stock `npx tsc -p tsconfig.json` has 26 diagnostics, **all in `src/mcpConnectors/`**, all from the junction'd core lacking this phase's exports |
-| `val-projectos-port-mcp1a` | PASS (13 real files judged; 152 text and 42 behavioural mutations killed) |
+| Agent tests (this phase's two files) | 2 files, **67 tests passed**, exit 0, through the alias config below |
+| Agent full suite | not re-run in round 1. Round 0: 111 files, 110 passed, 3449 tests passed, 10 skipped, **exit 1 from `tenantSidecar.test.ts` alone**, junction-induced, not this phase (passes on base, 10 of 10) |
+| Agent typecheck | exit 0 through a scratch tsconfig mapping `@projectos/core` to this worktree's `core/dist`. Stock `npx tsc -p tsconfig.json` has 33 diagnostics, **all in `src/mcpConnectors/`**, all from the junction'd core lacking this phase's exports |
+| `val-projectos-port-mcp1a` | PASS (14 real files judged; 243 text and 83 behavioural mutations killed), exit 0 |
 | `val-projectos-connector-contract1a` | PASS (38 rules; 293 named mutations killed), so CC-25 stands |
 | `validate-no-secrets` | PASS |
-| Validators reading a touched file | 19 validators, each its own process, **all exit 0**: `val-projectos-port-{credit1a,mcp1a,search1a,memory1a,skills1a,context1a,approvals1a}`, `val-projectos-connector-contract1a`, `validate-no-secrets`, `val-projectos-tenant-{contract1a,credentials1a,principal1a,csp1a,rls1a}`, `val-projectos-kernel-followup1a`, `val-projectos-validator-scratch-lifecycle1a`, `val-projectos-v3-validation-evidence1a`, `validate-speed-validation-cache`, `validate-v2-closure-evidence` |
+| Validators reading a touched file, re-run in round 1 | 19 validators, each its own process, **all exit 0**: `val-projectos-port-{credit1a,mcp1a,search1a,memory1a,skills1a,context1a,approvals1a}`, `val-projectos-connector-contract1a`, `validate-no-secrets`, `val-projectos-tenant-{contract1a,credentials1a,principal1a,csp1a,rls1a}`, `val-projectos-kernel-followup1a`, `val-projectos-validator-scratch-lifecycle1a`, `val-projectos-v3-validation-evidence1a`, `validate-speed-validation-cache`, `validate-v2-closure-evidence`. `val-projectos-port-credit1a` first failed with PC-24 on the uncommitted `canonicalJson.ts` (it refuses an untracked port file) and passed once committed: PASS (74 real files judged; 152 fixture and 59 record mutations killed) |
 | `validate-all` | not run: the lead runs it serially |
 
 **`test/tenantSidecar.test.ts`, the one failing agent file.** Its `beforeAll` runs the real `tsc -p projectos/agent/tsconfig.json`, and that
@@ -189,11 +195,11 @@ After a merge and a core build in the main checkout, the plain commands work the
 2. **The OpenClaw MCP client is only partly ported.** The brief's sources hold a server and a relay, not a client; the lifecycle
    and content-block reading were ported, and the client is original. `src/agents/agent-bundle-mcp-*.ts` and `src/plugins/bundle-mcp.ts`
    (port map C15) were outside the brief's source list and unread.
-3. **There is no real spawn port.** By design (no `node:child_process`), `SpawnPort` has only a fake. Starting a server is a later phase's act under the owner's gate for shell and service access.
-4. **Requests have no timeout.** A server that never answers leaves a request pending until the connection is closed. A timer is not allowed in core and the connector holds no clock port for it. Carried.
-5. **A session's spend is not durable.** The tally is a value the caller stores. Until the Stage 4 and 5 ledger owns it, a restart forgets what was spent (`toolCosts.ts` says so).
+3. **There is no real spawn port.** By design (no `node:child_process`), `SpawnPort` has only a fake. Starting a server is a later phase's act under the owner's gate for shell and service access. Round 1 wrote down what that port must meet (`SpawnConfinement`) and the two pins it must add (binary hash, argument schema); see "Review round 1".
+4. **Requests now have a timeout** (round 1, M1), through an injected `TimerPort`. The default is 30 s for a request and 5 min for a wait on the owner, set by the caller.
+5. **A window's spend is not durable.** The tally is a value the caller stores; with the start record (H3) the caller now has the booking and the totals in each record to rebuild it from. Until the Stage 4 and 5 ledger owns it, a restart forgets what was spent (`toolCosts.ts` says so).
 
-**Behaviour drift from the spec, deliberately:** a tool the server offers but the row does not list is hidden, not merely refused
+**Added in round 1, beyond the first reading of the spec:** a descriptor pin per tool in the owner's row (`descriptorHash`, required), optional `callLimit` and `spendWindowMs` row fields, a start store port and a timer port the caller must supply, raw-line transport, and `SpawnConfinement`. These widen the rows an owner approves, so the allowlist file format gains a required field before anything has been approved with it; no file with the old format exists. **Behaviour drift from the spec, deliberately:** a tool the server offers but the row does not list is hidden, not merely refused
 (spec says nothing); a tool with a declared cost of zero is a budget and runs, and an undeclared one does not (stricter than Hermes);
 the envelope ceiling is checked in addition to the spend limit (the spec asks only for "a budget").
 
@@ -203,6 +209,35 @@ grants, credential custody or the tenant and action registries. MC-18 pins `agen
 only existing files touched are the five the write paths name: `core/src/index.ts` (one line), `THIRD_PARTY_NOTICES` (5 entries),
 `validate-all.cjs` and `cached-runner.cjs` (registration, same position, before `connector-contract1a` because that validator pins
 itself as the last entry), and the new files.
+
+## Review round 1
+
+Two independent reviews of `d7fbea07` agreed. Every item below was written test first (the failing test, then the fix), has a
+named mutation in the validator named after the rule body, and was killed by its own rule. Changes stay in `mcpConnectors/`,
+its tests, the validator and this doc.
+
+| # | Finding | Status | Fix | Test | Rule: mutation |
+|---|---|---|---|---|---|
+| H1 | A row for tenant A could name tenant B's connector, and B's own envelope passed the gate | **Fixed** | `toolCall` compares the server's key tenant, its manifest tenant, the envelope tenant and the connector's tenant, and refuses `TENANT_MISMATCH` before booking | `mcp-toolcall` "refuses a row for tenant A that names the connector of tenant B, even with an envelope of tenant B", and 3 more | MC-23: `the-tenant-is-taken-from-the-envelope` (behavioural), 4 text |
+| H2 | A caller-chosen session key reset the spend limit; zero-cost tools were uncapped; no concurrency cap | **Fixed** | No session key. Spend is per tenant and server in a window (default a day, row field `spendWindowMs`), with a call cap that counts free calls (default 100, row field `callLimit`), and a clock that runs backwards opens no window. The connector caps calls in flight at 4. `transferSession` is removed with the thing it protected | `mcp-spend` rewritten; **the tests that pinned the per-session total and its rotation (`a session that continues under a new id keeps what it spent` and its siblings) are replaced** by "ignores a session key handed in", the window, the call cap and the backwards clock; `mcpConnector` "a new envelope, a new run or a new caller does not start a fresh budget" | MC-11: `a-window-never-ends`, `the-call-cap-is-ignored`, `a-free-call-is-not-counted`, `a-clock-that-runs-backwards-opens-a-window` and 7 more behavioural; a text rule refuses `sessionKey` in cost, call and connector code |
+| H3 | `started` was returned but never stored before the send, and a doc comment said otherwise; no in-flight idempotency guard | **Fixed** | `mcpStartRecordOf` builds the record (started line, booked amount, window totals, a SHA-256 of the canonical arguments, none of the arguments). The connector awaits an injected `StartStorePort` before `tools/call`, and on a refusal or throw sends nothing and gives the booking back. A call whose idempotency key is in flight is refused, and so is a fifth concurrent call. The contradicting comment is replaced | `mcpConnector` "is stored, and awaited, before tools/call is sent", "does not send when the store refuses", "refuses a second call with the same idempotency key", "caps how many calls may be in flight"; `mcp-toolcall` and `mcp-canonical` for the record and digest | MC-24: `a-refused-start-is-sent-anyway`, `a-second-call-with-the-same-key-runs`, `any-number-of-calls-may-run-at-once`, `the-start-record-holds-the-arguments` (behavioural) and 9 text |
+| H4 | A tool could change after the owner approved it (a rug pull); package runners could be launched | **Fixed** | Each tool in the owner's row carries `descriptorHash`, a hash of its description, input schema and annotations. At open, a listed tool that does not match is quarantined, not offered. On **every call** the live list is read again and the tool re-verified, refusing `TOOL_DESCRIPTOR_CHANGED` and giving the cost back. A `tools/list_changed` notice stops calls (`TOOLS_STALE`, and `tools()` is empty) until `refresh()` has read and verified the list again. Launch commands that are package runners or unpinned are refused (M3 below) | `mcp-canonical`; `mcpConnector` "the tool descriptor pin: a rug pull is refused (H4)" (7 tests) | MC-25: `a-changed-descriptor-is-offered`, `the-live-list-is-not-read-on-a-call`, `a-list-changed-notice-is-ignored`, `a-stale-list-is-called`, the three `the-descriptor-hash-leaves-out-...`, `a-hostile-schema-is-read-without-a-bound`, and 14 text |
+| M1 | No timeouts; a failed send left a pending entry; the size cap was applied after parse | **Fixed** | An injected `TimerPort`. Every request has a timeout; one that is not answered ends as `outcome_unknown` with its cost booked, and releases the close's drain. A pending wait on the owner times out as a cancel, and a close ends it. A send that throws at once or rejects later removes its entry and timer. The transport now delivers raw lines, and a line over 1 MiB, counted in **bytes**, is dropped before `JSON.parse` | `mcpRpcClient` (timeouts, byte cap with a `JSON.parse` spy, a multi-byte line, both send failures, timer cancelled on reply, a late reply); `mcpConnector` "timeouts (M1)" | MC-26: `a-request-has-no-timeout`, `a-large-line-is-parsed`, `the-cap-counts-characters-and-not-bytes`, `a-settled-request-keeps-its-timer`, `a-failed-send-leaves-its-request`, `a-throwing-send-escapes-the-request`, `an-owner-wait-has-no-timeout`, `a-finished-call-keeps-its-key`, 11 text |
+| M2 | Elicitation: heard with no call in flight, secrets, malformed requests free, unlimited concurrent answers, loose answers, window lost on reopen | **Fixed** | Heard only while a call is in flight; a form asking for `password`, `passwd`, `secret`, `token`, `api key`, `credential` or `private key` by name is refused; every elicitation request, bad or unprompted, takes a place in the window; at most 2 answers pending; an accept must cover **every** asked field, as typed and within the enum the server named; the rate window is the caller's `Map`, keyed by server, so a reopen is no new allowance | `mcp-requests` (7 new cases); `mcpConnector` "what a server asks of the client" | MC-27: nine behavioural, e.g. `an-unsolicited-elicitation-is-heard`, `a-form-may-ask-for-a-secret`, `any-number-of-answers-may-wait`, `the-window-starts-again-on-a-reopen`; 13 text |
+| M3 | Manifest hygiene | **Fixed**, with one note | The repo's own `holdsSecretShape` (`context/redact`) runs over the command and every argument. Denied environment names: `PATH`, `PATHEXT`, `COMSPEC`, `NODE_OPTIONS`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `DYLD_*`, `PYTHONPATH`, `PYTHONHOME`. Control and format characters (`Cc`, `Cf`, so bidi overrides and zero-width spaces) and `^ % & \| ( )` are refused in the command and arguments. Refused launches: `npx`, `npm`, `pnpm`, `pnpx`, `yarn`, `bunx`, `bun`, `uvx`, `uv`, `pipx`, `deno`; an interpreter with no script or with `-e`, `-c`, `-p`, `--eval`, `/c`, `-Command` and the like; `-y`, `--yes`, `@latest`, `@next`. **Note:** the manifest holds environment *names* only, never values, by design, so there is no env value to scan here; the future spawn port gets values from custody and must scan them (M4) | `mcp-allowlist` "manifest hygiene (M3)" (35 cases) | MC-28: seven behavioural and 13 text |
+| M4 | The spawn port's confinement requirements | **Fixed as types and prose; implementation deferred by design** | `SpawnConfinement` is a type the connector hands to `SpawnPort.open`, and the port's doc names each requirement: a scrubbed environment (no parent inheritance), a working directory the port owns, a line cap before any parse, bounded stderr, resource limits (time, memory, one process). No implementation | the `MC-29` behavioural probe checks what `open` is given | MC-29: `the-spawn-port-is-called-without-its-limits`, `the-environment-is-inherited`, 16 text (the type fields and each phrase of the contract) |
+
+**Carried forward to the phase that writes the real spawn port (M4), not built here:**
+
+1. A **binary-content hash pin** for `manifest.command`. The manifest hash covers the path, not the bytes, so a replaced binary at the same path still hashes the same. The port must refuse a file whose SHA-256 is not the one the owner pinned.
+2. An **argument schema per row** of the owner's allowlist, so a call's arguments are checked against what the owner approved and not against the server's own schema of the day (which the descriptor hash pins only as text).
+3. Every item of `SpawnConfinement`, **proved**: a test that the child sees none of the parent's environment, runs in a directory the port made, has a line dropped at the cap with no parse, has stderr cut at the bound, and is killed at its limits.
+4. A scan of the environment **values** from custody with `holdsSecretShape` is not wanted (a credential is expected there); the rule is instead that a value comes only from custody for a name in `envNames`.
+5. The owner-queue implementation must show `untrustedMessage` as quoted text and expire items it is not answered, as `ports.ts` says.
+
+**Not done, and why.** Nothing from the round was deferred except the M4 implementation and the two pins above, which need a real
+spawn. The per-call re-list narrows the rug-pull window to the gap between the list and the send; it does not close it, because a
+server can still change a tool in between. That gap is the residual of any check made by asking the server.
 
 ## Review findings carried to the reviewers
 
@@ -215,22 +250,24 @@ itself as the last entry), and the new files.
 
 ## Residuals
 
-- No real spawn, and no timeouts (above). A consequence worth a reviewer's eye: an elicitation the owner never answers stays pending, and the rate limit (5 a minute) bounds how fast they pile up, not how many. The owner-queue implementation must expire its items and answer `cancel`.
+- No real spawn (above). The wait on the owner now times out and a close ends it, but the owner-queue implementation must still expire its own items.
+- The per-call re-list narrows the rug-pull window to the gap between the list and the send. A server can still change a tool in that gap.
+- A descriptor hash pins what a tool says; it does not prove what the tool does.
 - `agent/src/mcp/oauth` handles the *owner bridge's* OAuth. A third-party server's OAuth, and its tokens, are G-CUSTODY work for a later phase; this phase passes only environment-variable *names* through the manifest.
 - Dependencies of the connector contract's `CONNECTOR_ID` (`[a-z][a-z0-9-]{1,63}`) and the tool-name pattern here (`[A-Za-z0-9][A-Za-z0-9_.-]{0,63}`) are separate rules; a tool whose real name has other characters is refused rather than mapped.
 - The `optional-mcps` catalogue (Hermes, 56 manifests) was not read. The port map says it is data only, and the allowlist is hand-approved.
 - The behavioural copy is not the build. It runs under type stripping, with imports rewritten and a local shim for `@projectos/core`. `tsc` and the suites cover the real build.
-- `validate-all` runs this validator in about a minute; most of that is its 42 behavioural mutations.
+- `validate-all` runs this validator in about two minutes; most of that is its 83 behavioural mutations, each a fresh process.
 
 ## Commits
 
-`d65df10f` core, `97a4a1d7` agent, `5b19d29c` validator, `2667d147` wip (paused), `192e53b4` merge of the shared credit-dirs commit `86f18e23`, then the final commit of this doc.
+`d65df10f` core, `97a4a1d7` agent, `5b19d29c` validator, `2667d147` wip (paused), `192e53b4` merge of the shared credit-dirs commit `86f18e23`, `d7fbea07` finish record, `d2993545` review round 1 code, tests and validator, then the commit of this doc.
 
 ## Final state
 
-Resumed on the lead's word with the shared credit-dirs commit merged. Complete on this branch, not pushed or merged, phase not closed.
+Review round 1 is answered on this branch (not pushed or merged, phase not closed). The one recheck is the lead's call.
 
-- **Seen to pass:** core tests (64 files, 3015) and build; this phase's agent tests (35) and the agent typecheck through the alias; the 19 validators above, all exit 0, including `val-projectos-port-credit1a` and CC-25.
-- **`tenantSidecar.test.ts`:** passes on base (10 of 10), fails here only through the junction, with every diagnostic inside `src/mcpConnectors/`. Not this phase's break.
-- **Not run:** `validate-all` (the lead's); the stock agent build and suite against a core that resolves to this worktree; ECC SECURITY and Agency reviews.
-- **Left:** the lead's `validate-all`, the two reviews, and the residuals above (no real spawn, no timeouts, durable spend ledger).
+- **Seen to pass:** core tests (65 files, 3102) and build; this phase's agent tests (67) and the agent typecheck through the alias; `val-projectos-port-mcp1a` (243 text, 83 behavioural); 19 validators, all exit 0, including `val-projectos-port-credit1a` after the commit and CC-25.
+- **`tenantSidecar.test.ts`:** as in round 0, junction-induced (passes on base); the stock agent typecheck now shows 33 diagnostics, all in `src/mcpConnectors/`.
+- **Not run:** `validate-all` (the lead's); the full agent suite in round 1; the stock agent build and suite against a core that resolves to this worktree.
+- **Left:** the recheck, the real spawn port with its two pins, the durable ledger and the owner-queue implementation.
