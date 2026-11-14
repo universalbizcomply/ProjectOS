@@ -36,14 +36,14 @@ import { analyzeCommandLine, ALLOWABLE_SYNTAX, type SyntaxFeature } from './comm
 import { admitExecEnvNames } from './execEnv.js';
 import { canonicalPathOf } from './pathCanon.js';
 import { snapshotOfArray, snapshotOfFields } from './plainFields.js';
-import { resolveWrapperPlan } from './wrapperResolution.js';
+import { executableBlockReason, resolveWrapperPlan } from './wrapperResolution.js';
 
 export const MAX_ARGV_ENTRIES = 256;
 export const MAX_ARG_CHARS = 8192;
 export const MAX_EXEC_TIMEOUT_MS = 600_000;
 export const MAX_EXEC_OUTPUT_BYTES = 1_048_576;
 const AGENT_ID = /^[a-z][a-z0-9-]{0,31}$/;
-const REQUEST_FIELDS = ['agentId', 'argv', 'commandLine', 'cwd', 'envNames', 'timeoutMs', 'maxOutputBytes'] as const;
+const REQUEST_FIELDS = ['argv', 'commandLine', 'cwd', 'envNames', 'timeoutMs', 'maxOutputBytes'] as const;
 
 /** Where the real executable is found. Core has no file system, so a caller hands one in; a fake stands in for tests. */
 export interface ExecutableResolverPort {
@@ -63,6 +63,8 @@ export type PrepareRefusal =
   | 'WRAPPER'
   | 'EXECUTABLE_UNRESOLVED'
   | 'EXECUTABLE_PATH'
+  | 'EXECUTABLE_BLOCKED'
+  | 'EXECUTABLE_SCRIPT'
   | 'NOT_HASHABLE';
 
 export interface PreparedExec {
@@ -112,7 +114,8 @@ function wordsProblem(words: readonly unknown[]): string | null {
 function cwdProblem(cwd: unknown): string | null {
   if (typeof cwd !== 'string' || cwd.length === 0 || cwd.length > 4096) return 'the working directory is not text of a usable length';
   if (/[\u0000-\u001f\u007f]/.test(cwd)) return 'the working directory holds a control character';
-  if (!/^(?:\/|[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(cwd)) return 'the working directory is not absolute';
+  if (/^[\\/]{2}/.test(cwd)) return 'the working directory is a network path';
+  if (!/^(?:\/|[A-Za-z]:[\\/])/.test(cwd)) return 'the working directory is not absolute';
   if (cwd.split(/[\\/]+/).includes('..')) return 'the working directory holds a .. segment';
   return null;
 }
@@ -151,11 +154,11 @@ function executableOf(resolver: ExecutableResolverPort, raw: string, cwd: string
 }
 
 /** Read a request once, and bind it to a derived tenant binding. The resolver port is asked once, for the real command. */
-export function prepareExecCommand(binding: TenantBinding, request: unknown, resolver: ExecutableResolverPort): PrepareResult {
+export function prepareExecCommand(binding: TenantBinding, request: unknown, resolver: ExecutableResolverPort, agentId: string): PrepareResult {
   if (!isDerivedBinding(binding)) return no('NO_TENANT_BINDING', 'the binding was not derived from the tenant registry');
   const fields = snapshotOfFields(request, REQUEST_FIELDS);
   if (fields === null) return no('REQUEST_SHAPE', 'a request is a plain object of the known fields, with no getter');
-  if (typeof fields['agentId'] !== 'string' || !AGENT_ID.test(fields['agentId'])) return no('AGENT_ID', 'the agent id is not a plain word');
+  if (typeof agentId !== 'string' || !AGENT_ID.test(agentId)) return no('AGENT_ID', 'the agent id is not a plain word');
   const cwdIssue = cwdProblem(fields['cwd']);
   if (cwdIssue !== null) return no('CWD', cwdIssue);
   if (!wholeNumberIn(fields['timeoutMs'], MAX_EXEC_TIMEOUT_MS) || !wholeNumberIn(fields['maxOutputBytes'], MAX_EXEC_OUTPUT_BYTES)) {
@@ -170,11 +173,13 @@ export function prepareExecCommand(binding: TenantBinding, request: unknown, res
   const cwd = fields['cwd'] as string;
   const executable = executableOf(resolver, plan.argv[0] as string, cwd);
   if (!executable.ok) return executable.result;
+  const blocked = executableBlockReason(executable.path);
+  if (blocked !== null) return no(blocked, `the resolved executable ${executable.path} may not be the command`);
   const argv = Object.freeze([executable.path, ...plan.argv.slice(1)]);
   const body = {
     tenant: binding.tenant,
     project: binding.projectId,
-    agentId: fields['agentId'] as string,
+    agentId,
     cwd,
     envNames: env.names,
     timeoutMs: fields['timeoutMs'] as number,

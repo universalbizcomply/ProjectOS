@@ -73,7 +73,6 @@ export interface RequestChange {
 }
 
 export const request = (change: RequestChange = {}): Record<string, unknown> => ({
-  agentId: 'worker',
   argv: ['git', 'status'],
   cwd: REPO,
   envNames: [],
@@ -83,10 +82,29 @@ export const request = (change: RequestChange = {}): Record<string, unknown> => 
 });
 
 /** A command the reader prepared. A test that cannot prepare its control has found a bug, so it throws. */
-export function preparedOf(binding: TenantBinding, change: RequestChange = {}, resolver: ExecutableResolverPort = resolverOf(TABLE)): PreparedExec {
-  const result = prepareExecCommand(binding, request(change), resolver);
+/** The agent a command is prepared for comes from the caller's identity, never from the request. */
+export function preparedFor(binding: TenantBinding, agentId: string, change: RequestChange = {}, resolver: ExecutableResolverPort = resolverOf(TABLE)): PreparedExec {
+  const result = prepareExecCommand(binding, request(change), resolver, agentId);
   if (!result.ok) throw new Error(`the control command was refused: ${result.code}: ${result.detail}`);
   return result.prepared;
 }
 
-export const DECISION = { decisionId: 'EXECDEC-0123456789abcdef', decidedBy: 'owner', decision: 'allow-once' } as const;
+/** The same, for the agent `worker`, or the agent a test names with `agentId`. */
+export function preparedOf(binding: TenantBinding, change: RequestChange = {}, resolver: ExecutableResolverPort = resolverOf(TABLE)): PreparedExec {
+  const { agentId, ...rest } = change;
+  return preparedFor(binding, typeof agentId === 'string' ? agentId : 'worker', rest, resolver);
+}
+
+export const AGENT = 'worker';
+
+/** The owner's decision as the owner was shown it: it carries the hash of the command. */
+export function decisionFor(prepared: PreparedExec, decisionId = 'EXECDEC-0123456789abcdef', change: Record<string, unknown> = {}): Record<string, unknown> {
+  return { decisionId, decidedBy: 'owner', decision: 'allow-once', hash: prepared.hash, ...change };
+}
+
+/** A verifier that answers exactly true for every claim. A test that wants refusal passes another. */
+export const verifyAll = (): boolean => true;
+
+/** The committed registry with the exec action registered at a class that runs unattended, and a policy that allows git. */
+export const unattendedRegistry = (): ActionRegistry => registryWith({ 'exec-command': 'P3' });
+

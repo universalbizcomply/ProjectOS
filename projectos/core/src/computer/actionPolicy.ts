@@ -38,6 +38,8 @@ import {
   COMPUTER_TOOLS,
   INITIATOR_KINDS,
   foldedText,
+  isAddressLikeHost,
+  normalizeKey,
   readActionContext,
   type ComputerActionContext,
 } from './actionContext.js';
@@ -84,7 +86,9 @@ function valuesFit(field: WhenField, values: readonly string[]): boolean {
     case 'mcpEffects':
       return values.every((value) => value === 'read' || value === 'write');
     case 'hosts':
-      return values.every((value) => HOST_PATTERN.test(value) && !/^[0-9.]+$/.test(value));
+      return values.every((value) => HOST_PATTERN.test(value) && !isAddressLikeHost(value));
+    case 'keys':
+      return values.every((value) => normalizeKey(value)?.key === value && !value.includes('+'));
     case 'fileExtensions':
       return values.every((value) => EXTENSION.test(value));
     case 'filePathPrefixes':
@@ -140,17 +144,40 @@ export function compileActionPolicy(raw: unknown): ActionPolicyResult {
 }
 
 const DESTRUCTIVE_TOOLS: readonly string[] = ['write-file', 'download-file', 'run-command', 'mcp-write'];
-const DESTRUCTIVE_WORDS = /\b(?:submit|delete|remove|erase|pay|purchase|buy|checkout|confirm|send|post|publish|transfer|withdraw|wire|unsubscribe|deactivate)\b/;
+/** Words that make an activation destructive: spending, sending, removing, publishing or leaving. Matched on folded text, at word edges. */
+const DESTRUCTIVE_WORDS = new RegExp(
+  '(?:^|[^a-z0-9])(?:' +
+    [
+      'place\\s+order', 'buy', 'purchase', 'pay', 'payment', 'approve\\s+payment', 'authori[sz]e', 'revoke', 'sign\\s*-?\\s*out', 'log\\s*-?\\s*out', 'transfer', 'send\\s+money',
+      'delete', 'remove', 'erase', 'wipe', 'format', 'reset', 'uninstall', 'publish', 'submit', 'confirm', 'send', 'post', 'checkout', 'withdraw', 'wire', 'unsubscribe', 'deactivate',
+    ].join('|') +
+    ')(?:$|[^a-z0-9])',
+);
 const CREDENTIAL_WORDS = /pass(?:word|code|wd)|\botp\b|totp|2fa|mfa|secret|token|api[ _-]?key|card number|\bcvv\b|\bssn\b|credential|private key/;
-const CREDENTIAL_PATHS = /(?:^|\/)(?:\.ssh|\.aws|\.gnupg|\.npmrc|\.netrc|\.pgpass|\.env[^/]*|credentials[^/]*|id_(?:rsa|ed25519|ecdsa|dsa)|secrets?|tokens?)(?:\/|$)/;
+/** Paths that hold a secret, on a lower-case workspace path: a directory, a file name or an extension. */
+const CREDENTIAL_PATHS = [
+  /(?:^|\/)\.(?:ssh|aws|gnupg|kube)(?:\/|$)/,
+  /(?:^|\/)\.docker\/config\.json$/,
+  /(?:^|\/)\.(?:git-credentials|pypirc|npmrc|netrc|pgpass)$/,
+  /\.(?:pem|key|p12|pfx|kdbx|env)$/,
+  /(?:^|\/)\.env[^/]*$/,
+  /(?:^|\/)id_(?:rsa|ed25519|ecdsa|dsa)[^/]*$/,
+  /(?:^|\/)terraform\.tfstate[^/]*$/,
+  /(?:^|\/)credentials[^/]*$/,
+  /(?:^|\/)(?:secrets?|tokens?)(?:\/|$)/,
+];
+const isCredentialPath = (path: string): boolean => CREDENTIAL_PATHS.some((pattern) => pattern.test(path));
 
 /** Why this action is raised to P5 whatever the registry says, or `null`. */
 export function floorReason(context: ComputerActionContext): 'destructive' | 'credential-adjacent' | null {
   const element = context.element;
-  if (element !== null && (element.type === 'password' || CREDENTIAL_WORDS.test(element.name))) return 'credential-adjacent';
-  if (context.file !== null && (CREDENTIAL_PATHS.test(context.file.path) || CREDENTIAL_WORDS.test(context.file.name))) return 'credential-adjacent';
+  const texts = [context.title, context.url, ...(element === null ? [] : [element.name, element.role, element.label])];
+  if (element !== null && element.type === 'password') return 'credential-adjacent';
+  if (texts.some((text) => CREDENTIAL_WORDS.test(text))) return 'credential-adjacent';
+  if (context.file !== null && (isCredentialPath(context.file.path) || CREDENTIAL_WORDS.test(context.file.name))) return 'credential-adjacent';
   if (context.command !== null && CREDENTIAL_WORDS.test(context.command)) return 'credential-adjacent';
-  if (DESTRUCTIVE_TOOLS.includes(context.tool) || context.submit || (context.intent === 'activate' && (context.tool === 'key' || (element !== null && DESTRUCTIVE_WORDS.test(element.name))))) return 'destructive';
+  if (DESTRUCTIVE_TOOLS.includes(context.tool) || context.submit || context.textActivates || context.keyDestructive || (context.mcp !== null && context.mcp.effect === 'write')) return 'destructive';
+  if (context.intent === 'activate' && (context.tool === 'key' || texts.some((text) => DESTRUCTIVE_WORDS.test(text)))) return 'destructive';
   return null;
 }
 
@@ -160,6 +187,11 @@ export function classOfComputerAction(registry: ActionRegistry, context: Compute
   return floorReason(context) !== null && classAtMost(registered, 'P5') ? 'P5' : registered;
 }
 
+/** A path is under a prefix by whole segments: `docs` covers `docs` and `docs/a`, never `docs-private/a`. */
+const underPrefix = (path: string, prefix: string): boolean => {
+  const base = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
+  return path === base || path.startsWith(`${base}/`);
+};
 const folds = (values: readonly string[], text: string): boolean => values.some((value) => text.includes(value));
 const hostMatches = (patterns: readonly string[], host: string | null): boolean =>
   host !== null && patterns.some((pattern) => (pattern.startsWith('*.') ? host.endsWith(pattern.slice(1)) && host.length > pattern.length - 1 : host === pattern));
@@ -174,7 +206,7 @@ function covers(when: ActionRuleWhen, context: ComputerActionContext): boolean {
     ['elementNameContains', (values) => context.element !== null && folds(values, context.element.name)],
     ['keys', (values) => context.key !== null && values.includes(context.key)],
     ['fileExtensions', (values) => context.file !== null && values.includes(context.file.extension)],
-    ['filePathPrefixes', (values) => context.file !== null && values.some((prefix) => context.file !== null && context.file.path.startsWith(prefix))],
+    ['filePathPrefixes', (values) => context.file !== null && values.some((prefix) => underPrefix(context.file?.path ?? '', prefix))],
     ['mcpServers', (values) => context.mcp !== null && values.includes(context.mcp.server)],
     ['mcpEffects', (values) => context.mcp !== null && values.includes(context.mcp.effect)],
     ['initiators', (values) => values.includes(context.initiator)],

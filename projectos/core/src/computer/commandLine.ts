@@ -18,6 +18,8 @@
  * Pure: no I/O.
  */
 
+import { hasHiddenText, isHiddenChar } from './hiddenText.js';
+
 export type SyntaxFeature = 'chaining' | 'redirection' | 'glob' | 'substitution' | 'grouping' | 'unparsed';
 /** What a pattern may allow. The others cannot be allowed by anything. */
 export const ALLOWABLE_SYNTAX: readonly SyntaxFeature[] = ['redirection', 'glob'];
@@ -33,6 +35,10 @@ export type CommandLineAnalysis =
 const BACKSLASH = String.fromCharCode(92);
 const INVISIBLE_RANGES: readonly (readonly [number, number])[] = [[0x80, 0xa0], [0x1680, 0x1680], [0x180e, 0x180e], [0x2000, 0x200f], [0x2028, 0x202f], [0x205f, 0x206f], [0x3000, 0x3000], [0xfeff, 0xfeff]];
 const INVISIBLE = new RegExp(`[${INVISIBLE_RANGES.map(([from, to]) => String.fromCharCode(from) + '-' + String.fromCharCode(to)).join('')}]`);
+const ASCII_ONLY = /^[\u0000-\u007f]+$/;
+
+/** A character that is not ASCII but folds to ASCII (a full-width dollar or percent): it would read as the shell character it imitates. */
+const imitatesAscii = (ch: string): boolean => (ch.codePointAt(0) ?? 0) > 0x7f && ch.normalize('NFKC') !== ch && ASCII_ONLY.test(ch.normalize('NFKC'));
 const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f]/;
 const ESCAPABLE_IN_DOUBLE = new Set(['"', BACKSLASH, '$', '`']);
 
@@ -60,7 +66,7 @@ function read(line: string): Reading {
   };
   for (let index = 0; index < line.length; index += 1) {
     const ch = line[index] as string;
-    if (CONTROL.test(ch) || INVISIBLE.test(ch)) features.add('unparsed');
+    if (CONTROL.test(ch) || INVISIBLE.test(ch) || isHiddenChar(ch) || imitatesAscii(ch)) features.add('unparsed');
     if (quote === "'") {
       if (ch === "'") quote = null;
       else token += ch;
@@ -105,6 +111,7 @@ function read(line: string): Reading {
 export function analyzeCommandLine(line: unknown, allowed: readonly SyntaxFeature[] = []): CommandLineAnalysis {
   if (typeof line !== 'string' || line.trim() === '' || line.length > MAX_LINE_CHARS) return { ok: false, features: ['unparsed'] };
   const { segments, features } = read(line);
+  if (hasHiddenText(line)) features.add('unparsed');
   // A trailing operator leaves an empty segment at the end: an empty command is unparsed, not skipped.
   if (segments.some((segment) => segment.length === 0)) features.add('unparsed');
   if (segments.length > MAX_SEGMENTS || segments.reduce((sum, segment) => sum + segment.length, 0) > MAX_TOKENS) features.add('unparsed');

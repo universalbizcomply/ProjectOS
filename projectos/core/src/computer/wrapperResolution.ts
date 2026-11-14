@@ -46,7 +46,7 @@ export type WrapperPlan =
   | { readonly ok: true; readonly argv: readonly string[]; readonly wrapperChain: readonly string[] }
   | { readonly ok: false; readonly code: WrapperRefusal; readonly wrapper: string; readonly wrapperChain: readonly string[] };
 
-const POSIX_SHELLS = new Set(['ash', 'bash', 'csh', 'dash', 'elvish', 'fish', 'ksh', 'mksh', 'nu', 'osh', 'sh', 'tcsh', 'xonsh', 'yash', 'zsh']);
+const POSIX_SHELLS = new Set(['ash', 'bash', 'csh', 'dash', 'elvish', 'fish', 'ksh', 'mksh', 'nu', 'osh', 'rbash', 'rksh', 'rzsh', 'sh', 'tcsh', 'xonsh', 'yash', 'zsh']);
 const POWERSHELLS = new Set(['powershell', 'pwsh']);
 const POWERSHELL_QUIET_FLAGS = new Set(['-nologo', '-noprofile', '-noninteractive']);
 const POWERSHELL_COMMAND_FLAGS = new Set(['-c', '-command']);
@@ -54,14 +54,37 @@ const MULTIPLEXERS = new Set(['busybox', 'toybox']);
 const ELEVATIONS = new Set(['sudo', 'doas', 'su', 'runas', 'pkexec', 'gsudo']);
 const LAUNCHERS = new Set([
   'xargs', 'wsl', 'start', 'ssh', 'nsenter', 'chroot', 'unshare', 'script', 'watch', 'at', 'schtasks', 'mshta', 'rundll32', 'wscript', 'cscript', 'explorer', 'setsid', 'flock', 'time', 'exec', 'command', 'builtin',
+  'find', 'awk', 'gawk', 'mawk', 'nawk', 'npx', 'pnpx', 'bunx', 'uvx', 'strace', 'ltrace', 'gdb', 'java', 'dotnet',
 ]);
+const DISPATCH_NAMES = new Set(['env', 'nohup', 'nice', 'timeout', 'stdbuf', 'busybox', 'toybox']);
 const INTERPRETERS = new Set(['node', 'nodejs', 'deno', 'bun', 'perl', 'ruby', 'php', 'lua', 'osascript', 'tclsh', 'wish', 'pythonw']);
-const PYTHON = /^python[0-9.]*$/;
+const PYTHON = /^(?:python|pypy|py)[0-9.]*$/;
 
-/** The executable's own name: the last path segment, lower case, without a native suffix. Source: `normalizeExecutableToken`. */
+const NATIVE_SUFFIX = /\.(?:exe|cmd|bat|com|ps1|vbs|scr|lnk)$/;
+const SCRIPT_SUFFIX = /\.(?:cmd|bat|ps1|vbs|com|scr|lnk)$/;
+
+/**
+ * The executable's own name: the last path segment, trailing dots and spaces dropped (Windows drops them), an alternate data
+ * stream cut off, lower case, without a native suffix and without a version (`python3.11` and `ksh93` are `python` and `ksh`).
+ * Source: `normalizeExecutableToken`, which kept only the basename and the native suffix.
+ */
 export function normalizeExecutableToken(token: string): string {
   const segments = token.split(/[\\/]/);
-  return (segments[segments.length - 1] as string).toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/, '');
+  let name = (segments[segments.length - 1] as string).replace(/[. ]+$/, '');
+  const stream = name.indexOf(':');
+  if (stream > 0) name = name.slice(0, stream);
+  name = name.replace(/[. ]+$/, '').toLowerCase().replace(NATIVE_SUFFIX, '');
+  const bare = name.replace(/[0-9][0-9._-]*$/, '');
+  return bare === '' ? name : bare;
+}
+
+/** Why a RESOLVED executable may not be the command, or `null`: a script target, or a shell, interpreter, launcher or tool that runs what it is given. */
+export function executableBlockReason(resolvedPath: string): 'EXECUTABLE_SCRIPT' | 'EXECUTABLE_BLOCKED' | null {
+  const segments = resolvedPath.split(/[\\/]/);
+  const last = (segments[segments.length - 1] as string).replace(/[. ]+$/, '').toLowerCase();
+  if (SCRIPT_SUFFIX.test(last)) return 'EXECUTABLE_SCRIPT';
+  const name = normalizeExecutableToken(resolvedPath);
+  return ELEVATIONS.has(name) || LAUNCHERS.has(name) || DISPATCH_NAMES.has(name) || INTERPRETERS.has(name) || PYTHON.test(name) || POSIX_SHELLS.has(name) || POWERSHELLS.has(name) || name === 'cmd' ? 'EXECUTABLE_BLOCKED' : null;
 }
 
 const block = (code: WrapperRefusal, wrapper: string, chain: readonly string[]): WrapperPlan => ({ ok: false, code, wrapper, wrapperChain: Object.freeze([...chain]) });
