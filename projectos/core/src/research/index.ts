@@ -47,7 +47,7 @@ export { hitOfPage, renderResearchEvidence, renderSearchResults } from './eviden
 export { screenSearchResults, type DropReason, type DroppedResult, type ScreenedResults } from './resultScreen.js';
 export { LINK_REMOVED, MAX_FILTER_PASSES, filterAnswerText, type FilteredAnswer } from './answerFilter.js';
 export { MAX_ALLOW_LIST_PATH_CHARS, MAX_FETCH_URL_CHARS, MAX_HOSTS_PER_RUN, MAX_PLANNER_QUERY_CHARS, MAX_QUERY_QUOTE_CHARS, MIN_ENCODED_RUN_CHARS, canonicalOf, listedUrlsOf, queryProvenanceProblem, urlProvenanceProblem } from './urlProvenance.js';
-export { MAX_RUN_BUDGET_MICRO_USD, createSpendBook, reservePaidQuery, type SpendBook, type SpendGrant, type SpendRequest } from './searchBudget.js';
+export { MAX_RUN_BUDGET_MICRO_USD, createSpendBook, reservePaidQuery, type SpendBook, type SpendGrant, type SpendRequest as ResearchSpendRequest } from './searchBudget.js';
 export {
   DEFAULT_SEARCH_COUNT,
   MAX_QUERY_CHARS,

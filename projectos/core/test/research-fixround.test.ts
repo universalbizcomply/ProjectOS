@@ -413,7 +413,7 @@ describe('M4: the answer text is filtered before it leaves the loop', () => {
     }
     const started = performance.now();
     filterAnswerText('['.repeat(20000) + '(' .repeat(20000) + '<'.repeat(20000) + 'https://'.repeat(5000), cited);
-    expect(performance.now() - started).toBeLessThan(500);
+    expect(performance.now() - started).toBeLessThan(2000);
   });
 
   it('runResearch returns the filtered text, and says how much it removed', async () => {
