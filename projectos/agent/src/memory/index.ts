@@ -33,3 +33,24 @@ export {
   type MemoryStoreSnapshotResult,
   type StoreChange,
 } from './storeDigest.js';
+export {
+  MAX_COMMITTED_DECISIONS,
+  MAX_COMMITTED_DECISION_BYTES,
+  committedItemOf,
+  readCommittedDecisionTexts,
+  readCommittedMemoryFile,
+  type CommittedReadPorts,
+} from './committedBytes.js';
+export {
+  MAX_DELETABLE_ITEM_BYTES,
+  deleteDerivedIndex,
+  deleteMemoryItem,
+  readDeletionLedger,
+  type DeletionFiles,
+  type DeletionLedgerRead,
+  type IndexDeletionPorts,
+  type LedgerFiles,
+  type MemoryDeletionOutcome,
+  type MemoryDeletionPorts,
+  type MemoryDeletionRefusal,
+} from './memoryDeletion.js';

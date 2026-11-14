@@ -12,12 +12,14 @@
  */
 import { searchIndexFileName, type SearchIndexOwner, type SearchIndexKeyRefusal } from '@projectos/core';
 import { openSearchIndex, type SearchIndex } from './localIndex.js';
-import type { SearchClock } from './ports.js';
+import type { SearchClock, SearchHead } from './ports.js';
 
 export interface ProjectIndexDeps {
   readonly clock: SearchClock;
   /** Makes the directory the index file lives in. Throws when it cannot. */
   readonly ensureDirectory: (directory: string) => void;
+  /** Where HEAD is; see `SearchIndexDeps.head`. Absent, every citation is marked stale. */
+  readonly head?: SearchHead;
 }
 
 export type ProjectIndexOpening =
@@ -36,5 +38,5 @@ export function openProjectSearchIndex(directory: string, owner: SearchIndexOwne
   const where = projectIndexLocation(directory, owner);
   if (!where.ok) return where;
   deps.ensureDirectory(directory);
-  return { ok: true, index: openSearchIndex(where.location, { owner, clock: deps.clock }), location: where.location };
+  return { ok: true, index: openSearchIndex(where.location, { owner, clock: deps.clock, ...(deps.head === undefined ? {} : { head: deps.head }) }), location: where.location };
 }

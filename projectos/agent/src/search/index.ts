@@ -27,5 +27,21 @@ export {
 } from './localIndex.js';
 export { openProjectSearchIndex, projectIndexLocation, type ProjectIndexDeps, type ProjectIndexOpening } from './projectIndex.js';
 export { MAX_STORE_FILES_PER_DIRECTORY, collectStoreSources, storeClassOfPath } from './storeSources.js';
-export { documentFsOver, searchClockOver, type DocumentFs, type DocumentSystem, type EntryKind, type EntryProbe, type EntryStat, type SearchClock } from './ports.js';
+export {
+  MAX_GIT_OUTPUT_BYTES,
+  documentFsOver,
+  gitRunnerOver,
+  searchClockOver,
+  searchHeadOver,
+  type DocumentFs,
+  type DocumentSystem,
+  type EntryKind,
+  type EntryProbe,
+  type EntryStat,
+  type GitRunResult,
+  type GitRunner,
+  type GitSystem,
+  type SearchClock,
+  type SearchHead,
+} from './ports.js';
 export { nodeEnsureDirectory, nodeEntryProbe } from './nodeHost.js';

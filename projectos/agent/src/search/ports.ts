@@ -12,7 +12,12 @@
  * `nodeHost.ts` is the one place that reaches `node:fs` for it. When `System` gains `lstat`, the probe goes.
  *
  * Types are structural and nothing here imports `system.ts`, so a `System` passes where a `DocumentSystem` is asked for.
+ *
+ * GIT IS A PORT TOO (PROJECTOS-MEMORY-PROVENANCE1A). The index records the commit it was built at, and the committed-bytes
+ * reader asks git for a tree entry and a blob. Both take a `GitRunner`, so neither spawns anything: `gitRunnerOver` is the
+ * only place a runner meets a `System`, and a test supplies its own.
  */
+import { isCommitName } from '@projectos/core';
 
 /** The time in whole milliseconds. Must be a finite number; the index refuses one that is not. */
 export interface SearchClock {
@@ -69,6 +74,59 @@ export function searchClockOver(system: Pick<DocumentSystem, 'now'>): SearchCloc
       if (!Number.isFinite(read)) throw new Error('the clock did not give a time');
       latest = Math.max(latest, read);
       return latest;
+    },
+  };
+}
+
+/** What a git command answered: the exit status (null when git could not run) and its standard output. */
+export interface GitRunResult {
+  readonly code: number | null;
+  readonly stdout: string;
+}
+
+/** Asks git, in the project's checkout, one question. A runner that cannot run git answers `{ code: null, stdout: '' }` and does not throw. */
+export type GitRunner = (args: readonly string[]) => GitRunResult;
+
+/** The one method of the agent's `System` a git runner needs. A real `System` has it, with more options. */
+export interface GitSystem {
+  exec(cmd: string, args: readonly string[], options?: { readonly maxOutputBytes?: number }): { readonly code: number; readonly stdout: string };
+}
+
+/** A decision, a memory file and a plan are kilobytes; a megabyte of output is a command that went wrong. */
+export const MAX_GIT_OUTPUT_BYTES = 1_048_576;
+
+/**
+ * A `GitRunner` over a `System`. It runs the `git` the runtime has bound (the `System` resolves it, never a bare name from the
+ * checkout), with replacement objects off, in `root`, with no shell. A throw from the system becomes a failed result.
+ */
+export function gitRunnerOver(system: GitSystem, root: string): GitRunner {
+  return (args) => {
+    try {
+      const result = system.exec('git', ['--no-replace-objects', '-C', root, ...args], { maxOutputBytes: MAX_GIT_OUTPUT_BYTES });
+      return { code: result.code, stdout: result.stdout };
+    } catch {
+      return { code: null, stdout: '' };
+    }
+  };
+}
+
+/** The commit HEAD is at, or null when it cannot be read. Asked at every search, so a commit made since is seen. */
+export interface SearchHead {
+  readonly headCommit: () => string | null;
+}
+
+/** A `SearchHead` that asks `git rev-parse --verify HEAD` and accepts only one clean commit name. */
+export function searchHeadOver(git: GitRunner): SearchHead {
+  return {
+    headCommit: () => {
+      try {
+        const result = git(['rev-parse', '--verify', 'HEAD']);
+        if (result.code !== 0 || typeof result.stdout !== 'string') return null;
+        const name = result.stdout.replace(/\r?\n$/, '');
+        return isCommitName(name) ? name : null;
+      } catch {
+        return null;
+      }
     },
   };
 }
