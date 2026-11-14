@@ -76,7 +76,7 @@ const CORE = {
   grants: c("execGrants"), display: c("execDisplay"), tree: c("processTree"), context: c("actionContext"), action: c("actionPolicy"), network: c("networkPolicy"),
   sandbox: c("sandboxRefusal"), output: c("untrustedOutput"), index: c("index"),
 };
-const AGENT = { ports: a("ports"), kill: a("killTree"), runner: a("execRunner"), index: a("index") };
+const AGENT = { ports: a("ports"), thrown: a("describeThrown"), kill: a("killTree"), runner: a("execRunner"), index: a("index") };
 
 /** Every file in the two directories, and what it is. A file that is not listed here cannot land. */
 const PORTED = {
@@ -93,7 +93,7 @@ const PORTED = {
   [AGENT.runner]: { id: "openclaw", paths: ["src/process/exec-runner.ts", "src/process/exec-result.ts"] },
   [AGENT.kill]: { id: "openclaw", paths: ["src/process/exec-termination.ts", "src/process/kill-tree.ts"] },
 };
-const ORIGINAL = [CORE.clock, CORE.hidden, CORE.canonical, CORE.pathCanon, CORE.commandLine, CORE.env, CORE.plain, CORE.launch, CORE.sandbox, CORE.output, CORE.index, AGENT.ports, AGENT.index];
+const ORIGINAL = [CORE.clock, CORE.hidden, CORE.canonical, CORE.pathCanon, CORE.commandLine, CORE.env, CORE.plain, CORE.launch, CORE.sandbox, CORE.output, CORE.index, AGENT.ports, AGENT.thrown, AGENT.index];
 const ALL_FILES = [...Object.keys(PORTED), ...ORIGINAL];
 const CORE_FILES = ALL_FILES.filter((rel) => rel.startsWith(`${CDIR}/`));
 const AGENT_FILES = ALL_FILES.filter((rel) => rel.startsWith(`${ADIR}/`));
@@ -109,15 +109,15 @@ const CORE_PUBLIC = [
   "intentOf", "computerCanonicalHost", "classOfComputerAction", "compileActionPolicy", "evaluateActionPolicy", "floorReason", "effectiveNetworkPolicy", "egressAllowed",
   "createRefusingBrowser", "createRefusingComputerUse", "refuseSandboxCall", "fenceUntrustedOutput", "SANDBOX_NOT_AVAILABLE", "MAX_GRANT_TTL_MS", "MAX_GRANTS_PER_SCOPE", "MAX_DECISIONS_PER_SCOPE",
 ];
-const AGENT_PUBLIC = ["runExecPlan", "beginStop", "planGroupSweep", "SETTLE_WINDOW_MS", "MAX_START_ERROR_CHARS"];
+const AGENT_PUBLIC = ["runExecPlan", "beginStop", "planGroupSweep", "describeThrown", "SETTLE_WINDOW_MS", "MAX_START_ERROR_CHARS"];
 /** What would mean a caller reached these rules: a function this module exports, or an import path into it. */
 const WIRED_NAMES = new RegExp(
   String.raw`\b(?:${[
     "prepareExecCommand", "createExecGrantStore", "compileExecPolicy", "evaluateExecPolicy", "planAllowlistedExec", "compileExecAllowlistPattern", "compileActionPolicy",
     "evaluateActionPolicy", "readActionContext", "effectiveNetworkPolicy", "egressAllowed", "planKillTree", "resolveWrapperPlan", "analyzeCommandLine", "admitExecEnvNames",
     "execCanonicalPath", "describeExecForOwner", "fenceUntrustedOutput", "createRefusingBrowser", "createRefusingComputerUse", "refuseSandboxCall", "isExecLaunchPlan",
-    "isPreparedExec", "runExecPlan", "beginStop", "classOfComputerAction", "SANDBOX_NOT_AVAILABLE",
-  ].join("|")})\b|\bcomputer\/(?:index|clock|hiddenText|canonicalJson|pathCanon|allowlistPattern|commandLine|wrapperResolution|execEnv|plainFields|execCommand|execLaunch|execPolicy|execGrants|execDisplay|processTree|actionContext|actionPolicy|networkPolicy|sandboxRefusal|untrustedOutput|ports|killTree|execRunner)\b`,
+    "isPreparedExec", "runExecPlan", "beginStop", "describeThrown", "execArgsRunSomething", "classOfComputerAction", "SANDBOX_NOT_AVAILABLE",
+  ].join("|")})\b|\bcomputer\/(?:index|clock|hiddenText|canonicalJson|pathCanon|allowlistPattern|commandLine|wrapperResolution|execEnv|plainFields|execCommand|execLaunch|execPolicy|execGrants|execDisplay|processTree|actionContext|actionPolicy|networkPolicy|sandboxRefusal|untrustedOutput|ports|describeThrown|killTree|execRunner)\b`,
 );
 
 /** The modes and words that are refused, in code. A comment may name them to say they are not here. */
@@ -140,8 +140,8 @@ const PURITY = {
   [CORE.action]: ["../actionRegistry.js", "./actionContext.js", "./plainFields.js"], [CORE.network]: ["../tenant.js", "./actionContext.js", "./plainFields.js"],
   [CORE.sandbox]: [], [CORE.output]: ["./canonicalJson.js", "./hiddenText.js"],
   [CORE.index]: Object.values(CORE).filter((rel) => rel !== CORE.index).map((rel) => `./${path.posix.basename(rel, ".ts")}.js`),
-  [AGENT.ports]: ["@projectos/core"], [AGENT.kill]: ["@projectos/core", "./ports.js"], [AGENT.runner]: ["@projectos/core", "./killTree.js", "./ports.js"],
-  [AGENT.index]: ["./execRunner.js", "./killTree.js", "./ports.js"],
+  [AGENT.ports]: ["@projectos/core"], [AGENT.thrown]: ["@projectos/core"], [AGENT.kill]: ["@projectos/core", "./describeThrown.js", "./ports.js"], [AGENT.runner]: ["@projectos/core", "./describeThrown.js", "./killTree.js", "./ports.js"],
+  [AGENT.index]: ["./describeThrown.js", "./execRunner.js", "./killTree.js", "./ports.js"],
 };
 const SPECIFIERS = [/^\s*import\s*['"]([^'"]+)['"]/gm, /^\s*import\b[^'"]*?\bfrom\s*['"]([^'"]+)['"]/gm, /^\s*export\b[^'"=]*?\bfrom\s*['"]([^'"]+)['"]/gm];
 const IMPURE =
@@ -195,11 +195,20 @@ const TESTS = {
     "reads every spelling of Enter, Space and the destructive keys as activation", "reads typed text with a newline", "floors the credential paths of the wider list",
     "matches a file path prefix on whole segments", "floors an MCP call by its effect", "takes the command of a run-command from a prepared command and never from free text",
     "refuses a resolved executable that is a shell, an interpreter, a launcher", "refuses a resolved script target outright", "normalises the first word of a command the same way",
-    "does not let anyArgs reach the arguments of git, find, tar or curl", "lets an entry name arguments it never allows", "checks the working directory against the entry, by segment",
+    "lets anyArgs reach the arguments of a tool that cannot run or write anything", "lets an entry name arguments it never allows", "checks the working directory against the entry, by segment",
     "takes environment names from an allow-list", "treats a locked flag that is not a boolean, or any malformed row, as deny all", "never lets a group widen the organization",
     "takes the most restrictive of several groups", "refuses numeric, hex, octal, decimal and IPv6 literal hosts", "strips ANSI and bidi and zero-width characters from output",
     "does not let an embedded closing fence close the real one", "refuses a soft hyphen, a combining grapheme joiner", "refuses a clock that jumped forward and was corrected",
     "plans the tree, never a root-only kill",
+  ],
+  [`${CORE_TEST_DIR}/computer-review2.test.ts`]: [
+    "floors a word split by any default-ignorable code point", "floors a word written with a Greek capital Epsilon, a Cyrillic Ve, a combining mark or an accent",
+    "refuses a command line holding a default-ignorable code point", "reads every spacing, separator and prefix of Enter and Alt+F4 as activation",
+    "refuses a spelling it cannot read, instead of reading it as typing", "keeps plain printable keys and ordinary chords as plain typing",
+    "refuses anyArgs at compile time for the named tools and the interpreters", "still allows anyArgs for a tool that cannot", "refuses the argument forms that run or write",
+    "floors a stem, a plural, a participle", "floors a generic confirmation button on a click", "floors a navigation whose url path names an irreversible action",
+    "tests credential words on the whole path", "mints again once the horizon of a full set has passed", "never mints a decision id twice inside its horizon",
+    "uses the same horizon for a denial", "refuses a wildcard on the named hosting suffixes", "still allows an exact host on those suffixes",
   ],
   [`${CORE_TEST_DIR}/computer-display.test.ts`]: [
     "shows the command as it runs and as it was asked", "writes every hidden or spoofing character out as an escape", "cuts a long command at the cap with a marker", "shows nothing for a value the reader did not prepare",
@@ -213,6 +222,8 @@ const TESTS = {
     "refuses a plan held past its expiry", "refuses a plan cleared under another policy", "refuses a plan for a grant that was revoked", "refuses when the gate cannot say",
     "never lets a clock that ran forward and was corrected", "does not mark a refused plan run", "still stops a timed-out detached child whose own group is not known",
     "sweeps the group of a leader that exited on its own", "forces a child that is still running when the run ends", "bounds a start error and fences it as untrusted data",
+    "returns a start-failed outcome, with a bounded fenced description, for any thrown value", "records a signal that throws an odd value, and goes on",
+    "treats a handle whose isRunning throws as still running", "sends the escalation when isRunning throws at the grace timer",
   ],
 };
 const NOT_RUN = /\b(?:it|test|describe|suite|bench)\.(?:skip|only|todo|fails|skipIf|runIf)\b|\.(?:skip|only)\(|\b(?:xit|fit|xdescribe|fdescribe)\(/;
@@ -227,10 +238,11 @@ const SOURCE_PINS = {
   [CORE.env]: ["A VALUE NEVER RIDES IN A REQUEST.", "AN ALLOW-LIST, NOT A DENY-LIST."],
   [CORE.hidden]: ["A WORD THAT IS SPLIT IS STILL THAT WORD."],
   [CORE.command]: ["THE HASH IS OF WHAT RUNS.", "NOTHING THE CALLER SAYS IS A BOUND.", "NO SHELL RUNS.", "WHAT THIS MODULE CANNOT PROVE."],
-  [CORE.launch]: ["A PLAN IS MINTED HERE AND NOWHERE ELSE.", "A PLAN GOES STALE."],
+  [CORE.launch]: ["A PLAN IS MINTED HERE AND NOWHERE ELSE.", "A PLAN GOES STALE.", "RESIDUALS, STATED."],
+  [AGENT.thrown]: ["A PORT'S FAILURE IS UNTRUSTED TEXT, AND READING IT MUST NOT FAIL."],
   [CORE.policy]: ["THE DEFAULT IS NO.", "ONE GATE. `gateExecPolicy` is the only question", "AN ALLOWLIST HIT IS NOT A GRANT.", "THE CLASS IS LOOKED UP, NEVER SAID.", "WHAT THIS MODULE CANNOT PROVE."],
   [CORE.grants]: [
-    "A GRANT IS FOR ONE COMMAND, ONCE.", "A DECISION IS NOT BELIEVED BECAUSE IT SAYS SO.", "A DECISION ID IS USED ONCE, FOR GOOD.", "THE AGENT IS THE CALLER'S, NOT THE REQUEST'S.", "A GRANT NEVER BEATS THE POLICY.", "A POSSIBLY-ACTED GRANT IS SPENT FOR GOOD.", "NOTHING THE CALLER SAYS IS A BOUND.", "THE STORE IS BOUNDED AND NEVER EVICTS A LIVE ENTRY.",
+    "A GRANT IS FOR ONE COMMAND, ONCE.", "A DECISION IS NOT BELIEVED BECAUSE IT SAYS SO.", "A DECISION ID IS USED ONCE, WITHIN ITS HORIZON.", "THE AGENT IS THE CALLER'S, NOT THE REQUEST'S.", "A GRANT NEVER BEATS THE POLICY.", "A POSSIBLY-ACTED GRANT IS SPENT FOR GOOD.", "NOTHING THE CALLER SAYS IS A BOUND.", "THE STORE IS BOUNDED AND NEVER EVICTS A LIVE ENTRY.",
     "A WELL-FORMED RECORD THAT NAMES A DECISION ID IS NOT AN APPROVAL.", "WHAT THIS MODULE CANNOT PROVE.",
   ],
   [CORE.display]: ["THE OWNER READS WHAT RUNS."],
@@ -332,6 +344,7 @@ function loadAll(sources) {
 const NOW = Date.parse("2026-11-14T12:00:00.000Z");
 const MINUTE = 60_000;
 const GIT = "/usr/bin/git";
+const LS = "/bin/ls";
 const REPO = "/work/polygo";
 const TABLE = {
   git: GIT, [GIT]: GIT, ls: "/bin/ls", cat: "/bin/cat", sudo: "/usr/bin/sudo", node: "/usr/bin/node", xargs: "/usr/bin/xargs", sh: "/bin/sh", bash: "/bin/bash",
@@ -408,7 +421,7 @@ function worldOf(loaded, jsons) {
     if (!issued.ok) throw new Error(`the control grant was refused: ${issued.code}`);
     return { time, store, prepared, grant: issued.grant, binding: w.polygo };
   };
-  w.planPolicy = w.xp({ mode: "allowlist", allowlist: [{ pattern: GIT, cwdPrefixes: ["/work"], anyArgs: true }] });
+  w.planPolicy = w.xp({ mode: "allowlist", allowlist: [GIT_ENTRY] });
   w.plan = (change = {}) => {
     const prepared = w.prep(w.polygo, change);
     const planned = core.planAllowlistedExec(w.polygo, w.planPolicy, w.unattended, prepared, () => NOW);
@@ -717,12 +730,12 @@ const SCENARIOS = [
   // CP-4: the exec policy
   S("CP-4", "an-exact-hit-under-a-class-that-runs-unattended-is-a-hit", ANSWER, "ok", (w) => ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [GIT_ENTRY] }), w.unattended, w.prep(w.polygo))), true),
   S("CP-4", "a-command-another-executable-covers-is-not-a-hit", REFUSE, "NOT_ALLOWLISTED", (w) =>
-    ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [{ pattern: GIT, cwdPrefixes: ["/work"], anyArgs: true }] }), w.unattended, w.prep(w.polygo, { argv: ["ls"] })))),
+    ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [GIT_ENTRY] }), w.unattended, w.prep(w.polygo, { argv: ["ls", "status"] })))),
   S("CP-4", "a-command-with-other-arguments-is-not-a-hit", REFUSE, "NOT_ALLOWLISTED", (w) => ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [GIT_ENTRY] }), w.unattended, w.prep(w.polygo, { argv: ["git", "log"] })))),
   S("CP-4", "a-syntax-the-entry-does-not-allow-is-not-a-hit", REFUSE, "NOT_ALLOWLISTED", (w) =>
-    ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [{ pattern: GIT, cwdPrefixes: ["/work"], anyArgs: true }] }), w.unattended, w.prep(w.polygo, { argv: undefined, commandLine: "git add *.ts" })))),
+    ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [{ pattern: LS, cwdPrefixes: ["/work"], anyArgs: true }] }), w.unattended, w.prep(w.polygo, { argv: undefined, commandLine: "ls *.ts" })))),
   S("CP-4", "a-syntax-the-entry-allows-is-a-hit", ANSWER, "ok", (w) =>
-    ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [{ pattern: GIT, cwdPrefixes: ["/work"], anyArgs: true, allowSyntax: ["glob"] }] }), w.unattended, w.prep(w.polygo, { argv: undefined, commandLine: "git add *.ts" }))), true),
+    ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [{ pattern: LS, cwdPrefixes: ["/work"], anyArgs: true, allowSyntax: ["glob"] }] }), w.unattended, w.prep(w.polygo, { argv: undefined, commandLine: "ls *.ts" }))), true),
   S("CP-4", "deny-mode-refuses-an-exact-hit", REFUSE, "MODE_DENY", (w) => ed(w.core.evaluateExecPolicy(w.xp({ mode: "deny", allowlist: [GIT_ENTRY] }), w.unattended, w.prep(w.polygo)))),
   S("CP-4", "ask-always-asks-even-on-a-hit", ANSWER, "owner:ASK_ALWAYS", (w) => ed(w.core.evaluateExecPolicy(w.xp({ mode: "ask-always", allowlist: [GIT_ENTRY] }), w.unattended, w.prep(w.polygo)))),
   S("CP-4", "a-miss-in-ask-mode-asks-the-owner", ANSWER, "owner:NOT_ALLOWLISTED", (w) => ed(w.core.evaluateExecPolicy(w.xp({ mode: "ask-on-miss", allowlist: [GIT_ENTRY] }), w.unattended, w.prep(w.polygo, { argv: ["git", "log"] })))),
@@ -731,18 +744,18 @@ const SCENARIOS = [
   S("CP-4", "a-class-above-the-ceiling-needs-the-owner", ANSWER, "owner:CLASS_NEEDS_OWNER", (w) => ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [GIT_ENTRY] }), w.registry({ "exec-command": "P4" }), w.prep(w.polygo)))),
   S("CP-4", "a-class-the-owner-may-never-grant-is-refused", REFUSE, "CLASS_PROHIBITED", (w) => ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [GIT_ENTRY] }), w.registry({ "exec-command": "P6" }), w.prep(w.polygo))), true),
   S("CP-4", "a-policy-this-module-did-not-compile-is-refused", REFUSE, "POLICY_INVALID", (w) => {
-    const handMade = { mode: "allowlist", entries: [{ pattern: { matches: () => true, canonical: "x" }, args: null, allowSyntax: [], cwdPrefixes: [["posix", "work"]], denyArgs: [] }] };
+    const handMade = { mode: "allowlist", entries: [{ pattern: { matches: () => true, canonical: "x" }, args: ["status"], allowSyntax: [], cwdPrefixes: [["posix", "work"]], denyArgs: [] }] };
     return ed(w.core.evaluateExecPolicy(handMade, w.unattended, w.prep(w.polygo)));
   }),
   S("CP-4", "a-command-this-module-did-not-prepare-is-refused", REFUSE, "NOT_PREPARED", (w) =>
     ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [GIT_ENTRY] }), w.unattended, { ...w.prep(w.polygo) }))),
   S("CP-4", "a-mode-this-module-does-not-know-is-refused", REFUSE, "POLICY_MODE", (w) => cd(w.core.compileExecPolicy({ mode: "full", allowlist: [] }))),
-  S("CP-4", "an-entry-with-neither-arguments-nor-any-arguments-is-refused", REFUSE, "ENTRY_ARGS", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: GIT, cwdPrefixes: ["/work"] }] }))),
-  S("CP-4", "an-entry-that-allows-chaining-is-refused", REFUSE, "ENTRY_SYNTAX", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: GIT, cwdPrefixes: ["/work"], anyArgs: true, allowSyntax: ["chaining"] }] }))),
-  S("CP-4", "an-entry-with-an-unknown-field-is-refused", REFUSE, "ENTRY_SHAPE", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: GIT, cwdPrefixes: ["/work"], anyArgs: true, elevated: true }] }))),
+  S("CP-4", "an-entry-with-neither-arguments-nor-any-arguments-is-refused", REFUSE, "ENTRY_ARGS", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: LS, cwdPrefixes: ["/work"] }] }))),
+  S("CP-4", "an-entry-that-allows-chaining-is-refused", REFUSE, "ENTRY_SYNTAX", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: LS, cwdPrefixes: ["/work"], anyArgs: true, allowSyntax: ["chaining"] }] }))),
+  S("CP-4", "an-entry-with-an-unknown-field-is-refused", REFUSE, "ENTRY_SHAPE", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: LS, cwdPrefixes: ["/work"], anyArgs: true, elevated: true }] }))),
   S("CP-4", "a-policy-with-a-dry-run-field-is-refused", REFUSE, "POLICY_SHAPE", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [], dryRun: true }))),
   S("CP-4", "only-an-allowlist-hit-makes-a-plan", REFUSE, "NOT_AN_ALLOWLIST_HIT", (w) => cd(w.core.planAllowlistedExec(w.polygo, w.xp({ mode: "allowlist", allowlist: [GIT_ENTRY] }), w.unattended, w.prep(w.polygo, { argv: ["git", "log"] }), () => NOW))),
-  S("CP-4", "a-plan-for-a-command-of-another-project-is-refused", REFUSE, "WRONG_SCOPE", (w) => cd(w.core.planAllowlistedExec(w.polygo, w.xp({ mode: "allowlist", allowlist: [{ pattern: GIT, cwdPrefixes: ["/work"], anyArgs: true }] }), w.unattended, w.prep(w.projectos), () => NOW))),
+  S("CP-4", "a-plan-for-a-command-of-another-project-is-refused", REFUSE, "WRONG_SCOPE", (w) => cd(w.core.planAllowlistedExec(w.polygo, w.planPolicy, w.unattended, w.prep(w.projectos), () => NOW))),
 
   // CP-5: a path has one spelling
   S("CP-5", "an-exact-path-is-matched", ANSWER, "ok", (w) => matched(w, "/usr/bin/*", "/usr/bin/git"), true),
@@ -1163,18 +1176,20 @@ const SCENARIOS = [
   S("CP-6", "a-name-off-the-allow-list-is-refused", REFUSE, "ENV", (w) => cd(w.prepare(w.polygo, { envNames: ["MY_VAR"] }))),
   S("CP-6", "a-secret-family-name-is-refused", REFUSE, "ENV", (w) => cd(w.prepare(w.polygo, { envNames: ["SUPABASE_SERVICE_ROLE_KEY"] }))),
   S("CP-6", "a-name-on-the-allow-list-is-accepted", ANSWER, "LANG,LC_ALL", (w) => w.prep(w.polygo, { envNames: ["LC_ALL", "LANG"] }).envNames.join(","), true),
-  S("CP-4", "git-config-overrides-are-not-a-hit-for-open-arguments", REFUSE, "NOT_ALLOWLISTED", (w) =>
-    ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [{ pattern: GIT, cwdPrefixes: ["/work"], anyArgs: true }] }), w.unattended, w.prep(w.polygo, { argv: ["git", "-c", "core.pager=x", "log"] })))),
-  S("CP-4", "a-tool-that-runs-what-it-is-handed-needs-exact-arguments", REFUSE, "NOT_ALLOWLISTED", (w) =>
-    ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [{ pattern: "/usr/bin/sed", cwdPrefixes: ["/work"], anyArgs: true }] }), w.unattended, w.prep(w.polygo, { argv: ["sed", "-i", "s/a/b/", "f"] }, w.resolverOf({ sed: "/usr/bin/sed" }))))),
+  S("CP-4", "anyargs-on-git-is-refused-at-compile", REFUSE, "ENTRY_OPEN_ARGS", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: GIT, cwdPrefixes: ["/work"], anyArgs: true }] }))),
+  S("CP-4", "anyargs-on-a-gnu-sed-is-refused-at-compile", REFUSE, "ENTRY_OPEN_ARGS", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: "/usr/bin/gsed", cwdPrefixes: ["/work"], anyArgs: true }] }))),
+  S("CP-4", "anyargs-on-an-interpreter-is-refused-at-compile", REFUSE, "ENTRY_OPEN_ARGS", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: "/usr/bin/node", cwdPrefixes: ["/work"], anyArgs: true }] }))),
+  S("CP-4", "anyargs-on-a-wildcard-tool-name-is-refused-at-compile", REFUSE, "ENTRY_OPEN_ARGS", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: "/usr/bin/g*", cwdPrefixes: ["/work"], anyArgs: true }] }))),
+  S("CP-4", "exact-arguments-are-allowed-for-a-tool-anyargs-refuses", ANSWER, "ok", (w) =>
+    ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [{ pattern: "/usr/bin/sed", cwdPrefixes: ["/work"], args: ["-n", "1p", "f"] }] }), w.unattended, w.prep(w.polygo, { argv: ["sed", "-n", "1p", "f"] }, w.resolverOf({ sed: "/usr/bin/sed" })))), true),
   S("CP-4", "an-argument-the-entry-denies-is-not-a-hit", REFUSE, "NOT_ALLOWLISTED", (w) =>
-    ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [{ pattern: GIT, cwdPrefixes: ["/work"], anyArgs: true, denyArgs: ["push"] }] }), w.unattended, w.prep(w.polygo, { argv: ["git", "push"] })))),
+    ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [{ pattern: LS, cwdPrefixes: ["/work"], anyArgs: true, denyArgs: ["-R"] }] }), w.unattended, w.prep(w.polygo, { argv: ["ls", "-R"] })))),
   S("CP-4", "a-directory-outside-the-entry-is-not-a-hit", REFUSE, "NOT_ALLOWLISTED", (w) =>
     ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [GIT_ENTRY] }), w.unattended, w.prep(w.polygo, { cwd: "/etc" })))),
   S("CP-4", "a-sibling-directory-is-not-under-the-entry", REFUSE, "NOT_ALLOWLISTED", (w) =>
     ed(w.core.evaluateExecPolicy(w.xp({ mode: "allowlist", allowlist: [GIT_ENTRY] }), w.unattended, w.prep(w.polygo, { cwd: "/workshop" })))),
-  S("CP-4", "an-entry-without-a-directory-is-refused", REFUSE, "ENTRY_CWD", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: GIT, anyArgs: true }] }))),
-  S("CP-4", "an-entry-in-a-network-share-is-refused", REFUSE, "ENTRY_CWD", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: GIT, anyArgs: true, cwdPrefixes: ["//host/share/x"] }] }))),
+  S("CP-4", "an-entry-without-a-directory-is-refused", REFUSE, "ENTRY_CWD", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: LS, anyArgs: true }] }))),
+  S("CP-4", "an-entry-in-a-network-share-is-refused", REFUSE, "ENTRY_CWD", (w) => cd(w.core.compileExecPolicy({ mode: "allowlist", allowlist: [{ pattern: LS, anyArgs: true, cwdPrefixes: ["//host/share/x"] }] }))),
 
   // Review round 1, M6: a hidden or look-alike character in a command line
   S("CP-6", "a-soft-hyphen-in-a-command-line-is-refused", REFUSE, "COMMAND_LINE", (w) => cd(w.prepare(w.polygo, { argv: undefined, commandLine: `git ${String.fromCharCode(0xad)}log` }))),
@@ -1196,11 +1211,11 @@ const SCENARIOS = [
   S("CP-3", "transfer-funds-floors", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
     ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: "Transfer funds", type: "button" } })))),
   S("CP-3", "a-window-title-with-a-destructive-word-floors-an-activation", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
-    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: "OK", type: "button" }, title: "Delete your account?" })))),
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: "Next", type: "button" }, title: "Delete your account?" })))),
   S("CP-3", "a-url-with-a-destructive-word-floors-an-activation", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
-    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: "OK", type: "button" }, url: "https://a.example.com/account/delete" })))),
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: "Next", type: "button" }, url: "https://a.example.com/account/delete" })))),
   S("CP-3", "an-element-label-with-a-destructive-word-floors-an-activation", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
-    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: "OK", type: "button", label: "Place order" } })))),
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: "Next", type: "button", label: "Place order" } })))),
   S("CP-3", "a-keypad-enter-activates", ANSWER, "DENY_RULE", (w) => keyDecision(w, "KP_Enter")),
   S("CP-3", "a-chord-with-enter-activates", ANSWER, "DENY_RULE", (w) => keyDecision(w, "Ctrl+Enter")),
   S("CP-3", "a-spelled-out-space-activates", ANSWER, "DENY_RULE", (w) => keyDecision(w, "spacebar")),
@@ -1341,6 +1356,159 @@ const SCENARIOS = [
     const outcome = await done(w.agent.runExecPlan(w.plan(), world.ports));
     return `${outcome.startError.length <= 512},${outcome.startError.framed.startsWith("<<computer-output:sha256:")}`;
   }),
+  // Review round 2, N1: every default-ignorable character, combining marks and the look-alike letters
+  S("CP-3", "a-default-ignorable-character-still-floors", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: `De${String.fromCharCode(0x206a)}lete account`, type: "button" } })))),
+  S("CP-3", "a-greek-capital-epsilon-still-floors", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: `D${String.fromCharCode(0x395)}LETE`, type: "button" } })))),
+  S("CP-3", "a-cyrillic-ve-is-read-as-a-b", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: `${String.fromCharCode(0x412)}uy now`, type: "button" } })))),
+  S("CP-3", "a-combining-mark-in-a-word-still-floors", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: `De${String.fromCharCode(0x332)}lete`, type: "button" } })))),
+  S("CP-3", "an-accented-letter-in-a-word-still-floors", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: `Del${String.fromCharCode(0xe9)}te`, type: "button" } })))),
+  S("CP-6", "a-default-ignorable-in-a-command-line-is-refused", REFUSE, "COMMAND_LINE", (w) => cd(w.prepare(w.polygo, { argv: undefined, commandLine: `git ${String.fromCharCode(0x17b4)}log` }))),
+
+  // Review round 2, N2: an unrecognised key spelling is never plain typing
+  S("CP-3", "a-spaced-chord-activates", ANSWER, "DENY_RULE", (w) => keyDecision(w, "ctrl + enter")),
+  S("CP-3", "a-trailing-space-does-not-hide-enter", ANSWER, "DENY_RULE", (w) => keyDecision(w, "enter ")),
+  S("CP-3", "a-key-prefix-does-not-hide-enter", ANSWER, "DENY_RULE", (w) => keyDecision(w, "Key.enter")),
+  S("CP-3", "a-dashed-chord-activates", ANSWER, "DENY_RULE", (w) => keyDecision(w, "ctrl-enter")),
+  S("CP-3", "a-spaced-alt-f4-is-destructive", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap([{ id: "allow-keys", effect: "allow", when: { tools: ["key"] } }]), w.registry({ "computer-key": "P2" }), { tool: "key", host: "a.example.com", key: "Alt + F4", initiator: "person" }))),
+  S("CP-3", "an-unrecognised-key-is-refused", ANSWER, "CONTEXT_INVALID", (w) => keyDecision(w, "entr")),
+  S("CP-3", "an-unknown-modifier-is-refused", ANSWER, "CONTEXT_INVALID", (w) => keyDecision(w, "ctrll+enter")),
+  S("CP-3", "a-chord-with-a-letter-stays-typing", ANSWER, "ALLOW_RULE", (w) => keyDecision(w, "Ctrl + C"), true),
+
+  // Review round 2, N3: anyArgs and the dangerous argument forms
+  S("CP-4", "a-combined-short-flag-that-writes-is-refused", ANSWER, "true", (w) => String(w.core.execArgsRunSomething("curl", ["-sSLO", "https://a.example.com"]))),
+  S("CP-4", "an-abbreviated-long-option-that-runs-is-refused", ANSWER, "true", (w) => String(w.core.execArgsRunSomething("tar", ["--checkpoint-ac=exec=sh"]))),
+  S("CP-4", "a-git-subcommand-that-runs-is-refused", ANSWER, "true", (w) => String(w.core.execArgsRunSomething("git", ["bisect", "run", "sh"]))),
+  S("CP-4", "a-tar-interpreter-flag-in-a-cluster-is-refused", ANSWER, "true", (w) => String(w.core.execArgsRunSomething("tar", ["-xIsh", "a"]))),
+  S("CP-4", "a-gnu-sed-has-no-open-arguments", ANSWER, "true", (w) => String(w.core.execArgsRunSomething("gsed", ["-i", "s/a/b/", "f"]))),
+  S("CP-4", "a-tool-that-cannot-run-anything-has-open-arguments", ANSWER, "false", (w) => String(w.core.execArgsRunSomething("ls", ["-la"])), true),
+
+  // Review round 2, N4: stems, confirmations, navigation and whole paths
+  S("CP-3", "a-participle-still-floors", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: "Deleting", type: "button" } })))),
+  S("CP-3", "a-plural-still-floors", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: "Payments", type: "button" } })))),
+  S("CP-3", "a-camel-case-compound-with-the-word-last-still-floors", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: "accountDelete", type: "button" } })))),
+  S("CP-3", "place-your-order-floors", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: "Place your order", type: "button" } })))),
+  S("CP-3", "a-confirmation-button-floors-on-a-click", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap(ALLOW_CLICK), w.registry({ "computer-click": "P2" }), CLICK({ element: { role: "button", name: "OK", type: "button" } })))),
+  S("CP-3", "a-confirmation-word-in-typing-is-not-raised", ANSWER, "ok", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap([{ id: "allow-type", effect: "allow", when: { tools: ["type"] } }]), w.registry({ "computer-type": "P2" }), { tool: "type", host: "a.example.com", element: { role: "textbox", name: "Allow list" }, text: "ok", initiator: "person" })), true),
+  S("CP-3", "a-logout-url-floors-a-navigation", REFUSE, "OWNER_DECISION_REQUIRED", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap([{ id: "allow-nav", effect: "allow", when: { tools: ["navigate"] } }]), w.registry({ "computer-navigate": "P2" }), { tool: "navigate", host: "a.example.com", url: "https://a.example.com/logout", initiator: "agent" }))),
+  S("CP-3", "an-ordinary-url-does-not-floor-a-navigation", ANSWER, "ok", (w) =>
+    ad(w.core.evaluateActionPolicy(w.ap([{ id: "allow-nav", effect: "allow", when: { tools: ["navigate"] } }]), w.registry({ "computer-navigate": "P2" }), { tool: "navigate", host: "a.example.com", url: "https://a.example.com/inbox", initiator: "agent" })), true),
+  S("CP-3", "a-passwords-directory-is-credential-adjacent", REFUSE, "OWNER_DECISION_REQUIRED", (w) => ad(readFileDecision(w, "docs/passwords/list.txt"))),
+  S("CP-3", "a-git-config-is-credential-adjacent", REFUSE, "OWNER_DECISION_REQUIRED", (w) => ad(readFileDecision(w, "repo/.git/config"))),
+  S("CP-3", "a-kubeconfig-is-credential-adjacent", REFUSE, "OWNER_DECISION_REQUIRED", (w) => ad(readFileDecision(w, "home/kubeconfig"))),
+  S("CP-3", "a-java-keystore-is-credential-adjacent", REFUSE, "OWNER_DECISION_REQUIRED", (w) => ad(readFileDecision(w, "a/keystore.jks"))),
+  S("CP-3", "a-gh-hosts-file-is-credential-adjacent", REFUSE, "OWNER_DECISION_REQUIRED", (w) => ad(readFileDecision(w, "home/.config/gh/hosts.yml"))),
+  S("CP-3", "a-boto-file-is-credential-adjacent", REFUSE, "OWNER_DECISION_REQUIRED", (w) => ad(readFileDecision(w, "home/.boto"))),
+
+  // Review round 2, N5: the runner never rejects on an odd thrown value
+  S("CP-12", "an-odd-thrown-value-never-rejects-the-run", ANSWER, "start-failed,start-failed,start-failed", async (w) => {
+    const makers = [
+      () => ({
+        get message() {
+          throw new Error("getter");
+        },
+      }),
+      () => Object.create(null),
+      () => ({
+        toString: () => {
+          throw new Error("toString");
+        },
+      }),
+    ];
+    const seen = [];
+    for (const make of makers) {
+      const world = runnerWorld(w, new FakeChild());
+      world.ports.spawn = {
+        start: () => {
+          throw make();
+        },
+      };
+      const outcome = await done(w.agent.runExecPlan(w.plan(), world.ports).catch(() => ({ status: "rejected" })));
+      seen.push(outcome.status);
+    }
+    return seen.join(",");
+  }),
+  S("CP-12", "a-handle-whose-isrunning-throws-is-still-forced", ANSWER, "SIGKILL", async (w) => {
+    const child = new FakeChild();
+    child.isRunning = () => {
+      throw new Error("isRunning down");
+    };
+    let fail = () => undefined;
+    child.waitForExit = () =>
+      new Promise((_resolve, reject) => {
+        fail = () => reject(new Error("broke"));
+      });
+    const world = await runOf(w, {}, child);
+    fail();
+    await done(world.run.catch(() => undefined));
+    return signalsOf(child);
+  }),
+  S("CP-12", "an-isrunning-that-throws-at-the-grace-timer-is-escalated", ANSWER, "SIGTERM,SIGKILL", async (w) => {
+    const child = new FakeChild();
+    child.isRunning = () => {
+      throw new Error("isRunning down");
+    };
+    const world = await runOf(w, { timeoutMs: 1_000 }, child);
+    world.timer.advance(1_000);
+    world.timer.advance(3_000);
+    world.timer.advance(5_000);
+    await done(world.run.catch(() => undefined));
+    return signalsOf(child);
+  }),
+  S("CP-12", "a-signal-that-throws-an-odd-value-is-recorded", ANSWER, "2", async (w) => {
+    const child = new FakeChild();
+    child.signal = () => {
+      throw Object.create(null);
+    };
+    const world = await runOf(w, { timeoutMs: 1_000 }, child);
+    try {
+      world.timer.advance(1_000);
+      world.timer.advance(3_000);
+    } catch {
+      return "threw-in-the-timer";
+    }
+    child.exit(null, "SIGKILL");
+    const outcome = await done(world.run.catch(() => ({ stop: null })));
+    return String(outcome.stop === null ? "none" : outcome.stop.failed.length);
+  }),
+
+  // Review round 2, N6: a decision id is kept for its horizon
+  S("CP-2", "a-full-decision-set-is-released-after-its-horizon", ANSWER, "ok", (w) => {
+    const g = w.grants();
+    for (let index = 0; index < 1023; index += 1) g.store.issue(g.binding, { ...DECISION, decisionId: nth(1000 + index), decision: "deny" }, g.prepared, 1_000);
+    g.time.now += 1_000 + 86_400_000;
+    return cd(g.store.issue(g.binding, { ...DECISION, decisionId: nth(9000) }, g.prepared, MINUTE));
+  }),
+  S("CP-2", "a-decision-id-inside-its-horizon-never-mints-twice", REFUSE, "DECISION_REUSED", (w) => {
+    const g = w.grants();
+    g.time.now += 5 * MINUTE + 86_400_000 - 1;
+    return cd(g.store.issue(g.binding, DECISION, g.prepared, 5 * MINUTE));
+  }),
+  S("CP-2", "a-denied-decision-id-inside-its-horizon-never-mints", REFUSE, "DECISION_REUSED", (w) => {
+    const g = w.grants();
+    g.store.issue(g.binding, { ...DECISION, decisionId: nth(31), decision: "deny" }, g.prepared, 10 * MINUTE);
+    g.time.now += 10 * MINUTE + 86_400_000 - 1;
+    return cd(g.store.issue(g.binding, { ...DECISION, decisionId: nth(31) }, g.prepared, MINUTE));
+  }),
+
+  // Review round 2, N7: a wildcard on a hosting suffix
+  S("CP-9", "a-wildcard-on-github-pages-is-refused", ANSWER, "organization:refused", (w) => w.core.effectiveNetworkPolicy(w.polygo, [orgRow({ rules: [{ host: "*.github.io" }] })], { groups: [] }, true).from),
+  S("CP-9", "a-wildcard-on-vercel-is-refused", ANSWER, "organization:refused", (w) => w.core.effectiveNetworkPolicy(w.polygo, [orgRow({ rules: [{ host: "*.vercel.app" }] })], { groups: [] }, true).from),
+  S("CP-9", "a-wildcard-on-the-s3-suffix-is-refused", ANSWER, "organization:refused", (w) => w.core.effectiveNetworkPolicy(w.polygo, [orgRow({ rules: [{ host: "*.s3.amazonaws.com" }] })], { groups: [] }, true).from),
+  S("CP-9", "a-wildcard-on-amazonaws-is-refused", ANSWER, "organization:refused", (w) => w.core.effectiveNetworkPolicy(w.polygo, [orgRow({ rules: [{ host: "*.amazonaws.com" }] })], { groups: [] }, true).from),
+  S("CP-9", "an-exact-host-on-a-hosting-suffix-is-allowed", ANSWER, "true", (w) => String(w.core.egressAllowed(w.core.effectiveNetworkPolicy(w.polygo, [orgRow({ rules: [{ host: "my-app.vercel.app" }] })], { groups: [] }, true), "my-app.vercel.app")), true),
 ];
 
 function fillDecisions(g) {
@@ -1411,12 +1579,12 @@ const BEHAVIOUR_MUTATIONS = [
   M("any-decider-is-the-owner", "a-decision-from-an-agent-is-refused", CORE.grants, "if (fields['decidedBy'] !== 'owner') return { ok: false, code: 'NOT_THE_OWNER' };", ""),
   M("allow-always-is-a-decision", "an-allow-always-decision-is-refused", CORE.grants, "export const GRANT_DECISIONS = ['allow-once', 'deny'] as const;", "export const GRANT_DECISIONS = ['allow-once', 'deny', 'allow-always'] as const;"),
   M("a-decision-id-may-be-used-twice", "a-decision-id-used-twice-is-refused", CORE.grants, "if (seen.has(decisionId)) return { ok: false, code: 'DECISION_REUSED' };", ""),
-  M("a-decision-id-is-not-the-scopes-own", "a-decision-id-is-the-scopes-own", CORE.grants, "const seen = decisions.get(scope) ?? new Set<string>();", "const seen = decisions.get('shared') ?? new Set<string>();",
+  M("a-decision-id-is-not-the-scopes-own", "a-decision-id-is-the-scopes-own", CORE.grants, "const seen = decisions.get(scope) ?? new Map<string, number>();", "const seen = decisions.get('shared') ?? new Map<string, number>();",
     [["    decisions.set(scope, seen);", "    decisions.set('shared', seen);"]]),
   M("a-deny-is-a-grant", "a-deny-decision-is-not-a-grant", CORE.grants, "    if (fields['decision'] === 'deny') return { ok: false, code: 'OWNER_DENIED' };\n", ""),
   M("a-deny-is-not-remembered", "a-denied-decision-id-cannot-become-a-grant", CORE.grants,
-    "    seen.add(decisionId);\n    decisions.set(scope, seen);\n    if (fields['decision'] === 'deny') return { ok: false, code: 'OWNER_DENIED' };",
-    "    if (fields['decision'] === 'deny') return { ok: false, code: 'OWNER_DENIED' };\n    seen.add(decisionId);\n    decisions.set(scope, seen);"),
+    "    seen.set(decisionId, now + ttlMs + DECISION_REPLAY_WINDOW_MS);\n    decisions.set(scope, seen);\n    if (fields['decision'] === 'deny') return { ok: false, code: 'OWNER_DENIED' };",
+    "    if (fields['decision'] === 'deny') return { ok: false, code: 'OWNER_DENIED' };\n    seen.set(decisionId, now + ttlMs + DECISION_REPLAY_WINDOW_MS);\n    decisions.set(scope, seen);"),
   M("the-scope-cap-is-seventeen", "a-store-full-of-live-grants-refuses-a-new-decision", CORE.grants, "export const MAX_GRANTS_PER_SCOPE = 16;", "export const MAX_GRANTS_PER_SCOPE = 17;"),
   M("a-full-store-evicts-the-oldest-grant", "a-full-store-keeps-every-live-grant", CORE.grants,
     "if (seen.size >= MAX_DECISIONS_PER_SCOPE || (fields['decision'] === 'allow-once' && live >= MAX_GRANTS_PER_SCOPE)) return { ok: false, code: 'STORE_FULL' };",
@@ -1546,7 +1714,7 @@ const BEHAVIOUR_MUTATIONS = [
     "if (typeof policy !== 'object' || policy === null) return decided(false, 'POLICY_INVALID', 'default', null);"),
   M("a-deny-row-is-not-read-first", "a-deny-row-beats-an-allow-row", CORE.action,
     "const deny = policy.rules.find((rule) => rule.effect === 'deny' && covers(rule.when, context));", "const deny: ActionRule | undefined = undefined;"),
-  M("an-element-name-is-not-lower-cased", "an-element-name-is-folded-before-a-rule-reads-it", CORE.hidden, "const folded = stripHiddenText(stripHiddenText(text).normalize('NFKC')).toLowerCase();", "const folded = stripHiddenText(stripHiddenText(text).normalize('NFKC'));"),
+  M("an-element-name-is-not-lower-cased", "an-element-name-is-folded-before-a-rule-reads-it", CORE.hidden, "stripHiddenText(stripHiddenText(unmarked).normalize('NFKC')).toLowerCase();", "stripHiddenText(stripHiddenText(unmarked).normalize('NFKC'));"),
   M("a-missing-fact-reads-as-false", "a-click-without-its-element-is-refused", CORE.context, "if (present[need] === null) return missing(`${tool as string} needs ${need}`);", ""),
   M("a-context-may-state-its-intent", "a-context-that-states-its-own-intent-is-refused", CORE.context,
     "const FIELDS = ['tool', 'host', 'element', 'key', 'submit', 'text', 'title', 'url', 'file', 'mcp', 'exec', 'initiator'] as const;",
@@ -1555,10 +1723,11 @@ const BEHAVIOUR_MUTATIONS = [
     "key === 'enter' || key === 'space' || isDestructiveKey(key, alt)", "isDestructiveKey(key, alt)"),
   M("a-submit-flag-does-not-activate", "a-submit-flag-activates", CORE.context, "return submit || textActivates ? 'activate' : 'type';", "return textActivates ? 'activate' : 'type';",
     [["|| context.submit || context.textActivates", "|| context.textActivates", CORE.action]]),
-  M("a-destructive-word-is-not-destructive", "a-destructive-click-is-raised-to-p5", CORE.action, "'delete', 'remove', ", "'remove', "),
+  M("a-destructive-word-is-not-destructive", "a-destructive-click-is-raised-to-p5", CORE.action, "'delet', 'remov', ", "'remov', "),
   M("a-submit-flag-is-not-destructive", "a-submit-flag-raises-a-type-to-p5", CORE.action, "|| context.submit || context.textActivates", "|| context.textActivates"),
   M("a-password-field-is-not-credential-adjacent", "a-credential-field-is-raised-to-p5", CORE.action, "if (element !== null && element.type === 'password') return 'credential-adjacent';", ""),
-  M("a-credential-word-is-not-credential-adjacent", "a-credential-name-is-raised-to-p5", CORE.action, "if (texts.some((text) => CREDENTIAL_WORDS.test(text))) return 'credential-adjacent';", ""),
+  M("a-credential-word-is-not-credential-adjacent", "a-credential-name-is-raised-to-p5", CORE.action, "if (texts.some((text) => CREDENTIAL_WORDS.test(text))) return 'credential-adjacent';", "",
+    [["  if (words.some((text) => CREDENTIAL_WORDS.test(text))) return 'credential-adjacent';\n", ""]]),
   M("a-credential-file-is-not-credential-adjacent", "a-credential-file-is-raised-to-p5", CORE.action, "isCredentialPath(context.file.path) || ", ""),
   M("a-file-write-is-not-destructive", "a-file-write-is-raised-to-p5", CORE.action,
     "const DESTRUCTIVE_TOOLS: readonly string[] = ['write-file', 'download-file', 'run-command', 'mcp-write'];", "const DESTRUCTIVE_TOOLS: readonly string[] = ['download-file', 'run-command', 'mcp-write'];"),
@@ -1636,7 +1805,7 @@ const BEHAVIOUR_MUTATIONS = [
     "    try {\n      handle = ports.spawn.start({ argv: plan.argv, cwd: plan.cwd, env: envOf(plan, ports) });\n    } catch {\n      handle = ports.spawn.start({ argv: plan.argv, cwd: plan.cwd, env: envOf(plan, ports) });\n    }"),
   M("the-child-gets-the-whole-environment", "the-child-gets-only-the-declared-environment", AGENT.runner, "for (const name of plan.envNames) {", "for (const name of [...plan.envNames, 'SECRET_VALUE']) {"),
   M("a-timeout-does-not-stop-the-tree", "a-timeout-terminates-the-tree", AGENT.runner, "      state.stop = beginStop(handle, ports);\n", "      state.stop = { ok: false, code: 'PID' };\n"),
-  M("the-force-is-sent-to-an-exited-child", "a-child-that-exits-in-the-grace-period-is-not-forced", AGENT.kill, "if (!step.onlyIfRunning || handle.isRunning()) send(step.signal);", "send(step.signal);"),
+  M("the-force-is-sent-to-an-exited-child", "a-child-that-exits-in-the-grace-period-is-not-forced", AGENT.kill, "if (!step.onlyIfRunning || stillRunning(handle)) send(step.signal);", "send(step.signal);"),
   M("the-escalation-is-not-withdrawn", "the-escalation-is-withdrawn-when-the-child-exits", AGENT.runner, "    if (state.stop?.ok === true) state.stop.cancel();\n", ""),
   M("the-timeout-timer-is-left-running", "an-exit-before-the-timeout-leaves-no-timer", AGENT.runner, "    for (const cancel of cancels) cancel();\n", ""),
   M("the-settle-window-is-ten-times-longer", "a-child-that-never-confirms-its-exit-is-uncertain", AGENT.runner, "export const SETTLE_WINDOW_MS = 5_000;", "export const SETTLE_WINDOW_MS = 50_000;"),
@@ -1649,7 +1818,7 @@ const BEHAVIOUR_MUTATIONS = [
   M("a-forced-stop-is-normal", "a-child-that-ignores-the-terminate-is-forced", AGENT.runner,
     "const cleanup: CleanupOutcome = exit === null ? 'uncertain' : forced ? 'forced' : 'normal';", "const cleanup: CleanupOutcome = exit === null ? 'uncertain' : 'normal';"),
   M("a-child-that-cannot-be-supervised-keeps-running", "a-child-that-cannot-be-supervised-is-stopped", AGENT.runner,
-    "    const alreadyForced = state.stop?.ok === true && state.stop.report().sent.includes('SIGKILL');\n    if (exit === null && !alreadyForced && handle.isRunning()) state.force = beginStop(handle, ports, { force: true });\n", ""),
+    "    const alreadyForced = state.stop?.ok === true && state.stop.report().sent.includes('SIGKILL');\n    if (exit === null && !alreadyForced && stillRunning(handle)) state.force = beginStop(handle, ports, { force: true });\n", ""),
   M("the-ports-fact-is-ignored-for-the-group", "a-group-is-signalled-only-on-the-ports-fact", AGENT.kill, "detached: handle.detached,", "detached: true,"),
   // Review round 1, H1: a decision is not believed because it says so
   M("any-agent-spends-the-grant", "a-command-for-another-agent-is-refused", CORE.grants,
@@ -1665,7 +1834,7 @@ const BEHAVIOUR_MUTATIONS = [
     [["    if (fields['hash'] !== prepared.hash) return { ok: false, code: 'HASH_MISMATCH' };\n", ""]]),
   M("the-decision-set-has-no-cap", "a-full-decision-set-refuses-a-new-decision", CORE.grants, "seen.size >= MAX_DECISIONS_PER_SCOPE || ", ""),
   M("the-oldest-decision-id-is-forgotten", "a-full-decision-set-never-forgets-an-id", CORE.grants,
-    "if (seen.size >= MAX_DECISIONS_PER_SCOPE || (fields['decision']", "if (seen.size >= MAX_DECISIONS_PER_SCOPE) seen.delete(seen.values().next().value as string);\n    if ((fields['decision']"),
+    "if (seen.size >= MAX_DECISIONS_PER_SCOPE || (fields['decision']", "if (seen.size >= MAX_DECISIONS_PER_SCOPE) seen.delete(seen.keys().next().value as string);\n    if ((fields['decision']"),
   M("a-denial-counts-against-the-live-grants", "denials-do-not-count-against-the-live-grants", CORE.grants, "(fields['decision'] === 'allow-once' && live >= MAX_GRANTS_PER_SCOPE)", "(seen.size >= MAX_GRANTS_PER_SCOPE)"),
   M("an-agent-may-ride-in-the-request", "an-agent-in-the-request-is-refused", CORE.command, "const REQUEST_FIELDS = ['argv',", "const REQUEST_FIELDS = ['agentId', 'argv',"),
   M("an-agent-need-not-be-a-word", "an-agent-that-is-not-a-word-is-refused", CORE.command, "if (typeof agentId !== 'string' || !AGENT_ID.test(agentId)) return no('AGENT_ID', 'the agent id is not a plain word');", ""),
@@ -1706,8 +1875,6 @@ const BEHAVIOUR_MUTATIONS = [
     [["name = name.replace(/[. ]+$/, '').toLowerCase().replace(NATIVE_SUFFIX, '');", "name = name.toLowerCase().replace(NATIVE_SUFFIX, '');"]]),
   M("a-name-off-the-allow-list-is-allowed", "a-name-off-the-allow-list-is-refused", CORE.env, "return allowedEnvName(name) ? null : 'ENV_NOT_ALLOWED';", "return null;"),
   M("a-secret-family-name-is-allowed", "a-secret-family-name-is-refused", CORE.env, "|SUPABASE_|", "|", [[ALLOW_LINE, "return null;"]]),
-  M("git-config-overrides-are-open-arguments", "git-config-overrides-are-not-a-hit-for-open-arguments", CORE.policy, "return dangerous === undefined || !rest.some((arg) => dangerous.test(arg));", "return true;"),
-  M("a-tool-that-runs-what-it-is-handed-takes-open-arguments", "a-tool-that-runs-what-it-is-handed-needs-exact-arguments", CORE.policy, "if (EXACT_ONLY.has(tool)) return false;", ""),
   M("a-denied-argument-is-allowed", "an-argument-the-entry-denies-is-not-a-hit", CORE.policy, "if (entry.denyArgs.some((denied) => rest.includes(denied))) return false;", ""),
   M("any-directory-is-the-entrys", "a-directory-outside-the-entry-is-not-a-hit", CORE.policy, "        cwdAllowed(prepared, entry) &&\n", ""),
   M("a-directory-is-matched-by-name-prefix", "a-sibling-directory-is-not-under-the-entry", CORE.policy,
@@ -1720,23 +1887,23 @@ const BEHAVIOUR_MUTATIONS = [
   M("a-full-width-dollar-is-a-dollar-in-a-line", "a-full-width-dollar-in-a-command-line-is-refused", CORE.commandLine, " || imitatesAscii(ch)", ""),
 
   // Review round 1, H3: the action floor
-  M("hidden-characters-are-not-stripped", "a-split-word-still-floors", CORE.hidden, "const folded = stripHiddenText(stripHiddenText(text).normalize('NFKC')).toLowerCase();", "const folded = text.normalize('NFKC').toLowerCase();"),
-  M("text-is-not-normalised", "a-full-width-word-still-floors", CORE.hidden, "const folded = stripHiddenText(stripHiddenText(text).normalize('NFKC')).toLowerCase();", "const folded = stripHiddenText(text).toLowerCase();"),
+  M("hidden-characters-are-not-stripped", "a-split-word-still-floors", CORE.hidden, "  const unmarked = stripHiddenText(text).normalize('NFD').replace(COMBINING_MARK, '');\n  const folded = stripHiddenText(stripHiddenText(unmarked).normalize('NFKC')).toLowerCase();", "  const unmarked = text.normalize('NFD').replace(COMBINING_MARK, '');\n  const folded = unmarked.normalize('NFKC').toLowerCase();", [["  const spaced = stripHiddenText(text)\n", "  const spaced = text\n"]]),
+  M("text-is-not-normalised", "a-full-width-word-still-floors", CORE.hidden, "stripHiddenText(stripHiddenText(unmarked).normalize('NFKC')).toLowerCase();", "stripHiddenText(unmarked).toLowerCase();"),
   M("a-lookalike-is-a-letter", "a-cyrillic-letter-in-a-word-still-floors", CORE.hidden, "out += LOOKALIKE[char.codePointAt(0) ?? 0] ?? char;", "out += char;"),
-  M("a-split-credential-word-is-not-folded", "a-split-credential-word-still-floors", CORE.hidden, "const folded = stripHiddenText(stripHiddenText(text).normalize('NFKC')).toLowerCase();", "const folded = text.normalize('NFKC').toLowerCase();"),
-  M("place-order-is-not-a-destructive-word", "place-order-floors", CORE.action, String.raw`'place\\s+order', `, ""),
+  M("a-split-credential-word-is-not-folded", "a-split-credential-word-still-floors", CORE.hidden, "  const unmarked = stripHiddenText(text).normalize('NFD').replace(COMBINING_MARK, '');\n  const folded = stripHiddenText(stripHiddenText(unmarked).normalize('NFKC')).toLowerCase();", "  const unmarked = text.normalize('NFD').replace(COMBINING_MARK, '');\n  const folded = unmarked.normalize('NFKC').toLowerCase();", [["  const spaced = stripHiddenText(text)\n", "  const spaced = text\n"]]),
+  M("place-order-is-not-a-destructive-word", "place-order-floors", CORE.action, String.raw`'place\\s+(?:your\\s+|my\\s+|the\\s+)?order', 'order', `, ""),
   M("sign-out-is-not-a-destructive-word", "sign-out-floors", CORE.action, String.raw`'sign\\s*-?\\s*out', `, ""),
-  M("transfer-is-not-a-destructive-word", "transfer-funds-floors", CORE.action, "'transfer', ", ""),
+  M("transfer-is-not-a-destructive-word", "transfer-funds-floors", CORE.action, "'transfer',", ""),
   M("a-title-is-not-read", "a-window-title-with-a-destructive-word-floors-an-activation", CORE.action,
-    "const texts = [context.title, context.url, ...(element === null ? [] : [element.name, element.role, element.label])];", "const texts = element === null ? [] : [element.name];"),
+    "const texts = [context.title, context.url, ...(element === null ? [] : [element.name, element.role, element.label])];", "const texts = [context.url, ...(element === null ? [] : [element.name, element.role, element.label])];", [["const words = [context.titleWords, context.urlWords, ...(element === null ? [] : [element.words])];", "const words = [context.urlWords, ...(element === null ? [] : [element.words])];"]]),
   M("a-url-is-not-read", "a-url-with-a-destructive-word-floors-an-activation", CORE.action,
-    "const texts = [context.title, context.url, ...(element === null ? [] : [element.name, element.role, element.label])];", "const texts = [context.title, ...(element === null ? [] : [element.name])];"),
+    "const texts = [context.title, context.url, ...(element === null ? [] : [element.name, element.role, element.label])];", "const texts = [context.title, ...(element === null ? [] : [element.name, element.role, element.label])];", [["const words = [context.titleWords, context.urlWords, ...(element === null ? [] : [element.words])];", "const words = [context.titleWords, ...(element === null ? [] : [element.words])];"]]),
   M("an-element-label-is-not-read", "an-element-label-with-a-destructive-word-floors-an-activation", CORE.action,
-    "const texts = [context.title, context.url, ...(element === null ? [] : [element.name, element.role, element.label])];", "const texts = [context.title, context.url, ...(element === null ? [] : [element.name, element.role])];"),
+    "const texts = [context.title, context.url, ...(element === null ? [] : [element.name, element.role, element.label])];", "const texts = [context.title, context.url, ...(element === null ? [] : [element.name, element.role])];", [["[fields['name'], fields['label'] ?? '', fields['role']].join(' ')", "[fields['name'], fields['role']].join(' ')", CORE.context]]),
   M("a-keypad-enter-is-a-typed-key", "a-keypad-enter-activates", CORE.context,
     "const ENTER_KEYS = new Set(['enter', 'return', 'kp_enter', 'kp_return', 'kpenter', 'numpadenter', 'linefeed']);", "const ENTER_KEYS = new Set(['enter', 'return']);"),
-  M("a-modifier-hides-the-key", "a-chord-with-enter-activates", CORE.context, "const parts = spaceOnly ? [' '] : text.split('+');", "const parts = spaceOnly ? [' '] : [text];"),
-  M("spacebar-is-a-typed-key", "a-spelled-out-space-activates", CORE.context, "const SPACE_KEYS = new Set(['space', 'spacebar', 'kp_space', ' ']);", "const SPACE_KEYS = new Set(['space', ' ']);"),
+  M("a-modifier-hides-the-key", "a-chord-with-enter-activates", CORE.context, ": whole.split(/[+\\-\\s]+/);", ": [whole];"),
+  M("spacebar-is-a-typed-key", "a-spelled-out-space-activates", CORE.context, "const SPACE_KEYS = new Set(['space', 'spacebar', 'kp_space']);", "const SPACE_KEYS = new Set(['space', 'kp_space']);"),
   M("alt-f4-is-an-ordinary-key", "alt-f4-is-destructive", CORE.context, "(key === 'f4' && alt)", "false"),
   M("delete-is-an-ordinary-key", "the-delete-key-is-destructive", CORE.context, "key === 'delete' || key === 'backspace' || ", ""),
   M("typed-newlines-do-not-submit", "typed-text-with-a-newline-submits", CORE.context, "export const textSubmits = (text: string): boolean => /[\\n\\r]/.test(text);", "export const textSubmits = (text: string): boolean => text === '';"),
@@ -1769,8 +1936,72 @@ const BEHAVIOUR_MUTATIONS = [
   M("a-leaders-group-is-not-swept", "a-leader-that-exits-on-its-own-has-its-group-swept", AGENT.runner, "const sweepPlan = exit !== null ? planGroupSweep(handle, ports) : null;", "const sweepPlan = null;"),
   M("a-sweep-signals-a-bare-pid", "a-sweep-never-signals-a-bare-pid-of-an-exited-child", AGENT.kill, "planned.ok && planned.plan.target === 'group' && planned.degradedFrom === null ? planned : null", "planned.ok ? planned : null"),
   M("a-stopped-child-is-not-forced-after-a-stop-began", "a-child-still-running-after-a-stop-began-is-forced", AGENT.runner,
-    "if (exit === null && !alreadyForced && handle.isRunning())", "if (exit === null && state.stop === null && handle.isRunning())"),
-  M("a-start-error-is-unbounded", "a-start-error-is-bounded-and-fenced", AGENT.runner, ".slice(0, MAX_START_ERROR_CHARS))", ")"),
+    "if (exit === null && !alreadyForced && stillRunning(handle))", "if (exit === null && state.stop === null && stillRunning(handle))"),
+  M("a-start-error-is-unbounded", "a-start-error-is-bounded-and-fenced", AGENT.thrown, "text.slice(0, MAX_START_ERROR_CHARS)", "text"),
+  // Review round 2, N1: every default-ignorable character, combining marks and the look-alike letters
+  M("default-ignorable-code-points-are-a-short-list", "a-default-ignorable-character-still-floors", CORE.hidden, "DEFAULT_IGNORABLE.test(char) || ", ""),
+  M("a-greek-epsilon-is-not-an-e", "a-greek-capital-epsilon-still-floors", CORE.hidden, "[0x03b5, 'e'], ", ""),
+  M("a-cyrillic-ve-is-a-v", "a-cyrillic-ve-is-read-as-a-b", CORE.hidden, "[0x0432, 'b']", "[0x0432, 'v']"),
+  M("combining-marks-are-kept", "a-combining-mark-in-a-word-still-floors", CORE.hidden, ".normalize('NFD').replace(COMBINING_MARK, '')", ""),
+  M("an-accent-is-a-different-letter", "an-accented-letter-in-a-word-still-floors", CORE.hidden, ".normalize('NFD').replace(COMBINING_MARK, '')", ""),
+
+  // Review round 2, N2: an unrecognised key spelling is never plain typing
+  M("a-space-is-not-a-separator", "a-spaced-chord-activates", CORE.context, ": whole.split(/[+\\-\\s]+/);", ": whole.split(/[+\\-]+/);"),
+  M("a-trailing-space-is-part-of-a-key", "a-trailing-space-does-not-hide-enter", CORE.context, ".replace(/\\s+/g, ' ').trim().replace(", ".replace(/\\s+/g, ' ').replace("),
+  M("a-key-prefix-is-part-of-a-key", "a-key-prefix-does-not-hide-enter", CORE.context, ".replace(/^keys?\\./, '')", ""),
+  M("a-dash-is-not-a-separator", "a-dashed-chord-activates", CORE.context, ": whole.split(/[+\\-\\s]+/);", ": whole.split(/[+\\s]+/);"),
+  M("an-unrecognised-key-is-typing", "an-unrecognised-key-is-refused", CORE.context,
+    "if (name === '' || !(isKeyName(name) || isPrintable(name)) || modifiers.some((modifier) => !MODIFIER_NAMES.has(modifier))) return null;", "if (name === '') return null;"),
+  M("an-unknown-modifier-is-ignored", "an-unknown-modifier-is-refused", CORE.context, " || modifiers.some((modifier) => !MODIFIER_NAMES.has(modifier))", ""),
+
+  // Review round 2, N3: anyArgs and the dangerous argument forms
+  M("a-tool-that-runs-anything-takes-open-arguments", "anyargs-on-git-is-refused-at-compile", CORE.policy, "!EXACT_ONLY.has(normalizeExecutableToken(base)) && ", ""),
+  M("a-gnu-sed-takes-open-arguments", "anyargs-on-a-gnu-sed-is-refused-at-compile", CORE.policy, "'sed', 'gsed', ", "'sed', "),
+  M("an-interpreter-takes-open-arguments", "anyargs-on-an-interpreter-is-refused-at-compile", CORE.policy, " && executableBlockReason(canonicalPattern) === null", ""),
+  M("a-wildcard-tool-name-takes-open-arguments", "anyargs-on-a-wildcard-tool-name-is-refused-at-compile", CORE.policy, "!/[*?]/.test(base) && ", ""),
+  M("a-curl-short-flag-in-a-cluster-is-read-as-its-first-letter", "a-combined-short-flag-that-writes-is-refused", CORE.policy, "shortOption(arg, 'oOKTD')", "shortOption(arg, 'oKTD')"),
+  M("an-abbreviated-long-option-is-another-option", "an-abbreviated-long-option-that-runs-is-refused", CORE.policy, "names.some((candidate) => candidate.startsWith(name))", "names.some((candidate) => candidate === name)"),
+  M("a-git-run-subcommand-is-allowed", "a-git-subcommand-that-runs-is-refused", CORE.policy, "    arg === 'run' ||\n", ""),
+  M("a-tar-interpreter-flag-in-a-cluster-is-allowed", "a-tar-interpreter-flag-in-a-cluster-is-refused", CORE.policy, "shortOption(arg, 'I') || ", ""),
+  M("an-unlisted-exact-only-tool-has-open-arguments", "a-gnu-sed-has-no-open-arguments", CORE.policy, "return EXACT_ONLY.has(tool);", "return false;"),
+
+  // Review round 2, N4: stems, confirmations, navigation and whole paths
+  M("a-stem-must-be-the-whole-word", "a-participle-still-floors", CORE.action, "'delet', 'remov', ", "'delete', 'remov', "),
+  M("pay-is-not-a-destructive-stem", "a-plural-still-floors", CORE.action, "'buy', 'purchas', 'pay', ", "'buy', 'purchas', "),
+  M("compounds-are-not-split", "a-camel-case-compound-with-the-word-last-still-floors", CORE.hidden, String.raw`    .replace(/([\p{Ll}\p{N}])(\p{Lu})/gu, '$1 $2')
+`, ""),
+  M("a-confirmation-click-is-not-raised", "a-confirmation-button-floors-on-a-click", CORE.action,
+    "  if (context.intent === 'activate' && context.tool === 'click' && element !== null && CONFIRM_WORDS.test(element.words)) return 'destructive';\n", ""),
+  M("a-url-path-is-not-read-for-a-navigation", "a-logout-url-floors-a-navigation", CORE.action, "  if (context.tool === 'navigate' && DESTRUCTIVE_WORDS.test(context.urlWords)) return 'destructive';\n", ""),
+  M("a-passwords-directory-is-not-a-credential", "a-passwords-directory-is-credential-adjacent", CORE.action, " || CREDENTIAL_WORDS.test(context.file.path)", "",
+    [[String.raw`  /(?:^|\/)(?:passwords?|credentials?)(?:\/|$)/,
+`, ""]]),
+  M("a-git-config-is-not-a-credential", "a-git-config-is-credential-adjacent", CORE.action, String.raw`  /(?:^|\/)\.git\/config$/,
+`, ""),
+  M("a-kubeconfig-is-not-a-credential", "a-kubeconfig-is-credential-adjacent", CORE.action, String.raw`  /(?:^|\/)kubeconfig[^/]*$/,
+`, ""),
+  M("a-java-keystore-is-not-a-credential", "a-java-keystore-is-credential-adjacent", CORE.action, String.raw`  /\.jks$/,
+`, ""),
+  M("a-gh-hosts-file-is-not-a-credential", "a-gh-hosts-file-is-credential-adjacent", CORE.action, String.raw`  /(?:^|\/)\.config\/gh\/hosts\.yml$/,
+`, ""),
+  M("a-boto-file-is-not-a-credential", "a-boto-file-is-credential-adjacent", CORE.action, "|netrc|pgpass|boto)$/,", "|netrc|pgpass)$/,"),
+
+  // Review round 2, N5: the runner never rejects on an odd thrown value
+  M("an-odd-thrown-value-is-read-unguarded", "an-odd-thrown-value-never-rejects-the-run", AGENT.thrown,
+    "  try {\n    text = textOf(value);\n  } catch {\n    text = 'an unreadable value was thrown';\n  }", "  text = textOf(value);"),
+  M("a-handle-whose-isrunning-throws-has-exited", "a-handle-whose-isrunning-throws-is-still-forced", AGENT.kill, "    return handle.isRunning() !== false;\n  } catch {\n    return true;", "    return handle.isRunning() !== false;\n  } catch {\n    return false;"),
+  M("a-thrown-signal-is-described-unguarded", "a-signal-that-throws-an-odd-value-is-recorded", AGENT.kill, "failed.push({ signal, error: describeThrown(error).framed });", "failed.push({ signal, error: String(error) });"),
+
+  // Review round 2, N6: a decision id is kept for its horizon
+  M("a-tombstone-is-never-released", "a-full-decision-set-is-released-after-its-horizon", CORE.grants, "      for (const [id, horizon] of ids) if (horizon <= now) ids.delete(id);\n", ""),
+  M("a-tombstone-ends-with-its-decision", "a-decision-id-inside-its-horizon-never-mints-twice", CORE.grants, "now + ttlMs + DECISION_REPLAY_WINDOW_MS", "now + ttlMs"),
+  M("a-denial-has-no-horizon", "a-denied-decision-id-inside-its-horizon-never-mints", CORE.grants, "now + ttlMs + DECISION_REPLAY_WINDOW_MS", "now"),
+
+  // Review round 2, N7: a wildcard on a hosting suffix
+  M("github-pages-is-not-a-shared-suffix", "a-wildcard-on-github-pages-is-refused", CORE.network, "'github.io', 'gitlab.io', ", "'gitlab.io', "),
+  M("vercel-is-not-a-shared-suffix", "a-wildcard-on-vercel-is-refused", CORE.network, "'vercel.app', 'netlify.app', ", "'netlify.app', "),
+  M("the-s3-suffix-is-not-a-shared-suffix", "a-wildcard-on-the-s3-suffix-is-refused", CORE.network, ", 's3.amazonaws.com',", ","),
+  M("amazonaws-is-not-a-shared-suffix", "a-wildcard-on-amazonaws-is-refused", CORE.network, "'cloudfront.net', 'amazonaws.com', ", "'cloudfront.net', "),
 ];
 
 /** Run every scenario against one compiled tree. A scenario that throws has an outcome too: it threw. */
@@ -1991,14 +2222,16 @@ const CLOCK_LINE = "    now = clock();";
 
 const TEXT_MUTATIONS = [
   // CP-13: no child process, anywhere here
-  R("the-runner-imports-a-child-process", "CP-13", AGENT.runner, "import { beginStop, executeStop, planGroupSweep, type KillReport, type StopStarted } from './killTree.js';", "import { spawn } from 'node:child_process';\nimport { beginStop, executeStop, planGroupSweep, type KillReport, type StopStarted } from './killTree.js';"),
+  R("the-runner-imports-a-child-process", "CP-13", AGENT.runner, "import { beginStop, executeStop, planGroupSweep, stillRunning, type KillReport, type StopStarted } from './killTree.js';", "import { spawn } from 'node:child_process';\nimport { beginStop, executeStop, planGroupSweep, stillRunning, type KillReport, type StopStarted } from './killTree.js';"),
   R("the-core-imports-a-child-process", "CP-13", CORE.clock, "/** Milliseconds since the epoch, from the caller's clock. */", "import { execSync } from 'node:child_process';\n/** Milliseconds since the epoch, from the caller's clock. */"),
   R("a-core-file-calls-spawn", "CP-13", CORE.tree, "export const DEFAULT_GRACE_MS = 3_000;", "export const DEFAULT_GRACE_MS = 3_000;\nexport const go = (): void => { spawn('ls'); };"),
   R("an-agent-file-calls-exec-sync", "CP-13", AGENT.kill, "export interface KillReport {", "export const go = (): void => { execSync('ls'); };\nexport interface KillReport {"),
   R("a-core-file-signals-a-process-itself", "CP-13", CORE.tree, "export const DEFAULT_GRACE_MS = 3_000;", "export const DEFAULT_GRACE_MS = 3_000;\nexport const stop = (): void => { process.kill(4242); };"),
+  R("the-thrown-reader-spawns", "CP-13", AGENT.thrown, "export const MAX_START_ERROR_CHARS = 512;", "export const MAX_START_ERROR_CHARS = 512;\nexport const go = (): void => { spawn('ls'); };"),
   R("an-agent-file-forks", "CP-13", AGENT.ports, "export type OutputStream = 'stdout' | 'stderr';", "export const go = (): void => { fork('x.js'); };\nexport type OutputStream = 'stdout' | 'stderr';"),
 
   // CP-14: pure, and no module state
+  R("the-thrown-reader-holds-state", "CP-14", AGENT.thrown, "export const MAX_START_ERROR_CHARS = 512;", "export const MAX_START_ERROR_CHARS = 512;\nlet seen = 0;"),
   R("hidden-text-holds-module-state", "CP-14", CORE.hidden, "const ESC = String.fromCharCode(0x1b);", "const ESC = String.fromCharCode(0x1b);\nlet seen = 0;"),
   R("hidden-text-reads-the-system-clock", "CP-14", CORE.hidden, "const ESC = String.fromCharCode(0x1b);", "const ESC = String.fromCharCode(0x1b);\nconst at = Date.now();"),
   R("the-core-reads-the-system-clock", "CP-14", CORE.clock, CLOCK_LINE, "    now = Date.now();"),
@@ -2026,6 +2259,7 @@ const TEXT_MUTATIONS = [
   R("an-openbot-notices-entry-is-removed", "CP-16", NOTICES_REL, ENTRY_OF(CORE.network, "copilotkit-openbot", "https://github.com/CopilotKit/OpenBot", "server/src/computer/policy-network.ts"), ""),
   R("an-agent-notices-entry-is-removed", "CP-16", NOTICES_REL, ENTRY_OF(AGENT.runner, "openclaw", OC_URL, "src/process/exec-runner.ts"), ""),
   R("hidden-text-is-marked-ported", "CP-16", CORE.hidden, "// Origin: original ProjectOS code\n", "// SPDX-License-Identifier: MIT\n"),
+  R("the-thrown-reader-is-marked-ported", "CP-16", AGENT.thrown, "// Origin: original ProjectOS code\n", "// SPDX-License-Identifier: MIT\n"),
   R("an-original-file-is-marked-ported", "CP-16", CORE.plain, "// Origin: original ProjectOS code\n", "// SPDX-License-Identifier: MIT\n"),
   R("a-file-that-is-not-listed-lands", "CP-16", `${CDIR}/extra.ts`, null, "// Origin: original ProjectOS code\nexport const extra = 1;\n"),
   R("an-agent-file-that-is-not-listed-lands", "CP-16", `${ADIR}/extra.ts`, null, "// Origin: original ProjectOS code\nexport const extra = 1;\n"),
@@ -2044,7 +2278,7 @@ const TEXT_MUTATIONS = [
   // CP-18: exported
   R("the-core-barrel-loses-a-name", "CP-18", CORE.index, "  createExecGrantStore,\n", ""),
   R("the-core-barrel-exports-everything", "CP-18", CORE.index, "export { readComputerClock, type ComputerClock } from './clock.js';", "export * from './clock.js';"),
-  R("the-agent-barrel-loses-a-name", "CP-18", AGENT.index, "export { MAX_START_ERROR_CHARS, SETTLE_WINDOW_MS, runExecPlan, ", "export { MAX_START_ERROR_CHARS, SETTLE_WINDOW_MS, "),
+  R("the-agent-barrel-loses-a-name", "CP-18", AGENT.index, "export { SETTLE_WINDOW_MS, runExecPlan, ", "export { SETTLE_WINDOW_MS, "),
 
   // CP-19: registered
   R("the-validator-is-not-in-validate-all", "CP-19", VA_REL, `  "${THIS_VALIDATOR}",\n`, ""),
@@ -2062,6 +2296,9 @@ const TEXT_MUTATIONS = [
   R("a-runner-test-is-dropped", "CP-20", RUNNER_TEST, "never retries a start that threw", "retries nothing"),
   R("a-stale-plan-test-is-dropped", "CP-20", RUNNER_TEST, "refuses a plan held past its expiry", "refuses nothing"),
   R("a-sweep-test-is-skipped", "CP-20", RUNNER_TEST, "it('sweeps the group of a leader that exited on its own", "it.skip('sweeps the group of a leader that exited on its own"),
+  R("a-round-two-test-is-dropped", "CP-20", testRel("review2"), "floors a word split by any default-ignorable code point", "floors nothing"),
+  R("a-round-two-test-is-skipped", "CP-20", testRel("review2"), "it('refuses anyArgs at compile time for the named tools and the interpreters", "it.skip('refuses anyArgs at compile time for the named tools and the interpreters"),
+  R("an-odd-thrown-value-test-is-dropped", "CP-20", RUNNER_TEST, "returns a start-failed outcome, with a bounded fenced description, for any thrown value", "returns something"),
   R("a-review-round-test-is-dropped", "CP-20", testRel("review1"), "keeps a decision id for good", "keeps an id"),
   R("a-review-round-test-is-skipped", "CP-20", testRel("review1"), "it('strips hidden characters and folds lookalikes before it matches", "it.skip('strips hidden characters and folds lookalikes before it matches"),
   R("a-review-round-network-test-is-dropped", "CP-20", testRel("review1"), "takes the most restrictive of several groups", "takes some group"),
@@ -2089,11 +2326,13 @@ const TEXT_MUTATIONS = [
   R("the-minted-plan-rule-is-unstated", "CP-21", AGENT.runner, "ONLY A MINTED PLAN RUNS.", "Any plan runs."),
   R("the-no-retry-rule-is-unstated", "CP-21", AGENT.runner, "A POSSIBLY-ACTED RUN IS NEVER RETRIED.", "A run is retried."),
   R("the-release-rule-is-unstated", "CP-21", AGENT.runner, "EVERY FAILURE PATH RELEASES.", "Some paths release."),
+  R("the-thrown-value-rule-is-unstated", "CP-21", AGENT.thrown, "A PORT'S FAILURE IS UNTRUSTED TEXT, AND READING IT MUST NOT FAIL.", "A failure is a string."),
+  R("the-plan-residuals-are-unstated", "CP-21", CORE.launch, "RESIDUALS, STATED.", "No residuals."),
   R("the-stale-plan-rule-is-unstated", "CP-21", AGENT.runner, "A STALE PLAN IS REFUSED.", "A stale plan runs."),
   R("the-zero-signals-rule-is-unstated", "CP-21", AGENT.kill, "A GROUP THAT CANNOT BE SIGNALLED SAFELY IS NOT ZERO SIGNALS.", "A group that cannot be signalled is skipped."),
   R("the-one-gate-rule-is-unstated", "CP-21", CORE.policy, "ONE GATE. `gateExecPolicy` is the only question", "Two gates. `gateExecPolicy` is one question"),
   R("the-decision-belief-rule-is-unstated", "CP-21", CORE.grants, "A DECISION IS NOT BELIEVED BECAUSE IT SAYS SO.", "A decision is believed."),
-  R("the-decision-id-rule-is-unstated", "CP-21", CORE.grants, "A DECISION ID IS USED ONCE, FOR GOOD.", "A decision id is used again."),
+  R("the-decision-id-rule-is-unstated", "CP-21", CORE.grants, "A DECISION ID IS USED ONCE, WITHIN ITS HORIZON.", "A decision id is used again."),
   R("the-caller-agent-rule-is-unstated", "CP-21", CORE.grants, "THE AGENT IS THE CALLER'S, NOT THE REQUEST'S.", "The agent is the request's."),
   R("the-grant-never-beats-the-policy-rule-is-unstated", "CP-21", CORE.grants, "A GRANT NEVER BEATS THE POLICY.", "A grant beats the policy."),
   R("the-plan-goes-stale-rule-is-unstated", "CP-21", CORE.launch, "A PLAN GOES STALE.", "A plan keeps."),

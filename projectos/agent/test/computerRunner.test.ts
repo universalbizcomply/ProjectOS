@@ -39,7 +39,7 @@ const GIT = '/usr/bin/git';
 const resolver = { resolve: (raw: string) => (raw === 'git' ? { resolvedRealPath: GIT } : null) };
 
 const NOW = Date.parse('2026-11-14T12:00:00.000Z');
-const compiled = compileExecPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true, cwdPrefixes: ['/work'] }] });
+const compiled = compileExecPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, args: ['status'], cwdPrefixes: ['/work'] }] });
 if (!compiled.ok) throw new Error('the control policy was refused');
 const POLICY = compiled.policy;
 
@@ -261,7 +261,7 @@ describe('the computer runner, behind injected ports', () => {
     expect(first.started.length).toBe(1);
 
     const second = world(null);
-    const other = planOf({ argv: ['git', 'log'] });
+    const other = planOf({ timeoutMs: 29_999 });
     expect(await runExecPlan(other, second.ports)).toMatchObject({ ok: true, status: 'start-failed' });
     expect(await runExecPlan(other, second.ports)).toEqual({ ok: false, code: 'PLAN_ALREADY_RUN' });
     expect(second.started.length).toBe(1);
@@ -358,7 +358,7 @@ describe('the computer runner, behind injected ports', () => {
     child.exit(null, 'SIGKILL');
     const outcome = await run;
     expect(child.signals.map((entry) => entry.signal)).toEqual(['SIGKILL']);
-    expect(outcome).toMatchObject({ ok: true, status: 'timed-out', stop: { sent: ['SIGKILL'], failed: [{ signal: 'SIGTERM', error: 'cannot send SIGTERM' }] } });
+    expect(outcome).toMatchObject({ ok: true, status: 'timed-out', stop: { sent: ['SIGKILL'], failed: [{ signal: 'SIGTERM', error: expect.stringContaining('cannot send SIGTERM') }] } });
   });
 
   it('bounds the captured output to the plan\'s cap, drops the rest, and says it was cut', async () => {
@@ -534,5 +534,72 @@ describe('the computer runner, behind injected ports', () => {
     expect(child.signals.length).toBe(1);
     expect(started.report().sent).toEqual(['SIGTERM']);
     expect(beginStop(new FakeChild(1), ports)).toEqual({ ok: false, code: 'PID' });
+  });
+});
+
+describe('review round 2, N5: the runner never rejects on an odd thrown value or a handle that throws', () => {
+  const oddValues: [string, () => unknown][] = [
+    ['a null-prototype object', () => Object.create(null)],
+    ['an object whose toString throws', () => ({ toString: () => { throw new Error('toString'); } })],
+    ['an object whose message getter throws', () => ({ get message(): string { throw new Error('getter'); } })],
+    ['a non-string message', () => ({ message: 42 })],
+    ['a symbol', () => Symbol('s')],
+    ['a number', () => 7],
+    ['undefined', () => undefined],
+    ['a bigint', () => 10n],
+    ['a function', () => () => 1],
+    ['a very long string', () => 'x'.repeat(100_000)],
+  ];
+  it('returns a start-failed outcome, with a bounded fenced description, for any thrown value', async () => {
+    for (const [label, make] of oddValues) {
+      const { ports } = world(null);
+      const failing: RunnerPorts = { ...ports, spawn: { start: () => { throw make(); } } };
+      const outcome = await runExecPlan(planOf(), failing);
+      expect(outcome, label).toMatchObject({ ok: true, status: 'start-failed', actedUnknown: true });
+      if (outcome.ok) {
+        expect(outcome.startError?.trust, label).toBe('untrusted-data');
+        expect(outcome.startError?.length ?? 0, label).toBeLessThanOrEqual(MAX_START_ERROR_CHARS);
+      }
+    }
+  });
+  it('records a signal that throws an odd value, and goes on', async () => {
+    for (const [label, make] of oddValues) {
+      const child = new FakeChild();
+      (child as { signal: unknown }).signal = () => { throw make(); };
+      const { ports, timer } = world(child);
+      const run = runExecPlan(planOf({ timeoutMs: 1_000 }), ports);
+      await flush();
+      timer.advance(1_000);
+      timer.advance(3_000);
+      child.exit(null, 'SIGKILL');
+      const outcome = await run;
+      expect(outcome, label).toMatchObject({ ok: true, status: 'timed-out' });
+      if (outcome.ok) expect(outcome.stop?.failed.length, label).toBe(2);
+    }
+  });
+  it('treats a handle whose isRunning throws as still running, so the run ends with a forced kill and never rejects', async () => {
+    const child = new FakeChild();
+    (child as { isRunning: unknown }).isRunning = () => { throw new Error('isRunning down'); };
+    let fail = (): void => undefined;
+    (child as { waitForExit: unknown }).waitForExit = () => new Promise<ProcessExit>((_resolve, reject) => { fail = () => reject(new Error('broke')); });
+    const { ports } = world(child);
+    const run = runExecPlan(planOf(), ports);
+    await flush();
+    fail();
+    const outcome = await run;
+    expect(outcome).toMatchObject({ ok: true, status: 'exit-unknown' });
+    expect(child.signals.map((entry) => entry.signal)).toEqual(['SIGKILL']);
+  });
+  it('sends the escalation when isRunning throws at the grace timer', async () => {
+    const child = new FakeChild();
+    (child as { isRunning: unknown }).isRunning = () => { throw new Error('isRunning down'); };
+    const { ports, timer } = world(child);
+    const run = runExecPlan(planOf({ timeoutMs: 1_000 }), ports);
+    await flush();
+    timer.advance(1_000);
+    timer.advance(3_000);
+    timer.advance(SETTLE_WINDOW_MS);
+    await run;
+    expect(child.signals.map((entry) => entry.signal)).toEqual(['SIGTERM', 'SIGKILL']);
   });
 });

@@ -29,7 +29,17 @@
  * NOTHING HERE STARTS A PROCESS. The plan is core's, the signal is the handle's, and the timer is the port's.
  */
 import { planKillTree, type KillPlan, type KillRefusal, type KillSignal } from '@projectos/core';
+import { describeThrown } from './describeThrown.js';
 import type { ProcessHandle, RunnerProcessFacts, TimerPort } from './ports.js';
+
+/** Whether the handle's child may still be running: a handle that throws, or answers anything but `false`, is read as still running (the safe side is to stop it). */
+export function stillRunning(handle: ProcessHandle): boolean {
+  try {
+    return handle.isRunning() !== false;
+  } catch {
+    return true;
+  }
+}
 
 export interface KillReport {
   readonly sent: readonly KillSignal[];
@@ -86,7 +96,7 @@ export function executeStop(handle: ProcessHandle, timer: TimerPort, planned: Ex
       handle.signal(signal, plan.target);
       sent.push(signal);
     } catch (error) {
-      failed.push({ signal, error: error instanceof Error ? error.message : String(error) });
+      failed.push({ signal, error: describeThrown(error).framed });
     }
   };
   for (const step of plan.steps) {
@@ -96,7 +106,7 @@ export function executeStop(handle: ProcessHandle, timer: TimerPort, planned: Ex
     }
     cancels.push(
       timer.after(step.afterMs, () => {
-        if (!step.onlyIfRunning || handle.isRunning()) send(step.signal);
+        if (!step.onlyIfRunning || stillRunning(handle)) send(step.signal);
       }),
     );
   }

@@ -15,7 +15,7 @@ machine-readable reason and a class from the action registry; browser and comput
   directory, the environment NAMES, the run limits, the argument list as asked and as launched, and the real executable. A command
   that differs by one byte, a grant past its expiry and a second use are refused. A mismatch does not spend the grant. A decision
   carries the hash the owner was shown and is asked of an injected verifier port that must answer exactly `true` (round 1, H1); the
-  agent is the caller's and never a request field; a decision id is kept for good, bounded per tenant and project.
+  agent is the caller's and never a request field; a decision id is kept until its own expiry plus a replay window (a day), bounded per tenant and project.
 - **Exec policy** (core): modes `deny`, `allowlist`, `ask-on-miss` and `ask-always` only. An allowlist entry is an exact canonical
   executable pattern and either the exact arguments or `anyArgs: true` (never for git, find, tar, curl, wget arguments that run or
   write something, nor for a tool that runs what it is handed), the directories it may run in (by segment) and the shell syntax it
@@ -208,8 +208,8 @@ made one. These are listed here so a reviewer does not read their controls as pr
 - **Every count is keyed by tenant, project and id as a JSON array.** The grant store, the decision ids, the per-project room, the
   network rows and the hash itself.
 - **The store is bounded and never evicts a live entry.** Expired entries are dropped when a decision is issued; when 16 live
-  grants are held for a project, a new decision is refused. Decision ids are kept for good (1,024 per tenant and project); a full
-  set refuses a new decision and never forgets an old id. A denial counts against the ids and not against the live grants.
+  grants are held for a project, a new decision is refused. Decision ids are kept until the decision's own expiry plus a replay window of a day (1,024 per tenant and project); a full
+  set refuses a new decision and never forgets an id that is inside its horizon. A denial counts against the ids and not against the live grants.
 - **A caller-supplied value is never a bound.** The clock is the store's own, injected at creation and monotonic; the lifetime is
   held to a ten-minute cap and refused past it; the limits are held to caps and refused past them; the pid, group and grace of a kill
   are checked; a boolean flag must be `true`, not truthy.
@@ -240,6 +240,28 @@ mutation (see the validator output for the counts); the scenario is the reviewer
 Deferred, with a residual line: the registry rows for `exec-command` and `computer-*`, and the real resolver and spawn port (see
 Residuals). Nothing from the fix list was dropped.
 
+## Review round 2 (the ECC security-reviewer recheck on `c148b654`: 0 CRITICAL, 0 HIGH, 7 open items)
+
+The recheck found H1, H2, M2, M4, M5 and M6 fixed and H3 and M1 partly fixed. This final bounded round answers the seven open items
+(N1 to N7) and states N8 as a residual. In this round the tests for N1 to N4, N6 and N7 were written in `computer-review2.test.ts`
+in the same pass as the source (they were not run red first); the N5 runner tests were run red first (four failures) and then made
+green. Each fix has a named validator mutation that was applied and killed by its own scenario (the validator's output is the
+proof, not this table).
+
+| Item | Fix | Proof: test and named mutation |
+|---|---|---|
+| N1 hidden characters and fold tables incomplete | "Cannot be seen" is the Unicode property `Default_Ignorable_Code_Point` (plus the short list the property leaves out), not a list; text is stripped of combining marks (NFD, no `\p{M}`) before NFKC; Greek epsilon, chi, tau, beta and the Cyrillic En fold to their look-alike, and the Cyrillic Ve folds to `b`; `commandLine` refuses every default-ignorable code point through the same function | `computer-review2.test.ts` "floors a word split by any default-ignorable code point", "floors a word written with a Greek capital Epsilon, a Cyrillic Ve, a combining mark or an accent", "refuses a command line holding a default-ignorable code point"; mutations `default-ignorable-code-points-are-a-short-list`, `combining-marks-are-kept`, `a-greek-epsilon-is-not-an-e`, `a-cyrillic-ve-is-a-v` |
+| N2 an unrecognised key spelling fell through to typing | A key is trimmed, folded, a `key.` or `keys.` prefix is dropped, `+`, `-`, space and `_` are separators, modifiers must be known and the key must be a known name or one printable character; anything else is refused (`CONTEXT_INVALID`), never typing | "reads every spacing, separator and prefix of Enter and Alt+F4 as activation", "refuses a spelling it cannot read, instead of reading it as typing", "keeps plain printable keys and ordinary chords as plain typing"; mutations `a-space-is-not-a-separator`, `a-dash-is-not-a-separator`, `a-trailing-space-is-part-of-a-key`, `a-key-prefix-is-part-of-a-key`, `an-unrecognised-key-is-typing`, `an-unknown-modifier-is-ignored` |
+| N3 `anyArgs` with dangerous-argument tools | `anyArgs: true` is refused when the policy is compiled (`ENTRY_OPEN_ARGS`) for curl, wget, tar, git, find, xargs, awk and its kin, sed, gsed, make, gmake, rsync, ssh, scp, zip, unzip, 7z, the rest of the exact-only list, every shell, interpreter and launcher, and any pattern with a wildcard in the tool name; the argument rules stay as a second defence, exported as `execArgsRunSomething`, and match anywhere in an argument, in a short-flag cluster (`-sSLO`, `-qO`, `-xIsh`) and by abbreviated long option (`--checkpoint-ac=`, `--to-com=`, `--exe`), with `git rebase -x`, `bisect run`, `--output=` and `config alias.x` | "refuses anyArgs at compile time for the named tools and the interpreters", "still allows anyArgs for a tool that cannot", "refuses the argument forms that run or write"; mutations `a-tool-that-runs-anything-takes-open-arguments`, `a-gnu-sed-takes-open-arguments`, `an-interpreter-takes-open-arguments`, `a-wildcard-tool-name-takes-open-arguments`, `a-curl-short-flag-in-a-cluster-is-read-as-its-first-letter`, `an-abbreviated-long-option-is-another-option`, `a-git-run-subcommand-is-allowed`, `a-tar-interpreter-flag-in-a-cluster-is-allowed`, `an-unlisted-exact-only-tool-has-open-arguments` |
+| N4 the destructive floor was a deny-list | Word stems at the start of a word (`delet`, `pay`, `submit`, `purchas`, ...) so `Payments`, `Deleting`, `Submitted`, `Place your order` floor; the compound split (`DeleteAccount`, `accountDelete`) is done on the raw text before folding; `OK`, `Yes`, `Allow`, `Accept`, `Continue`, `Agree` floor on a click and not on typing; a navigation whose url words name logout, delete, remove, pay, purchase or order floors; credential words are tested on the whole path, and `.git/config`, `kubeconfig`, `*.jks`, `.config/gh/hosts.yml`, `.boto` and a `passwords` or `credentials` directory floor | "floors a stem, a plural, a participle and a camelCase, snake or kebab compound", "floors a generic confirmation button on a click, and leaves ordinary typing alone", "floors a navigation whose url path names an irreversible action", "tests credential words on the whole path"; mutations `a-stem-must-be-the-whole-word`, `pay-is-not-a-destructive-stem`, `compounds-are-not-split`, `a-confirmation-click-is-not-raised`, `a-url-path-is-not-read-for-a-navigation`, `a-passwords-directory-is-not-a-credential`, `a-git-config-is-not-a-credential`, `a-kubeconfig-is-not-a-credential`, `a-java-keystore-is-not-a-credential`, `a-gh-hosts-file-is-not-a-credential`, `a-boto-file-is-not-a-credential` |
+| N5 the runner could reject on an odd thrown value | One `describeThrown` (new `agent/src/computer/describeThrown.ts`): a type guard first, no method a port supplied is called, a `message` only if it is a string, the whole read in a `try`, cut to 512 characters, fenced as untrusted; used for the start error and for a failed signal; `isRunning` that throws reads as still running (the final force and the grace-timer escalation); the group sweep is guarded | `computerRunner.test.ts` "returns a start-failed outcome, with a bounded fenced description, for any thrown value" (ten odd values), "records a signal that throws an odd value", "treats a handle whose isRunning throws as still running", "sends the escalation when isRunning throws at the grace timer"; mutations `an-odd-thrown-value-is-read-unguarded`, `a-handle-whose-isrunning-throws-has-exited`, `a-thrown-signal-is-described-unguarded`, `a-start-error-is-unbounded` |
+| N6 decision tombstones filled after 1,024 | A tombstone is kept until its decision's own expiry plus `DECISION_REPLAY_WINDOW_MS` (a day), then released; a denial uses the same horizon; a full set still refuses and never evicts a tombstone inside its horizon | "mints again once the horizon of a full set has passed, and not before", "never mints a decision id twice inside its horizon, and releases it after", "uses the same horizon for a denial"; mutations `a-tombstone-is-never-released`, `a-tombstone-ends-with-its-decision`, `a-denial-has-no-horizon` |
+| N7 public-suffix wildcard list was short | A wildcard rule on github.io, gitlab.io, vercel.app, netlify.app, pages.dev, workers.dev, herokuapp.com, azurewebsites.net, cloudfront.net, amazonaws.com, appspot.com, firebaseapp.com, web.app, fly.dev, onrender.com, repl.co, glitch.me, blogspot.com, s3.amazonaws.com and the earlier country list is refused; an exact host on them is still allowed | "refuses a wildcard on the named hosting suffixes", "still allows an exact host on those suffixes"; mutations `github-pages-is-not-a-shared-suffix`, `vercel-is-not-a-shared-suffix`, `the-s3-suffix-is-not-a-shared-suffix`, `amazonaws-is-not-a-shared-suffix` |
+| N8 plan digest covers the policy and not the registry class; the plan expiry and the gate use two clocks | Not fixed, by the fix list: stated as a residual here and in the header of `execLaunch.ts` | none (a residual) |
+
+The tests that used `anyArgs` on git (the round 1 controls) now use `ls`, which cannot run or write anything, and git entries name exact
+arguments; the argument rules are tested directly through `execArgsRunSomething`, because a compiled policy can no longer reach them.
+
 ## Residuals and what this module cannot prove
 
 - A well-formed record that names a decision id is not an approval.
@@ -260,6 +282,18 @@ Residuals). Nothing from the fix list was dropped.
   the re-check of the RESOLVED real path (a shell, interpreter, launcher or a tool that runs what it is given is refused by its
   normalised name; a `.cmd`, `.bat`, `.ps1`, `.vbs`, `.com`, `.scr` or `.lnk` target is refused outright), so a file called
   `git` that resolves to a shell is refused. A binary that is renamed to something not in the lists is still the resolver's.
+- **N8, stated in round 2:** a plan's policy digest covers the policy and not the action registry, so a plan cleared at P3 and run
+  after the registry moved `exec-command` to P5 still runs until its minute is up; and a plan's expiry is dated by the clock the
+  plan was made with while the runner's gate compares it with its own clock, so two clocks that disagree stretch or shorten that
+  minute. Both are bounded by the minute and are in the header of `execLaunch.ts`; the wiring phase should hand the planner and the
+  gate one clock and one registry revision.
+- **Lists that cannot be complete, round 2:** the look-alike fold is a named list of Cyrillic and Greek letters (a look-alike in
+  another script is not folded); the hosting-suffix list is named and finite (a platform not on it can still be wildcarded); the
+  destructive stems and the confirmation words are English (an action named in another language is not floored by its word, only
+  by its tool, its key, its credential words or the registry). The fail-closed backstop for all three is the registry class: until
+  the registry lists the `computer-*` actions every one reads P5.
+- **A generic stem can floor an innocent word** (`post`, `order`, `send`, `reset`, `format` at a word start, `pay` in `payload`):
+  that is the safe side and is accepted; the false-positive tests keep `Next`, `Information` and ordinary typing at P3.
 - **Deferred in round 1, by the fix list:** (1) the registry rows for `exec-command` and `computer-*` (an owner-gated
   `action-registry-change`; until then every one reads P5, which fails closed); (2) the real resolver and spawn port. It must
   refuse `.cmd` and `.bat` targets (the BatBadBut class), resolve through the real file system and be conformance-tested against
@@ -287,17 +321,18 @@ Residuals). Nothing from the fix list was dropped.
 
 ## Checks
 
-Exit codes and counts are from the runs themselves (round 1, this pass), not from this document. `validate-all` was not run (the lead
-runs it).
+Exit codes and counts are from the runs themselves (the final bounded round, round 2), not from this document. `validate-all` was
+not run (the lead runs it).
 
 ```text
 core: npm run -s build                                    exit 0
-core: npx vitest run                                      79 files, 3381 tests passed (this phase: 7 files, 130 tests)
-core: vitest --coverage on src/computer                   99.91% statements, 93.78% branches, 100% functions
-agent: typecheck of src/computer + the runner test, ALIAS to this worktree's core/dist   exit 0
-agent: vitest computerRunner.test.ts, ALIAS config            29 tests passed (the alias config was a temporary file outside the repository, not committed)
-val-projectos-port-computer1a                             PASS (296 scenarios; 267 behaviour and 112 text mutations killed)
-val-projectos-port-credit1a                               PASS (118 real file(s) judged; 157 fixture and 59 record mutations killed)
+core: npx vitest run                                      80 files, 3399 tests passed (this phase: 8 files, 148 tests)
+core: vitest --coverage on src/computer                   99.92% statements, 94.04% branches, 100% functions
+agent: tsc over the WHOLE package (src/**) through an ALIAS tsconfig to this worktree's core/dist           exit 0
+agent: tsc over src/** and test/** through the same ALIAS tsconfig                                        exit 0
+agent: vitest computerRunner.test.ts, ALIAS config            33 tests passed (the alias configs were temporary files outside the repository, not committed)
+val-projectos-port-computer1a                             PASS (345 scenarios; 306 behaviour and 120 text mutations killed)
+val-projectos-port-credit1a                               PASS (119 real file(s) judged; 157 fixture and 59 record mutations killed)
 validate-no-secrets, validate-plan-no-secrets             PASS
 val-projectos-connector-contract1a                        PASS (38 rules; 293 named mutations killed)
 val-projectos-port-agents1a / -approvals1a / -context1a / -memory1a / -providers1a / -search1a / -skills1a   PASS (all seven)
@@ -308,24 +343,25 @@ val-projectos-agent-workforce1a, worker-lifecycle-bounded1a, live-gate-owner-flo
 ```
 
 The mutation counts are the validator's own output. The registration is in both lists, in the same position and order, before
-`val-projectos-connector-contract1a`, which pins its own entry as the last one; this round did not touch either list. The agent
-checks ran through an alias config because the agent's `@projectos/core` junction points at another worktree. The agent package
-was not typechecked as a whole through the alias, only `src/computer` and the runner test (nothing else in the agent changed).
+`val-projectos-connector-contract1a`, which pins its own entry as the last one; neither list was touched in this round. The agent
+package ran through an alias because the agent's `@projectos/core` junction points at another worktree: the alias points the
+package at this worktree's built `core/dist`, so the whole agent package compiled against the core this branch builds.
 
 ## Converge (Code Bible B9)
 
-Reconciled against the delta spec row 4 and ADR-P1 after the round 1 code was written. The module is still the approved shape:
-exec grants bound to argv, cwd and hash that expire and are single use, now also bound to a shown hash and a verifier port; a
-default-deny action policy as a typed table; allowlist patterns; a kill plan and a runner behind injected ports with fakes only;
-browser and computer use that refuse until Stage 4.3. Round 1 added one file inside the approved directory (`hiddenText.ts`,
-original code, on the validator's list and judged by the credit validator) and one injected port (`PlanGatePort`); it added no
-dependency and no child process API. Nothing was added to the action registry, the tenant registry, the closure authority, the
-owner floor, the gatekeeper or the credential custody. Nothing in PROTECTED was touched (`git diff --stat` against the WIP commit
-lists only files under `core/src/computer`, `agent/src/computer`, `core/test`, `agent/test`, this validator and this record; the
-notices file, the barrel and both registration lists were not edited in this round, and `docs/06_Plan.md` is not edited). Two
-things the approved row did not name were already recorded: `execDisplay.ts` and `networkPolicy.ts`.
+Reconciled against the delta spec row 4 and ADR-P1 after the round 2 code was written. The module is still the approved shape: exec
+grants bound to argv, cwd, a shown hash and a verifier port, that expire and are single use; a default-deny action policy as a typed
+table; allowlist patterns whose `anyArgs` is refused for any tool that can run or write; a kill plan and a runner behind injected
+ports with fakes only; browser and computer use that refuse until Stage 4.3. Round 2 added one file inside the approved agent
+directory (`describeThrown.ts`, original code, on the validator's list and judged by the credit validator) and no port, no
+dependency and no child process API. Nothing was added to the action registry, the tenant registry, the closure authority, the owner
+floor, the gatekeeper or the credential custody. Nothing in PROTECTED was touched: `git diff --stat` against `c148b654` lists only
+files under `core/src/computer`, `agent/src/computer`, `core/test`, `agent/test`, this validator and this record; the notices file,
+the barrels' lines, both registration lists and `docs/06_Plan.md` were not edited.
 
-Unbuilt, by the fix list: the registry rows and the real resolver and spawn port (Residuals). Drift: none found. The ECC
-`security-reviewer` recheck (one read-only pass told to reproduce) is the next step, then one final bounded round.
+Unbuilt, by the fix lists: the registry rows and the real resolver and spawn port (Residuals). Left as residuals on purpose: N8 and
+the lists that cannot be complete (Residuals). Drift: none found. No further review follows this round; the lead re-runs everything
+and reproduces each failing input.
 
-ECC SECURITY and Agency `application-security-engineer` reviews were done on `f1500a7a`; this round answers them, and the recheck is requested.
+ECC SECURITY and Agency `application-security-engineer` reviews were done on `f1500a7a`, the ECC recheck on `c148b654`; this round
+answers the recheck.

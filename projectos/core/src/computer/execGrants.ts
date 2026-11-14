@@ -22,10 +22,11 @@
  * if it answers exactly `true`. A store made with no verifier, a verifier that throws and a verifier that answers anything
  * else (a truthy value, a promise) mint nothing.
  *
- * A DECISION ID IS USED ONCE, FOR GOOD. The id of every decision, a deny or an allow, is kept as a tombstone and is never
- * dropped when its grant expires, so a spent or expired id can never mint again. The tombstones are bounded per tenant and
- * project; at the bound a new decision is refused (`STORE_FULL`) and none is evicted. Denials count against the tombstones and
- * not against the live grants.
+ * A DECISION ID IS USED ONCE, WITHIN ITS HORIZON. The id of every decision, a deny or an allow, is kept as a tombstone until the
+ * decision's own expiry plus a named replay window (`DECISION_REPLAY_WINDOW_MS`, a day), and only then released. A spent or an
+ * expired id therefore cannot mint again for as long as a grant it made could still be replayed, and the set does not fill for
+ * ever. The tombstones are bounded per tenant and project; at the bound a new decision is refused (`STORE_FULL`) and a tombstone
+ * inside its horizon is never evicted. Denials count against the tombstones and not against the live grants.
  *
  * THE AGENT IS THE CALLER'S, NOT THE REQUEST'S. A grant records the agent its command was prepared for, and `consume` is told
  * which agent is asking by the kernel's identity, never by a request field: agent-a presenting a grant made for agent-b is
@@ -72,6 +73,8 @@ export const MAX_GRANT_TTL_MS = 600_000;
 export const MAX_GRANTS_PER_SCOPE = 16;
 /** Decision ids kept for good, per tenant and project. */
 export const MAX_DECISIONS_PER_SCOPE = 1_024;
+/** How long past its own expiry a decision id is still refused. */
+export const DECISION_REPLAY_WINDOW_MS = 86_400_000;
 export const DECISION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$/;
 export const GRANT_DECISIONS = ['allow-once', 'deny'] as const;
 
@@ -146,7 +149,7 @@ export function createExecGrantStore(options: { readonly clock: ComputerClock; r
   if (typeof clock !== 'function') throw new TypeError('createExecGrantStore needs a clock');
   const verifier = options.verifier;
   const grants = new Map<string, Held>();
-  const decisions = new Map<string, Set<string>>();
+  const decisions = new Map<string, Map<string, number>>();
   let lastSeen = 0;
 
   const tick = (): number | null => {
@@ -157,6 +160,10 @@ export function createExecGrantStore(options: { readonly clock: ComputerClock; r
   /** Drop the grants that have expired: they are refused whether or not they are held. A live grant, and every decision id, is kept. */
   const purge = (now: number): void => {
     for (const [key, held] of grants) if (held.expiresAt <= now) grants.delete(key);
+    for (const [scope, ids] of decisions) {
+      for (const [id, horizon] of ids) if (horizon <= now) ids.delete(id);
+      if (ids.size === 0) decisions.delete(scope);
+    }
   };
   const scoped = (binding: TenantBinding, prepared: PreparedExec): GrantRefusal | null => {
     if (!isDerivedBinding(binding)) return 'NO_TENANT_BINDING';
@@ -187,13 +194,13 @@ export function createExecGrantStore(options: { readonly clock: ComputerClock; r
     purge(now);
     const decisionId = fields['decisionId'];
     const scope = scopeOf(binding.tenant, binding.projectId);
-    const seen = decisions.get(scope) ?? new Set<string>();
+    const seen = decisions.get(scope) ?? new Map<string, number>();
     if (seen.has(decisionId)) return { ok: false, code: 'DECISION_REUSED' };
     const live = [...grants.values()].filter((held) => held.scope === scope).length;
     if (seen.size >= MAX_DECISIONS_PER_SCOPE || (fields['decision'] === 'allow-once' && live >= MAX_GRANTS_PER_SCOPE)) return { ok: false, code: 'STORE_FULL' };
     const claim: DecisionClaim = { tenant: binding.tenant, project: binding.projectId, agentId: prepared.agentId, decisionId, hash: prepared.hash, decision: fields['decision'] as DecisionClaim['decision'] };
     if (!verified(claim)) return { ok: false, code: 'UNVERIFIED' };
-    seen.add(decisionId);
+    seen.set(decisionId, now + ttlMs + DECISION_REPLAY_WINDOW_MS);
     decisions.set(scope, seen);
     if (fields['decision'] === 'deny') return { ok: false, code: 'OWNER_DENIED' };
     const grantId = `EXECGRANT-${createHash('sha256').update(JSON.stringify([binding.tenant, binding.projectId, decisionId, prepared.hash]), 'utf8').digest('hex').slice(0, 32)}`;

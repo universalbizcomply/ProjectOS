@@ -13,6 +13,12 @@
  * time has passed, whether the policy in force is still that policy, and whether the grant was revoked, and refuses a plan
  * that is held and run later.
  *
+ * RESIDUALS, STATED. (1) The policy digest covers the policy and not the action registry: a plan cleared at class P3 and run after
+ * the registry moved `exec-command` to P5 is still run, until the plan's minute is up. (2) `expiresAt` was dated by the clock the
+ * plan was made with, and the runner compares it with the gate port's own clock; two clocks that disagree make a plan live a little
+ * longer or die a little sooner, and nothing here can tell which clock is right. Both are bounded by the minute, and the wiring
+ * phase should hand the planner and the gate one clock and one registry revision.
+ *
  * `mintExecLaunchPlan` is not exported from the directory's barrel. Only the grant store and the policy planner call it.
  *
  * Pure: no I/O.

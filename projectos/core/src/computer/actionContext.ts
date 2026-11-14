@@ -26,7 +26,7 @@
  * Pure: no I/O.
  */
 import { isPreparedExec, type PreparedExec } from './execCommand.js';
-import { foldForMatch } from './hiddenText.js';
+import { foldForMatch, foldWords } from './hiddenText.js';
 import { snapshotOfFields } from './plainFields.js';
 
 export const COMPUTER_TOOLS = [
@@ -48,6 +48,8 @@ export interface ComputerElement {
   readonly name: string;
   readonly type: string;
   readonly label: string;
+  /** The name, label and role with their compounds split into words and folded: `DeleteAccount` reads as delete account. */
+  readonly words: string;
 }
 
 export interface ComputerFile {
@@ -76,6 +78,9 @@ export interface ComputerActionContext {
   /** The window title and the url, folded. Empty when not stated. */
   readonly title: string;
   readonly url: string;
+  /** The title and the url with compounds and path segments split into folded words. */
+  readonly titleWords: string;
+  readonly urlWords: string;
   readonly submit: boolean;
   /** Typed text that holds a newline, or a tab then Enter: it submits. */
   readonly textActivates: boolean;
@@ -135,7 +140,9 @@ function elementOf(raw: unknown): ComputerElement | null {
   const name = foldedText(fields['name']);
   const type = fields['type'] === undefined ? '' : foldedText(fields['type'], 64);
   const label = fields['label'] === undefined ? '' : foldedText(fields['label']);
-  return role === null || name === null || type === null || label === null ? null : Object.freeze({ role, name, type, label });
+  if (role === null || name === null || type === null || label === null) return null;
+  const words = foldWords([fields['name'], fields['label'] ?? '', fields['role']].join(' '));
+  return Object.freeze({ role, name, type, label, words });
 }
 
 function mcpOf(raw: unknown): ComputerMcp | null {
@@ -149,21 +156,41 @@ function mcpOf(raw: unknown): ComputerMcp | null {
 }
 
 const ENTER_KEYS = new Set(['enter', 'return', 'kp_enter', 'kp_return', 'kpenter', 'numpadenter', 'linefeed']);
-const SPACE_KEYS = new Set(['space', 'spacebar', 'kp_space', ' ']);
+const SPACE_KEYS = new Set(['space', 'spacebar', 'kp_space']);
 const DELETE_KEYS = new Set(['delete', 'del', 'kp_delete', 'forwarddelete']);
 const BACKSPACE_KEYS = new Set(['backspace', 'bksp']);
 const ALT_NAMES = new Set(['alt', 'option', 'opt', 'altgr']);
+const MODIFIER_NAMES = new Set(['ctrl', 'control', 'shift', 'alt', 'option', 'opt', 'altgr', 'meta', 'cmd', 'command', 'super', 'win', 'windows', 'fn', 'hyper']);
+/** The key names this module reads. Anything else that is not one printable character is a spelling it cannot read, and is refused. */
+const OTHER_KEYS = new Set([
+  'tab', 'escape', 'esc', 'home', 'end', 'pageup', 'pagedown', 'insert', 'ins', 'up', 'down', 'left', 'right', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'capslock',
+  'numlock', 'scrolllock', 'pause', 'printscreen', 'menu', ...Array.from({ length: 24 }, (_, index) => `f${index + 1}`),
+]);
+const isKeyName = (name: string): boolean =>
+  ENTER_KEYS.has(name) || SPACE_KEYS.has(name) || DELETE_KEYS.has(name) || BACKSPACE_KEYS.has(name) || OTHER_KEYS.has(name) || MODIFIER_NAMES.has(name);
+const isPrintable = (name: string): boolean => [...name].length === 1 && !/[\u0000-\u001f\u007f]/.test(name);
 
-/** A key chord as one key and whether Alt was held: modifiers and their order dropped, every spelling of a key made one. */
+/**
+ * A key chord as one key and whether Alt was held: spaces, case, a `key.` prefix, the separators `+`, `-`, space and `_`, modifiers
+ * and their order are dropped, and every spelling of a key is made one. A spelling this module cannot read completely (an
+ * unknown word, an unknown modifier, a dangling separator) is `null`, and a context with it is refused: it is never read as typing.
+ */
 export function normalizeKey(raw: string): { readonly key: string; readonly alt: boolean } | null {
   const text = foldedText(raw, 32);
   if (text === null) return null;
-  const spaceOnly = raw.length > 0 && raw.trim() === '';
-  const parts = spaceOnly ? [' '] : text.split('+');
-  const last = parts.length > 1 && parts[parts.length - 1] === '' ? '+' : (parts[parts.length - 1] as string);
-  const modifiers = parts.slice(0, -1);
-  const key = ENTER_KEYS.has(last) ? 'enter' : SPACE_KEYS.has(last) ? 'space' : DELETE_KEYS.has(last) ? 'delete' : BACKSPACE_KEYS.has(last) ? 'backspace' : last;
-  return key === '' ? null : { key, alt: modifiers.some((modifier) => ALT_NAMES.has(modifier)) || /^alt\+?f4$/.test(text) };
+  if (raw.length > 0 && raw.trim() === '') return { key: 'space', alt: false };
+  const whole = text.replace(/\s+/g, ' ').trim().replace(/^keys?\./, '');
+  if (whole === '') return null;
+  const dangling = /^(.+?)[+\-\s]+([+-])$/.exec(whole);
+  const head = whole.length === 1 ? [] : dangling !== null ? (dangling[1] as string).split(/[+\-\s]+/) : whole.split(/[+\-\s]+/);
+  const last = whole.length === 1 ? whole : dangling !== null ? (dangling[2] as string) : (head.pop() as string);
+  const names = head.flatMap((token) => (isKeyName(token) ? [token] : token.split('_')));
+  const lastNames = isKeyName(last) || isPrintable(last) ? [last] : last.split('_');
+  const modifiers = [...names, ...lastNames.slice(0, -1)];
+  const name = lastNames[lastNames.length - 1] as string;
+  if (name === '' || !(isKeyName(name) || isPrintable(name)) || modifiers.some((modifier) => !MODIFIER_NAMES.has(modifier))) return null;
+  const key = ENTER_KEYS.has(name) ? 'enter' : SPACE_KEYS.has(name) ? 'space' : DELETE_KEYS.has(name) ? 'delete' : BACKSPACE_KEYS.has(name) ? 'backspace' : name;
+  return { key, alt: modifiers.some((modifier) => ALT_NAMES.has(modifier)) };
 }
 
 const isDestructiveKey = (key: string, alt: boolean): boolean => key === 'delete' || key === 'backspace' || (key === 'f4' && alt);
@@ -240,6 +267,8 @@ export function readActionContext(raw: unknown): ContextResult {
     keyDestructive: key !== null && isDestructiveKey(key, alt),
     title,
     url,
+    titleWords: fields['title'] === undefined ? '' : foldWords(fields['title'] as string),
+    urlWords: fields['url'] === undefined ? '' : foldWords(fields['url'] as string),
     submit,
     textActivates,
     file,

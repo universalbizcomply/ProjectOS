@@ -144,27 +144,38 @@ export function compileActionPolicy(raw: unknown): ActionPolicyResult {
 }
 
 const DESTRUCTIVE_TOOLS: readonly string[] = ['write-file', 'download-file', 'run-command', 'mcp-write'];
-/** Words that make an activation destructive: spending, sending, removing, publishing or leaving. Matched on folded text, at word edges. */
+/**
+ * Word STEMS that make an activation destructive: spending, sending, removing, publishing or leaving. A stem is matched at the
+ * start of a word with any ending (`delet` reads Delete, Deleting, Deleted; `pay` reads Payments), on folded text and on the text
+ * with its compounds split into words (`DeleteAccount`, `delete_account`, `/account/delete`).
+ */
 const DESTRUCTIVE_WORDS = new RegExp(
   '(?:^|[^a-z0-9])(?:' +
     [
-      'place\\s+order', 'buy', 'purchase', 'pay', 'payment', 'approve\\s+payment', 'authori[sz]e', 'revoke', 'sign\\s*-?\\s*out', 'log\\s*-?\\s*out', 'transfer', 'send\\s+money',
-      'delete', 'remove', 'erase', 'wipe', 'format', 'reset', 'uninstall', 'publish', 'submit', 'confirm', 'send', 'post', 'checkout', 'withdraw', 'wire', 'unsubscribe', 'deactivate',
+      'place\\s+(?:your\\s+|my\\s+|the\\s+)?order', 'order', 'buy', 'purchas', 'pay', 'approv', 'authori[sz]', 'revok', 'sign\\s*-?\\s*out', 'log\\s*-?\\s*out', 'logout', 'transfer',
+      'delet', 'remov', 'eras', 'wip', 'format', 'reset', 'uninstall', 'publish', 'submit', 'confirm', 'send', 'post', 'checkout', 'withdraw', 'wire(?![a-z])', 'unsubscribe', 'deactivat',
     ].join('|') +
-    ')(?:$|[^a-z0-9])',
+    ')',
 );
+/** Generic confirmation buttons: on a click they confirm whatever the dialog asked, so a click on one is raised like a destructive word. */
+const CONFIRM_WORDS = /(?:^|[^a-z0-9])(?:ok|okay|yes|allow|accept|continue|agree|proceed)(?![a-z0-9])/;
 const CREDENTIAL_WORDS = /pass(?:word|code|wd)|\botp\b|totp|2fa|mfa|secret|token|api[ _-]?key|card number|\bcvv\b|\bssn\b|credential|private key/;
 /** Paths that hold a secret, on a lower-case workspace path: a directory, a file name or an extension. */
 const CREDENTIAL_PATHS = [
   /(?:^|\/)\.(?:ssh|aws|gnupg|kube)(?:\/|$)/,
   /(?:^|\/)\.docker\/config\.json$/,
-  /(?:^|\/)\.(?:git-credentials|pypirc|npmrc|netrc|pgpass)$/,
+  /(?:^|\/)\.(?:git-credentials|pypirc|npmrc|netrc|pgpass|boto)$/,
+  /(?:^|\/)\.git\/config$/,
+  /(?:^|\/)\.config\/gh\/hosts\.yml$/,
+  /(?:^|\/)kubeconfig[^/]*$/,
   /\.(?:pem|key|p12|pfx|kdbx|env)$/,
+  /\.jks$/,
   /(?:^|\/)\.env[^/]*$/,
   /(?:^|\/)id_(?:rsa|ed25519|ecdsa|dsa)[^/]*$/,
   /(?:^|\/)terraform\.tfstate[^/]*$/,
   /(?:^|\/)credentials[^/]*$/,
   /(?:^|\/)(?:secrets?|tokens?)(?:\/|$)/,
+  /(?:^|\/)(?:passwords?|credentials?)(?:\/|$)/,
 ];
 const isCredentialPath = (path: string): boolean => CREDENTIAL_PATHS.some((pattern) => pattern.test(path));
 
@@ -172,12 +183,16 @@ const isCredentialPath = (path: string): boolean => CREDENTIAL_PATHS.some((patte
 export function floorReason(context: ComputerActionContext): 'destructive' | 'credential-adjacent' | null {
   const element = context.element;
   const texts = [context.title, context.url, ...(element === null ? [] : [element.name, element.role, element.label])];
+  const words = [context.titleWords, context.urlWords, ...(element === null ? [] : [element.words])];
   if (element !== null && element.type === 'password') return 'credential-adjacent';
   if (texts.some((text) => CREDENTIAL_WORDS.test(text))) return 'credential-adjacent';
-  if (context.file !== null && (isCredentialPath(context.file.path) || CREDENTIAL_WORDS.test(context.file.name))) return 'credential-adjacent';
+  if (words.some((text) => CREDENTIAL_WORDS.test(text))) return 'credential-adjacent';
+  if (context.file !== null && (isCredentialPath(context.file.path) || CREDENTIAL_WORDS.test(context.file.path))) return 'credential-adjacent';
   if (context.command !== null && CREDENTIAL_WORDS.test(context.command)) return 'credential-adjacent';
   if (DESTRUCTIVE_TOOLS.includes(context.tool) || context.submit || context.textActivates || context.keyDestructive || (context.mcp !== null && context.mcp.effect === 'write')) return 'destructive';
-  if (context.intent === 'activate' && (context.tool === 'key' || texts.some((text) => DESTRUCTIVE_WORDS.test(text)))) return 'destructive';
+  if (context.tool === 'navigate' && DESTRUCTIVE_WORDS.test(context.urlWords)) return 'destructive';
+  if (context.intent === 'activate' && (context.tool === 'key' || [...texts, ...words].some((text) => DESTRUCTIVE_WORDS.test(text)))) return 'destructive';
+  if (context.intent === 'activate' && context.tool === 'click' && element !== null && CONFIRM_WORDS.test(element.words)) return 'destructive';
   return null;
 }
 

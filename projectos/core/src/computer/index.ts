@@ -32,6 +32,7 @@ export {
   UNATTENDED_EXEC_CLASS,
   compileExecPolicy,
   evaluateExecPolicy,
+  execArgsRunSomething,
   planAllowlistedExec,
   type CompileResult as ExecPolicyCompileResult,
   type ExecDecision,
@@ -44,6 +45,7 @@ export {
 } from './execPolicy.js';
 export {
   DECISION_ID,
+  DECISION_REPLAY_WINDOW_MS,
   GRANT_DECISIONS,
   MAX_GRANTS_PER_SCOPE,
   MAX_DECISIONS_PER_SCOPE,

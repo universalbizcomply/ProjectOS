@@ -113,7 +113,7 @@ export const unattendedRegistry = (): ActionRegistry => registryWith({ 'exec-com
 
 /** A compiled exec policy that allows `git` from any argument list, run under `/work`. A refused policy is a bug in the test. */
 export function execPolicyOf(mode: 'deny' | 'allowlist' | 'ask-on-miss' | 'ask-always' = 'allowlist', extra: Record<string, unknown> = {}): ExecPolicy {
-  const result = compileExecPolicy({ mode, allowlist: [{ pattern: GIT, anyArgs: true, cwdPrefixes: ['/work'], ...extra }] });
+  const result = compileExecPolicy({ mode, allowlist: [{ pattern: GIT, args: ['status'], cwdPrefixes: ['/work'], ...extra }] });
   if (!result.ok) throw new Error(`the control exec policy was refused: ${result.code}: ${result.detail}`);
   return result.policy;
 }

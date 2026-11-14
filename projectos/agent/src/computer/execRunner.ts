@@ -42,14 +42,13 @@
  * WHAT THIS MODULE CANNOT PROVE. That the spawn port starts exactly the argument list it is given, with no shell, is the port's.
  */
 import { fenceUntrustedOutput, isExecLaunchPlan, readComputerClock, type ExecLaunchPlan, type FencedOutput, type KillRefusal } from '@projectos/core';
-import { beginStop, executeStop, planGroupSweep, type KillReport, type StopStarted } from './killTree.js';
+import { describeThrown, MAX_START_ERROR_CHARS } from './describeThrown.js';
+import { beginStop, executeStop, planGroupSweep, stillRunning, type KillReport, type StopStarted } from './killTree.js';
 import type { OutputStream, PlanGatePort, ProcessExit, ProcessHandle, RunnerPorts } from './ports.js';
 
 /** How long to wait for a stopped child to confirm its exit before the run is reported unconfirmed. */
 export const SETTLE_WINDOW_MS = 5_000;
 
-/** The most of a start error the outcome keeps: what a port says about its own failure is untrusted text. */
-export const MAX_START_ERROR_CHARS = 512;
 
 export type RunRefusal = 'NOT_A_PLAN' | 'PLAN_ALREADY_RUN' | 'PLAN_EXPIRED' | 'POLICY_CHANGED' | 'GRANT_REVOKED' | 'GATE_UNAVAILABLE';
 export type RunStatus = 'exited' | 'timed-out' | 'start-failed' | 'exit-unknown';
@@ -189,11 +188,17 @@ async function supervise(handle: ProcessHandle, plan: ExecLaunchPlan, ports: Run
     if (state.stop?.ok === true) state.stop.cancel();
     // Whatever the stop did, a child still running when the run ends is forced: a refused or failed terminate must not end the run with it alive.
     const alreadyForced = state.stop?.ok === true && state.stop.report().sent.includes('SIGKILL');
-    if (exit === null && !alreadyForced && handle.isRunning()) state.force = beginStop(handle, ports, { force: true });
+    if (exit === null && !alreadyForced && stillRunning(handle)) state.force = beginStop(handle, ports, { force: true });
   }
   // A leader that exited on its own may have left its group behind: sweep the whole group, and only a whole, safe group.
-  const sweepPlan = exit !== null ? planGroupSweep(handle, ports) : null;
-  const sweep = sweepPlan === null ? null : executeStop(handle, ports.timer, sweepPlan);
+  let sweep: ReturnType<typeof executeStop> | null = null;
+  try {
+    const sweepPlan = exit !== null ? planGroupSweep(handle, ports) : null;
+    sweep = sweepPlan === null ? null : executeStop(handle, ports.timer, sweepPlan);
+  } catch {
+    // A handle that throws when asked about its group is not swept; the run still reports.
+    sweep = null;
+  }
   const stops = [state.stop, state.force].filter((entry): entry is StopStarted => entry !== null);
   const report = mergeReports([...stops.map((entry) => (entry.ok ? entry.report() : null)), sweep === null ? null : sweep.report()]);
   const forced = report?.sent.includes('SIGKILL') === true;
@@ -213,8 +218,6 @@ async function supervise(handle: ProcessHandle, plan: ExecLaunchPlan, ports: Run
   });
 }
 
-/** The text of a start failure, bounded and fenced: a port's own error message is not trusted. */
-const startErrorOf = (error: unknown): FencedOutput => fenceUntrustedOutput('stderr', (error instanceof Error ? error.message : String(error)).slice(0, MAX_START_ERROR_CHARS));
 
 /** Run a plan once. The first call is the only call; a second is `PLAN_ALREADY_RUN`, whatever happened in the first. */
 export async function runExecPlan(plan: ExecLaunchPlan, ports: RunnerPorts): Promise<RunOutcome> {
@@ -237,7 +240,7 @@ export async function runExecPlan(plan: ExecLaunchPlan, ports: RunnerPorts): Pro
       killRefused: null,
       killDegradedFrom: null,
       groupSwept: false,
-      startError: startErrorOf(error),
+      startError: describeThrown(error),
     });
   }
   return supervise(handle, plan, ports, capture);

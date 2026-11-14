@@ -57,13 +57,13 @@ describe('exec policy: default deny, an allowlist hit is not a grant, and the cl
     for (const argv of [['git', 'status', '-s'], ['git'], ['git', 'statu'], ['git', 'status ']]) {
       expect(evaluateExecPolicy(policy, unattended, preparedOf(binding, { argv })).outcome, argv.join(' ')).toBe('refuse');
     }
-    const any = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true, cwdPrefixes: ['/work'] }] });
-    expect(evaluateExecPolicy(any, unattended, preparedOf(binding, { argv: ['git', 'log', '-p'] })).outcome).toBe('allowlist-hit');
+    const any = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: '/bin/ls', anyArgs: true, cwdPrefixes: ['/work'] }] });
+    expect(evaluateExecPolicy(any, unattended, preparedOf(binding, { argv: ['ls', '-la'] })).outcome).toBe('allowlist-hit');
   });
 
   it('matches the real executable and never the name a request gave it: an alias of an allowlisted name is a miss', () => {
     const binding = polygo();
-    const policy = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: '/usr/bin/git', cwdPrefixes: ['/work'], anyArgs: true }] });
+    const policy = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: '/usr/bin/git', cwdPrefixes: ['/work'], args: ['status'] }] });
     const elsewhere = preparedOf(binding, {}, { resolve: () => ({ resolvedRealPath: '/tmp/git' }) });
     expect(evaluateExecPolicy(policy, unattended, elsewhere).outcome).toBe('refuse');
     const sameName = preparedOf(binding, { argv: ['/tmp/git', 'status'] }, { resolve: () => ({ resolvedRealPath: '/tmp/git' }) });
@@ -81,12 +81,12 @@ describe('exec policy: default deny, an allowlist hit is not a grant, and the cl
 
   it('allows shell syntax only when the entry names it: a glob in an argument misses an entry that does not allow globs', () => {
     const binding = polygo();
-    const globbed = preparedOf(binding, { argv: undefined, commandLine: 'git add *.ts' });
-    const without = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true, cwdPrefixes: ['/work'] }] });
-    const withGlob = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, cwdPrefixes: ['/work'], anyArgs: true, allowSyntax: ['glob'] }] });
+    const globbed = preparedOf(binding, { argv: undefined, commandLine: 'ls *.ts' });
+    const without = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: '/bin/ls', anyArgs: true, cwdPrefixes: ['/work'] }] });
+    const withGlob = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: '/bin/ls', cwdPrefixes: ['/work'], anyArgs: true, allowSyntax: ['glob'] }] });
     expect(evaluateExecPolicy(without, unattended, globbed).outcome).toBe('refuse');
     expect(evaluateExecPolicy(withGlob, unattended, globbed).outcome).toBe('allowlist-hit');
-    const redirected = preparedOf(binding, { argv: undefined, commandLine: 'git log > out.txt' });
+    const redirected = preparedOf(binding, { argv: undefined, commandLine: 'ls > out.txt' });
     expect(evaluateExecPolicy(withGlob, unattended, redirected).outcome).toBe('refuse');
   });
 

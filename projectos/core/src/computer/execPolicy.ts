@@ -46,7 +46,7 @@ import { PLAN_TTL_MS, mintExecLaunchPlan, type ExecLaunchPlan } from './execLaun
 import { compileExecAllowlistPattern, type ExecAllowlistPattern } from './allowlistPattern.js';
 import { canonicalPathOf } from './pathCanon.js';
 import { snapshotOfArray, snapshotOfFields } from './plainFields.js';
-import { normalizeExecutableToken } from './wrapperResolution.js';
+import { executableBlockReason, normalizeExecutableToken } from './wrapperResolution.js';
 
 export const EXEC_ACTION = 'exec-command';
 /** The highest class a command may run at on an allowlist hit alone. */
@@ -76,7 +76,7 @@ export interface ExecPolicy {
   readonly digest: string;
 }
 
-export type PolicyRefusal = 'POLICY_SHAPE' | 'POLICY_MODE' | 'POLICY_ENTRIES' | 'ENTRY_SHAPE' | 'ENTRY_PATTERN' | 'ENTRY_ARGS' | 'ENTRY_SYNTAX' | 'ENTRY_CWD' | 'NOT_HASHABLE';
+export type PolicyRefusal = 'POLICY_SHAPE' | 'POLICY_MODE' | 'POLICY_ENTRIES' | 'ENTRY_SHAPE' | 'ENTRY_PATTERN' | 'ENTRY_ARGS' | 'ENTRY_SYNTAX' | 'ENTRY_CWD' | 'ENTRY_OPEN_ARGS' | 'NOT_HASHABLE';
 export type CompileResult = { readonly ok: true; readonly policy: ExecPolicy } | { readonly ok: false; readonly code: PolicyRefusal; readonly detail: string };
 
 const COMPILED = new WeakSet<object>();
@@ -116,6 +116,9 @@ function entryOf(raw: unknown, index: number): EntryResult {
   const syntax = fields['allowSyntax'] === undefined ? [] : snapshotOfArray(fields['allowSyntax'], ALLOWABLE_SYNTAX.length);
   if (syntax === null || syntax.some((word) => !ALLOWABLE_SYNTAX.includes(word as SyntaxFeature)) || new Set(syntax).size !== syntax.length) {
     return fail('ENTRY_SYNTAX', `allowSyntax names only ${ALLOWABLE_SYNTAX.join(' and ')}: chaining, substitution and grouping can never be allowed`);
+  }
+  if (args === null && !openArgsEntryAllowed(compiled.pattern.canonical)) {
+    return fail('ENTRY_OPEN_ARGS', 'anyArgs is not allowed for a tool that can run or write what it is handed, or for a pattern that could name one: name the exact arguments');
   }
   return {
     ok: true,
@@ -177,16 +180,48 @@ const decision = (outcome: ExecOutcome, code: ExecDecisionCode, matched: string 
 
 const sameWords = (left: readonly string[], right: readonly string[]): boolean => left.length === right.length && left.every((word, index) => word === right[index]);
 
-/** Tools whose arguments can run a program or write a file: an entry that says any arguments do still never allows these. */
-const DANGEROUS_ARGS: Readonly<Record<string, RegExp>> = {
-  git: /^(?:-c|-C|--exec-path|--config|--config-env|--upload-pack|--receive-pack|--git-dir|--work-tree|--ext-diff|--no-index)/,
-  find: /^-(?:exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/,
-  tar: /^(?:--(?:checkpoint-action|to-command|use-compress-program|rsh-command|info-script|new-volume-script)|-I)/,
-  curl: /^(?:-o|-O|-K|-T|--output|--remote-name|--config|--upload-file|--post-file|--dump-header|-D)/,
-  wget: /^(?:-o|-O|-P|-i|--output|--directory-prefix|--input-file|--post-file|--execute|-e)/,
+/**
+ * Tools that run or write what they are handed: an entry for one needs EXACT arguments, and `anyArgs: true` on one is refused when
+ * the policy is compiled. The list is the tools the review named plus the ones that run a program, a script or a remote command.
+ */
+const EXACT_ONLY = new Set([
+  'sed', 'gsed', 'make', 'gmake', 'rsync', 'zip', 'unzip', '7z', '7za', 'scp', 'ssh', 'nc', 'ncat', 'socat', 'tee', 'dd', 'cp', 'mv', 'rm', 'chmod', 'chown', 'install', 'ln', 'perl', 'cmake', 'ninja',
+  'gradle', 'mvn', 'npm', 'pnpm', 'yarn', 'pip', 'cargo', 'curl', 'wget', 'tar', 'git', 'find', 'xargs', 'awk', 'gawk', 'mawk', 'nawk',
+]);
+
+/** A long option, by its full name or by any abbreviation of it: `--checkpoint-ac=` is `--checkpoint-action`, `--out=` is `--output`. */
+const longOption = (arg: string, names: readonly string[]): boolean => {
+  if (!arg.startsWith('--')) return false;
+  const name = arg.slice(2).split('=')[0] as string;
+  return name.length >= 2 && names.some((candidate) => candidate.startsWith(name));
 };
-/** Tools that run or write what they are handed: an entry for one needs exact arguments. */
-const EXACT_ONLY = new Set(['sed', 'make', 'rsync', 'zip', 'unzip', 'scp', 'nc', 'ncat', 'socat', 'tee', 'dd', 'cp', 'mv', 'rm', 'chmod', 'chown', 'install', 'ln', 'perl', 'cmake', 'ninja', 'gradle', 'mvn', 'npm', 'pnpm', 'yarn', 'pip', 'cargo']);
+/** A short option cluster that holds any of `letters`, anywhere in it: `-sSLO` holds O, `-ccore.pager=x` holds c. */
+const shortOption = (arg: string, letters: string): boolean => /^-[A-Za-z0-9]/.test(arg) && [...arg.slice(1)].some((letter) => letters.includes(letter));
+
+/** Per tool: whether one argument runs a program or writes a file. A second defence behind the compile-time refusal of `anyArgs`. */
+const ARG_RUNS_SOMETHING: Readonly<Record<string, (arg: string) => boolean>> = {
+  git: (arg) =>
+    shortOption(arg, 'cCx') ||
+    longOption(arg, ['exec', 'exec-path', 'config', 'config-env', 'upload-pack', 'receive-pack', 'git-dir', 'work-tree', 'ext-diff', 'no-index', 'output']) ||
+    arg === 'config' ||
+    arg === 'run' ||
+    arg.startsWith('alias.'),
+  find: (arg) => /^-(?:exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/.test(arg),
+  tar: (arg) =>
+    shortOption(arg, 'I') || longOption(arg, ['checkpoint-action', 'to-command', 'use-compress-program', 'rsh-command', 'info-script', 'new-volume-script']),
+  curl: (arg) =>
+    shortOption(arg, 'oOKTD') ||
+    longOption(arg, ['output', 'output-dir', 'remote-name', 'remote-name-all', 'remote-header-name', 'config', 'upload-file', 'dump-header', 'create-dirs', 'cookie-jar', 'libcurl', 'etag-save', 'hsts']),
+  wget: (arg) =>
+    shortOption(arg, 'oOPie') || longOption(arg, ['output-document', 'output-file', 'append-output', 'directory-prefix', 'input-file', 'post-file', 'execute', 'rejected-log']),
+};
+
+/** Whether these arguments of this tool run a program or write a file: any argument of a tool that needs exact arguments, or an argument form of the named tools. */
+export function execArgsRunSomething(tool: string, args: readonly string[]): boolean {
+  const runs = ARG_RUNS_SOMETHING[tool];
+  if (runs !== undefined) return args.some(runs) || (tool === 'tar' && /^[A-Za-z]*I[A-Za-z]*$/.test(args[0] ?? ''));
+  return EXACT_ONLY.has(tool);
+}
 
 /** Whether the arguments of a command are ones an `anyArgs` entry may allow. */
 function openArgsAllowed(prepared: PreparedExec, entry: CompiledAllowlistEntry): boolean {
@@ -194,8 +229,13 @@ function openArgsAllowed(prepared: PreparedExec, entry: CompiledAllowlistEntry):
   const rest = prepared.argv.slice(1);
   if (EXACT_ONLY.has(tool)) return false;
   if (entry.denyArgs.some((denied) => rest.includes(denied))) return false;
-  const dangerous = DANGEROUS_ARGS[tool];
-  return dangerous === undefined || !rest.some((arg) => dangerous.test(arg));
+  return !execArgsRunSomething(tool, rest);
+}
+
+/** Whether an entry with `anyArgs: true` may name this pattern: never a wildcard in the tool name, a tool that needs exact arguments, or a shell, interpreter or launcher. */
+function openArgsEntryAllowed(canonicalPattern: string): boolean {
+  const base = canonicalPattern.split(/[\\/]/).pop() ?? '';
+  return !/[*?]/.test(base) && !EXACT_ONLY.has(normalizeExecutableToken(base)) && executableBlockReason(canonicalPattern) === null;
 }
 
 /** Whether the command's working directory is under one of the entry's, by whole segments, and is a canonical local path. */

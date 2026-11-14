@@ -56,8 +56,16 @@ export interface EffectiveNetworkPolicy {
 }
 
 const HOST_RULE = /^(?:\*\.)?[a-z0-9.-]{1,253}$/;
-/** Registrable suffixes that are two labels: a wildcard on one of these would open every site under it. */
-const PUBLIC_SUFFIXES = new Set(['co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'com.au', 'net.au', 'org.au', 'co.jp', 'co.nz', 'co.in', 'co.za', 'com.br', 'com.cn', 'com.mx', 'com.tr']);
+/**
+ * Suffixes under which strangers hold their own sites: a country second level, or a hosting platform where anyone can register a
+ * name. A wildcard on one of these would open every tenant under it, so it is never a rule; an exact host on one (a single site)
+ * still is. The list is named and finite, and a suffix missing from it is a residual (see the finish record).
+ */
+const PUBLIC_SUFFIXES = new Set([
+  'co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'com.au', 'net.au', 'org.au', 'co.jp', 'co.nz', 'co.in', 'co.za', 'com.br', 'com.cn', 'com.mx', 'com.tr',
+  'github.io', 'gitlab.io', 'vercel.app', 'netlify.app', 'pages.dev', 'workers.dev', 'herokuapp.com', 'azurewebsites.net', 'cloudfront.net', 'amazonaws.com', 'appspot.com',
+  'firebaseapp.com', 'web.app', 'fly.dev', 'onrender.com', 'repl.co', 'glitch.me', 'blogspot.com', 's3.amazonaws.com',
+]);
 const isLocalName = (name: string): boolean => name === 'localhost' || /\.(?:localhost|local|internal|localdomain)$/.test(name);
 
 /** Policies this module made. A value of the same shape built by hand is not one. */

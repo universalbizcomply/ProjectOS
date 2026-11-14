@@ -4,9 +4,12 @@
  *
  * A WORD THAT IS SPLIT IS STILL THAT WORD. A zero-width space, a soft hyphen, a bidi control, a variation selector or a tag
  * character is invisible to a person and breaks a word for a pattern, so `De<ZWSP>lete` would read as no word at all. Text is
- * therefore stripped of every character a person cannot see, normalised to NFKC (so a full-width letter is its ASCII
- * letter), lower-cased, and folded for the Cyrillic and Greek letters that look like Latin ones, before any rule reads it.
- * The strip is a list of what to remove, kept short and in code points; the folding is a list of what to map.
+ * therefore stripped of every character a person cannot see, stripped of its combining marks (NFD, then no \p{M}, so an
+ * accented or underlined letter is its plain letter), normalised to NFKC (so a full-width letter is its ASCII letter),
+ * lower-cased, and folded for the Cyrillic and Greek letters that look like Latin ones, before any rule reads it. What a person
+ * cannot see is a GENERAL rule, the Unicode property Default_Ignorable_Code_Point, and not a list that a new code point
+ * escapes; the short list of ranges below only adds what the property leaves out (a filler, an object replacement). The folding
+ * is a list of what to map, and a letter missing from it is the one residual (see the finish record).
  *
  * Terminal output is stripped of ANSI escape sequences and every control character except a newline and a tab for the same
  * reason: what a terminal would not show is not shown.
@@ -21,9 +24,11 @@ export const HIDDEN_RANGES: readonly (readonly [number, number])[] = [
 ];
 
 const inRanges = (point: number): boolean => HIDDEN_RANGES.some(([from, to]) => point >= from && point <= to);
+const DEFAULT_IGNORABLE = /\p{Default_Ignorable_Code_Point}/u;
+const COMBINING_MARK = /\p{M}/gu;
 
-/** Whether a character is one nobody can see. */
-export const isHiddenChar = (char: string): boolean => inRanges(char.codePointAt(0) ?? 0);
+/** Whether a character is one nobody can see: a default-ignorable code point, or one of the ranges above. */
+export const isHiddenChar = (char: string): boolean => DEFAULT_IGNORABLE.test(char) || inRanges(char.codePointAt(0) ?? 0);
 
 /** The text with every hidden character removed. */
 export function stripHiddenText(text: string): string {
@@ -38,17 +43,31 @@ export const hasHiddenText = (text: string): boolean => [...text].some(isHiddenC
 /** Cyrillic and Greek letters that look like Latin ones, as code point pairs. */
 const LOOKALIKES: readonly (readonly [number, string])[] = [
   [0x0430, 'a'], [0x0435, 'e'], [0x043e, 'o'], [0x0440, 'p'], [0x0441, 'c'], [0x0443, 'y'], [0x0445, 'x'], [0x0455, 's'], [0x0456, 'i'], [0x0458, 'j'],
-  [0x0501, 'd'], [0x04bb, 'h'], [0x043a, 'k'], [0x043c, 'm'], [0x0442, 't'], [0x0432, 'v'], [0x0261, 'g'], [0x03bf, 'o'], [0x03b1, 'a'], [0x03bd, 'v'],
-  [0x03c1, 'p'], [0x03b9, 'i'], [0x03ba, 'k'], [0x03c5, 'u'], [0x0131, 'i'],
+  [0x0501, 'd'], [0x04bb, 'h'], [0x043a, 'k'], [0x043c, 'm'], [0x0442, 't'], [0x0432, 'b'], [0x0261, 'g'], [0x03bf, 'o'], [0x03b1, 'a'], [0x03bd, 'v'],
+  [0x03c1, 'p'], [0x03b9, 'i'], [0x03ba, 'k'], [0x03c5, 'u'], [0x0131, 'i'], [0x03b5, 'e'], [0x03c7, 'x'], [0x03c4, 't'], [0x03b2, 'b'], [0x043d, 'h'],
 ];
 const LOOKALIKE: Readonly<Record<number, string | undefined>> = Object.freeze(Object.fromEntries(LOOKALIKES));
 
 /** Text folded for matching: hidden characters stripped before and after NFKC, lower case, lookalikes mapped to Latin. */
 export function foldForMatch(text: string): string {
-  const folded = stripHiddenText(stripHiddenText(text).normalize('NFKC')).toLowerCase();
+  const unmarked = stripHiddenText(text).normalize('NFD').replace(COMBINING_MARK, '');
+  const folded = stripHiddenText(stripHiddenText(unmarked).normalize('NFKC')).toLowerCase();
   let out = '';
   for (const char of folded) out += LOOKALIKE[char.codePointAt(0) ?? 0] ?? char;
   return out;
+}
+
+/**
+ * Text with its compounds split into words, then folded: `DeleteAccount`, `delete_account`, `delete-account` and `/account/delete` all
+ * read as the words delete and account. The split is done on the raw text, because folding lower-cases and a camelCase boundary
+ * is gone once it has.
+ */
+export function foldWords(text: string): string {
+  const spaced = stripHiddenText(text)
+    .replace(/([\p{Ll}\p{N}])(\p{Lu})/gu, '$1 $2')
+    .replace(/(\p{Lu})(\p{Lu}\p{Ll})/gu, '$1 $2')
+    .replace(/[_\-./:?&=#+%]+/g, ' ');
+  return foldForMatch(spaced).replace(/\s+/g, ' ').trim();
 }
 
 const ESC = String.fromCharCode(0x1b);
