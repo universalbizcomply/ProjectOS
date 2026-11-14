@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PORT-COMPUTER1A",
   "project": "ProjectOS",
   "objective": "Port delta phase 10 (C14). Port a named subset of OpenClaw (MIT) exec approval (src/infra/exec-allowlist-pattern.ts and the exec-approval files the phase lists by path) and the src/process kill-tree logic, and the CopilotKit OpenBot (MIT) action policy as a typed default-deny table. The runner sits behind an injected spawn port with fakes only. Browser and computer-use interfaces refuse SANDBOX_NOT_AVAILABLE until Stage 4.3. Serves plan 4.3.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-14T12:37:54.700Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-14T12:37:56.136Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PORT-COMPUTER1A:owner-closure:ba1f7644"
     }
   ]
 }
