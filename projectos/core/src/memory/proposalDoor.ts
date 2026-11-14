@@ -32,6 +32,8 @@ export type FindingsProposalClass = (typeof FINDINGS_PROPOSAL_CLASSES)[number];
 export const MAX_FINDINGS_PROPOSALS = 10;
 /** The door's own bound on text, ahead of the queues' rules, so what is parsed is bounded by this and not by the worker. */
 export const MAX_DOOR_FIELD_CHARS = 20_000;
+/** A record or an entry with more fields than this is refused unread, so the copy is bounded by this and not by the worker. */
+export const MAX_DOOR_FIELDS = 200;
 export const MAX_DOOR_SKILL_FILES = 50;
 export const MAX_DOOR_SKILL_PATH_CHARS = 256;
 export const MAX_DOOR_SKILL_TOTAL_CHARS = 1_048_576;
@@ -96,8 +98,10 @@ const isProxy = (value: object): boolean => types.isProxy(value);
 /** The own, enumerable data fields of a plain object, copied once; null for an accessor, a symbol key or a Proxy. */
 function fieldsOf(value: unknown): Record<string, unknown> | null {
   if (typeof value !== 'object' || value === null || isProxy(value) || Array.isArray(value) || !isPlainProto(value)) return null;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > MAX_DOOR_FIELDS) return null;
   const copy: Record<string, unknown> = {};
-  for (const key of Reflect.ownKeys(value)) {
+  for (const key of keys) {
     if (typeof key !== 'string') return null;
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (descriptor === undefined || !('value' in descriptor) || descriptor.enumerable !== true) return null;

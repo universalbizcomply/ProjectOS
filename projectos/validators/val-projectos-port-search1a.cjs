@@ -97,7 +97,7 @@ const PORTED = {
   [MARKDOWN]: ["packages/memory-host-sdk/src/host/markdown-chunks.ts"],
   [core("textBudget.ts")]: ["packages/normalization-core/src/cjk-chars.ts", "packages/normalization-core/src/utf16-slice.ts"],
 };
-const ORIGINAL = [CITATION, CHUNKS, CITED, FTS, BARREL, FENCE, SENSITIVE, INDEX, WALK, agent("index.ts")];
+const ORIGINAL = [CITATION, CHUNKS, CITED, FTS, BARREL, FENCE, SENSITIVE, INDEX, WALK, agent("index.ts"), core("indexKey.ts"), agent("ports.ts"), agent("nodeHost.ts"), agent("projectIndex.ts"), agent("storeSources.ts")];
 const SEARCH_FILES = [...Object.keys(PORTED), ...ORIGINAL];
 /** What the copy needs from the rest of core. Both are pure. */
 const RUN_DEPENDENCIES = ["projectos/core/src/tenant.ts", "projectos/core/src/execution/evidence.ts"];
@@ -162,7 +162,7 @@ const TESTS = {
     "the schema itself will not hold a row without a citation",
     "a row altered with %s is refused as %s, and its text does not come back",
     "an untouched row in the same index passes: the positive control",
-    "a search sees its own project and never the other, and the other sees its own",
+    "a search sees its own project: the positive control",
     "no query text can reach the project or another file",
     "a deleted database rebuilds to the same answers",
     "a rebuild that fails part way leaves the previous index standing",
@@ -304,8 +304,8 @@ const PIN_RULES = [
     P(INDEX, null, "end_line INTEGER NOT NULL CHECK (end_line >= start_line),"),
   ] },
   { rule: "PS-18", says: "the walk no longer reads only documents inside the project", pins: [
-    P(WALK, null, "const stat = lstatSync(abs);"),
-    P(WALK, null, "if (stat.isSymbolicLink()) return [{ path: rel, reason: 'link' }];"),
+    P(WALK, null, "const stat = fs.stat(abs);"),
+    P(WALK, null, "if (stat.kind === 'link') return [{ path: rel, reason: 'link' }];"),
     P(WALK, null, "if (name.startsWith('.')) return [];"),
     P(WALK, null, "!DOCUMENT_EXTENSIONS.includes(extname(name).toLowerCase())"),
     P(WALK, null, "UNENTERED_DIRECTORIES.includes(name.toLowerCase()) ? [] : visit(rel)"),
@@ -328,7 +328,7 @@ const PIN_RULES = [
     P(INDEX, null, "recordProject.run(project, MARKDOWN_CHUNKING_VERSION,"),
   ] },
   { rule: "PS-24", says: "a secret can reach the index", pins: [
-    P(CHUNKS, "chunkRecordsOf", "const sensitive = sensitivePathProblem(input.path) ?? sensitiveContentProblem(input.content);"),
+    P(CHUNKS, "chunkRecordsOf", "const sensitive = sensitivePathProblem(input.path, input.source) ?? sensitiveContentProblem(input.content);"),
     P(CHUNKS, "chunkRecordsOf", "if (sensitive !== null) return { ok: true, records: [], skipped: [{ path: input.path, reason: sensitive }] };"),
     P(SENSITIVE, "sensitivePathProblem", "segments.some((segment) => segment.startsWith('.'))"),
     P(SENSITIVE, "sensitivePathProblem", "CREDENTIAL_NAME.test(segment) || CREDENTIAL_EXTENSION.test(segment)"),
@@ -347,11 +347,11 @@ const PIN_RULES = [
     P(MARKDOWN, "remapChunkLines", "rowLines: chunk.rowLines.map((line) => lineMap[line - 1] ?? line),"),
   ] },
   { rule: "PS-26", says: "the schema is not versioned", pins: [
-    P(INDEX, null, "export const SEARCH_SCHEMA_VERSION = 1;"),
+    P(INDEX, null, "export const SEARCH_SCHEMA_VERSION = 2;"),
     P(INDEX, "ensureSchema", "if (version === SEARCH_SCHEMA_VERSION) return;"),
     P(INDEX, "ensureSchema", "SEARCH_TABLES.forEach((table) => db.exec(`DROP TABLE IF EXISTS ${table}`));"),
     P(INDEX, "ensureSchema", "db.exec(`PRAGMA user_version = ${SEARCH_SCHEMA_VERSION}`);"),
-    P(INDEX, null, "const SEARCH_TABLES = ['search_chunks_fts', 'search_chunks', 'search_projects'];"),
+    P(INDEX, null, "const SEARCH_TABLES = ['search_chunks_fts', 'search_chunks', 'search_projects', 'search_owner'];"),
   ] },
   { rule: "PS-27", says: "the handle can leak", pins: [
     P(INDEX, "openSearchIndex", "ensureSchema(db);"),
@@ -505,7 +505,7 @@ function check(raw) {
   }
 
   // PS-18: a link is refused before anything can enter it.
-  if (code[WALK].indexOf("stat.isSymbolicLink()") > code[WALK].indexOf("stat.isDirectory()")) E("PS-18", "a directory is entered before the link check");
+  if (code[WALK].indexOf("stat.kind === 'link'") > code[WALK].indexOf("stat.kind === 'directory'")) E("PS-18", "a directory is entered before the link check");
 
   // PS-19: the upstream embedding input stays cut.
   if (/embeddingInput|provenance/.test(code[MARKDOWN])) E("PS-19", "the chunker carries a field no citation uses");
@@ -543,14 +543,37 @@ function check(raw) {
 }
 
 const PROBE = String.raw`
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 const core = await import('./core/src/shim.ts');
-const { collectDocumentSources, openSearchIndex, SEARCH_SCHEMA_VERSION } = await import('./agent/src/search/index.ts');
+const { collectDocumentSources, documentFsOver, nodeEntryProbe, openSearchIndex: openOwned, SEARCH_SCHEMA_VERSION } = await import('./agent/src/search/index.ts');
 const { DatabaseSync } = process.getBuiltinModule('node:sqlite');
 const A = 'alpha-project';
 const B = 'beta-project';
 const failed = new Set();
+const clock = { nowMs: () => 1 };
+const TENANT = 'agency-one';
+const openSearchIndex = (location, project = A) => openOwned(location, { owner: { tenant: TENANT, project }, clock });
+const walkFs = documentFsOver(
+  {
+    readText: (p) => {
+      try {
+        return readFileSync(p, 'utf8');
+      } catch {
+        return null;
+      }
+    },
+    listDir: (p) => {
+      try {
+        return readdirSync(p);
+      } catch {
+        return [];
+      }
+    },
+    now: () => '2026-11-14T00:00:00Z',
+  },
+  nodeEntryProbe,
+);
 let count = 0;
 let serial = 0;
 const expectIt = (rule, run) => {
@@ -612,11 +635,11 @@ expectIt('PS-9', () => core.admitSearchResult({ project: A, source: 'documents',
 expectIt('PS-10', () => {
   const index = openSearchIndex(':memory:');
   index.rebuildProject(A, [doc(A, 'mine.md', 'walnut')]);
-  index.rebuildProject(B, [doc(B, 'theirs.md', 'walnut')]);
   const outcome = index.search({ project: A, query: 'walnut' });
   const other = index.search({ project: B, query: 'walnut' });
+  const rebuilt = index.rebuildProject(B, [doc(B, 'theirs.md', 'walnut')]);
   index.close();
-  return pathsOf(outcome) === 'mine.md' && outcome.refused.length === 0 && pathsOf(other) === 'theirs.md';
+  return pathsOf(outcome) === 'mine.md' && outcome.refused.length === 0 && other.reason === 'wrong-project' && rebuilt.ok === false;
 });
 expectIt('PS-10', () => core.admitSearchResult({ project: B, source: 'documents', path: 'x.md', startLine: 1, endLine: 1 }, A).ok === false);
 
@@ -724,7 +747,7 @@ expectIt('PS-18', () => {
   writeFileSync(join(root, 'node_modules', 'dep.md'), 'dep');
   writeFileSync(join(root, '.git', 'x.md'), 'x');
   symlinkSync(outside, join(root, 'linked'), 'junction');
-  const found = collectDocumentSources({ project: A, root });
+  const found = collectDocumentSources({ project: A, root, fs: walkFs });
   return found.sources.map((s) => s.path).join(',') === 'keep.md' && JSON.stringify(found.skipped) === JSON.stringify([{ path: 'linked', reason: 'link' }]);
 });
 
@@ -757,7 +780,7 @@ expectIt('PS-24', () => {
   writeFileSync(join(root, 'credentials.txt'), 'guava');
   writeFileSync(join(root, 'notes.md'), 'guava ' + AWS);
   writeFileSync(join(root, 'plain.md'), 'guava');
-  const found = collectDocumentSources({ project: A, root });
+  const found = collectDocumentSources({ project: A, root, fs: walkFs });
   return found.sources.map((s) => s.path).join(',') === 'plain.md' && found.skipped.map((s) => s.reason).join(',') === 'credential-name,secret-content';
 });
 
@@ -902,9 +925,9 @@ const MUTATIONS = [
   M("the-schema-allows-line-zero", "PS-17", INDEX, "CHECK (start_line >= 1)", ""),
   M("the-schema-allows-a-reversed-range", "PS-17", INDEX, "CHECK (end_line >= start_line)", ""),
   M("the-schema-allows-no-project", "PS-17", INDEX, "project TEXT NOT NULL CHECK (length(project) > 0),\n    source TEXT", "project TEXT,\n    source TEXT"),
-  M("the-walk-follows-links", "PS-18", WALK, "const stat = lstatSync(abs);", "const stat = statSync(abs);"),
-  M("the-link-check-goes", "PS-18", WALK, "    if (stat.isSymbolicLink()) return [{ path: rel, reason: 'link' }];\n", ""),
-  M("the-link-check-moves-below-the-directory-check", "PS-18", WALK, "    if (stat.isSymbolicLink()) return [{ path: rel, reason: 'link' }];\n    if (stat.isDirectory()) return UNENTERED_DIRECTORIES.includes(name.toLowerCase()) ? [] : visit(rel);\n", "    if (stat.isDirectory()) return UNENTERED_DIRECTORIES.includes(name.toLowerCase()) ? [] : visit(rel);\n    if (stat.isSymbolicLink()) return [{ path: rel, reason: 'link' }];\n"),
+  M("the-walk-follows-links", "PS-18", WALK, "const stat = fs.stat(abs);", "const stat = fs.statFollowingLinks(abs);"),
+  M("the-link-check-goes", "PS-18", WALK, "    if (stat.kind === 'link') return [{ path: rel, reason: 'link' }];\n", ""),
+  M("the-link-check-moves-below-the-directory-check", "PS-18", WALK, "    if (stat.kind === 'link') return [{ path: rel, reason: 'link' }];\n    if (stat.kind === 'directory') return UNENTERED_DIRECTORIES.includes(name.toLowerCase()) ? [] : visit(rel);\n", "    if (stat.kind === 'directory') return UNENTERED_DIRECTORIES.includes(name.toLowerCase()) ? [] : visit(rel);\n    if (stat.kind === 'link') return [{ path: rel, reason: 'link' }];\n"),
   M("dot-entries-are-read", "PS-18", WALK, "    if (name.startsWith('.')) return [];\n", ""),
   M("every-extension-is-read", "PS-18", WALK, " || !DOCUMENT_EXTENSIONS.includes(extname(name).toLowerCase())", ""),
   M("key-files-join-the-allowlist", "PS-18", WALK, "['.md', '.markdown', '.mdx', '.txt']", "['.md', '.markdown', '.mdx', '.txt', '.env', '.pem']"),
@@ -950,7 +973,8 @@ const MUTATIONS = [
 const BEHAVIOUR_MUTATIONS = [
   B("a-row-with-no-path-is-served", "PS-9", CITATION, "  if (pathProblem !== null) return pathProblem;\n", "", ["PS-11"]),
   B("a-row-with-no-line-is-served", "PS-9", CITATION, "  if (!lineRangeIsCitable(result.startLine, result.endLine)) return 'no-line-range';\n", ""),
-  B("a-search-reads-every-project", "PS-10", INDEX, "WHERE search_chunks_fts MATCH ? AND c.project = ?", "WHERE search_chunks_fts MATCH ? AND ? IS NOT NULL"),
+  B("a-search-answers-another-project", "PS-10", INDEX, "      if (request.project !== deps.owner.project) return { ok: false, reason: 'wrong-project' };\n", ""),
+  B("a-rebuild-takes-another-project", "PS-10", INDEX, "      if (project !== deps.owner.project) return { ok: false, problem: `this index holds ${deps.owner.project}, not ${project}` };\n", ""),
   B("the-door-forgets-the-project", "PS-10", CITATION, "  if (result.project !== scopeProject) return 'wrong-project';\n", ""),
   B("refused-rows-take-a-slot", "PS-11", CITED, "const keyword = citable(judgedKeyword);", "const keyword = [...params.keyword];"),
   B("a-made-up-citation-passes", "PS-12", CITATION, "citations.every((citation) => hits.some(", "citations.some((citation) => hits.some("),
@@ -964,7 +988,7 @@ const BEHAVIOUR_MUTATIONS = [
   B("a-failed-rebuild-commits", "PS-16", INDEX, "    db.exec('ROLLBACK');\n    throw error;\n  }\n}\n\n/** The cap", "    db.exec('COMMIT');\n    throw error;\n  }\n}\n\n/** The cap"),
   B("a-rebuild-adds-to-the-old-rows", "PS-16", INDEX, "    statements.deleteChunks.run(project);\n", ""),
   B("the-table-takes-an-empty-path", "PS-17", INDEX, "path TEXT NOT NULL CHECK (length(path) > 0),", "path TEXT NOT NULL,"),
-  B("the-walk-enters-a-link", "PS-18", WALK, "    if (stat.isSymbolicLink()) return [{ path: rel, reason: 'link' }];\n", ""),
+  B("the-walk-enters-a-link", "PS-18", WALK, "    if (stat.kind === 'link') return [{ path: rel, reason: 'link' }];\n", ""),
   B("a-short-line-map-is-padded", "PS-19", CHUNKS, "input.lineMap.length !== lines", "input.lineMap.length > lines"),
   B("stale-ranges-answer", "PS-20", INDEX, "      if (status === 'stale') return { ok: false, reason: 'stale' };\n", ""),
   B("the-boundary-lets-secrets-in", "PS-24", CHUNKS, "  if (sensitive !== null) return { ok: true, records: [], skipped: [{ path: input.path, reason: sensitive }] };\n", ""),
@@ -1001,7 +1025,7 @@ function probed(dir) {
 function behaviour(raw) {
   return scratch.withScratch("port-search", (dir) => {
     for (const rel of [...SEARCH_FILES, ...RUN_DEPENDENCIES]) writeCopy(dir, rel, raw[rel]);
-    fs.writeFileSync(path.join(dir, "core", "src", "shim.ts"), "export * from './search/index.ts';\nexport { isProjectId } from './tenant.ts';\n");
+    fs.writeFileSync(path.join(dir, "core", "src", "shim.ts"), "export * from './search/index.ts';\nexport { isProjectId, isTenantId } from './tenant.ts';\n");
     fs.writeFileSync(path.join(dir, "probe.mjs"), PROBE);
 
     const control = probed(dir);

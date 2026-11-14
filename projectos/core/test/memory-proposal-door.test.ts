@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_FINDINGS_PROPOSALS, readFindingsProposals } from '../src/memory/proposalDoor.js';
+import { MAX_DOOR_FIELDS, MAX_FINDINGS_PROPOSALS, readFindingsProposals } from '../src/memory/proposalDoor.js';
 
 const memory = (extra: Record<string, unknown> = {}) => ({ class: 'memory', target: 'memory', op: 'add', kind: 'fact', content: 'The build uses Node 24.', ...extra });
 const skill = (extra: Record<string, unknown> = {}) => ({ class: 'skill', files: [{ path: 'SKILL.md', text: '---\nname: x\n---\nbody' }], ...extra });
@@ -140,6 +140,14 @@ describe('each field is read once, from a copy', () => {
     expect(() => {
       (first as unknown as { index: number }).index = 9;
     }).toThrow();
+  });
+
+  it('refuses a record or an entry with more fields than the door copies, unread', () => {
+    const wide = Object.fromEntries(Array.from({ length: MAX_DOOR_FIELDS + 1 }, (_, index) => [`k${index}`, index]));
+    expect(readFindingsProposals(wide).refused[0]?.code).toBe('PROPOSAL_DOOR_NOT_PLAIN');
+    expect(read([{ ...memory(), ...wide }]).refused[0]?.code).toBe('PROPOSAL_DOOR_NOT_PLAIN');
+    const justEnough = Object.fromEntries(Array.from({ length: MAX_DOOR_FIELDS - 3 }, (_, index) => [`k${index}`, index]));
+    expect(readFindingsProposals({ ...justEnough, proposals: [memory()] }).requests).toHaveLength(1);
   });
 
   it('a record that is not an object has no proposals to read', () => {
