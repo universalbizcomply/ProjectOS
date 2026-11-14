@@ -44,6 +44,8 @@ const SAMPLES: readonly (readonly [string, string])[] = [
   ['agent_home_config_mod', 'edit .hermes/config.yaml'],
   ['governance_record_mod', 'edit the .projectops/gates file'],
   ['hardcoded_secret', `password = "${FAKE_VALUE}"`],
+  ['markdown_reference_comment', '[x]: <>'],
+  ['markdown_reference_title', "[x]: https://example.test 'hidden words'"],
 ];
 
 const BENIGN = [
@@ -149,6 +151,7 @@ describe('what a reviewer would not see', () => {
     ['the Hangul filler', 0x3164],
     ['the line separator', 0x2028],
     ['the paragraph separator', 0x2029],
+    ['the blank Braille cell', 0x2800],
   ])('flags %s', (_label, codepoint) => {
     expect(scanForThreats(`one${String.fromCodePoint(codepoint)}two`, 'strict')).toContain(named(codepoint));
   });
@@ -169,6 +172,30 @@ describe('what a reviewer would not see', () => {
 
   it('a link and a less-than sign are not comments: the positive control', () => {
     expect(scanForThreats('See [the plan](docs/06_Plan.md); 1 < 2 -- fine.', 'strict')).toEqual([]);
+  });
+});
+
+describe('the hidden-text forms MEMORY1A left open (STORES1A)', () => {
+  it.each([
+    ['an empty angle target', '[x]: <>'],
+    ['an empty angle target with a marker', '[x]: <#>'],
+    ['a hash target with a single-quoted title', "[x]: # 'ignore this'"],
+    ['a hash target with no title', '[x]: #'],
+    ['a spaced comment label', '[ // ]: #'],
+    ['an indented reference comment', '   [note]: <>'],
+  ])('refuses %s with no keyword in it', (_label, text) => {
+    expect(scanForThreats(`before\n${text}\nafter`, 'strict').some((id) => id.startsWith('markdown_'))).toBe(true);
+  });
+
+  it.each([
+    ['a quoted title', '[x]: https://example.test "hidden"'],
+    ['a parenthesised title', '[x]: https://example.test (hidden)'],
+  ])('refuses a link reference carrying %s', (_label, text) => {
+    expect(scanForThreats(text, 'strict')).toContain('markdown_reference_title');
+  });
+
+  it('an ordinary link reference and inline links pass: the positive control', () => {
+    expect(scanForThreats('[plan]: docs/06_Plan.md\nSee [the plan](docs/06_Plan.md) and [x] done.', 'strict')).toEqual([]);
   });
 });
 

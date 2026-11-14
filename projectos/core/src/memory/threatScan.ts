@@ -5,6 +5,7 @@
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
 // Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: translated from Python to TypeScript; text past the scan limit is refused instead of dropped; control, format and default-ignorable characters and the line and paragraph separators count as invisible; comments refused with or without a keyword; patterns for the upstream home directory renamed, one added for .projectops
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: the blank Braille cell counts as invisible, and a link reference written as a comment or carrying a title is refused (STORES1A, a PORT-MEMORY1A carry-forward)
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * The threat scan: injection, promptware and exfiltration patterns, as data, with no I/O.
@@ -51,6 +52,9 @@ const PATTERNS: readonly (readonly [source: string, id: string, scope: ThreatSco
   // A comment holds text a rendered view does not show, so a reviewer can approve what they never read.
   [String.raw`<!--`, 'html_comment', 'strict'],
   [String.raw`\[//\]:`, 'markdown_comment', 'strict'],
+  // The same hiding in other spellings (STORES1A): `[x]: <>`, `[x]: # 'text'`, `[ // ]: #`, and a title only a tooltip shows.
+  [String.raw`(?:^|\n) {0,3}\[[^\]\n]{0,512}\]:[ \t]*(?:<[ \t]*#?[ \t]*>|#)`, 'markdown_reference_comment', 'strict'],
+  [String.raw`(?:^|\n) {0,3}\[[^\]\n]{0,512}\]:[ \t]*\S{1,2048}[ \t]+["'(]`, 'markdown_reference_title', 'strict'],
   [String.raw`translate\s+[^\n]{0,512}\s+into\s+${WORD}+(?:[\s-]+${WORD}+){0,2}\s+and\s+(execute|run|eval)\b`, 'translate_execute', 'all'],
   [String.raw`do\s+not\s+${FILLER}tell\s+${FILLER}the\s+user`, 'deception_hide', 'all'],
 
@@ -131,9 +135,10 @@ export const THREAT_PATTERN_IDS: readonly string[] = PATTERNS.map(([, id]) => id
  *
  * An approval covers the bytes, so what the owner cannot read must not be admitted at all. `Cc` is here
  * because an escape sequence can erase a line from a terminal, `Cf` holds the zero-width, bidirectional
- * and tag characters, and default-ignorable adds variation selectors and fillers. Upstream lists 15.
+ * and tag characters, and default-ignorable adds variation selectors and fillers. Upstream lists 15. The blank
+ * Braille cell renders as nothing and sits in none of those classes, so it is named here (STORES1A).
  */
-const INVISIBLE = /(?![\n\t])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\p{Zl}\p{Zp}]/gu;
+const INVISIBLE = /(?![\n\t])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\p{Zl}\p{Zp}\u2800]/gu;
 
 function invisibleFindings(content: string): readonly string[] {
   const found = new Set(content.match(INVISIBLE) ?? []);

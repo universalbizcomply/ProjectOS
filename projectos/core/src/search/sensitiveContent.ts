@@ -36,9 +36,18 @@ const SECRET_SHAPES: readonly RegExp[] = [
   /\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/,
 ];
 
+/**
+ * The one dot directory a store citation may open with (PROJECTOS-MEMORY-STORES1A). Plan memory, execution records and
+ * findings live under `.projectops/`, and a citation names the real file, so the path cannot be renamed to hide the dot. Only
+ * the first segment, only that name, and only for a `memory` or `sessions` source: a document may not claim it.
+ */
+const STORE_ROOT_SEGMENT = '.projectops';
+const STORE_SOURCES: readonly string[] = ['memory', 'sessions'];
+
 /** Why this project-relative path is not indexed, or null. Each segment is judged, so a directory counts. */
-export function sensitivePathProblem(path: string): SensitiveReason | null {
-  const segments = path.split('/');
+export function sensitivePathProblem(path: string, source?: string): SensitiveReason | null {
+  const all = path.split('/');
+  const segments = all[0] === STORE_ROOT_SEGMENT && source !== undefined && STORE_SOURCES.includes(source) ? all.slice(1) : all;
   if (segments.some((segment) => segment.startsWith('.'))) return 'dot-segment';
   return segments.some((segment) => CREDENTIAL_NAME.test(segment) || CREDENTIAL_EXTENSION.test(segment)) ? 'credential-name' : null;
 }

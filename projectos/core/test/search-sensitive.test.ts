@@ -105,3 +105,39 @@ describe('chunkRecordsOf holds the boundary', () => {
     });
   });
 });
+
+describe('the project store paths a rebuildable index cites (STORES1A)', () => {
+  it('lets `.projectops` open a memory or session citation, because the real path is the citation', () => {
+    expect(sensitivePathProblem('.projectops/execution/run-1.findings.json', 'sessions')).toBeNull();
+    expect(sensitivePathProblem('.projectops/plan-0123456789abcdef-0123456789ab.json', 'memory')).toBeNull();
+  });
+
+  it('keeps it closed to a document and to a source that names none: the positive control', () => {
+    expect(sensitivePathProblem('.projectops/plan-1.json', 'documents')).toBe('dot-segment');
+    expect(sensitivePathProblem('.projectops/plan-1.json')).toBe('dot-segment');
+  });
+
+  it.each([
+    ['another dot directory', '.git/config'],
+    ['an environment file', '.env'],
+    ['the store root under another dot name', '.projectops2/x.json'],
+    ['a dot segment below the root', '.projectops/.hidden/x.json'],
+    ['the root not first', 'docs/.projectops/x.json'],
+    ['a credential name below the root', '.projectops/execution/credentials.json'],
+  ])('still refuses %s, even as a memory or session source', (_label, path) => {
+    expect(sensitivePathProblem(path, 'memory')).not.toBeNull();
+    expect(sensitivePathProblem(path, 'sessions')).not.toBeNull();
+  });
+
+  it('judges the source kind at the index boundary, so a document cannot claim the path', () => {
+    const asDocument = chunkRecordsOf({ project: 'alpha-project', source: 'documents', path: '.projectops/plan-1.json', content: 'plan text' });
+    expect(asDocument).toMatchObject({ ok: true, records: [], skipped: [{ path: '.projectops/plan-1.json', reason: 'dot-segment' }] });
+    const asMemory = chunkRecordsOf({ project: 'alpha-project', source: 'memory', path: '.projectops/plan-1.json', content: 'plan text' });
+    expect(asMemory.ok && asMemory.records.length).toBe(1);
+  });
+
+  it('a secret in a store record still stops it', () => {
+    const result = chunkRecordsOf({ project: 'alpha-project', source: 'sessions', path: '.projectops/execution/a.json', content: `key ${AWS}` });
+    expect(result).toMatchObject({ ok: true, records: [], skipped: [{ reason: 'secret-content' }] });
+  });
+});

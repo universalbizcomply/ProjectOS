@@ -75,7 +75,7 @@ function sourceProblem(input: SearchSourceText): string | null {
 export function chunkRecordsOf(input: SearchSourceText, chunking: SearchChunking = DEFAULT_SEARCH_CHUNKING): ChunkRecordsResult {
   const problem = sourceProblem(input);
   if (problem !== null) return { ok: false, problem };
-  const sensitive = sensitivePathProblem(input.path) ?? sensitiveContentProblem(input.content);
+  const sensitive = sensitivePathProblem(input.path, input.source) ?? sensitiveContentProblem(input.content);
   if (sensitive !== null) return { ok: true, records: [], skipped: [{ path: input.path, reason: sensitive }] };
   return {
     ok: true,
