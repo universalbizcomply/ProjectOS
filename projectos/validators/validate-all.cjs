@@ -156,7 +156,7 @@ const MODULES = [
   "val-projectos-tenant-credentials1a",
   // PROJECTOS-PORT-PROVIDERS1A — the model broker: a budget on every call, a backoff floor, committed prices, a closed registry, loopback only.
   "val-projectos-port-providers1a",
-  // PROJECTOS-PORT-AGENTS1A � agent records, same-tenant routes and messages, delegation never past the parent, queue-state rules, and no second queue.
+  // PROJECTOS-PORT-AGENTS1A — agent records, same-tenant routes and messages, delegation never past the parent, queue-state rules, and no second queue.
   "val-projectos-port-agents1a",
   // PROJECTOS-PORT-COMPUTER1A - exec grants bound to argv, cwd and hash; exact allowlists; a typed default-deny action policy; no child_process; browser and computer use refuse until Stage 4.3.
   "val-projectos-port-computer1a",

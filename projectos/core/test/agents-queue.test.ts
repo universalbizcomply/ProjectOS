@@ -2,19 +2,19 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_QUEUE_ATTEMPTS,
   QUEUE_LEASE_MS,
-  cancelItem,
-  claimItem,
-  completeItem,
+  cancelItem as cancelItemRaw,
+  claimItem as claimItemRaw,
+  completeItem as completeItemRaw,
   emptyQueueControl,
   isScopePaused,
   newQueueItem,
-  pauseItem,
+  pauseItem as pauseItemRaw,
   pauseScope,
-  recoverAbandoned,
+  recoverAbandoned as recoverAbandonedRaw,
   restoreQueueItem,
-  resumeItem,
+  resumeItem as resumeItemRaw,
   resumeScope,
-  resolveUnknown,
+  resolveUnknown as resolveUnknownRaw,
   type QueueContext,
   type QueueControl,
   type QueueItem,
@@ -23,8 +23,26 @@ import type { TenantBinding } from '../src/tenant.js';
 import { MINUTE, NOW, PLAN_DIGEST, agency, clockAt, polygo, projectos } from './agents-support.js';
 
 const home = polygo();
-const at = (ms: number, binding: TenantBinding = home): QueueContext => ({ binding, clock: clockAt(ms) });
+const at = (ms: number, binding: TenantBinding = home): QueueContext => ({ binding, clock: clockAt(ms), verifyResolution: () => true, verifyItem: () => true });
 const OWNER = { decisionId: 'PLANDEC-0123456789abcdef', decidedBy: 'owner' as const, planDigest: PLAN_DIGEST };
+
+/** A resolution record bound to this item, its tenant, project and current revision. */
+const owner = (item: QueueItem, over: Record<string, unknown>): Record<string, unknown> => ({
+  ...OWNER,
+  itemId: item.itemId,
+  tenant: item.tenant,
+  project: item.project,
+  revision: item.revision,
+  ...over,
+});
+
+const claimItem = (c: QueueContext, ctl: QueueControl, i: QueueItem, rev: number = i.revision) => claimItemRaw(c, ctl, i, rev);
+const completeItem = (c: QueueContext, i: QueueItem, o: 'completed' | 'failed', rev: number = i.revision) => completeItemRaw(c, i, o, rev);
+const pauseItem = (c: QueueContext, i: QueueItem, rev: number = i.revision) => pauseItemRaw(c, i, rev);
+const resumeItem = (c: QueueContext, i: QueueItem, rev: number = i.revision) => resumeItemRaw(c, i, rev);
+const cancelItem = (c: QueueContext, i: QueueItem, rev: number = i.revision) => cancelItemRaw(c, i, rev);
+const recoverAbandoned = (c: QueueContext, i: QueueItem, rev: number = i.revision) => recoverAbandonedRaw(c, i, rev);
+const resolveUnknown = (c: QueueContext, i: QueueItem, r: unknown, rev: number = i.revision) => resolveUnknownRaw(c, i, r, rev);
 
 function must<T extends { ok: boolean }>(result: T): Extract<T, { ok: true }> {
   if (!result.ok) throw new Error(`a control call was refused: ${JSON.stringify(result)}`);
@@ -82,7 +100,7 @@ describe('attempts are the module\'s count, and capped', () => {
       item = must(claimItem(at(NOW + attempt * MINUTE * 40), emptyQueueControl(), item)).item;
       expect(item.attempts).toBe(attempt);
       const recovered = must(recoverAbandoned(at(NOW + attempt * MINUTE * 40 + QUEUE_LEASE_MS), item));
-      item = must(resolveUnknown(at(NOW + attempt * MINUTE * 40 + QUEUE_LEASE_MS + 1), recovered.item, { ...OWNER, outcome: attempt < MAX_QUEUE_ATTEMPTS ? 'requeue' : 'abandon' })).item;
+      item = must(resolveUnknown(at(NOW + attempt * MINUTE * 40 + QUEUE_LEASE_MS + 1), recovered.item, owner(recovered.item, { outcome: attempt < MAX_QUEUE_ATTEMPTS ? 'requeue' : 'abandon' }))).item;
     }
     expect(item.status).toBe('failed');
   });
@@ -96,11 +114,11 @@ describe('attempts are the module\'s count, and capped', () => {
       item = must(recoverAbandoned(at(ms), item)).item;
       if (attempt < MAX_QUEUE_ATTEMPTS) {
         ms += 1;
-        item = must(resolveUnknown(at(ms), item, { ...OWNER, outcome: 'requeue' })).item;
+        item = must(resolveUnknown(at(ms), item, owner(item, { outcome: 'requeue' }))).item;
       }
     }
-    expect(status(resolveUnknown(at(ms + 1), item, { ...OWNER, outcome: 'requeue' }))).toBe('ATTEMPTS_EXHAUSTED');
-    expect(status(resolveUnknown(at(ms + 1), item, { ...OWNER, outcome: 'abandon' }))).toBe('failed');
+    expect(status(resolveUnknown(at(ms + 1), item, owner(item, { outcome: 'requeue' })))).toBe('ATTEMPTS_EXHAUSTED');
+    expect(status(resolveUnknown(at(ms + 1), item, owner(item, { outcome: 'abandon' })))).toBe('failed');
   });
 
   it('cannot reset the count by restoring an item with fewer attempts than the cap allows', () => {
@@ -201,15 +219,15 @@ describe('crash recovery never hands a possibly-acted item back to the queue', (
   it('resolves an unknown item to queued or failed on a record that names a plan decision, and not otherwise', () => {
     const unknown = must(recoverAbandoned(at(NOW + QUEUE_LEASE_MS), running())).item;
     const later = at(NOW + QUEUE_LEASE_MS + 1);
-    expect(status(resolveUnknown(later, unknown, { ...OWNER, outcome: 'requeue' }))).toBe('queued');
-    expect(status(resolveUnknown(later, unknown, { ...OWNER, outcome: 'abandon' }))).toBe('failed');
-    expect(status(resolveUnknown(later, unknown, { ...OWNER, decidedBy: 'agent' as never, outcome: 'requeue' }))).toBe('RESOLUTION');
-    expect(status(resolveUnknown(later, unknown, { ...OWNER, decisionId: 'x', outcome: 'requeue' }))).toBe('RESOLUTION');
-    expect(status(resolveUnknown(later, unknown, { ...OWNER, outcome: 'forget' as never }))).toBe('RESOLUTION');
+    expect(status(resolveUnknown(later, unknown, owner(unknown, { outcome: 'requeue' })))).toBe('queued');
+    expect(status(resolveUnknown(later, unknown, owner(unknown, { outcome: 'abandon' })))).toBe('failed');
+    expect(status(resolveUnknown(later, unknown, owner(unknown, { decidedBy: 'agent' as never, outcome: 'requeue' })))).toBe('RESOLUTION');
+    expect(status(resolveUnknown(later, unknown, owner(unknown, { decisionId: 'x', outcome: 'requeue' })))).toBe('RESOLUTION');
+    expect(status(resolveUnknown(later, unknown, owner(unknown, { outcome: 'forget' as never })))).toBe('RESOLUTION');
   });
 
   it('refuses to resolve an item that is not unknown', () => {
-    expect(status(resolveUnknown(at(NOW), fresh(), { ...OWNER, outcome: 'requeue' }))).toBe('BAD_TRANSITION');
+    expect(status(resolveUnknown(at(NOW), fresh(), owner(fresh(), { outcome: 'requeue' })))).toBe('BAD_TRANSITION');
   });
 
   it('cannot be fooled by a lease the item states about itself: a restored item carries the lease the rules give', () => {

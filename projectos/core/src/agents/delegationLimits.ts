@@ -32,6 +32,12 @@ export const DELEGATION_LEASE_MS = 30 * 60 * 1000;
 /** The highest class a delegate's envelope may carry. P4 has no grant to give and P5 is the owner's, so neither is delegated. */
 export const DELEGATED_CLASS_CEILING = 'P3';
 
+/** The most live (or lapsed and not released) delegates under one root, so no one run fills the project. */
+export const MAX_LIVE_DELEGATES_PER_ROOT = 8;
+
+/** How many pruned envelope ids a project remembers so they cannot be admitted again. A full set refuses to prune; it never forgets one that could still matter. */
+export const MAX_TOMBSTONES_PER_PROJECT = 200;
+
 /** The longest goal handed to a delegate, in characters. */
 export const MAX_GOAL_CHARS = 4000;
 
@@ -51,6 +57,17 @@ export const MAX_MESSAGE_RECIPIENTS = 16;
 /** How long a claimed queue item may run before it is treated as abandoned, and how many times one may be claimed. */
 export const QUEUE_LEASE_MS = 15 * 60 * 1000;
 export const MAX_QUEUE_ATTEMPTS = 3;
+
+/** How many times a running item may renew its lease, so a legitimate long run is not lost and a stuck one still ends. */
+export const MAX_LEASE_RENEWALS = 8;
+
+/** How many agent-to-agent messages may follow one another in a reply chain, how many one pair may exchange, and how many a project's ledger holds. */
+export const MAX_MESSAGE_HOPS = 4;
+export const MAX_MESSAGES_PER_PAIR = 20;
+export const MAX_MESSAGE_LEDGER_ENTRIES = 40;
+
+/** The span over which the message caps count. Past it a message no longer counts and is forgotten, so the caps are a rate and not a lifetime ban. */
+export const MESSAGE_WINDOW_MS = 60 * 60 * 1000;
 
 /** The most route bindings one resolve call reads. A longer list is refused, never read in part. */
 export const MAX_ROUTE_BINDINGS = 200;

@@ -83,12 +83,12 @@ export function nextEnvelopeId(): string {
   return `ENV-${counter.toString(16).padStart(24, '0')}`;
 }
 
-export function kernelContext(binding: TenantBinding, id: string = envelopeId('1')): KernelEnvelopeContext {
+export function kernelContext(binding: TenantBinding, id: string = envelopeId('1'), registry: ActionRegistry = committedRegistry(), agent = 'lead'): KernelEnvelopeContext {
   return {
     binding,
-    registry: committedRegistry(),
+    registry,
     principal: 'implementer',
-    actor: { agent: 'claude-code-cli', provider: 'anthropic', model: 'claude-opus-5-5' },
+    actor: { agent, provider: 'anthropic', model: 'claude-opus-5-5' },
     envelopeId: id,
   };
 }
@@ -99,22 +99,51 @@ export interface EnvelopeChange {
   readonly scope?: readonly string[];
   readonly expiry?: string;
   readonly intentScope?: string;
+  readonly envelopeId?: string;
+  /** The registry the kernel mints under. A root is a `run-start` envelope, whose class and environment a test may raise. */
+  readonly registry?: ActionRegistry;
+  /** The agent the kernel names as the envelope's actor. A root is registered for exactly this agent. */
+  readonly agent?: string;
 }
 
 /** An admitted root envelope, the way the kernel mints one and the door admits it. */
 export function rootEnvelope(binding: TenantBinding, change: EnvelopeChange = {}): TaskEnvelope {
   const request: EnvelopeRequest = {
-    action: change.action ?? 'implement',
+    action: change.action ?? 'run-start',
     subjectHash: 'a'.repeat(40),
     scope: change.scope ?? ['projectos/core/src/', 'docs/'],
     budget: change.budget ?? 1000,
     expiry: change.expiry ?? LATER,
     intentScope: change.intentScope ?? `RUN-${nextEnvelopeId()}`,
   };
-  const minted = mintEnvelope(kernelContext(binding, nextEnvelopeId()), request);
+  const minted = mintEnvelope(kernelContext(binding, change.envelopeId ?? nextEnvelopeId(), change.registry, change.agent), request);
   const admission = admitEnvelope(minted, '2026-11-14T12:00:00.000Z', () => true, () => true);
   if (!admission.admitted) throw new Error(`the control envelope was refused: ${admission.reasons.join('; ')}`);
   return admission.envelope;
+}
+
+/** An envelope the kernel minted as a child of the admitted `parent` and admitted at its door: a child, but kernel-made. */
+export function admittedChild(parent: TaskEnvelope, binding: TenantBinding, change: EnvelopeChange = {}): TaskEnvelope {
+  const request: EnvelopeRequest = {
+    action: change.action ?? 'run_validators',
+    subjectHash: 'a'.repeat(40),
+    scope: change.scope ?? ['docs/'],
+    budget: change.budget ?? 100,
+    expiry: change.expiry ?? LATER,
+    intentScope: `RUN-${nextEnvelopeId()}`,
+  };
+  const minted = mintEnvelope(kernelContext(binding, nextEnvelopeId()), request, parent);
+  const admission = admitEnvelope(minted, '2026-11-14T12:00:00.000Z', () => true, () => true);
+  if (!admission.admitted) throw new Error(`the control child was refused: ${admission.reasons.join('; ')}`);
+  return admission.envelope;
+}
+
+/** The committed action registry with some entries' fields changed, parsed the way the kernel parses it. */
+export function registryWith(change: Record<string, Record<string, unknown>>): ActionRegistry {
+  const raw = json('action-registry.json') as { actions: Record<string, unknown>[] };
+  const parsed = parseActionRegistry({ ...raw, actions: raw.actions.map((entry) => ({ ...entry, ...(change[String(entry['id'])] ?? {}) })) });
+  if (!parsed.ok) throw new Error('the changed action registry does not parse');
+  return parsed.registry;
 }
 
 /** A child envelope of `parent`, written as the kernel would, with whatever the test changes. */
@@ -131,17 +160,42 @@ export function childEnvelope(parent: TaskEnvelope, change: Partial<Record<keyof
   } as TaskEnvelope;
 }
 
-export function contextOf(binding: TenantBinding, agents: AgentBook, ms: number = NOW): DelegationContext {
-  return { binding, registry: committedRegistry(), agents, clock: clockAt(ms) };
+export function contextOf(binding: TenantBinding, agents: AgentBook, ms: number = NOW, registry: ActionRegistry = committedRegistry()): DelegationContext {
+  return { binding, registry, agents, clock: clockAt(ms) };
 }
 
-/** A delegation book with `envelope` registered as the root of `agentId`. */
-export function withRoot(binding: TenantBinding, agents: AgentBook, envelope: TaskEnvelope, agentId = 'lead', ms: number = NOW): DelegationBook {
-  const result = registerRoot(emptyDelegationBook(), contextOf(binding, agents, ms), { agentId, envelope });
+/** The committed registry with the `run-start` entry changed: a root is a run, so this is how a test raises a root's class or environment. */
+export function runRegistry(change: Record<string, unknown>): ActionRegistry {
+  const raw = json('action-registry.json') as { actions: Record<string, unknown>[] };
+  const parsed = parseActionRegistry({ ...raw, actions: raw.actions.map((entry) => (entry['id'] === 'run-start' ? { ...entry, ...change } : entry)) });
+  if (!parsed.ok) throw new Error('the changed action registry does not parse');
+  return parsed.registry;
+}
+
+/** A delegation book with `envelope` registered as the root of `agentId`, which is the agent the envelope names as its actor unless told otherwise. */
+export function withRoot(binding: TenantBinding, agents: AgentBook, envelope: TaskEnvelope, agentId: string = envelope.actor.agent, ms: number = NOW, registry: ActionRegistry = committedRegistry()): DelegationBook {
+  const result = registerRoot(emptyDelegationBook(), contextOf(binding, agents, ms, registry), { agentId, envelope });
   if (!result.ok) throw new Error(`the control root was refused: ${result.code}: ${result.message}`);
   return result.book;
 }
 
 /** The delegating lead and the workers the tests name. */
-export const LEAD = { recordId: 'AGT-lead-v1', agentId: 'lead', mayDelegate: true, grants: ['read-repository', 'search-repository', 'run-sandbox-tests'] };
-export const WORKER = { recordId: 'AGT-worker-v1', agentId: 'worker', grants: ['read-repository', 'search-repository', 'run-sandbox-tests', 'memory'] };
+export const LEAD = { recordId: 'AGT-lead-v1', agentId: 'lead', mayDelegate: true, grants: ['read-repository', 'search-repository', 'run-sandbox-tests', 'send_message'] };
+export const WORKER = { recordId: 'AGT-worker-v1', agentId: 'worker', grants: ['read-repository', 'search-repository', 'run-sandbox-tests', 'memory', 'send_message'] };
+
+/** A timer the test drives: `fire(0)` runs the first scheduled callback. */
+export function fakeTimer(): { readonly timer: (ms: number, fire: () => void) => () => void; readonly fire: (index: number) => void; readonly scheduled: () => number; readonly cancelled: () => number } {
+  const pending: (() => void)[] = [];
+  let cancelled = 0;
+  return {
+    timer: (_ms, fire) => {
+      pending.push(fire);
+      return () => {
+        cancelled += 1;
+      };
+    },
+    fire: (index) => pending[index]?.(),
+    scheduled: () => pending.length,
+    cancelled: () => cancelled,
+  };
+}
