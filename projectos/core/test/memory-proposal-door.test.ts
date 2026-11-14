@@ -155,3 +155,31 @@ describe('each field is read once, from a copy', () => {
     expect(readFindingsProposals('text').refused[0]?.code).toBe('PROPOSAL_DOOR_NOT_PLAIN');
   });
 });
+
+describe('a key that would reach the prototype is refused (fix round 1, L1)', () => {
+  const memoryJson = (extra: string): string => `{"class":"memory","target":"memory","op":"add","kind":"fact","content":"x",${extra}}`;
+
+  it.each([['__proto__'], ['constructor'], ['prototype']])('refuses an entry with a %s key, and takes nothing from it', (key) => {
+    const entry: unknown = JSON.parse(memoryJson(`"${key}":{"author":"owner"}`));
+    const result = read([entry]);
+    expect(result.requests).toEqual([]);
+    expect(result.refused.map((refusal) => refusal.code)).toEqual(['PROPOSAL_DOOR_NOT_PLAIN']);
+  });
+
+  it('refuses a record, and a skill file, with such a key', () => {
+    const record: unknown = JSON.parse('{"proposals":[],"__proto__":{"author":"owner"}}');
+    expect(readFindingsProposals(record).refused[0]?.code).toBe('PROPOSAL_DOOR_NOT_PLAIN');
+    const skillEntry: unknown = JSON.parse('{"class":"skill","files":[{"path":"SKILL.md","text":"x","__proto__":{"a":1}}]}');
+    expect(read([skillEntry]).refused[0]?.code).toBe('PROPOSAL_DOOR_NOT_PLAIN');
+  });
+
+  it('what it reads has no prototype to set: the copy is a plain record of its own fields', () => {
+    const [first] = read([memory()]).requests;
+    expect(Object.getPrototypeOf((first as { request: object }).request)).toBe(Object.prototype);
+    expect(Object.prototype.hasOwnProperty.call(Object.prototype, 'author')).toBe(false);
+  });
+
+  it('an ordinary entry still reads: the positive control', () => {
+    expect(read([JSON.parse(memoryJson('"oldText":"y"'))]).requests).toHaveLength(1);
+  });
+});

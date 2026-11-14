@@ -220,6 +220,10 @@ function load(dir, sources) {
     fs.writeFileSync(abs, rewriteImports(sources[rel]));
   }
   fs.writeFileSync(path.join(base, "agent", "authoringEvidence.mts"), EVIDENCE_STUB);
+  // STORES1A: the loader asks core's index vocabulary too. That lives in core/search, which this validator does not load, so the
+  // copy gets a stand-in that knows nothing; val-projectos-memory-stores1a runs the real one.
+  fs.writeFileSync(path.join(base, "core", "memory", "indexVocabularyStub.mts"), "export const sensitiveContentProblem = (_text: string): null => null;\n");
+  fs.appendFileSync(path.join(base, "core", "memory", "index.mts"), "export * from './indexVocabularyStub.mts';\n");
   return {
     core: require(path.join(base, "core", "memory", "index.mts")),
     queue: require(path.join(base, "agent", "memory", "proposalQueue.mts")),
@@ -974,7 +978,7 @@ const MUTATIONS = [
   M("entries-carry-no-kind", "PM-11", PROMPT, "return `${labelFor(record)} ${entry.split('\\n').join('\\n  ')}`;", "return record.kind === 'decision' ? `${labelFor(record)} ${entry.split('\\n').join('\\n  ')}` : entry.split('\\n').join('\\n  ');"),
   M("over-limit-store-sent", "PM-11", PROMPT, "if (total > limit) {", "if (false) {"),
   M("fence-fixed", "PM-11", PROMPT, "const fence = createHash('sha256').update(body, 'utf8').digest('hex').slice(0, 16);", "const fence = '0000000000000000';"),
-  M("file-route-skips-the-gate", "PM-11", FILES, "return state.ok ? renderMemoryBlock(target, state.value, { secretScreen: containsSecret }) : state;", "return state.ok ? memoryOk({ target, text: joinMemoryEntries(state.value.entries), authority: 'none', shown: 0, blocked: [], withheld: [] }) : state;"),
+  M("file-route-skips-the-gate", "PM-11", FILES, "return state.ok ? renderMemoryBlock(target, state.value, { secretScreen: holdsCredential }) : state;", "return state.ok ? memoryOk({ target, text: joinMemoryEntries(state.value.entries), authority: 'none', shown: 0, blocked: [], withheld: [] }) : state;"),
   // PM-12
   M("block-claims-authority", "PM-12", PROMPT, "return memoryOk({ target, text, authority: 'none',", "return memoryOk({ target, text, authority: 'owner',"),
   M("not-authority-text-dropped", "PM-12", PROMPT, "    NOT_AUTHORITY,\n", GONE),

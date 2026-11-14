@@ -45,7 +45,7 @@ PROTECTED**: the check-step refusal and the call to the door. Both are shipped a
 | The door, pure | `core/src/memory/proposalDoor.ts` | `readFindingsProposals`: one read, from a copy |
 | The door, on `System` | `agent/src/memory/proposalDoor.ts` | `openProposalDoor`: pending proposals through the existing queues |
 | Direct-write refusal | `core/src/memory/directWrite.ts` | `checkNoDirectStoreWrites`: pure |
-| Validator | `validators/val-projectos-memory-stores1a.cjs` | 17 rules, 133 text and 48 behavioural named mutations; registered in both runners before `connector-contract1a` |
+| Validator | `validators/val-projectos-memory-stores1a.cjs` | 18 rules, 178 text and 77 behavioural named mutations; registered in both runners before `connector-contract1a` |
 | Updated validators | `val-projectos-port-search1a.cjs`, `val-projectos-port-memory1a.cjs` | Stale pins updated truthfully; no rule loosened |
 
 **The six classes are reconstructed, and the owner should confirm them.** Plan 3.1 names two, plans 3.2 and 3.3, the Stage 3 recon
@@ -91,20 +91,21 @@ probes fail. The unmutated tree passing every pin and probe is the positive cont
 | MS-2 | a memory class is not mapped | 6 | 0 |
 | MS-3 | the index is not per project | 16 | 8 |
 | MS-4 | the clock is not injected | 10 | 4 |
-| MS-5 | the index reads outside its ports | 16 | 7 |
-| MS-6 | a credential reaches a prompt | 7 | 4 |
-| MS-7 | the rendered body is not capped | 6 | 3 |
-| MS-8 | hidden text reaches a prompt | 3 | 3 |
-| MS-9 | the proposal door is not the door | 22 | 12 |
-| MS-10 | a direct store write passes | 14 | 7 |
+| MS-5 | the index reads outside its ports | 25 | 10 |
+| MS-6 | a credential reaches a prompt | 9 | 5 |
+| MS-7 | the rendered body is not capped | 9 | 5 |
+| MS-8 | hidden text reaches a prompt | 9 | 9 |
+| MS-9 | the proposal door is not the door | 27 | 15 |
+| MS-10 | a direct store write passes | 19 | 11 |
 | MS-11 | a second route writes or approves | 6 | 0 |
 | MS-12 | core is not pure | 7 | 0 |
 | MS-13 | stored text is read as authority | 5 | 0 |
-| MS-14 | a file has no statement of origin | 4 | 0 |
+| MS-14 | a file has no statement of origin | 5 | 0 |
 | MS-15 | not registered | 4 | 0 |
 | MS-16 | the proof does not run | 3 | 0 |
 | MS-17 | a file is not tracked | 1 | 0 |
-| **Total** | | **133** | **48** |
+| MS-18 | a write to an ignored store passes (fix round 1) | 14 | 10 |
+| **Total** | | **178** | **77** |
 
 The stale pins in the two older validators were updated, not loosened. `val-projectos-port-search1a`: the walk reads through
 `fs.stat` and `stat.kind` instead of `lstatSync`; schema version 2 and the owner table; the boundary passes the source kind; the
@@ -118,12 +119,12 @@ the Braille cell were added, and three mutation texts follow the changed lines.
 | Check | Result |
 |---|---|
 | core `npm run -s build` | exit 0 |
-| core `npx vitest run` | 103 files, 4,250 tests, all pass |
+| core `npx vitest run` | 103 files, 4,308 tests, all pass |
 | core tests type-checked (alias tsconfig over `src` and the six test files this phase touched) | exit 0, no output |
 | agent typecheck, **alias**: `tsc` over `agent/src` with `@projectos/core` mapped to this worktree's `core/dist` | exit 0, no output |
 | agent tests, **alias**: vitest with `@projectos/core` aliased to this worktree's `core/dist` | 116 files; 115 pass, 3,622 tests pass, 10 skipped. See the one failure below |
 | agent new and changed tests, type-checked through the alias | exit 0, no output |
-| `val-projectos-memory-stores1a` | PASS: 8 new and 12 changed files judged; 133 text and 48 behavioural mutations killed. Also run as validate-all runs it: `Array.isArray(run())` is `true` |
+| `val-projectos-memory-stores1a` | PASS: 9 new and 12 changed files judged; 178 text and 77 behavioural mutations killed. Also run as validate-all runs it: `Array.isArray(run())` is `true` |
 | `val-projectos-port-search1a` | PASS: 22 real files; 113 text and 26 behavioural mutations killed |
 | `val-projectos-port-memory1a` | PASS: 20 rules; 199 named mutations killed |
 | `val-projectos-port-credit1a` | PASS: 177 real files; 157 fixture and 59 record mutations killed |
@@ -175,7 +176,15 @@ files import `core/src/tenant.ts` and `core/src/execution/evidence.ts` read-only
    finishes and **before** the door writes its own proposal files: `checkNoDirectStoreWrites(observation.dirtyPaths)`, and on
    `ok: false` treat it as a failed check with code `MEMORY_DIRECT_WRITE`. Ordering matters: after the door, the kernel's own
    proposal files are in the set. `verification.ts` is PROTECTED, so the edit is in `runner.ts` or a new module it calls, with
-   the owner's approval.
+   the owner's approval. **Wiring must pass BOTH sides of a rename.** `porcelainPaths` in `observation.ts` keeps only the new
+   path of `R old -> new`, so `git mv .projectops/memory/approved.json moved.json` reaches the check as `moved.json`. The check
+   judges a string containing ` -> ` on both sides (and whole), so the wiring has to hand it the raw porcelain path or both
+   paths. `observation.ts` is outside this phase's paths and was not edited.
+1a. **Take a store digest before and after the worker, regardless of git** (fix round 1, M7). `snapshotMemoryStores(root, fs)`
+   before the worker runs and again after, then `checkStoreUnchanged(before, after)`; a difference or a snapshot that could not
+   be taken refuses the run. This is the check that still works when `.projectops/memory/` is git-ignored. The same ordering
+   applies: take the second digest before the door writes its proposal files, because those files are inside the digested
+   roots. The edit is in `runner.ts`, beside item 1, and needs the owner's approval for the same reason.
 2. **Call the door.** After `readFindings` in the run (`agent/src/loop/session.ts` ignores `proposals`), read the findings text
    with `sys.readText(findingsPath(root, sessionId))` and call `openProposalDoor(sys, root, caller, text)`. The caller comes from
    the kernel and must not be the owner's role. Record the outcome in the run's records (`memory-propose` and `skill-propose`
@@ -183,7 +192,7 @@ files import `core/src/tenant.ts` and `core/src/execution/evidence.ts` read-only
 3. **Pass the credential screen from the context manager.** `core/src/context/fence.ts` calls `renderMemoryBlock` with no screen.
    It still gets the rendered cap and the hidden-text refusal, but not the credential screen. Pass `{ secretScreen }` from the agent.
 4. **`System.lstat`** (outside `system.ts` paths): removes `EntryProbe` and the `node:fs` in `nodeHost.ts`.
-5. **`.gitignore`**: see the next section.
+5. **`.gitignore`**: see the next section. Not before item 1a is wired.
 
 ## Residuals and owner questions
 
@@ -191,8 +200,27 @@ files import `core/src/tenant.ts` and `core/src/execution/evidence.ts` read-only
 - **Owner question 2: `.projectops/memory/` and `.projectops/skills/` are not git-ignored.** A cloned or PR-borne store reads as
   approved, because its provenance file can say anything and the hash detects a change but is not a signature. `.gitignore` is
   outside this phase's write paths, so it was not edited. The loader cannot tell a clone-borne store from a local one without a
-  signature or a local attestation, so **it was not made to distrust one**: that needs owner proof, not a check in this file. The
-  fix is one `.gitignore` line (memory then no longer travels with a clone), or signing the records.
+  signature or a local attestation, so **it was not made to distrust one**: that needs owner proof, not a check in this file.
+  **Ignoring the directory is acceptable only together with the digest check (item 1a).** Once the stores are ignored,
+  `git status` stops listing a worker's write to them, and the path-based refusal (item 1) sees nothing. The digest does not
+  read git, so it still sees the write. The wiring edit needed is item 1a in `runner.ts`. Memory then no longer travels with a
+  clone. Signing the records is the real answer and belongs with owner proof.
+- **A copied index file with its `search_owner` row deleted is adopted by the next owner that opens it** (fix round 1, L4; no
+  code change). `bindOwner` writes the owner into a file that has none. It needs write access to the index directory, which is
+  the same trust as the stores themselves, and the file's contents are derived and rebuilt on the first `rebuildProject`. Named,
+  not fixed.
+- **The digest hashes decoded text** (fix round 1, M7). `readText` decodes UTF-8, so two files that differ only in bytes that
+  decode to the same replacement characters, at the same size, hash alike. And it sees the stores at two moments, not a write that
+  was made and undone between them.
+- **The store walks see an `lstat` of each directory on the way and refuse a link,** but not a link that appears between the stat
+  and the read (a race).
+- **The credential vocabulary is the union of two lists that are still two lists.** The agent's `containsSecret` lives in
+  `authoringEvidence.ts`, outside this phase's paths, so the loader asks both and does not share one. Core's list gained
+  `sb_secret_`, `sb_publishable_`, `vcp_` and `re_` (the last anchored at 20 characters; a snake_case name that long which starts
+  `re_` is skipped from an index and reported).
+- **The hidden-reference patterns are looser than a renderer.** A definition whose destination or title is on the next line,
+  or inside a quote or list marker, is refused when empty, `#` or titled; a plain `[x]: destination` still passes, because a
+  capped note may hold a reference. A line that looks like `[note]: see "this"` is refused.
 - **Owner question 3: who deletes a promoted skill?** `memory-delete` covers approved memory and anything a decision cites. A skill
   is neither, so its deletion has no registered action.
 - **The rendered cap is twice the store cap, a judgment.** An ordinary full store of decisions with long references (a few
@@ -221,6 +249,36 @@ files import `core/src/tenant.ts` and `core/src/execution/evidence.ts` read-only
 - **Failing-test-first.** For the core door, the direct-write rule and the key, the tests and the code were written in the same
   pass, so a red run was not captured. Each is covered by a named mutation that the validator applies and sees killed, which is
   the evidence that the test fails without the rule. The threat-scan, prompt and sensitive-path changes did show red first.
+
+## Fix round 1 (ECC security review): item, test, mutation
+
+Failing test first for each; each test was seen red before the code changed (the core and agent suites below were run after).
+Every rule has named mutations in `val-projectos-memory-stores1a`, applied and killed by its own rule (text) and, where code runs,
+by its own probes (behavioural, suffix `-when-run`).
+
+| Item | What it was | Test | Mutations (rule) |
+|---|---|---|---|
+| H1 | A parent of a store root (`.projectops/`, `.projectops`, `.`) passed, and `git status` prints `?? .projectops/` for a new directory | `core/test/memory-direct-write.test.ts` "a parent of a store root hides the store" | `a-parent-of-a-store-passes`, `the-parent-reason-is-not-consulted` (MS-10) |
+| M2 | `.projectops/execution` was listed with no `lstat`; a junction leaked outside files into the index | `agent/test/searchStores.test.ts` "a store directory that is a link is not walked" | `a-linked-store-directory-is-walked`, `the-directories-on-the-way-are-not-asked`, `a-store-directory-that-is-a-file-is-listed` (MS-5) |
+| M3 | The secret screen was literal-only: `\u0073k-ant-...` in a findings record was indexed; no `sb_`, `vcp_`, `re_` shapes | `core/test/search-sensitive.test.ts` "an escaped secret, and the newer shapes"; `agent/test/searchStores.test.ts` "an escaped secret in a store record is skipped" | `the-escape-normaliser-is-not-run`, `the-normaliser-stops-after-one-pass`, one per new shape (MS-5) |
+| M4 | `loadMemoryBlock` used the agent's narrower vocabulary: Google, Slack, npm, webhook, AWS session and Azure keys were shown | `agent/test/memoryStores.test.ts` "the loader refuses on the union of both credential screens" | `the-loader-asks-one-vocabulary`, `the-loader-never-asks-cores-vocabulary` (MS-6) |
+| M5 | Hidden-reference variants still admitted: next-line destination or title, quote and list prefixes, entities, escaped label, a label over two lines, an angle destination with a space | `core/test/memory-threat-scan.test.ts` "the hidden reference forms the first round still admitted", plus a linear-time test on hostile input | `entities-are-not-decoded`, `an-invisible-entity-is-not-decoded`, `the-entity-passes-are-one`, `quote-and-list-prefixes-are-not-markers`, `a-destination-on-the-next-line-is-missed`, `an-escaped-bracket-ends-the-label` (MS-8) |
+| M6 | `porcelainPaths` keeps only the new path of a rename, so a moved store file passed | `core/test/memory-direct-write.test.ts` "a rename is judged on both sides" | `a-rename-is-judged-whole-only`, `a-quoted-side-is-not-unquoted`, `an-unjudgeable-side-is-dropped` (MS-10) |
+| M7 | Git-ignoring the store would blind the path check | `agent/test/memoryStoreDigest.test.ts` (15 tests) | the ten `MS-18` pins and ten behavioural mutations: links refused, files hashed with their text, bounds, a refused snapshot clears nothing, both stores covered |
+| L1 | A JSON `__proto__` key set the copy's prototype and was accepted | `core/test/memory-proposal-door.test.ts` "a key that would reach the prototype is refused" | `a-prototype-key-is-copied`, `the-copy-has-a-prototype` (MS-9) |
+| L2 | Dedupe compared untrimmed content, and one author filled all 50 slots | `agent/test/memoryStores.test.ts` "the door dedupes on a canonical form and caps one author" | `a-duplicate-is-compared-literally`, `an-author-may-fill-the-queue`, `the-author-cap-is-unbounded` (MS-9) |
+| L3 | The rendered cap counted code points: 2,150 emoji rendered 8.9 KB | `core/test/memory-prompt.test.ts` "the rendered body is capped in UTF-8 bytes as well" | `the-byte-cap-is-off`, `the-byte-cap-counts-characters`, `a-byte-is-forty-per-character` (MS-7) |
+| L4 | A copied index file with its owner row deleted is adopted | none (recorded only) | none: a residual above |
+
+New code: `agent/src/memory/storeDigest.ts` (`snapshotMemoryStores`, `checkStoreUnchanged`); `decodeThreatEntities` in
+`core/src/memory/threatScan.ts`; `normaliseEscapedText` in `core/src/search/sensitiveContent.ts`;
+`memoryRenderedByteLimit` in `core/src/memory/prompt.ts`; `MAX_PENDING_MEMORY_PER_AUTHOR` in the agent door. The older validators
+were updated, not loosened: `val-projectos-port-search1a` pins the new `sensitiveContentProblem` line, and
+`val-projectos-port-memory1a` follows the loader's renamed screen and gives its copy a stand-in for core's index vocabulary.
+
+### Fix-round checks, with counts
+
+FIX_CHECKS_PLACEHOLDER
 
 ## Commits
 

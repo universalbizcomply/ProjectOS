@@ -32,6 +32,9 @@ export type FindingsProposalClass = (typeof FINDINGS_PROPOSAL_CLASSES)[number];
 export const MAX_FINDINGS_PROPOSALS = 10;
 /** The door's own bound on text, ahead of the queues' rules, so what is parsed is bounded by this and not by the worker. */
 export const MAX_DOOR_FIELD_CHARS = 20_000;
+/** Keys that name the prototype chain. JSON can carry them as own keys, and an assignment to one would not make a field. */
+const PROTOTYPE_KEYS: readonly string[] = ['__proto__', 'constructor', 'prototype'];
+
 /** A record or an entry with more fields than this is refused unread, so the copy is bounded by this and not by the worker. */
 export const MAX_DOOR_FIELDS = 200;
 export const MAX_DOOR_SKILL_FILES = 50;
@@ -100,9 +103,9 @@ function fieldsOf(value: unknown): Record<string, unknown> | null {
   if (typeof value !== 'object' || value === null || isProxy(value) || Array.isArray(value) || !isPlainProto(value)) return null;
   const keys = Reflect.ownKeys(value);
   if (keys.length > MAX_DOOR_FIELDS) return null;
-  const copy: Record<string, unknown> = {};
+  const copy: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const key of keys) {
-    if (typeof key !== 'string') return null;
+    if (typeof key !== 'string' || PROTOTYPE_KEYS.includes(key)) return null;
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (descriptor === undefined || !('value' in descriptor) || descriptor.enumerable !== true) return null;
     if (descriptor.value !== undefined) copy[key] = descriptor.value;

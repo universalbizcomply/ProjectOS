@@ -90,3 +90,50 @@ describe('the refusal tells and does not quote', () => {
     expect(result.message).not.toContain('MEMORY.md');
   });
 });
+
+describe('a parent of a store root hides the store, so it is refused too (fix round 1, H1)', () => {
+  it.each([
+    ['a new .projectops directory, as `git status --porcelain` prints it', '.projectops/'],
+    ['the .projectops directory without a slash', '.projectops'],
+    ['the whole project', '.'],
+    ['the whole project with a slash', './'],
+    ['a climb that comes back to the project root', 'docs/..'],
+    ['a spelling a case-folding file system joins', '.ProjectOps/'],
+    ['a spelling with trailing dots', '.projectops./'],
+  ])('refuses %s', (_label, path) => {
+    const result = refused([path]);
+    expect(result.direct).toEqual([{ path, reason: 'contains-memory-store' }]);
+  });
+
+  it('a directory that holds neither store passes: the positive control', () => {
+    expect(checkNoDirectStoreWrites(['docs/', 'projectos/', '.projectops/execution/', '.projectops/gates/owner.json', 'docs/.projectops/'])).toEqual({ ok: true });
+  });
+
+  it('keeps the absolute and outside-project handling', () => {
+    expect(refused(['/']).unjudgeable.map((entry) => entry.reason)).toEqual(['absolute-path']);
+    expect(refused(['..']).unjudgeable.map((entry) => entry.reason)).toEqual(['outside-project']);
+  });
+});
+
+describe('a rename is judged on both sides (fix round 1, M6)', () => {
+  it.each([
+    ['the old side', '.projectops/memory/approved.json -> moved.json'],
+    ['the new side', 'moved.json -> .projectops/memory/approved.json'],
+    ['a skill store on the old side', '.projectops/skills/promoted/x.json -> y.json'],
+    ['a parent of a store as the new side', 'a.md -> .projectops/'],
+    ['the git-quoted form, old side', '".projectops/memory/a b.json" -> "moved.json"'],
+    ['the git-quoted form, new side', '"moved one.json" -> ".projectops/skills/promoted/x.json"'],
+    ['backslashes', '.projectops\\memory\\a.json -> b.json'],
+  ])('refuses %s', (_label, path) => {
+    expect(refused([path]).direct).toHaveLength(1);
+  });
+
+  it('a rename between two ordinary paths passes: the positive control', () => {
+    expect(checkNoDirectStoreWrites(['old.md -> new.md', '"a b.md" -> "c d.md"', 'docs/a.md -> docs/b.md'])).toEqual({ ok: true });
+  });
+
+  it('a side that cannot be judged is refused, not passed', () => {
+    expect(refused(['a.md -> /etc/passwd']).unjudgeable.map((entry) => entry.reason)).toEqual(['absolute-path']);
+    expect(refused(['a.md -> ../x']).unjudgeable.map((entry) => entry.reason)).toEqual(['outside-project']);
+  });
+});

@@ -278,3 +278,105 @@ describe('one proposal door: a findings proposals entry becomes a pending propos
     expect(written.every((path) => path.startsWith(`${memoryDir(ROOT)}/proposals/`) || path.startsWith(`${skillsDir(ROOT)}/proposals/`))).toBe(true);
   });
 });
+
+describe('the loader refuses on the union of both credential screens (fix round 1, M4)', () => {
+  const body = 'A1b2C3d4'.repeat(6);
+  const shapes: readonly (readonly [string, string])[] = [
+    ['a Google key', ['AIza', 'Sy'.padEnd(35, 'x')].join('')],
+    ['a Slack token', ['xoxb', '-', '123456789012-abcdefghij'].join('')],
+    ['an npm token', ['npm', '_', 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'].join('')],
+    ['a webhook secret', ['whsec', '_', body.slice(0, 24)].join('')],
+    ['an AWS session key id', ['ASIA', 'IOSFODNN7EXAMPLE'].join('')],
+    ['an Azure account key', ['AccountKey=', 'A'.repeat(44)].join('')],
+    ['a Supabase secret key', ['sb_secret', '_', body].join('')],
+    ['a Supabase publishable key', ['sb_publishable', '_', body].join('')],
+    ['a Vercel token', ['vcp', '_', body.slice(0, 24)].join('')],
+    ['a Resend key', ['re', '_', body.slice(0, 24)].join('')],
+    ['an Anthropic key (the agent vocabulary)', ['sk-ant', '-', 'a1b2'.repeat(8)].join('')],
+  ];
+
+  it.each(shapes)('does not show an entry holding %s', (_label, secret) => {
+    const sys = fakeSystem();
+    storeOf(sys, ['The build uses Node 24.', `The key is ${secret}`]);
+
+    const shown = block(loadMemoryBlock(sys, ROOT, 'memory'));
+
+    expect(shown.text).toContain('The build uses Node 24.');
+    expect(shown.text).not.toContain(secret);
+    expect(shown.blocked).toEqual([memoryEntryHash(`The key is ${secret}`)]);
+  });
+
+  it('does not show an entry whose secret is spelled in escapes', () => {
+    const sys = fakeSystem();
+    const BS = String.fromCharCode(92);
+    const entry = `The key is ${BS}u0073k-ant-${'a1b2'.repeat(8)}`;
+    storeOf(sys, [entry]);
+
+    expect(block(loadMemoryBlock(sys, ROOT, 'memory')).blocked).toEqual([memoryEntryHash(entry)]);
+  });
+
+  it('shows ordinary entries that only share a prefix: the positive control', () => {
+    const sys = fakeSystem();
+    storeOf(sys, ['Use the re_run flag, and sb_secret_x is a placeholder.']);
+
+    expect(block(loadMemoryBlock(sys, ROOT, 'memory')).blocked).toEqual([]);
+  });
+});
+
+describe('the door dedupes on a canonical form and caps one author (fix round 1, L2)', () => {
+  const findings = (...contents: readonly string[]): string =>
+    JSON.stringify({ proposals: contents.map((content) => ({ class: 'memory', target: 'memory', op: 'add', kind: 'fact', content })) });
+
+  it('does not queue the same text again for trailing spaces, line breaks, case or composed characters', () => {
+    const sys = fakeSystem();
+    const first = openProposalDoor(sys, ROOT, WORKER, findings('Prefer the release branch.'));
+
+    const again = openProposalDoor(sys, ROOT, WORKER, findings('Prefer the release branch.   ', 'Prefer  the release\nbranch.', 'PREFER THE RELEASE BRANCH.', '  Prefer the release branch.'));
+
+    expect(again.entries.map((entry) => entry.ok && entry.duplicate)).toEqual([true, true, true, true]);
+    expect(again.entries.every((entry) => entry.ok && first.entries[0]?.ok === true && entry.id === (first.entries[0] as { id: string }).id)).toBe(true);
+    expect(listPendingMemoryProposals(sys, ROOT).pending).toHaveLength(1);
+  });
+
+  it('a different text is a different proposal: the positive control', () => {
+    const sys = fakeSystem();
+
+    openProposalDoor(sys, ROOT, WORKER, findings('Prefer the release branch.', 'Prefer the hotfix branch.'));
+
+    expect(listPendingMemoryProposals(sys, ROOT).pending).toHaveLength(2);
+  });
+
+  it('refuses an eleventh pending proposal from one author, by its own code, and leaves another author room', () => {
+    const sys = fakeSystem();
+    for (let round = 0; round < 2; round += 1) {
+      openProposalDoor(sys, ROOT, WORKER, findings(...Array.from({ length: 5 }, (_, index) => `Fact ${round} number ${index}.`)));
+    }
+
+    const eleventh = openProposalDoor(sys, ROOT, WORKER, findings('One fact too many.'));
+    const other = openProposalDoor(sys, ROOT, { author: 'worker-2', role: 'implementer', session: 'sess-9' }, findings('Another worker\'s fact.'));
+
+    expect(listPendingMemoryProposals(sys, ROOT).pending.filter((proposal) => proposal.provenance.author === 'worker-1')).toHaveLength(10);
+    expect(eleventh.entries[0]).toMatchObject({ ok: false, code: 'PROPOSAL_DOOR_AUTHOR_QUEUE_FULL' });
+    expect(other.entries[0]?.ok).toBe(true);
+  });
+
+  it('a duplicate of one already pending is still answered when the author is full', () => {
+    const sys = fakeSystem();
+    for (let round = 0; round < 2; round += 1) {
+      openProposalDoor(sys, ROOT, WORKER, findings(...Array.from({ length: 5 }, (_, index) => `Fact ${round} number ${index}.`)));
+    }
+
+    const again = openProposalDoor(sys, ROOT, WORKER, findings('Fact 0 number 0.  '));
+
+    expect(again.entries[0]).toMatchObject({ ok: true, duplicate: true });
+  });
+
+  it('one author cannot fill the queue the owner reads', () => {
+    const sys = fakeSystem();
+    for (let round = 0; round < 12; round += 1) {
+      openProposalDoor(sys, ROOT, WORKER, findings(...Array.from({ length: 5 }, (_, index) => `Round ${round} fact ${index}.`)));
+    }
+
+    expect(listPendingMemoryProposals(sys, ROOT).pending.length).toBeLessThanOrEqual(10);
+  });
+});

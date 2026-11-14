@@ -19,15 +19,17 @@
  * WIRING IS NOT HERE. The loop does not call this yet: it belongs after `readFindings` in the run, and that code is outside
  * this phase's paths (Stage 4.1). See `docs/finish/PROJECTOS-MEMORY-STORES1A.md`.
  */
-import { readFindingsProposals, type FindingsMemoryRequest, type FindingsSkillRequest, type ProposalDoorCode, type Role } from '@projectos/core';
+import { normalizedEntryKey, readFindingsProposals, type FindingsMemoryRequest, type FindingsSkillRequest, type ProposalDoorCode, type Role } from '@projectos/core';
 import { listPendingSkillProposals, proposeSkill } from '../skills/skillQueue.js';
 import type { System } from '../system.js';
 import { listPendingMemoryProposals, proposeMemoryWrite } from './proposalQueue.js';
 
 /** A findings record is a small file. Over this it is refused unread, so the parse is bounded by this and not by the worker. */
 export const MAX_FINDINGS_RECORD_CHARS = 1_048_576;
+/** What one author may have waiting for the owner through the door, so one worker cannot fill the queue the owner reads (fix round 1, L2). */
+export const MAX_PENDING_MEMORY_PER_AUTHOR = 10;
 
-export type AgentDoorCode = 'PROPOSAL_DOOR_CALLER_NOT_WORKER' | 'PROPOSAL_DOOR_UNREADABLE' | 'PROPOSAL_DOOR_TOO_LARGE';
+export type AgentDoorCode = 'PROPOSAL_DOOR_CALLER_NOT_WORKER' | 'PROPOSAL_DOOR_UNREADABLE' | 'PROPOSAL_DOOR_TOO_LARGE' | 'PROPOSAL_DOOR_AUTHOR_QUEUE_FULL';
 
 /** Who is asking, from the kernel. Never read from the record. */
 export interface ProposalDoorCaller {
@@ -73,18 +75,32 @@ function parsedRecord(text: string): { readonly ok: true; readonly record: unkno
   }
 }
 
+const sameAuthor = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
+
 function memoryEntry(sys: System, root: string, caller: ProposalDoorCaller, one: FindingsMemoryRequest): DoorEntryOutcome {
   const { request } = one;
+  const pending = listPendingMemoryProposals(sys, root).pending;
   if (request.op !== 'remove') {
-    const same = listPendingMemoryProposals(sys, root).pending.find(
-      (pending) =>
-        pending.target === request.target &&
-        pending.op === request.op &&
-        pending.kind === request.kind &&
-        pending.content === (request.content ?? null) &&
-        pending.provenance.author === caller.author,
+    // CANONICAL, NOT LITERAL: trailing spaces, line breaks, case and composed characters do not make a second proposal.
+    const wanted = normalizedEntryKey(request.content ?? '');
+    const same = pending.find(
+      (held) =>
+        held.target === request.target &&
+        held.op === request.op &&
+        held.kind === request.kind &&
+        normalizedEntryKey(held.content ?? '') === wanted &&
+        sameAuthor(held.provenance.author, caller.author),
     );
     if (same !== undefined) return { ok: true, index: one.index, class: 'memory', id: same.id, proposalHash: same.proposalHash, state: 'pending', duplicate: true };
+  }
+  if (pending.filter((held) => sameAuthor(held.provenance.author, caller.author)).length >= MAX_PENDING_MEMORY_PER_AUTHOR) {
+    return {
+      ok: false,
+      index: one.index,
+      class: 'memory',
+      code: 'PROPOSAL_DOOR_AUTHOR_QUEUE_FULL',
+      message: `${MAX_PENDING_MEMORY_PER_AUTHOR} of this author's proposals are already waiting for the owner. Nothing was proposed.`,
+    };
   }
   const made = proposeMemoryWrite(sys, root, caller, request);
   if (!made.ok) return { ok: false, index: one.index, class: 'memory', code: made.refusal.code, message: made.refusal.message };

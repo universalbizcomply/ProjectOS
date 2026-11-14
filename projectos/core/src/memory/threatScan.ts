@@ -5,7 +5,7 @@
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
 // Modified-By: ProjectOS 2026-11-01: modified for ProjectOS. CHANGED: translated from Python to TypeScript; text past the scan limit is refused instead of dropped; control, format and default-ignorable characters and the line and paragraph separators count as invisible; comments refused with or without a keyword; patterns for the upstream home directory renamed, one added for .projectops
-// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: the blank Braille cell counts as invisible, and a link reference written as a comment or carrying a title is refused (STORES1A, a PORT-MEMORY1A carry-forward)
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: the blank Braille cell counts as invisible, and a link reference written as a comment or carrying a title is refused, including laid out over lines, inside a quote or a list, with an escaped label, or spelled with HTML entities, which are decoded for a bounded number of passes before the scan (STORES1A, a PORT-MEMORY1A carry-forward, and fix round 1)
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * The threat scan: injection, promptware and exfiltration patterns, as data, with no I/O.
@@ -41,6 +41,15 @@ const SECRET_VAR = String.raw`\$\{?${WORD}*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTI
 /** The verb that opens every "modify agent configuration" pattern. */
 const MODIFY = String.raw`(update|modify|edit|write|change|append|add\s+to)\s+[^\n]{0,2048}`;
 
+/**
+ * A link reference definition renders as nothing, so its destination and title are text a reader never sees. These parts spell
+ * where one may begin and how it is laid out (fix round 1, M5): after any run of quote, list or number markers; a label that
+ * may hold an escaped bracket and may run over lines; and a destination or title that may sit on the next line.
+ */
+const REF_START = String.raw`(?:^|\n)(?:[ \t]*(?:>|[-*+]|\d{1,9}[.)]))*[ \t]*`;
+const REF_LABEL = String.raw`\[(?:\\[\s\S]|[^\]\\]){0,512}\]:`;
+const REF_GAP = String.raw`[ \t]*\n?[ \t]*`;
+
 const PATTERNS: readonly (readonly [source: string, id: string, scope: ThreatScope])[] = [
   // Classic prompt injection, everywhere.
   [String.raw`ignore\s+${FILLER}(previous|all|above|prior)\s+${FILLER}instructions`, 'prompt_injection', 'all'],
@@ -53,8 +62,8 @@ const PATTERNS: readonly (readonly [source: string, id: string, scope: ThreatSco
   [String.raw`<!--`, 'html_comment', 'strict'],
   [String.raw`\[//\]:`, 'markdown_comment', 'strict'],
   // The same hiding in other spellings (STORES1A): `[x]: <>`, `[x]: # 'text'`, `[ // ]: #`, and a title only a tooltip shows.
-  [String.raw`(?:^|\n) {0,3}\[[^\]\n]{0,512}\]:[ \t]*(?:<[ \t]*#?[ \t]*>|#)`, 'markdown_reference_comment', 'strict'],
-  [String.raw`(?:^|\n) {0,3}\[[^\]\n]{0,512}\]:[ \t]*\S{1,2048}[ \t]+["'(]`, 'markdown_reference_title', 'strict'],
+  [String.raw`${REF_START}${REF_LABEL}${REF_GAP}(?:<[ \t]*#?[ \t]*>|#)`, 'markdown_reference_comment', 'strict'],
+  [String.raw`${REF_START}${REF_LABEL}${REF_GAP}(?:<[^>\n]{0,2048}>|\S{1,2048})(?:[ \t]+|[ \t]*\n[ \t]*)["'(]`, 'markdown_reference_title', 'strict'],
   [String.raw`translate\s+[^\n]{0,512}\s+into\s+${WORD}+(?:[\s-]+${WORD}+){0,2}\s+and\s+(execute|run|eval)\b`, 'translate_execute', 'all'],
   [String.raw`do\s+not\s+${FILLER}tell\s+${FILLER}the\s+user`, 'deception_hide', 'all'],
 
@@ -140,8 +149,32 @@ export const THREAT_PATTERN_IDS: readonly string[] = PATTERNS.map(([, id]) => id
  */
 const INVISIBLE = /(?![\n\t])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\p{Zl}\p{Zp}\u2800]/gu;
 
+/** Entities are undone for a bounded number of passes, because `&amp;lt;` is `&lt;` is `<`, and no more than that. */
+const MAX_ENTITY_PASSES = 3;
+const NAMED_ENTITIES: Readonly<Record<string, string>> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
+
+function entityText(decimal: string | undefined, hex: string | undefined, name: string | undefined, whole: string): string {
+  if (name !== undefined) return NAMED_ENTITIES[name.toLowerCase()] ?? whole;
+  const code = Number.parseInt(decimal ?? hex ?? '', decimal === undefined ? 16 : 10);
+  return Number.isInteger(code) && code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : whole;
+}
+
+/** The text as a markdown renderer reads its entities. A scan that read only the spelling would pass `&lt;!--`. */
+export function decodeThreatEntities(text: string): string {
+  if (!text.includes('&')) return text;
+  let current = text;
+  for (let pass = 0; pass < MAX_ENTITY_PASSES; pass += 1) {
+    const next = current.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|(lt|gt|amp|quot|apos));/gi, (whole, decimal?: string, hex?: string, name?: string) =>
+      entityText(decimal, hex, name, whole),
+    );
+    if (next === current) return current;
+    current = next;
+  }
+  return current;
+}
+
 function invisibleFindings(content: string): readonly string[] {
-  const found = new Set(content.match(INVISIBLE) ?? []);
+  const found = new Set([...(content.match(INVISIBLE) ?? []), ...(decodeThreatEntities(content).match(INVISIBLE) ?? [])]);
   return [...found]
     .map((character) => (character.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0'))
     .sort()
@@ -159,7 +192,9 @@ export function scanForThreats(content: string, scope: ThreatScope = 'context'):
   if (patterns === undefined) throw new Error(`scanForThreats: unknown scope '${String(scope)}'`);
   if (content.length > MAX_SCAN_CHARS) return [OVERSIZE_FINDING];
   const folded = content.normalize('NFKC');
-  return [...invisibleFindings(content), ...patterns.filter(([regex]) => regex.test(folded)).map(([, id]) => id)];
+  const decoded = decodeThreatEntities(folded);
+  const reads = decoded === folded ? [folded] : [folded, decoded];
+  return [...invisibleFindings(content), ...patterns.filter(([regex]) => reads.some((text) => regex.test(text))).map(([, id]) => id)];
 }
 
 export interface ThreatFinding {

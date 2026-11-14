@@ -141,3 +141,33 @@ describe('the project store paths a rebuildable index cites (STORES1A)', () => {
     expect(result).toMatchObject({ ok: true, records: [], skipped: [{ reason: 'secret-content' }] });
   });
 });
+
+describe('an escaped secret, and the newer shapes, are refused (fix round 1, M3)', () => {
+  const BS = String.fromCharCode(92);
+  const body = 'a1b2'.repeat(8);
+  const escaped = (text: string): string => [...text].map((c) => `${BS}u${c.charCodeAt(0).toString(16).padStart(4, '0')}`).join('');
+
+  it.each([
+    ['one letter escaped', `key ${BS}u0073k-ant-${body}`],
+    ['every letter escaped', `key ${escaped(`sk-ant-${body}`)}`],
+    ['escaped twice', `key ${BS}u005cu0073k-ant-${body}`],
+    ['a private key header, escaped', escaped('-----BEGIN RSA PRIVATE KEY-----')],
+    ['an AWS key id, escaped', escaped(AWS)],
+  ])('refuses %s', (_label, text) => {
+    expect(sensitiveContentProblem(text)).toBe('secret-content');
+  });
+
+  it.each([
+    ['a Supabase secret key', `sb_secret_${body}`],
+    ['a Supabase publishable key', `sb_publishable_${body}`],
+    ['a Vercel token', `vcp_${'A1b2C3d4'.repeat(3)}`],
+    ['a Resend key', `re_${'A1b2C3d4_'.repeat(3)}`],
+  ])('refuses %s', (_label, secret) => {
+    expect(sensitiveContentProblem(`Notes.\nkey: ${secret}\nMore.`)).toBe('secret-content');
+  });
+
+  it('does not refuse words that only start the same way: the positive control', () => {
+    expect(sensitiveContentProblem('Use the re_run flag, or sb_secret_x, or vcp_short; prefix_re_something_longer_than_twenty_chars is a name.')).toBeNull();
+    expect(sensitiveContentProblem(`A literal backslash-u sequence for a space: ${BS}u0020 and nothing else.`)).toBeNull();
+  });
+});

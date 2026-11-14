@@ -249,3 +249,33 @@ describe('the rendered body is capped, not only the entry text (STORES1A)', () =
     expect(!result.ok && JSON.stringify(result.refusal)).not.toContain('a000');
   });
 });
+
+describe('the rendered body is capped in UTF-8 bytes as well (fix round 1, L3)', () => {
+  const emoji = (count: number): string => String.fromCodePoint(0x1f600).repeat(count);
+  const han = (count: number): string => String.fromCodePoint(0x4e2d).repeat(count);
+
+  it('refuses a full store of four-byte characters, which passes the code-point cap', () => {
+    const state = proven(emoji(2200));
+    expect(state.entries.join('').length).toBeGreaterThan(2200);
+    const result = renderMemoryBlock('memory', state);
+    expect(!result.ok && result.refusal.code).toBe('MEMORY_RENDERED_OVER_LIMIT');
+    expect(!result.ok && result.refusal.message).toContain('bytes');
+  });
+
+  it('refuses the same in the user store', () => {
+    const result = renderMemoryBlock('user', proven(emoji(1375)));
+    expect(!result.ok && result.refusal.code).toBe('MEMORY_RENDERED_OVER_LIMIT');
+  });
+
+  it('a block of four-byte characters under the byte cap, and a full store of three-byte ones, still render: the positive control', () => {
+    expect(renderMemoryBlock('memory', proven(emoji(1000))).ok).toBe(true);
+    expect(renderMemoryBlock('memory', proven(han(2200))).ok).toBe(true);
+  });
+
+  it('the code-point cap still holds beside it', () => {
+    const decisions = Array.from({ length: 300 }, (_, index) => `d${index}`);
+    const state: MemoryStoreState = { entries: decisions, provenance: new Map(decisions.map((entry) => [memoryEntryHash(entry), { ...held(entry, 'decision'), ledgerRef: `docs/${'a'.repeat(240)}.md` }])) };
+    const result = renderMemoryBlock('memory', state);
+    expect(!result.ok && result.refusal.code).toBe('MEMORY_RENDERED_OVER_LIMIT');
+  });
+});

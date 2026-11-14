@@ -411,3 +411,69 @@ describe('plan memory, execution records and findings are indexed, and the index
     expect(result).toMatchObject({ ok: true, chunks: 0, skipped: [{ path: '.projectops/plan-1.json', reason: 'dot-segment' }] });
   });
 });
+
+describe('a store directory that is a link is not walked (fix round 1, M2)', () => {
+  const EXEC = `${ROOT}/.projectops/execution`;
+  const PLAN = `${ROOT}/.projectops/plan-0123456789abcdef-0123456789ab.json`;
+  const collect = (files: Record<string, string>, links: readonly string[]) => collectStoreSources({ project: A, root: ROOT, fs: memoryFs(files, links) });
+
+  it('reports a linked execution directory, and indexes nothing that sits behind it', () => {
+    const found = collect({ [PLAN]: '{ "plan": 1 }', [`${EXEC}/outside.findings.json`]: '{ "leaked": "from outside the project" }' }, [EXEC]);
+
+    expect(found.skipped).toContainEqual({ path: '.projectops/execution', reason: 'link' });
+    expect(found.sources.map((source) => source.path)).toEqual(['.projectops/plan-0123456789abcdef-0123456789ab.json']);
+    expect(JSON.stringify(found)).not.toContain('leaked');
+  });
+
+  it('reports a linked .projectops, and walks neither listing', () => {
+    const found = collect({ [PLAN]: '{ "plan": 1 }', [`${EXEC}/a.session.json`]: '{ "x": 1 }' }, [`${ROOT}/.projectops`]);
+
+    expect(found.skipped).toEqual([{ path: '.projectops', reason: 'link' }]);
+    expect(found.sources).toEqual([]);
+  });
+
+  it('reports a store directory that is not a directory', () => {
+    const files = { [`${ROOT}/.projectops/execution`]: 'a file where a directory belongs' };
+
+    expect(collect(files, []).skipped).toContainEqual({ path: '.projectops/execution', reason: 'unreadable' });
+  });
+
+  it('an absent store directory is an empty project, not a problem: the positive control', () => {
+    expect(collect({ [PLAN]: '{ "plan": 1 }' }, []).skipped).toEqual([]);
+  });
+
+  it('asks the port about the directory before it lists it', () => {
+    const calls: string[] = [];
+    const base = memoryFs({ [PLAN]: '{ "plan": 1 }', [`${EXEC}/a.session.json`]: '{ "x": 1 }' }, []);
+    const watching: DocumentFs = { ...base, stat: (path) => (calls.push(`stat ${path}`), base.stat(path)), listDir: (path) => (calls.push(`list ${path}`), base.listDir(path)) };
+
+    collectStoreSources({ project: A, root: ROOT, fs: watching });
+
+    expect(calls.indexOf(`stat ${EXEC}`)).toBeGreaterThanOrEqual(0);
+    expect(calls.indexOf(`stat ${EXEC}`)).toBeLessThan(calls.indexOf(`list ${EXEC}`));
+    expect(calls.indexOf(`stat ${ROOT}/.projectops`)).toBeLessThan(calls.indexOf(`list ${ROOT}/.projectops`));
+  });
+});
+
+describe('an escaped secret in a store record is skipped (fix round 1, M3)', () => {
+  const BS = String.fromCharCode(92);
+  const RUN = `${ROOT}/.projectops/execution/PHASE-A-abc123.findings.json`;
+  const key = `sk-ant-${'a1b2'.repeat(8)}`;
+  const withRecord = (text: string) => collectStoreSources({ project: A, root: ROOT, fs: memoryFs({ [RUN]: text }) });
+
+  it.each([
+    ['one letter', `{ "note": "${BS}u0073k-ant-${'a1b2'.repeat(8)}" }`],
+    ['every letter', `{ "note": "${[...key].map((c) => `${BS}u${c.charCodeAt(0).toString(16).padStart(4, '0')}`).join('')}" }`],
+    ['a newer shape', `{ "note": "sb_secret_${'a1b2'.repeat(8)}" }`],
+  ])('skips a record with %s of a secret, and reports no text', (_label, text) => {
+    const found = withRecord(text);
+
+    expect(found.sources).toEqual([]);
+    expect(found.skipped).toEqual([{ path: '.projectops/execution/PHASE-A-abc123.findings.json', reason: 'secret-content' }]);
+    expect(JSON.stringify(found)).not.toContain('a1b2a1b2');
+  });
+
+  it('an ordinary record still indexes: the positive control', () => {
+    expect(withRecord('{ "note": "the boundary leaks" }').sources).toHaveLength(1);
+  });
+});

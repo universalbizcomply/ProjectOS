@@ -34,6 +34,10 @@ const SECRET_SHAPES: readonly RegExp[] = [
   /\bsbp_[a-f0-9]{40,}/,
   /\bnpm_[A-Za-z0-9]{36}/,
   /\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/,
+  /\bsb_secret_[A-Za-z0-9_-]{16,}/,
+  /\bsb_publishable_[A-Za-z0-9_-]{16,}/,
+  /\bvcp_[A-Za-z0-9]{20,}/,
+  /\bre_[A-Za-z0-9_]{20,}/,
 ];
 
 /**
@@ -52,6 +56,33 @@ export function sensitivePathProblem(path: string, source?: string): SensitiveRe
   return segments.some((segment) => CREDENTIAL_NAME.test(segment) || CREDENTIAL_EXTENSION.test(segment)) ? 'credential-name' : null;
 }
 
+/**
+ * A secret spelled in escapes is the same secret (fix round 1, M3). A findings record is JSON, and `\u0073k-ant-...` is
+ * `sk-ant-...` once anything decodes it, so every shape below is asked of the text AND of the text with its escapes undone.
+ * Bounded passes undo an escape of an escape. The same decoding the agent's credential vocabulary applies, and it covers
+ * `\u{...}` and `\x..` as well.
+ */
+const MAX_UNESCAPE_PASSES = 4;
+
+function characterOf(hex: string, whole: string): string {
+  const code = Number.parseInt(hex, 16);
+  return Number.isInteger(code) && code >= 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : whole;
+}
+
+export function normaliseEscapedText(input: string): string {
+  let text = input;
+  for (let pass = 0; pass < MAX_UNESCAPE_PASSES; pass += 1) {
+    const next = text
+      .replace(/\\u\{([0-9a-fA-F]{1,6})\}/g, (whole, hex: string) => characterOf(hex, whole))
+      .replace(/\\u([0-9a-fA-F]{4})/g, (whole, hex: string) => characterOf(hex, whole))
+      .replace(/\\x([0-9a-fA-F]{2})/g, (whole, hex: string) => characterOf(hex, whole));
+    if (next === text) return text;
+    text = next;
+  }
+  return text;
+}
+
 export function sensitiveContentProblem(text: string): SensitiveReason | null {
-  return SECRET_SHAPES.some((shape) => shape.test(text)) ? 'secret-content' : null;
+  const decoded = normaliseEscapedText(text);
+  return SECRET_SHAPES.some((shape) => shape.test(text) || (decoded !== text && shape.test(decoded))) ? 'secret-content' : null;
 }

@@ -16,7 +16,8 @@
  * over the size cap, a binary file and a record holding a credential shape come back in `skipped` by path and reason, with
  * none of the text. The same caps as the document walk apply, and the index checks the secret shapes again at its boundary.
  *
- * It reads through a `DocumentFs`, and writes nothing.
+ * A link is refused at `.projectops` and at `.projectops/execution` as well as at a record, and a secret is looked for in the text
+ * and in the text with its escapes undone. It reads through a `DocumentFs`, and writes nothing.
  */
 import { sensitiveContentProblem, type SearchSourceKind, type SearchSourceText } from '@projectos/core';
 import type { DocumentFs } from './ports.js';
@@ -78,7 +79,28 @@ export function collectStoreSources(params: {
     return [recordAt(listing.source, rel, stat.size, stat.mtimeMs)];
   };
 
+  /** Why a directory on the way to a listing may not be walked, or null; `absent` is an empty project and is not a problem. */
+  const directoryProblem = (directory: string): SkippedDocument | 'absent' | null => {
+    const stat = fs.stat(`${params.root}/${directory}`);
+    if (stat === null) return 'absent';
+    if (stat.kind === 'link') return { path: directory, reason: 'link' };
+    return stat.kind === 'directory' ? null : { path: directory, reason: 'unreadable' };
+  };
+
+  const reported = new Set<string>();
   const found = LISTINGS.flatMap((listing) => {
+    // EVERY DIRECTORY ON THE WAY IS ASKED, NOT ONLY THE ONE LISTED. A junction at `.projectops/execution` read as an ordinary
+    // directory and indexed files from outside the project (fix round 1, M2). A link is reported once and nothing behind it is read.
+    const chain = listing.directory.split('/').map((_, index, parts) => parts.slice(0, index + 1).join('/'));
+    for (const directory of chain) {
+      const problem = directoryProblem(directory);
+      if (problem === 'absent') return [];
+      if (problem !== null) {
+        if (reported.has(problem.path)) return [];
+        reported.add(problem.path);
+        return [problem];
+      }
+    }
     const names = [...fs.listDir(`${params.root}/${listing.directory}`)].filter(listing.accepts).sort();
     if (names.length > MAX_STORE_FILES_PER_DIRECTORY) return [{ path: listing.directory, reason: 'too-large' } as const];
     return names.flatMap((name) => entryAt(listing, name));

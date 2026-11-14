@@ -332,7 +332,7 @@ const PIN_RULES = [
     P(CHUNKS, "chunkRecordsOf", "if (sensitive !== null) return { ok: true, records: [], skipped: [{ path: input.path, reason: sensitive }] };"),
     P(SENSITIVE, "sensitivePathProblem", "segments.some((segment) => segment.startsWith('.'))"),
     P(SENSITIVE, "sensitivePathProblem", "CREDENTIAL_NAME.test(segment) || CREDENTIAL_EXTENSION.test(segment)"),
-    P(SENSITIVE, "sensitiveContentProblem", "SECRET_SHAPES.some((shape) => shape.test(text))"),
+    P(SENSITIVE, "sensitiveContentProblem", "SECRET_SHAPES.some((shape) => shape.test(text) || (decoded !== text && shape.test(decoded)))"),
     P(SENSITIVE, null, "/-----BEGIN [A-Z0-9 ]+-----/,"),
     P(INDEX, "recordsOf", "skipped: built.flatMap((result) => (result.ok ? result.skipped : [])),"),
     P(WALK, null, "const secret = sensitiveContentProblem(content);"),

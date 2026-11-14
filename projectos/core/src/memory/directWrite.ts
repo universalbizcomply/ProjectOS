@@ -25,11 +25,15 @@
  * link that resolves into a root. Pure: no I/O.
  */
 
-export type DirectWriteReason = 'inside-memory-store' | 'inside-skill-store';
+export type DirectWriteReason = 'inside-memory-store' | 'inside-skill-store' | 'contains-memory-store' | 'contains-skill-store';
 
-const STORE_ROOTS: readonly { readonly segments: readonly string[]; readonly reason: DirectWriteReason }[] = [
-  { segments: ['.projectops', 'memory'], reason: 'inside-memory-store' },
-  { segments: ['.projectops', 'skills'], reason: 'inside-skill-store' },
+const STORE_ROOTS: readonly {
+  readonly segments: readonly string[];
+  readonly reason: DirectWriteReason;
+  readonly contains: DirectWriteReason;
+}[] = [
+  { segments: ['.projectops', 'memory'], reason: 'inside-memory-store', contains: 'contains-memory-store' },
+  { segments: ['.projectops', 'skills'], reason: 'inside-skill-store', contains: 'contains-skill-store' },
 ];
 
 /** The two roots a worker may not write, as normalised segments. */
@@ -94,8 +98,49 @@ function underRoot(segments: readonly string[], root: readonly string[]): boolea
   return segments.length >= root.length && root.every((part, index) => segments[index] === part);
 }
 
+/**
+ * A path that is a strict prefix of a root is a PARENT of the store, and a parent hides what is inside it: `git status
+ * --porcelain` of a repository whose `.projectops/` is new prints `?? .projectops/` and none of the files below it. `.` and
+ * the empty path are the project itself, a prefix of everything.
+ */
+function containsRoot(segments: readonly string[], root: readonly string[]): boolean {
+  return segments.length < root.length && segments.every((part, index) => root[index] === part);
+}
+
 function reasonOf(segments: readonly string[]): DirectWriteReason | null {
-  return STORE_ROOTS.find((root) => underRoot(segments, root.segments))?.reason ?? null;
+  const inside = STORE_ROOTS.find((root) => underRoot(segments, root.segments));
+  if (inside !== undefined) return inside.reason;
+  return STORE_ROOTS.find((root) => containsRoot(segments, root.segments))?.contains ?? null;
+}
+
+/** A git-quoted path as it reads unquoted. Only the two escapes that can spell a separator or a quote are undone. */
+function unquoted(path: string): string {
+  const trimmed = path.trim();
+  if (trimmed.length < 2 || !trimmed.startsWith('"') || !trimmed.endsWith('"')) return trimmed;
+  return trimmed.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+}
+
+const RENAME_ARROW = ' -> ';
+
+type Judged = { readonly kind: 'direct'; readonly reason: DirectWriteReason } | { readonly kind: 'unjudgeable'; readonly reason: DirectWriteUnjudgeableReason } | null;
+
+/**
+ * One changed path, judged. A porcelain rename line is `old -> new`, and the loop keeps what it keeps of it, so a string with
+ * the arrow is judged whole AND on each side: a store file moved out, or a file moved in, is a write to the store.
+ */
+function judgedPath(path: string): Judged {
+  const candidates = path.includes(RENAME_ARROW) ? [path, ...path.split(RENAME_ARROW)] : [path];
+  let unjudged: Judged = null;
+  for (const candidate of candidates) {
+    const where = placed(unquoted(candidate));
+    if (where.kind === 'unjudgeable') {
+      unjudged ??= { kind: 'unjudgeable', reason: where.reason };
+      continue;
+    }
+    const reason = reasonOf(where.segments);
+    if (reason !== null) return { kind: 'direct', reason };
+  }
+  return unjudged;
 }
 
 /**
@@ -120,13 +165,9 @@ export function checkNoDirectStoreWrites(changedPaths: readonly unknown[]): Dire
       unjudgeable.push({ path: typeof path === 'string' ? path.slice(0, 80) : null, reason: 'not-a-path' });
       continue;
     }
-    const where = placed(path);
-    if (where.kind === 'unjudgeable') {
-      unjudgeable.push({ path: path.slice(0, 80), reason: where.reason });
-      continue;
-    }
-    const reason = reasonOf(where.segments);
-    if (reason !== null) direct.push({ path: path.slice(0, 200), reason });
+    const judged = judgedPath(path);
+    if (judged?.kind === 'unjudgeable') unjudgeable.push({ path: path.slice(0, 80), reason: judged.reason });
+    else if (judged?.kind === 'direct') direct.push({ path: path.slice(0, 200), reason: judged.reason });
   }
   if (direct.length === 0 && unjudgeable.length === 0) return { ok: true };
   return {

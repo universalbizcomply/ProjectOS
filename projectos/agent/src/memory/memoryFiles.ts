@@ -32,6 +32,7 @@ import {
   memoryOk,
   parseMemoryEntries,
   renderMemoryBlock,
+  sensitiveContentProblem,
   type MemoryEntryProvenance,
   type MemoryPromptBlock,
   type MemoryResult,
@@ -107,6 +108,13 @@ export function readMemoryStore(sys: System, root: string, target: MemoryTarget)
 }
 
 /**
+ * A credential by EITHER vocabulary (fix round 1, M4). The agent's own list and core's index list are not the same list: a Google
+ * key, a Slack or npm token, a webhook secret, an AWS session id and an Azure account key reached the prompt through the first
+ * alone. The union is asked, each with its escapes undone, so a shape either one knows is refused.
+ */
+const holdsCredential = (text: string): boolean => containsSecret(text) || sensitiveContentProblem(text) !== null;
+
+/**
  * The fenced, scanned block for one store. The only way memory text leaves this module for a prompt.
  *
  * THE CREDENTIAL VOCABULARY IS THE AGENT'S (STORES1A). The queue refuses a credential at proposal and at approval, and a store
@@ -116,7 +124,7 @@ export function readMemoryStore(sys: System, root: string, target: MemoryTarget)
  */
 export function loadMemoryBlock(sys: System, root: string, target: MemoryTarget): MemoryResult<MemoryPromptBlock> {
   const state = readMemoryStore(sys, root, target);
-  return state.ok ? renderMemoryBlock(target, state.value, { secretScreen: containsSecret }) : state;
+  return state.ok ? renderMemoryBlock(target, state.value, { secretScreen: holdsCredential }) : state;
 }
 
 /** Temp file and rename, so a reader never sees a partial file. */
