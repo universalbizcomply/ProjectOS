@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-PORT-AGENTS1A",
+  "evidenceSubjectHead": "ba1f76447de65596d14c3c30c5d48973bcb73f1f",
+  "baselineCommit": "b5073c1a8862f7e2a446ca0dc61b66a79a8e61f8",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-14T12:37:44.973Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-PORT-AGENTS1A, phase 39 of 47 of plan v1.36, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. ba1f7644 on the plan worktree (persistent agent records, same-tenant routes and messages, delegation never past the parent, queue-state rules and no second queue, as pure core rules).",
+    "validatorsPass: val-projectos-port-agents1a (157 scenarios; 132 behaviour and 65 text mutations killed), val-projectos-port-credit1a, val-projectos-connector-contract1a and validate-no-secrets PASS. validate-all on the stack head ba1f7644: 172 PASS, 1 FAIL, 2 retired (173 registered). The one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4. An earlier run at a6ac6543 found a name clash with the MCP guard (MC-19) and two async run() validators; both fixed in ba1f7644.",
+    "checksPass: core 4132/4132 (100 files), agent 3573/3573 (114 files), control-center 952/952 (69 files) at a6ac6543 on the plan worktree after a rebuild of core then agent; at ba1f7644 (a rename of one computer helper and two validator run() wrappers) core was rebuilt, the 148 computer tests re-ran and the affected validators passed again.",
+    "reviewsComplete: Claude self-review; ECC security-reviewer (block on one HIGH: a getter-based envelope budget escalation; fixed); Agency multi-agent-systems-architect (CONCERNS, three HIGH, fixed); one recheck (one new HIGH: a Proxy nodes value in book restore, fixed) and a final round re-verified by the lead, who read the restore code and ran a hostile-Proxy test.",
+    "unresolved: zero CRITICAL/HIGH. Residuals are named in docs/finish/PROJECTOS-PORT-AGENTS1A.md: wiring must prove the caller is the run it names; the verifier ports are honest only if the wiring makes them so; the retry counter must be unified with dispatch. Ports ship unwired.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
