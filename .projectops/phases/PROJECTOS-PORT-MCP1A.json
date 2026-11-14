@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PORT-MCP1A",
   "project": "ProjectOS",
   "objective": "Port delta phase 12 (C15). Port the OpenClaw (MIT) MCP client lifecycle behind an injected spawn port, and translate the Hermes (MIT) per-tool cost, scope and sampling ideas, on core/src/connectorContract.ts. Zero live connectors: projectos/connectors/registry.json stays empty and CC-25 stands. Lives in mcpConnectors/ because agent/src/mcp/ (the owner bridge) exists and is not touched.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-14T04:49:10.729Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-14T04:49:11.790Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PORT-MCP1A:owner-closure:e77c4acf"
     }
   ]
 }
