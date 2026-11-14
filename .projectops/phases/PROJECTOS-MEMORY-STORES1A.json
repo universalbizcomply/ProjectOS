@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-MEMORY-STORES1A",
+  "project": "ProjectOS",
+  "objective": "Plan 3.1. Runs after owner act O1 has committed the Stage 3 action entries. Maps the six memory classes onto existing stores, makes the search index per project and rebuildable, and lands the binding carry-forwards from PORT-SEARCH1A and PORT-MEMORY1A before any prompt reads a store. A worker asks for a memory or skill write only through a proposals entry in its findings record.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-14T17:56:15.812Z",
+      "note": "Owner-approved plan v1.36 and delta rev 2 (row 7). Built by an agent under the lead (Claude) in a parallel worktree after owner act O1 (dc09fb13); the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-14T17:56:16.483Z",
+      "note": "memory classes on existing stores: per-project index files, clock and file-system ports, secret and size screens on load, one proposal door, refusal of a worker's direct write to the memory or skill store"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-14T17:56:17.208Z",
+      "note": "core 4368/4368 (103 files), agent 3675/3675 (117 files), control-center 952/952 (69 files) on the merged stack c4994542 after a rebuild of core then agent. val-projectos-memory-stores1a (19 rules; 186 text and 82 behavioural mutations killed before the stack fix, MS-19 added after), val-projectos-port-search1a, val-projectos-port-memory1a, val-projectos-port-credit1a, val-projectos-port-skills1a, val-projectos-port-context1a and validate-no-secrets PASS. validate-all on the stack head c4994542: 173 PASS, 1 FAIL, 2 retired (174 registered). The one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4. A first stack run found control-center coreBrowserLoad failing (core/src/memory/proposalDoor.ts imported node:util); fixed in f07f6807 by an injected Proxy-test port and a new validator rule."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-14T17:56:17.917Z",
+      "note": "Evidence: docs/finish/PROJECTOS-MEMORY-STORES1A.md (branch head f07f6807, stacked at c4994542)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-14T17:56:18.612Z",
+      "note": "closure tail only - no implementation. Reviews: ECC security-reviewer, one recheck, final round and a stack defect fix, re-verified by the lead."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-14T17:56:19.316Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
