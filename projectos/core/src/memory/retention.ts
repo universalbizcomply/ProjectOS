@@ -171,6 +171,9 @@ export interface MemoryDeletionClaim {
   readonly itemHash: string;
   /** The checkout this item is removed from, so an approval for one checkout cannot be spent in another. */
   readonly root: string;
+  /** Where the deletion ledger stood when the owner was asked (entries, and the hash of the last): an approval for an old position cannot be replayed. */
+  readonly ledgerCount: number;
+  readonly ledgerHead: string;
   /** Whether a committed decision names the item (`'unknown'` when the decisions could not be read): the owner sees what relies on it. */
   readonly citedByDecision: boolean | 'unknown';
   readonly reason: string;
@@ -184,6 +187,8 @@ export type OwnerDeletionVerifier = (claim: MemoryDeletionClaim) => boolean;
 export interface MemoryDeletionFacts {
   /** The checkout the agent will remove the item from, which the owner's claim names. */
   readonly root: string;
+  /** The verified ledger's position now. */
+  readonly ledger: { readonly count: number; readonly lastHash: string };
   /** The sha-256 of the item's bytes now, or null when it is not there. */
   readonly currentItemHash: string | null;
   readonly citedByDecision: boolean | 'unknown';
@@ -220,8 +225,19 @@ export function memoryDeletionRequestOf(raw: unknown): MemoryDeletionRequest | n
 }
 
 /** A checkout path the claim can name: one line, a bounded length. */
-const rootProblem = (root: unknown): boolean => typeof root !== 'string' || root.length === 0 || root.length > MAX_ROOT_CHARS || hasInvisibleCharacter(root);
+export const deletionRootProblem = (root: unknown): boolean => typeof root !== 'string' || root.length === 0 || root.length > MAX_ROOT_CHARS || hasInvisibleCharacter(root);
+const rootProblem = deletionRootProblem;
 const MAX_ROOT_CHARS = 512;
+
+/** A ledger position: a count of entries and the sha-256 of the last, or null. */
+function ledgerPositionOf(value: unknown): { readonly count: number; readonly lastHash: string } | null {
+  const read = plainRecordOf(value, ['count', 'lastHash']);
+  if (!read.ok) return null;
+  const { count, lastHash } = read.value;
+  return typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 && isSha256Hex(lastHash) ? { count, lastHash } : null;
+}
+
+const isCited = (value: unknown): value is boolean | 'unknown' => value === true || value === false || value === 'unknown';
 
 /** The claim an owner verifier is asked about, for this request: frozen, bound to the hash, tenant, project and path. */
 export function deletionOwnerClaimOf(
@@ -229,10 +245,11 @@ export function deletionOwnerClaimOf(
   memoryClass: MemoryClassId,
   action: MemoryDeletionClaim['action'],
   actionClass: MemoryDeletionClaim['actionClass'],
-  binding: { readonly root: string; readonly citedByDecision: boolean | 'unknown' },
+  binding: { readonly root: string; readonly citedByDecision: boolean | 'unknown'; readonly ledger: { readonly count: number; readonly lastHash: string } },
 ): MemoryDeletionClaim | null {
   const read = memoryDeletionRequestOf(request);
-  if (read === null || rootProblem(binding.root)) return null;
+  const ledger = ledgerPositionOf(binding.ledger);
+  if (read === null || ledger === null || rootProblem(binding.root) || !isCited(binding.citedByDecision)) return null;
   const fields = {
     action,
     actionClass,
@@ -243,6 +260,8 @@ export function deletionOwnerClaimOf(
     path: read.path,
     itemHash: read.itemHash,
     citedByDecision: binding.citedByDecision,
+    ledgerCount: ledger.count,
+    ledgerHead: ledger.lastHash,
     reason: read.reason,
   };
   return Object.freeze({ ...fields, claimHash: sha256Hex(canonicalStringify(fields)) });
@@ -261,19 +280,24 @@ function ownerAnswered(verifier: OwnerDeletionVerifier, claim: MemoryDeletionCla
  * May this item be deleted? Classes 1 to 4 are `memory-delete` (P5) and need the owner whether or not a decision cites the
  * item. A refusal is a value with a code and quotes no text of the item.
  */
-export function judgeMemoryDeletion(rawRequest: unknown, facts: MemoryDeletionFacts): MemoryDeletionJudgement {
+export function judgeMemoryDeletion(rawRequest: unknown, rawFacts: MemoryDeletionFacts): MemoryDeletionJudgement {
   const request = memoryDeletionRequestOf(rawRequest);
   if (request === null) return { ok: false, code: 'DELETE_REQUEST_INVALID' };
   const memoryClass = memoryClassOfPath(request.path);
   const entry = MEMORY_RETENTION.find((candidate) => candidate.id === memoryClass);
   if (memoryClass === null || entry === undefined || entry.deleteAction !== MEMORY_DELETE_ACTION.id) return { ok: false, code: 'DELETE_NOT_A_MEMORY_ITEM' };
-  const { root, currentItemHash, citedByDecision, ownerVerifier } = facts;
-  if (rootProblem(root)) return { ok: false, code: 'DELETE_BINDING_INVALID' };
+  // The facts are the agent's, but they are read once and checked like anything else: wrong types are a refusal, not a throw.
+  const read = plainRecordOf(rawFacts, ['root', 'ledger', 'currentItemHash', 'citedByDecision', 'ownerVerifier']);
+  if (!read.ok) return { ok: false, code: 'DELETE_BINDING_INVALID' };
+  const { root, ledger, currentItemHash, citedByDecision, ownerVerifier } = read.value;
+  const position = ledgerPositionOf(ledger);
+  if (rootProblem(root) || position === null || !isCited(citedByDecision)) return { ok: false, code: 'DELETE_BINDING_INVALID' };
+  if (currentItemHash !== null && !isSha256Hex(currentItemHash)) return { ok: false, code: 'DELETE_BINDING_INVALID' };
   if (currentItemHash === null) return { ok: false, code: 'DELETE_ITEM_ABSENT' };
   if (currentItemHash !== request.itemHash) return { ok: false, code: 'DELETE_HASH_MISMATCH' };
   if (typeof ownerVerifier !== 'function') return { ok: false, code: 'DELETE_OWNER_VERIFIER_MISSING' };
-  const claim = deletionOwnerClaimOf(request, memoryClass, MEMORY_DELETE_ACTION.id, MEMORY_DELETE_ACTION.class, { root, citedByDecision });
-  if (claim === null || !ownerAnswered(ownerVerifier, claim)) return { ok: false, code: 'DELETE_OWNER_NOT_VERIFIED' };
+  const claim = deletionOwnerClaimOf(request, memoryClass, MEMORY_DELETE_ACTION.id, MEMORY_DELETE_ACTION.class, { root: root as string, citedByDecision, ledger: position });
+  if (claim === null || !ownerAnswered(ownerVerifier as OwnerDeletionVerifier, claim)) return { ok: false, code: 'DELETE_OWNER_NOT_VERIFIED' };
   return { ok: true, action: MEMORY_DELETE_ACTION.id, actionClass: MEMORY_DELETE_ACTION.class, memoryClass, citedByDecision, path: request.path, itemHash: request.itemHash };
 }
 

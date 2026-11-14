@@ -255,6 +255,36 @@ describe('every refused attempt is recorded, whatever the refusal', () => {
   });
 });
 
+describe('a deletion is judged before anything is written', () => {
+  it.each([[''], ['a'.repeat(600)], ['/work\nproject'], ['/work\u202Eproject']])('a checkout root of %j is refused before the ledger is touched', (root) => {
+    const state = disk({ [`${root}/${PATH}`]: TEXT });
+    const outcome = deleteMemoryItem(portsOver(state), root, request());
+    expect(outcome).toEqual({ ok: false, code: 'DELETE_BINDING_INVALID', recorded: false });
+    expect(state.created).toEqual([]);
+    expect(state.removed).toEqual([]);
+  });
+
+  it('the same refusal for an index deletion: a bad root writes no entry', () => {
+    const state = disk({});
+    const p = portsOver(state);
+    expect(deleteDerivedIndex({ files: p.files, clock: p.clock, owner: p.owner }, '', INDEX_DIR, { tenant: TENANT, project: PROJECT, reason: 'x' })).toEqual({ ok: false, code: 'DELETE_BINDING_INVALID', recorded: false });
+    expect(state.created).toEqual([]);
+  });
+
+  it('the owner is shown the ledger position, which moves with every attempt, so an old approval cannot be replayed', () => {
+    const state = disk();
+    const claims: MemoryDeletionClaim[] = [];
+    const verifier = (claim: MemoryDeletionClaim) => (claims.push(claim), false);
+    deleteMemoryItem(portsOver(state, { ownerVerifier: verifier }), ROOT, request());
+    deleteMemoryItem(portsOver(state, { ownerVerifier: verifier }), ROOT, request());
+    expect(claims.map((claim) => claim.ledgerCount)).toEqual([0, 1]);
+    expect(claims[0]?.ledgerHead).toMatch(/^0{64}$/);
+    expect(claims[1]?.ledgerHead).toMatch(/^[0-9a-f]{64}$/);
+    expect(claims[1]?.ledgerHead).not.toBe(claims[0]?.ledgerHead);
+    expect(claims[0]?.claimHash).not.toBe(claims[1]?.claimHash);
+  });
+});
+
 describe('a deletion is bound to the checkout it is asked in', () => {
   it.each([
     ['another tenant and project', { tenant: 'agency-two', project: 'beta-project' }],

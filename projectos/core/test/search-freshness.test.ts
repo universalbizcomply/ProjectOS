@@ -152,3 +152,91 @@ describe('an answer keeps the freshness of the hit it cites', () => {
     expect(admitCitedAnswer({ text: 'x', citations: [cite({ path: 'other.md', freshness: STALE })] }, [hitWith(STALE)])).toEqual({ ok: false, reason: 'citation-not-retrieved' });
   });
 });
+
+describe('an answer is judged once per hit and is capped', () => {
+  const mkHit = (index: number, freshness?: Parameters<typeof admitSearchResult>[2]): CitedSearchHit => {
+    const admitted = admitSearchResult({ ...result(), path: `docs/guide-${index}.md` }, PROJECT, freshness);
+    if (!admitted.ok) throw new Error(admitted.refusal.reason);
+    return admitted.hit;
+  };
+  const citeAt = (index: number) => ({ project: PROJECT, path: `docs/guide-${index}.md`, startLine: 4, endLine: 5 });
+
+  it('reads the freshness of each hit once, however many citations cover it', () => {
+    const reads: number[] = [];
+    const hits = [0, 1].map((index) => {
+      const hit = mkHit(index, { state: 'fresh' });
+      const citation = { ...hit.citation };
+      Object.defineProperty(citation, 'freshness', { enumerable: true, get: () => (reads.push(index), { state: 'fresh' }) });
+      return { ...hit, citation } as CitedSearchHit;
+    });
+    const cites = [0, 1, 0, 1, 0, 1].map(citeAt);
+    expect(admitCitedAnswer({ text: 'x', citations: cites }, hits).ok).toBe(true);
+    expect(reads.length).toBeLessThanOrEqual(2);
+  });
+
+  it('refuses an answer over the citation cap with a code, without judging any of it', () => {
+    const hits = [mkHit(0, { state: 'stale', reason: 'head-moved' })];
+    const started = Date.now();
+    const cites = Array.from({ length: 50_000 }, () => citeAt(0));
+    expect(admitCitedAnswer({ text: 'x', citations: cites }, hits)).toEqual({ ok: false, reason: 'answer-too-large' });
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it('refuses an answer over the hit cap too, and an answer at both caps is still judged', () => {
+    const many = Array.from({ length: 1001 }, (_, index) => mkHit(index));
+    expect(admitCitedAnswer({ text: 'x', citations: [citeAt(0)] }, many)).toEqual({ ok: false, reason: 'answer-too-large' });
+    const atCap = Array.from({ length: 200 }, (_, index) => mkHit(index, { state: 'stale', reason: 'head-moved' }));
+    const started = Date.now();
+    const admitted = admitCitedAnswer({ text: 'x', citations: Array.from({ length: 200 }, (_, index) => citeAt(index)) }, atCap);
+    expect(admitted.ok).toBe(true);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  describe('two covering hits that are stale for different reasons', () => {
+    const moved = { state: 'stale', reason: 'head-moved' } as const;
+    const unknown = { state: 'stale', reason: 'head-unknown' } as const;
+    const cite = (extra: Record<string, unknown> = {}) => ({ project: PROJECT, path: 'docs/guide.md', startLine: 4, endLine: 5, ...extra });
+    const hitWith = (freshness: Parameters<typeof admitSearchResult>[2]): CitedSearchHit => {
+      const admitted = admitSearchResult(result(), PROJECT, freshness);
+      if (!admitted.ok) throw new Error(admitted.refusal.reason);
+      return admitted.hit;
+    };
+
+    it.each([
+      ['moved then unknown', [moved, unknown]],
+      ['unknown then moved', [unknown, moved]],
+    ])('accepts a stated reason that either hit carries, in either order (%s)', (_name, order) => {
+      for (const stated of [moved, unknown]) {
+        const admitted = admitCitedAnswer({ text: 'x', citations: [cite({ freshness: stated })] }, order.map((freshness) => hitWith(freshness)));
+        if (!admitted.ok) throw new Error(admitted.reason);
+        expect(admitted.answer.citations[0]?.freshness).toEqual(stated);
+      }
+    });
+
+    it('chooses the same mark for a citation that states none, whichever order the hits come in', () => {
+      const a = admitCitedAnswer({ text: 'x', citations: [cite()] }, [hitWith(moved), hitWith(unknown)]);
+      const b = admitCitedAnswer({ text: 'x', citations: [cite()] }, [hitWith(unknown), hitWith(moved)]);
+      if (!a.ok || !b.ok) throw new Error('admit');
+      expect(a.answer.citations[0]?.freshness).toEqual(b.answer.citations[0]?.freshness);
+      expect(a.answer.citations[0]?.freshness?.state).toBe('stale');
+    });
+
+    it('still refuses fresh, and a stale reason no covering hit carries, however the hits are ordered', () => {
+      for (const order of [[moved, unknown], [unknown, moved]]) {
+        const hits = order.map((freshness) => hitWith(freshness));
+        expect(admitCitedAnswer({ text: 'x', citations: [cite({ freshness: { state: 'fresh' } })] }, hits)).toEqual({ ok: false, reason: 'citation-freshness-mismatch' });
+        expect(admitCitedAnswer({ text: 'x', citations: [cite({ freshness: { state: 'stale', reason: 'built-commit-unknown' } })] }, hits)).toEqual({ ok: false, reason: 'citation-freshness-mismatch' });
+      }
+    });
+
+    it('a stale hit still outweighs a fresh one that covers the same lines', () => {
+      for (const order of [[{ state: 'fresh' }, moved], [moved, { state: 'fresh' }]] as const) {
+        const hits = order.map((freshness) => hitWith(freshness));
+        expect(admitCitedAnswer({ text: 'x', citations: [cite({ freshness: { state: 'fresh' } })] }, hits)).toEqual({ ok: false, reason: 'citation-freshness-mismatch' });
+        const admitted = admitCitedAnswer({ text: 'x', citations: [cite()] }, hits);
+        if (!admitted.ok) throw new Error(admitted.reason);
+        expect(admitted.answer.citations[0]?.freshness).toEqual(moved);
+      }
+    });
+  });
+});

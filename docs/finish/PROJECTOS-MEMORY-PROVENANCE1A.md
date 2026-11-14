@@ -54,7 +54,7 @@ So, in `core/src/memory/retention.ts` and `agent/src/memory/memoryDeletion.ts`:
 
 | Item | Path | Result |
 |---|---|---|
-| Provenance ranking | `core/src/memory/provenance.ts` | Seven kinds in four tiers: committe28 22ecision, then approved and plan memory, then execution record and finding, then summary and recollection. Rank is computed from `{ id, kind, timeMs, committed?, contradicts? }`; an item carrying text or any other field is refused. A claim to tier 0 or 1 needs a proof MINTED by a committed read (fix round 1: a plain `{ commit, blob }` is no proof), else it ranks as a recollection and says `unverifiedClaim`. A proven decision outranks anything that names it in `contradicts`, which is marked `overruledBy`. Order does not decide (duplicates keep the higher tier; NFKC + lower-case ids) |
+| Provenance ranking | `core/src/memory/provenance.ts` | Seven kinds in four tiers: committe28 22ecision, then approved and plan memory, then execution record and finding, then summary and recollection. Rank is computed from `{ id, kind, timeMs, committed?, contradicts? }`; an item carrying text or any other field is refused. A claim to tier 0 or 1 needs a proof MINTED by a committed read (fix round 1: a plain `{ commit, blob }` is no proof) AT THE CURRENT HEAD (final round: `rankByProvenance(items, headCommit)`), else it ranks as a recollection and says `unverifiedClaim`. A proven decision outranks anything that names it in `contradicts`, which is marked `overruledBy`. Order does not decide (duplicates keep the higher tier; NFKC + lower-case ids) |
 | A summary never replaces a decision | `provenance.ts` (`provenanceReplacementProblem`) | A machine-readable code: `PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION`, `PROVENANCE_DECISION_NOT_REPLACEABLE`, `PROVENANCE_LOWER_RANK_CANNOT_REPLACE`. Null is **not** an approval |
 | Committed bytes, judged | `core/src/memory/committedBytes.ts` | `judgeCommittedRead(facts)`: one-spelling path in a decision, plan-memory or approved-memory shape; HEAD a commit name; the tree entry a regular blob (symlink, submodule, tree and odd modes each refused by code); bytes within 256 KiB counted in UTF-8; a working copy that is absent, a link, not a file, unreadable or **different** is refused (LF/CRLF compared as LF, nothing else forgiven). Returns the committed text with the proof |
 | Committed bytes, asked | `agent/src/memory/committedBytes.ts` | `readCommittedMemoryFile(ports, root, path)`: path judged first (git is asked nothing for a bad path), one `rev-parse`, `ls-tree -z <commit> -- <path>` for the exact entry, `cat-file -s`, `cat-file blob <oid>` hashed back with `blobNameOf`, then the working tree through `DocumentFs` (every directory on the way asked, a link never followed, the exact name in the listing). `readCommittedDecisionTexts(git)` lists decisions at HEAD, or null (unknown) |
@@ -64,7 +64,7 @@ So, in `core/src/memory/retention.ts` and `agent/src/memory/memoryDeletion.ts`:
 | Recorde13 7eletion | `retention.ts`, `core/src/memory/deletionLedger.ts`, `agent/src/memory/memoryDeletion.ts` | `judgeMemoryDeletion` (owner port answering exactly `true`, frozen claim bound to hash, tenant, project, path and reason, asked once, hash must equal the item's now); the append-only ledger (numbered files, exclusive create, hash chain); `deleteMemoryItem` and `deleteDerivedIndex` |
 | Shared shapes | `core/src/memory/memoryShapes.ts` | `plainRecordOf` (one read into a frozen null-prototype copy; accessors, symbol keys, `__proto__`/`constructor`/`prototype` and unlisted fields refused), `isGitObjectId`, `memoryPathShapeProblem` |
 | Core barrel | `core/src/index.ts` | Five lines. The new modules are exported here and **not** through `memory/index.ts`, so `port-memory1a`'s copy of that barrel is unchanged |
-| Validator | `validators/val-projectos-memory-provenance1a.cjs` | 14 rules; 190 text and 111 behavioural named mutations (156 and 83 before fix round 1); registered in both runners after `memory-stores1a` and before `connector-contract1a` |
+| Validator | `validators/val-projectos-memory-provenance1a.cjs` | 14 rules; 204 text and 125 behavioural named mutations (156 and 83 at the first commit, 190 and 111 after fix round 1); registered in both runners after `memory-stores1a` and before `connector-contract1a` |
 
 ### What the deletion does, in order
 
@@ -123,20 +123,20 @@ unmutated tree passing every pin and every probe is the positive control.
 | Rule | Says | Text | Behavioural |
 |---|---|---|---|
 | MP-1 | an action is unregistered or not owner-only | 6 | 0 |
-| MP-2 | recollection outranks a decision | 18 | 14 |
+| MP-2 | recollection outranks a decision | 41 | 32 |
 | MP-3 | a working-tree copy is read as authority | 23 | 21 |
-| MP-4 | a stale citation reads as fresh | 22 | 16 |
+| MP-4 | a stale citation reads as fresh | 32 | 26 |
 | MP-5 | a class is retained or deleted by the wrong action | 13 | 7 |
-| MP-6 | memory is deleted without the owner | 12 | 10 |
+| MP-6 | memory is deleted without the owner | 26 | 24 |
 | MP-7 | a deletion is not recorded, or removes more than it says | 20 | 15 |
-| MP-8 | core is not pure or not browser-safe | 9 | 0 |
+| MP-8 | core is not pure or not browser-safe | 10 | 0 |
 | MP-9 | the agent reaches a process, a clock or a file around its ports | 7 | 0 |
 | MP-10 | stored text is read as authority | 6 | 0 |
 | MP-11 | a file has no statement of origin | 4 | 0 |
 | MP-12 | not registered: a runner or the core barrel does not name this phase | 9 | 0 |
 | MP-13 | the proof does not run | 4 | 0 |
 | MP-14 | a file is not tracked | 3 | 0 |
-| **Total** | | **190** | **111** |
+| **Total** | | **204** | **125** |
 
 Rules named after the body: MP-3 holds the path shape (alternate stream, dot segment, trailing dot or space, control character, no bound,
 an execution record read as committed), the judge (differing copy, symlink, submodule, linked copy, absent copy, byte cap, missing head,
@@ -238,7 +238,7 @@ recorded and `memory-delete` P5 (done).
 - **An index record written before this phase has no commit,** so every citation from it is stale (`built-commit-unknown`) until the project is rebuilt, which is the intended direction.
 - **Case-folded ids in the ranking.** Two items whose ids differ only by case or width are one item and the lower tier is refused as a duplicate. Git paths are case-sensitive, so two committed files `A.md` and `a.md` would collide; that is a refusal, never a promotion.
 - **`citedByDecision` is a substring match** on a decision's text for the item's path or hash. It reads no meaning and can only add protection; a decision that cannot be read (git failed, a link, an unhashed blob, over 500 files or 8 MiB) marks the item `unknown`, which also needs the owner.
-- **The validator is 1,046 lines,** over the 800 the style rule names, like its siblings (1,089 to 1,448): its pins, probes and mutations share names. The new core and agent source files are all under 300 lines.
+- **The validator is 1,183 lines (1,046 at the first commit),** over the 800 the style rule names, like its siblings (1,089 to 1,448): its pins, probes and mutations share names. The new core and agent source files are all under 300 lines.
 - **The behavioural copy is not the build.** It runs under type stripping with a local shim for `@projectos/core`, a fake git, and the real `blobNameOf` cut out of the installation file. `tsc` and the suites cover the real build.
 - **Equivalent mutations dropped from the behavioural set** (kept as text pins): removing the throw in the fence's mark reader (the next line throws on null anyway), and removing the size bound on a ledger entry (a 60,000-character entry fails to parse anyway; the bound only saves the parse).
 - **`node:sqlite` is experimental** in Node 24.14.1 and prints a warning when an index opens.
@@ -310,6 +310,64 @@ Tests that already passed against the old code are characterisation (an explicit
 **Unbuilt on purpose, now also:** the research loop's own citation rebuild (above); a verifier timeout; a production owner verifier; the ledger anchor.
 **Drift:** none. Every edit is under the write paths, plus the one validator edit the lead allowed (`val-projectos-memory-stores1a.cjs`, one mutation anchor).
 **PROTECTED files untouched:** `git diff --stat 7fc020da..HEAD` still lists none of `taskEnvelope.ts`, `actionRegistry.ts`, `tenant.ts`, `verification.ts`, `action-registry.json`, `val-projectos-tenant-contract1a.cjs`, `run.ts`, `system.ts`, `docs/06_Plan.md` or `researchLoop.ts`.
+
+
+## Final bounded round: item, test, red evidence, mutation
+
+The recheck confirmed H1, M2, M4, L7 and L8 fixed and M3 and L9 fixed at the API; no CRITICAL or HIGH. This round closes what it left: two MEDIUM and three LOW.
+Each test was written first and seen red before any fix (39 failed, names in the last appendix). A few new tests already passed against the old code and are characterisation, not proof of a fix: the current-head case of N2, and the cap test at the limit for N1.
+No validator outside this phase's own was edited this round (`val-projectos-memory-stores1a.cjs` was not touched).
+
+| Item | What it was | Test (red first) | Named mutations (all text, and when run where it says so), each killed by its own rule |
+|---|---|---|---|
+| N1 (MEDIUM) | `admitCitedAnswer` re-parsed every covering hit's freshness for every citation and the citations were uncapped: 50,000 citations by 200 hits took 6.4 s | `core/test/search-freshness.test.ts` "an answer is judged once per hit and is capped": the freshness getter of each hit is read at most once however many citations cover it; 50,000 citations are refused `answer-too-large` in under 2,000 ms; 1,001 hits are refused; 200 citations by 200 hits at the cap are still judged in under 2,000 ms | MP-4: `an-answer-has-no-cap`, `a-hit-is-judged-for-every-citation` (both also when run). New caps `MAX_ANSWER_CITATIONS = 200`, `MAX_ANSWER_HITS = 1000`; new refusal `answer-too-large` |
+| N2 (MEDIUM) | A proof had no HEAD binding, so a proof from an older HEAD still ranked tier 0 after the decision was removed; the claim hash had no position, so an approval could be replayed | `core/test/memory-provenance.test.ts` "a proof is bound to the HEAD it was minted at" (a proof of another commit, the current head, seven values that are not a head); `core/test/memory-retention.test.ts` "names the ledger position at ask time in the claim and its hash", "refuses a ledger position that is not a count and a hash"; `agent/test/memoryDeletion.test.ts` "the owner is shown the ledger position, which moves with every attempt" | MP-2: `a-proof-of-an-old-head-ranks`, `a-missing-head-ranks` (also when run). MP-6: `a-ledger-position-is-not-checked`, `the-claim-hides-the-ledger-position`, `the-ledger-position-is-not-passed` (also when run) |
+| L1 | `deleteMemoryItem` appended to the ledger before validating the root: root `''`, a newline or 600 characters gave `recorded: true` | `agent/test/memoryDeletion.test.ts` "a deletion is judged before anything is written" (four bad roots write nothing; an index deletion with a bad root writes nothing) | MP-6: `a-bad-root-writes-the-ledger` (also when run) |
+| L2 | `judgeMemoryDeletion(req, null)` threw, and `citedByDecision: { x: 1 }` reached the verifier | `core/test/memory-retention.test.ts` "facts that are not what they should be are refusal values, never an exception" (null, undefined, a string, a getter, an unlisted field, `citedByDecision` anything but true, false or `'unknown'`, a bad item hash, a claim of plain values only, all frozen) | MP-6: `the-facts-are-not-read-once`, `citedByDecision-is-anything`, `a-deletion-needs-no-checkout` (also when run) |
+| L3 | `provenanceReplacementProblem` did not bind a writer's proof to the target path | `core/test/memory-provenance.test.ts` "a writer is trusted only for the file it read" (a proof of the target's path; a proof of another path; a target that names no path; a decision over a decision of another path; a writer whose proof is of another kind; a target path that is not a string) | MP-2: `a-writer-proof-is-not-bound-to-the-target`, `the-writer-is-not-bound-to-the-target-path` (also when run) |
+| L4 | When two covering stale hits carried different reasons, the refusal depended on their order | `core/test/search-freshness.test.ts` "two covering hits that are stale for different reasons" (a stated reason that either hit carries is accepted in both orders; a citation that states none gets the same canonical mark in both orders; fresh, and a reason neither hit carries, are refused in both orders; a stale hit still outweighs a fresh one) | MP-4: `a-stated-stale-reason-is-not-compared`, `the-stale-choice-follows-the-order` (both also when run) |
+
+### What changed in the API, in one place
+
+- `rankByProvenance(items, headCommit)`: the current head is **required**. A proof minted at another commit is refused `PROVENANCE_PROOF_STALE_HEAD`; with no valid head every item that offers a proof is refused `PROVENANCE_HEAD_MISSING`, so nothing ranks above a recollection. An item that claims a committed kind with no proof is unchanged: a recollection either way.
+- `provenanceReplacementProblem(writer, target)`: the target may state a `path` (or carry a proof, whose path is used). A writer's proof counts only if it read that path and is of the kind the writer claims; otherwise the writer is a recollection.
+- `admitCitedAnswer`: each hit is judged once into a map; more than 200 citations or 1,000 hits is `answer-too-large`; among several stale covering hits a stated reason must be one of theirs, and none stated gets the earliest reason in `STALE_REASONS`.
+- `judgeMemoryDeletion`: the facts are read once and validated (`DELETE_BINDING_INVALID` for anything else); they now include `ledger: { count, lastHash }`. The owner's claim gains `ledgerCount` and `ledgerHead`, inside `claimHash`. `deletionRootProblem` is exported, and the agent judges the root before it touches the clock or the ledger.
+
+### Recorded only, not changed
+
+- **`ports.owner` is asserted by the caller and nothing ties it to `root`.** The binding stops a request for another pair from being deleted in this checkout, but whoever builds the ports says which pair the checkout belongs to. Wiring (Stage 4.1) must take the owner from something stronger: the installation's tenant and project registry for that root, or owner proof.
+- **`judgeCommittedRead` is exported and trusts the facts it is handed** (the head, the tree entry, the blob). The minted proof proves only that this function accepted those facts. Wiring must feed it from the git port (`readCommittedMemoryFile`) and never from anywhere else.
+- **Real case-distinct files `Notes.md` and `notes.md` are both reported as a collision.** Ranking keeps every item that has a proof (a proof is bound to its own path, so neither can stand for the other) and lists the pair in `collisions`; an item with no proof that collides is refused naming every id. Nothing in the pair is dropped unsaid. On a case-insensitive file system such a pair could not both exist in the working tree, and the committed read refuses the one whose exact name is not on disk.
+- **L9 is enforced only by the shape of the API.** `builtAtCommit` is supplied by the caller; nothing forces it to have been taken before the sources were collected, and `rebuildProject` has no production caller yet. A caller that passes none records none, which reads stale.
+- **A claim position is only as good as the verifier that binds to `claimHash`.** Core puts the root, the tenant, the project, the item hash, what cites it and the ledger position in the hash; whether the owner's console shows and checks them is the verifier's.
+
+### Final-round checks, with counts
+
+| Check | Result |
+|---|---|
+| core `npm run -s build` | exit 0 |
+| core `npx vitest run` | 108 files, 4,642 tests, all pass |
+| core `src` and the five new or changed core tests type-checked (temporary tsconfig) | exit 0, no output |
+| agent `src` and the five new or changed tests type-checked through the **alias** | exit 0, no output |
+| agent tests, **alias** vitest config (an untracked temporary file, deleted afterwards) | 120 files; 119 pass, 3,783 tests pass, 10 skipped. The one failing file is `tenantSidecar.test.ts`, the alias artefact described above |
+| esbuild browser bundle of `core/src/index.ts` (control-center's esbuild, `platform: 'browser'`), bare context | exit 0, 849,476 bytes; the `Buffer` positive control fails as it should |
+| `val-projectos-memory-provenance1a` | PASS, exit 0, about 47 s: 8 new and 9 changed files judged; 204 text and 125 behavioural mutations killed |
+| `val-projectos-memory-stores1a` | PASS, exit 0 (198 text and 84 behavioural mutations killed) |
+| `val-projectos-port-search1a` | PASS, exit 0 (113 text and 26 behavioural mutations killed) |
+| `val-projectos-port-memory1a` | PASS, exit 0 (20 rules; 199 named mutations) |
+| `val-projectos-port-credit1a` | PASS, exit 0 (186 real files judged; 157 fixture and 59 record mutations killed) |
+| `val-projectos-port-skills1a` | PASS, exit 0 (21 rules; 440 mutations, 144 s) |
+| `val-projectos-port-context1a` | PASS, exit 0 (18 rules; 320 mutations, **478 s**) |
+| `validate-no-secrets` | PASS, exit 0 |
+
+`validate-all` was not run.
+
+### Converge after the final round
+
+**Unbuilt on purpose, now also:** a production owner verifier and owner for a checkout (above); a caller that takes `currentHead()` before collecting; the research loop's own citation rebuild (still outside the paths).
+**Drift:** none. Every edit is under the write paths. No validator but this phase's own was edited.
+**PROTECTED files untouched:** `git diff --stat 7fc020da..HEAD` lists none of `taskEnvelope.ts`, `actionRegistry.ts`, `tenant.ts`, `verification.ts`, `action-registry.json`, `val-projectos-tenant-contract1a.cjs`, `run.ts`, `system.ts`, `docs/06_Plan.md` or `researchLoop.ts`.
 
 ## Appendix: the failing run, test names (against the stub, before the implementation)
 
@@ -662,3 +720,58 @@ Names are as vitest printed them; names from `it.each` are shown once with a cou
 - the index file records the commit, and a file from before this phase gains the column keeps schema version 2, with the build commit beside the build time
 - the index file records the commit, and a file from before this phase gains the column a file made before the column existed gets it on open, keeps its rows, and reads sta
 - the index file records the commit, and a file from before this phase gains the column a rebuild that stops before the commit is recorded reads as unknown, which is stale
+
+### Appendix: the failing run of the final round (before any fix; the test files updated first)
+
+39 failed. Names as vitest printed them, describe path first.
+
+**core memory-provenance.test.ts**: 12 failed
+
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at refuses a proof minted at another commit, with its own code, so a decision remove
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head undefined nothing ranks above a recollection, and each proof is ref
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head null nothing ranks above a recollection, and each proof is refused
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head "HEAD" nothing ranks above a recollection, and each proof is refuse
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" nothing ranks above a re
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" nothing ranks above a 
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head 7 nothing ranks above a recollection, and each proof is refused
+- a committed decision outranks recollection a proof is bound to the HEAD it was minted at with the head {} nothing ranks above a recollection, and each proof is refused
+- a summary never replaces a decision a writer is trusted only for the file it read binds the writer proof to the path of the target, whether the target says it in a proof 
+- a summary never replaces a decision a writer is trusted only for the file it read a proof of another path is no proof: the writer is a recollection, and is refused for ra
+- a summary never replaces a decision a writer is trusted only for the file it read a target that names no path leaves the writer proof unbound, so it is a recollection
+- a summary never replaces a decision a writer is trusted only for the file it read a decision written over a decision of another path is a recollection writing over a deci
+
+**core memory-retention.test.ts**: 15 failed
+
+- deleting approved memory, or what a decision cites, needs the owner names the ledger position at ask time in the claim and its hash, so an approval for an old position ca
+- deleting approved memory, or what a decision cites, needs the owner refuses a ledger position that is not a count and a hash, before the owner is asked
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses facts that are n
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses facts that are u
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses facts with a get
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses citedByDecision 
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses citedByDecision 
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses citedByDecision 
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses citedByDecision 
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses citedByDecision 
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses citedByDecision 
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses a current item h
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses a current item h
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses a current item h
+- deleting approved memory, or what a decision cites, needs the owner facts that are not what they should be are refusal values, never an exception refuses a current item h
+
+**core search-freshness.test.ts**: 6 failed
+
+- an answer is judged once per hit and is capped reads the freshness of each hit once, however many citations cover it
+- an answer is judged once per hit and is capped refuses an answer over the citation cap with a code, without judging any of it
+- an answer is judged once per hit and is capped refuses an answer over the hit cap too, and an answer at both caps is still judged
+- an answer is judged once per hit and is capped two covering hits that are stale for different reasons accepts a stated reason that either hit carries, in either order (mo
+- an answer is judged once per hit and is capped two covering hits that are stale for different reasons accepts a stated reason that either hit carries, in either order (un
+- an answer is judged once per hit and is capped two covering hits that are stale for different reasons chooses the same mark for a citation that states none, whichever ord
+
+**agent memoryDeletion.test.ts**: 6 failed
+
+- a deletion is judged before anything is written a checkout root of "" is refused before the ledger is touched
+- a deletion is judged before anything is written a checkout root of "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+- a deletion is judged before anything is written a checkout root of "/work\nproject" is refused before the ledger is touched
+- a deletion is judged before anything is written a checkout root of "/work‮project" is refused before the ledger is touched
+- a deletion is judged before anything is written the same refusal for an index deletion: a bad root writes no entry
+- a deletion is judged before anything is written the owner is shown the ledger position, which moves with every attempt, so an old approval cannot be replayed

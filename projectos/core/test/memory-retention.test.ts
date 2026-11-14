@@ -21,8 +21,10 @@ const PATH = '.projectops/memory/MEMORY.md';
 
 const request = (overrides: Record<string, unknown> = {}) => ({ tenant: TENANT, project: PROJECT, path: PATH, itemHash: HASH, reason: 'the entry is wrong', ...overrides });
 const ROOT = '/work/project';
+const LEDGER_HEAD = '9'.repeat(64);
 const facts = (overrides: Partial<MemoryDeletionFacts> = {}): MemoryDeletionFacts => ({
   root: ROOT,
+  ledger: { count: 3, lastHash: LEDGER_HEAD },
   currentItemHash: HASH,
   citedByDecision: false,
   ownerVerifier: () => true,
@@ -122,7 +124,7 @@ describe('deleting approved memory, or what a decision cites, needs the owner', 
     const claim = seen[0] as Record<string, unknown>;
     expect(claim).toMatchObject({ action: 'memory-delete', actionClass: 'P5', tenant: TENANT, project: PROJECT, root: ROOT, memoryClass: 'curated-memory', path: PATH, itemHash: HASH, citedByDecision: false, reason: 'the entry is wrong' });
     expect(seen[1]).toBe(true);
-    expect(deletionOwnerClaimOf(request(), 'curated-memory', 'memory-delete', 'P5', { root: ROOT, citedByDecision: false })).toEqual(claim);
+    expect(deletionOwnerClaimOf(request(), 'curated-memory', 'memory-delete', 'P5', { root: ROOT, citedByDecision: false, ledger: { count: 3, lastHash: LEDGER_HEAD } })).toEqual(claim);
   });
 
   it('shows the owner what a decision cites, and binds it in the hash of the claim', () => {
@@ -147,6 +149,58 @@ describe('deleting approved memory, or what a decision cites, needs the owner', 
     expect(hashOf(request({ tenant: 'agency-two' }))).not.toBe(base);
     expect(hashOf(request({ project: 'beta-project' }))).not.toBe(base);
     expect(hashOf(request({ itemHash: 'f'.repeat(64) }))).not.toBe(base);
+  });
+
+  it('names the ledger position at ask time in the claim and its hash, so an approval for an old position cannot be replayed', () => {
+    const claims: Record<string, unknown>[] = [];
+    const verifier = (claim: Record<string, unknown>) => (claims.push(claim), true);
+    judgeMemoryDeletion(request(), facts({ ownerVerifier: verifier as never }));
+    judgeMemoryDeletion(request(), facts({ ledger: { count: 4, lastHash: 'a'.repeat(64) }, ownerVerifier: verifier as never }));
+    judgeMemoryDeletion(request(), facts({ ledger: { count: 3, lastHash: 'b'.repeat(64) }, ownerVerifier: verifier as never }));
+    expect(claims[0]).toMatchObject({ ledgerCount: 3, ledgerHead: LEDGER_HEAD });
+    expect(claims[1]).toMatchObject({ ledgerCount: 4, ledgerHead: 'a'.repeat(64) });
+    expect(new Set(claims.map((claim) => claim['claimHash'])).size).toBe(3);
+  });
+
+  it('refuses a ledger position that is not a count and a hash, before the owner is asked', () => {
+    let asked = 0;
+    const verifier = () => (asked++, true);
+    for (const ledger of [undefined, null, { count: -1, lastHash: LEDGER_HEAD }, { count: 1.5, lastHash: LEDGER_HEAD }, { count: 1, lastHash: 'abc' }, { count: 1 }, 'x', { count: 1, lastHash: LEDGER_HEAD, extra: 1 }]) {
+      expect(judgeMemoryDeletion(request(), facts({ ledger: ledger as never, ownerVerifier: verifier }))).toMatchObject({ ok: false, code: 'DELETE_BINDING_INVALID' });
+    }
+    expect(asked).toBe(0);
+  });
+
+  describe('facts that are not what they should be are refusal values, never an exception', () => {
+    it.each([[null], [undefined], ['facts'], [7], [[]]])('refuses facts that are %j', (bad) => {
+      expect(judgeMemoryDeletion(request(), bad as never)).toMatchObject({ ok: false, code: 'DELETE_BINDING_INVALID' });
+    });
+
+    it('refuses facts with a getter, a prototype key or an unlisted field, and reads none of them twice', () => {
+      let reads = 0;
+      const getter = { ...facts() } as Record<string, unknown>;
+      Object.defineProperty(getter, 'root', { enumerable: true, get: () => (reads++, ROOT) });
+      expect(judgeMemoryDeletion(request(), getter as never)).toMatchObject({ ok: false, code: 'DELETE_BINDING_INVALID' });
+      expect(reads).toBe(0);
+      expect(judgeMemoryDeletion(request(), { ...facts(), extra: 1 } as never)).toMatchObject({ ok: false, code: 'DELETE_BINDING_INVALID' });
+    });
+
+    it.each([[{ x: 1 }], ['yes'], [1], [null], [undefined], ['Unknown']])('refuses citedByDecision %j, which is exactly true, false or unknown', (citedByDecision) => {
+      let asked = 0;
+      expect(judgeMemoryDeletion(request(), facts({ citedByDecision: citedByDecision as never, ownerVerifier: () => (asked++, true) }))).toMatchObject({ ok: false, code: 'DELETE_BINDING_INVALID' });
+      expect(asked).toBe(0);
+    });
+
+    it.each([['abc'], [7], [{}], ['A'.repeat(64)]])('refuses a current item hash of %j, which is null or a sha-256', (currentItemHash) => {
+      expect(judgeMemoryDeletion(request(), facts({ currentItemHash: currentItemHash as never }))).toMatchObject({ ok: false, code: 'DELETE_BINDING_INVALID' });
+    });
+
+    it('hands the verifier a claim made of plain values only, all frozen', () => {
+      const seen: Record<string, unknown>[] = [];
+      judgeMemoryDeletion(request(), facts({ ownerVerifier: ((claim: Record<string, unknown>) => (seen.push(claim), true)) as never }));
+      expect(Object.isFrozen(seen[0])).toBe(true);
+      expect(Object.values(seen[0] ?? {}).every((value) => value === null || typeof value !== 'object')).toBe(true);
+    });
   });
 
   it('refuses a binding it cannot use, before the owner is asked', () => {

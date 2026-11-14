@@ -20,6 +20,8 @@ export {
   type RankedHybridResult,
 } from './hybrid.js';
 export {
+  MAX_ANSWER_CITATIONS,
+  MAX_ANSWER_HITS,
   SEARCH_SOURCE_KINDS,
   STALE_REASONS,
   admitCitedAnswer,

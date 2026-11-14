@@ -29,6 +29,7 @@
  */
 import {
   MEMORY_DELETION_LEDGER_DIR,
+  deletionRootProblem,
   isProjectId,
   isTenantId,
   decisionCitesItem,
@@ -203,7 +204,8 @@ export function deleteMemoryItem(ports: MemoryDeletionPorts, root: string, rawRe
   const request = memoryDeletionRequestOf(rawRequest);
   if (request === null) return { ok: false, code: 'DELETE_REQUEST_INVALID', recorded: false };
   const owner = ownerOf(ports.owner);
-  if (owner === null) return { ok: false, code: 'DELETE_BINDING_INVALID', recorded: false };
+  // The root is judged BEFORE the clock or the ledger is touched: a root that cannot be named in the owner's claim writes nothing.
+  if (owner === null || deletionRootProblem(root)) return { ok: false, code: 'DELETE_BINDING_INVALID', recorded: false };
   if (timeOf(ports.clock) === null) return { ok: false, code: 'DELETION_CLOCK_UNAVAILABLE', recorded: false };
   const ledger = readDeletionLedger(ports.files, root);
   if (!ledger.ok) return { ok: false, code: 'DELETION_LEDGER_UNAVAILABLE', recorded: false };
@@ -234,6 +236,7 @@ export function deleteMemoryItem(ports: MemoryDeletionPorts, root: string, rawRe
   const citedByDecision = found.state === 'file' ? citedByDecisionOf(ports.committedDecisions, { path: request.path, hash: found.hash }) : null;
   const judged = judgeMemoryDeletion(request, {
     root,
+    ledger: { count: ledger.count, lastHash: ledger.lastHash },
     currentItemHash: found.state === 'file' ? found.hash : null,
     citedByDecision: citedByDecision ?? false,
     ...(ports.ownerVerifier === undefined ? {} : { ownerVerifier: ports.ownerVerifier }),
@@ -256,7 +259,7 @@ export function deleteDerivedIndex(ports: IndexDeletionPorts, root: string, dire
   const judged = judgeIndexDeletion(rawRequest);
   if (!judged.ok) return { ok: false, code: 'DELETE_REQUEST_INVALID', recorded: false };
   const owner = ownerOf(ports.owner);
-  if (owner === null) return { ok: false, code: 'DELETE_BINDING_INVALID', recorded: false };
+  if (owner === null || deletionRootProblem(root)) return { ok: false, code: 'DELETE_BINDING_INVALID', recorded: false };
   const named = searchIndexFileName({ tenant: owner.tenant, project: owner.project });
   if (!named.ok) return { ok: false, code: 'DELETE_BINDING_INVALID', recorded: false };
   if (timeOf(ports.clock) === null) return { ok: false, code: 'DELETION_CLOCK_UNAVAILABLE', recorded: false };

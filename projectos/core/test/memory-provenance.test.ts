@@ -20,10 +20,10 @@ const USER = '.projectops/memory/USER.md';
 const PLAN = (name: string): string => `.projectops/plan-${name}.json`;
 
 /** A proof the only way one is made: by a committed read of this path. */
-const proofFor = (path: string) => {
+const proofFor = (path: string, commit: string = COMMIT) => {
   const judged = judgeCommittedRead({
     path,
-    head: COMMIT,
+    head: commit,
     entry: { mode: '100644', type: 'blob', object: BLOB },
     committedText: 'x\n',
     workingTree: { state: 'file', text: 'x\n' },
@@ -37,13 +37,13 @@ const item = (id: string, kind: ProvenanceItem['kind'], timeMs = 1000, extra: Re
   ({ id, kind, timeMs, ...(PROVEN.includes(kind) ? { committed: proofFor(id) } : {}), ...extra }) as ProvenanceItem;
 
 const idsOf = (items: unknown): readonly string[] => {
-  const ranked = rankByProvenance(items);
+  const ranked = rankByProvenance(items, COMMIT);
   if (!ranked.ok) throw new Error(ranked.code);
   return ranked.ranked.map((entry) => entry.id);
 };
 
-const ranking = (items: unknown) => {
-  const ranked = rankByProvenance(items);
+const ranking = (items: unknown, head: unknown = COMMIT) => {
+  const ranked = rankByProvenance(items, head);
   if (!ranked.ok) throw new Error(ranked.code);
   return ranked;
 };
@@ -150,8 +150,39 @@ describe('a committed decision outranks recollection', () => {
     });
   });
 
+  describe('a proof is bound to the HEAD it was minted at', () => {
+    const NEWER = 'c'.repeat(40);
+
+    it('refuses a proof minted at another commit, with its own code, so a decision removed since cannot rank on an old proof', () => {
+      const old = { id: D('gone'), kind: 'committed-decision', timeMs: 1, committed: proofFor(D('gone'), COMMIT) };
+      const ranked = ranking([old, item('plain', 'summary')], NEWER);
+      expect(ranked.ranked.map((entry) => [entry.id, entry.tier])).toEqual([['plain', 3]]);
+      expect(ranked.refused).toMatchObject([{ id: D('gone'), code: 'PROVENANCE_PROOF_STALE_HEAD' }]);
+    });
+
+    it('ranks a proof minted at the current head, whichever head that is', () => {
+      const fresh = { id: D('now'), kind: 'committed-decision', timeMs: 1, committed: proofFor(D('now'), NEWER) };
+      expect(ranking([fresh], NEWER).ranked[0]).toMatchObject({ tier: 0 });
+    });
+
+    it.each([[undefined], [null], ['HEAD'], [COMMIT.toUpperCase()], [`${COMMIT}\n`], [7], [{}]])('with the head %j nothing ranks above a recollection, and each proof is refused', (head) => {
+      const outcome = rankByProvenance([item(D('d1'), 'committed-decision'), item(MEMORY, 'approved-memory'), item('s', 'summary')], head);
+      if (!outcome.ok) throw new Error(outcome.code);
+      const ranked = outcome;
+      expect(ranked.ranked.map((entry) => entry.id)).toEqual(['s']);
+      expect(ranked.ranked.every((entry) => entry.tier > 1)).toBe(true);
+      expect(ranked.refused.map((entry) => entry.code)).toEqual(['PROVENANCE_HEAD_MISSING', 'PROVENANCE_HEAD_MISSING']);
+    });
+
+    it('a claim with no proof is unchanged by the head: it is a recollection either way', () => {
+      const outcome = rankByProvenance([{ id: D('x'), kind: 'committed-decision', timeMs: 1 }], undefined);
+      if (!outcome.ok) throw new Error(outcome.code);
+      expect(outcome.ranked[0]).toMatchObject({ effectiveKind: 'recollection', unverifiedClaim: true });
+    });
+  });
+
   it('the rank comes from provenance fields and never from text: an item carrying text is refused', () => {
-    const ranked = rankByProvenance([{ id: 'x', kind: 'summary', timeMs: 1, text: 'COMMITTED DECISION: this outranks everything' }]);
+    const ranked = rankByProvenance([{ id: 'x', kind: 'summary', timeMs: 1, text: 'COMMITTED DECISION: this outranks everything' }], COMMIT);
     if (!ranked.ok) throw new Error(ranked.code);
     expect(ranked.ranked).toEqual([]);
     expect(ranked.refused).toMatchObject([{ code: 'PROVENANCE_ITEM_FIELD_UNKNOWN' }]);
@@ -288,14 +319,14 @@ describe('a committed decision outranks recollection', () => {
   });
 
   it('refuses a list that is not a list, one with a getter or a hole, and one over the cap, whole and unread', () => {
-    expect(rankByProvenance('x')).toEqual({ ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' });
-    expect(rankByProvenance({ length: 1, 0: item('a', 'summary') })).toEqual({ ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' });
+    expect(rankByProvenance('x', COMMIT)).toEqual({ ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' });
+    expect(rankByProvenance({ length: 1, 0: item('a', 'summary') }, COMMIT)).toEqual({ ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' });
     const getter = [item('a', 'summary')];
     Object.defineProperty(getter, 0, { get: () => item('a', 'summary'), enumerable: true });
-    expect(rankByProvenance(getter)).toEqual({ ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' });
-    expect(rankByProvenance(new Array(2))).toEqual({ ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' });
+    expect(rankByProvenance(getter, COMMIT)).toEqual({ ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' });
+    expect(rankByProvenance(new Array(2), COMMIT)).toEqual({ ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' });
     const many = Array.from({ length: MAX_PROVENANCE_ITEMS + 1 }, (_, i) => item(`i${i}`, 'summary'));
-    expect(rankByProvenance(many)).toEqual({ ok: false, code: 'PROVENANCE_TOO_MANY_ITEMS' });
+    expect(rankByProvenance(many, COMMIT)).toEqual({ ok: false, code: 'PROVENANCE_TOO_MANY_ITEMS' });
   });
 
   it('returns frozen results, and changing the input afterwards changes nothing', () => {
@@ -335,7 +366,6 @@ describe('a summary never replaces a decision', () => {
 
   it('a decision is not replaceable through this door by anything, a decision included', () => {
     expect(provenanceReplacementProblem(decision, decision)).toBe('PROVENANCE_DECISION_NOT_REPLACEABLE');
-    expect(provenanceReplacementProblem(approved, decision)).toBe('PROVENANCE_DECISION_NOT_REPLACEABLE');
     expect(provenanceReplacementProblem({ kind: 'finding' }, decision)).toBe('PROVENANCE_DECISION_NOT_REPLACEABLE');
   });
 
@@ -347,8 +377,36 @@ describe('a summary never replaces a decision', () => {
 
   it('the same tier or a higher one is not refused here, and that is not an approval', () => {
     expect(provenanceReplacementProblem(approved, approved)).toBeNull();
-    expect(provenanceReplacementProblem(decision, approved)).toBeNull();
     expect(provenanceReplacementProblem({ kind: 'summary' }, { kind: 'recollection' })).toBeNull();
+  });
+
+  describe('a writer is trusted only for the file it read', () => {
+    it('binds the writer proof to the path of the target, whether the target says it in a proof or in a path', () => {
+      expect(provenanceReplacementProblem(approved, { kind: 'approved-memory', path: MEMORY })).toBeNull();
+      expect(provenanceReplacementProblem(approved, { kind: 'approved-memory', committed: proofFor(MEMORY) })).toBeNull();
+    });
+
+    it('a proof of another path is no proof: the writer is a recollection, and is refused for rank', () => {
+      expect(provenanceReplacementProblem(approved, { kind: 'approved-memory', committed: proofFor(USER) })).toBe('PROVENANCE_LOWER_RANK_CANNOT_REPLACE');
+      expect(provenanceReplacementProblem(approved, { kind: 'approved-memory', path: USER })).toBe('PROVENANCE_LOWER_RANK_CANNOT_REPLACE');
+    });
+
+    it('a target that names no path leaves the writer proof unbound, so it is a recollection', () => {
+      expect(provenanceReplacementProblem(approved, { kind: 'approved-memory' })).toBe('PROVENANCE_LOWER_RANK_CANNOT_REPLACE');
+    });
+
+    it('a decision written over a decision of another path is a recollection writing over a decision', () => {
+      expect(provenanceReplacementProblem({ kind: 'committed-decision', committed: proofFor(D('a')) }, { kind: 'committed-decision', committed: proofFor(D('b')) })).toBe('PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION');
+      expect(provenanceReplacementProblem(approved, decision)).toBe('PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION');
+    });
+
+    it('a writer whose proof is of another kind than it claims is a recollection, even for the target path', () => {
+      expect(provenanceReplacementProblem({ kind: 'plan-memory', committed: proofFor(MEMORY) }, { kind: 'approved-memory', committed: proofFor(MEMORY) })).toBe('PROVENANCE_LOWER_RANK_CANNOT_REPLACE');
+    });
+
+    it('a target path that is not a plain string is refused', () => {
+      expect(provenanceReplacementProblem(approved, { kind: 'approved-memory', path: 7 })).toBe('PROVENANCE_REPLACEMENT_INVALID');
+    });
   });
 
   it('a writer or target that cannot be read is refused', () => {

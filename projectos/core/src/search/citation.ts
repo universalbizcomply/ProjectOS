@@ -192,7 +192,11 @@ export interface CitedAnswer {
   readonly citations: readonly SearchCitation[];
 }
 
-export type AnswerRefusalReason = 'empty-answer' | 'uncited-answer' | 'citation-not-retrieved' | 'citation-freshness-mismatch';
+export type AnswerRefusalReason = 'empty-answer' | 'uncited-answer' | 'citation-not-retrieved' | 'citation-freshness-mismatch' | 'answer-too-large';
+
+/** An answer cites a handful of passages. Past these, it is refused before any of it is judged, so its cost has a ceiling. */
+export const MAX_ANSWER_CITATIONS = 200;
+export const MAX_ANSWER_HITS = 1000;
 
 export type AnswerAdmission = { readonly ok: true; readonly answer: CitedAnswer } | { readonly ok: false; readonly reason: AnswerRefusalReason };
 
@@ -206,19 +210,31 @@ const withinRetrieved = (citation: SearchCitation, hit: CitedSearchHit): boolean
 const sameFreshness = (a: CitationFreshness | undefined, b: CitationFreshness | undefined): boolean =>
   a === undefined || b === undefined ? a === b : a.state === b.state && (a.state === 'fresh' || (b.state === 'stale' && a.reason === b.reason));
 
+type Mark = CitationFreshness | undefined | null;
+
+/** The canonical stale mark when several differ: the earliest reason in the closed list, so the choice never depends on the order of the hits. */
+const reasonIndex = (mark: CitationFreshness): number => (mark.state === 'stale' ? STALE_REASONS.indexOf(mark.reason) : -1);
+const canonicalStale = (marks: readonly CitationFreshness[]): CitationFreshness => [...marks].sort((a, b) => reasonIndex(a) - reasonIndex(b))[0] as CitationFreshness;
+
 /**
- * The freshness an answer's citation carries: that of the hits that cover it. A stale hit wins over a fresh one, and a hit nobody judged
- * wins over a fresh one, so a mark is never lost by choosing a kinder hit. A citation that states a freshness must state exactly that
- * one: a stale hit cannot be cited as fresh, and a hit with none cannot be given one. `'mismatch'` is a refusal.
+ * The freshness an answer's citation carries: that of the hits that cover it, each judged ONCE (`marks`). A stale hit wins over a fresh one,
+ * and a hit nobody judged wins over a fresh one, so a mark is never lost by choosing a kinder hit. When several covering hits are stale, a
+ * citation that states a freshness must state a mark one of them carries (any of them, in any order), and one that states none gets the
+ * canonical one. A stale hit cannot be cited as fresh, and a hit with none cannot be given one. `'mismatch'` is a refusal.
  */
-function answerFreshnessOf(citation: SearchCitation, covering: readonly CitedSearchHit[]): CitationFreshness | undefined | 'mismatch' {
-  const marks = covering.map((hit) => (hit.citation.freshness === undefined ? undefined : citationFreshnessOfValue(hit.citation.freshness)));
-  if (marks.some((mark) => mark === null)) return 'mismatch';
-  const known = marks as readonly (CitationFreshness | undefined)[];
-  const held = known.find((mark) => mark?.state === 'stale') ?? (known.some((mark) => mark === undefined) ? undefined : known[0]);
-  if (citation.freshness === undefined) return held;
-  const stated = citationFreshnessOfValue(citation.freshness);
-  return stated !== null && sameFreshness(stated, held) ? held : 'mismatch';
+function answerFreshnessOf(citation: SearchCitation, covering: readonly CitedSearchHit[], marks: ReadonlyMap<CitedSearchHit, Mark>): CitationFreshness | undefined | 'mismatch' {
+  const known = covering.map((hit) => marks.get(hit));
+  if (known.some((mark) => mark === null)) return 'mismatch';
+  const stated = citation.freshness === undefined ? undefined : citationFreshnessOfValue(citation.freshness);
+  if (stated === null) return 'mismatch';
+  const stale = known.filter((mark): mark is CitationFreshness => mark?.state === 'stale');
+  if (stale.length > 0) {
+    if (stated === undefined) return canonicalStale(stale);
+    return stale.some((mark) => sameFreshness(mark, stated)) ? stated : 'mismatch';
+  }
+  const held = known.some((mark) => mark === undefined) ? undefined : (known[0] as CitationFreshness | undefined);
+  if (stated === undefined) return held;
+  return sameFreshness(stated, held) ? held : 'mismatch';
 }
 
 /** Every citation must sit inside something the search returned. An answer that cites nothing is not an answer. */
@@ -226,12 +242,17 @@ export function admitCitedAnswer(answer: { readonly text?: string; readonly cita
   const citations = answer.citations ?? [];
   if (typeof answer.text !== 'string' || answer.text.trim() === '') return { ok: false, reason: 'empty-answer' };
   if (citations.length === 0) return { ok: false, reason: 'uncited-answer' };
+  if (citations.length > MAX_ANSWER_CITATIONS || hits.length > MAX_ANSWER_HITS) return { ok: false, reason: 'answer-too-large' };
   if (!citations.every((citation) => hits.some((hit) => withinRetrieved(citation, hit)))) {
     return { ok: false, reason: 'citation-not-retrieved' };
   }
+  const marks = new Map<CitedSearchHit, Mark>(hits.map((hit) => {
+    const offered = hit.citation.freshness;
+    return [hit, offered === undefined ? undefined : citationFreshnessOfValue(offered)] as const;
+  }));
   const admitted: SearchCitation[] = [];
   for (const citation of citations) {
-    const freshness = answerFreshnessOf(citation, hits.filter((hit) => withinRetrieved(citation, hit)));
+    const freshness = answerFreshnessOf(citation, hits.filter((hit) => withinRetrieved(citation, hit)), marks);
     if (freshness === 'mismatch') return { ok: false, reason: 'citation-freshness-mismatch' };
     admitted.push({ project: citation.project, path: citation.path, startLine: citation.startLine, endLine: citation.endLine, ...(freshness === undefined ? {} : { freshness }) });
   }

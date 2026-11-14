@@ -19,6 +19,10 @@
  * and kind (`..._PATH_MISMATCH`, `..._KIND_MISMATCH`), so a proof for the memory file cannot make a decision. An item that
  * claims a committed kind and offers NO proof is not refused: it ranks as a recollection and says `unverifiedClaim`.
  *
+ * A PROOF IS BOUND TO THE HEAD IT WAS MINTED AT (final round, N2). `rankByProvenance` takes the CURRENT head commit, and a proof minted at
+ * another commit is refused (`PROVENANCE_PROOF_STALE_HEAD`): a decision removed since cannot keep ranking tier 0 on an old proof. With no
+ * valid head, nothing that offers a proof ranks above a recollection: each such item is refused `PROVENANCE_HEAD_MISSING`.
+ *
  * A DECISION OUTRANKS ANYTHING THAT CONTRADICTS IT. An item names the decisions it contradicts in `contradicts` (exact ids, set
  * by the kernel, never found by reading text). A lower-tier item that contradicts a proven decision in the set is marked
  * `overruledBy` it and sorts after every item of its tier that is not overruled.
@@ -37,7 +41,7 @@
  * Pure: no I/O, no clock.
  */
 import { isCommittedProof, type CommittedProof } from './committedProof.js';
-import { hasInvisibleCharacter, plainListOf, plainRecordOf } from './memoryShapes.js';
+import { hasInvisibleCharacter, isGitObjectId, plainListOf, plainRecordOf } from './memoryShapes.js';
 
 export const PROVENANCE_KINDS = [
   'committed-decision',
@@ -84,6 +88,8 @@ export type ProvenanceRefusalCode =
   | 'PROVENANCE_PROOF_NOT_MINTED'
   | 'PROVENANCE_PROOF_PATH_MISMATCH'
   | 'PROVENANCE_PROOF_KIND_MISMATCH'
+  | 'PROVENANCE_PROOF_STALE_HEAD'
+  | 'PROVENANCE_HEAD_MISSING'
   | 'PROVENANCE_DUPLICATE_ID'
   | 'PROVENANCE_ID_COLLISION';
 
@@ -146,15 +152,17 @@ interface Snapshot {
 type Read = { readonly ok: true; readonly item: Snapshot } | { readonly ok: false; readonly code: ProvenanceRefusalCode; readonly id: string | null };
 
 /** The proof an item may rank on: none offered, one minted for this very file and kind, or a refusal by code. */
-function proofOfItem(offered: unknown, id: string, kind: ProvenanceKind): { readonly proof: CommittedProof | null } | { readonly code: ProvenanceRefusalCode } {
+function proofOfItem(offered: unknown, id: string, kind: ProvenanceKind, head: unknown): { readonly proof: CommittedProof | null } | { readonly code: ProvenanceRefusalCode } {
   if (!needsProof(kind) || offered === undefined || offered === null) return { proof: null };
   if (!isCommittedProof(offered)) return { code: 'PROVENANCE_PROOF_NOT_MINTED' };
   if (offered.path !== id) return { code: 'PROVENANCE_PROOF_PATH_MISMATCH' };
   if (offered.kind !== kind) return { code: 'PROVENANCE_PROOF_KIND_MISMATCH' };
+  if (!isGitObjectId(head)) return { code: 'PROVENANCE_HEAD_MISSING' };
+  if (offered.commit !== head) return { code: 'PROVENANCE_PROOF_STALE_HEAD' };
   return { proof: offered };
 }
 
-function snapshotOf(raw: unknown): Read {
+function snapshotOf(raw: unknown, head: unknown): Read {
   const read = plainRecordOf(raw, ['id', 'kind', 'timeMs', 'committed', 'contradicts']);
   if (!read.ok) return { ok: false, code: read.reason === 'unknown-field' ? 'PROVENANCE_ITEM_FIELD_UNKNOWN' : 'PROVENANCE_ITEM_NOT_PLAIN', id: null };
   const { id, kind, timeMs, committed, contradicts } = read.value;
@@ -164,15 +172,15 @@ function snapshotOf(raw: unknown): Read {
   if (typeof timeMs !== 'number' || !Number.isFinite(timeMs) || timeMs < 0) return { ok: false, code: 'PROVENANCE_TIME_INVALID', id: name };
   const names = contradicts === undefined ? [] : plainListOf(contradicts, MAX_CONTRADICTS);
   if (names === null || names.some(idProblem)) return { ok: false, code: 'PROVENANCE_CONTRADICTS_INVALID', id: name };
-  const proved = proofOfItem(committed, name, kind);
+  const proved = proofOfItem(committed, name, kind, head);
   if ('code' in proved) return { ok: false, code: proved.code, id: name };
   return { ok: true, item: { id: name, kind, timeMs, committed: proved.proof, contradicts: names as readonly string[] } };
 }
 
 /** An item read for the ranking. A read that throws is a refusal value, never an exception. */
-function safeSnapshotOf(raw: unknown): Read {
+function safeSnapshotOf(raw: unknown, head: unknown): Read {
   try {
-    return snapshotOf(raw);
+    return snapshotOf(raw, head);
   } catch {
     return { ok: false, code: 'PROVENANCE_ITEM_NOT_PLAIN', id: null };
   }
@@ -188,8 +196,8 @@ const compareRanked = (a: Placed, b: Placed): number =>
   b.timeMs - a.timeMs ||
   compareText(a.id, b.id);
 
-/** Order every item by provenance, then freshness. Items are read once; the result is frozen. */
-export function rankByProvenance(items: unknown): ProvenanceRanking {
+/** Order every item by provenance, then freshness, against the CURRENT head commit. Items are read once; the result is frozen. */
+export function rankByProvenance(items: unknown, headCommit: unknown): ProvenanceRanking {
   if (!Array.isArray(items)) return { ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' };
   if (items.length > MAX_PROVENANCE_ITEMS) return { ok: false, code: 'PROVENANCE_TOO_MANY_ITEMS' };
   const list = plainListOf(items, MAX_PROVENANCE_ITEMS);
@@ -197,7 +205,7 @@ export function rankByProvenance(items: unknown): ProvenanceRanking {
   const refused: ProvenanceRefusal[] = [];
   const read: { readonly index: number; readonly item: Snapshot }[] = [];
   list.forEach((raw, index) => {
-    const snap = safeSnapshotOf(raw);
+    const snap = safeSnapshotOf(raw, headCommit);
     if (snap.ok) read.push({ index, item: snap.item });
     else refused.push({ index, id: snap.id, code: snap.code });
   });
@@ -276,16 +284,22 @@ export type ProvenanceReplacementCode =
 interface Party {
   readonly kind: ProvenanceKind;
   readonly effectiveKind: ProvenanceKind;
+  /** The file this party is about: what its proof read, else the `path` it states, else none. */
+  readonly path: string | null;
 }
 
-function partyOf(value: unknown): Party | null {
-  const read = plainRecordOf(value, ['kind', 'committed']);
+/** A party read once. `boundTo` is the path a WRITER's proof must have read to count: a proof of another file is no proof here. */
+function partyOf(value: unknown, boundTo: string | null | 'target'): Party | null {
+  const read = plainRecordOf(value, boundTo === 'target' ? ['kind', 'committed', 'path'] : ['kind', 'committed']);
   if (!read.ok || !isKind(read.value.kind)) return null;
   const kind = read.value.kind;
   const offered = read.value.committed;
-  // The proof must be a minted one, and it must be a proof of this kind: a proof from a memory read does not make a decision.
-  const proof = isCommittedProof(offered) && offered.kind === kind ? offered : null;
-  return { kind, effectiveKind: effectiveKindOf(kind, proof) };
+  const stated = read.value['path'];
+  if (stated !== undefined && (typeof stated !== 'string' || stated.length === 0 || stated.length > 512)) return null;
+  // The proof must be a minted one, of this kind (a proof from a memory read does not make a decision), and for a writer of the target's file.
+  const minted = isCommittedProof(offered) && offered.kind === kind ? offered : null;
+  const proof = minted !== null && (boundTo === 'target' || (boundTo !== null && minted.path === boundTo)) ? minted : null;
+  return { kind, effectiveKind: effectiveKindOf(kind, proof), path: minted !== null ? minted.path : (stated ?? null) };
 }
 
 /**
@@ -294,8 +308,8 @@ function partyOf(value: unknown): Party | null {
  * (an item that says it is a decision is protected as one): both choices lean to refusing.
  */
 export function provenanceReplacementProblem(writer: unknown, target: unknown): ProvenanceReplacementCode | null {
-  const by = partyOf(writer);
-  const over = partyOf(target);
+  const over = partyOf(target, 'target');
+  const by = partyOf(writer, over === null ? null : over.path);
   if (by === null || over === null) return 'PROVENANCE_REPLACEMENT_INVALID';
   if (over.kind === 'committed-decision') {
     return PROVENANCE_TIERS[by.effectiveKind] === PROVENANCE_TIERS['summary'] ? 'PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION' : 'PROVENANCE_DECISION_NOT_REPLACEABLE';
