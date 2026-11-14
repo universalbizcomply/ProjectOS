@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-PORT-COMPUTER1A",
+  "evidenceSubjectHead": "ba1f76447de65596d14c3c30c5d48973bcb73f1f",
+  "baselineCommit": "b5073c1a8862f7e2a446ca0dc61b66a79a8e61f8",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-14T12:37:55.102Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-PORT-COMPUTER1A, phase 40 of 47 of plan v1.36, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. ba1f7644 on the plan worktree (per-agent browser and computer-use policy: exec grants bound to argv, cwd and hash, exact allowlists, a typed default-deny action policy and a network policy, as core and agent).",
+    "validatorsPass: val-projectos-port-computer1a (345 scenarios; 306 behaviour and 120 text mutations killed), val-projectos-port-credit1a, val-projectos-connector-contract1a and validate-no-secrets PASS. validate-all on the stack head ba1f7644: 172 PASS, 1 FAIL, 2 retired (173 registered). The one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4. An earlier run at a6ac6543 found a name clash with the MCP guard (MC-19) and two async run() validators; both fixed in ba1f7644.",
+    "checksPass: core 4132/4132 (100 files), agent 3573/3573 (114 files), control-center 952/952 (69 files) at a6ac6543 on the plan worktree after a rebuild of core then agent; at ba1f7644 (a rename of one computer helper and two validator run() wrappers) core was rebuilt, the 148 computer tests re-ran and the affected validators passed again.",
+    "reviewsComplete: Claude self-review; ECC security-reviewer (three HIGH, reproduced, fixed); Agency application-security-engineer (CONCERNS, two HIGH, fixed); fix round 1; one recheck by an ECC security-reviewer that reproduced (no CRITICAL or HIGH; seven MEDIUM and LOW items N1-N7, fixed in a final bounded round) re-verified by the lead with 33 reviewer inputs and 14 anyArgs compile refusals against the built dist.",
+    "unresolved: zero CRITICAL/HIGH. Residuals are named in docs/finish/PROJECTOS-PORT-COMPUTER1A.md: the registry has no exec-command or computer-* rows, so every command and action reads P5 (fail closed) until an owner-gated action-registry-change adds them; the real resolver and spawn port (it must refuse .cmd and .bat targets and be conformance-tested); the plan digest covers the policy but not the registry class (N8); the hidden-character, look-alike letter, hosting-suffix and English-stem lists cannot be complete. The first run of the new tests was not red for every item (the finish doc says which).",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
