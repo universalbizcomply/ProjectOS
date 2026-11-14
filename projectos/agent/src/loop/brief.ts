@@ -161,6 +161,12 @@ export interface WorkerBrief {
     readonly effectsPath: string;
     readonly evidencePath: string;
     /**
+     * The stored-context file this run's worker may read (PROJECTOS-CONTEXT-MANAGER1A), when the run has an admitted envelope. A path
+     * the loop derived from `briefPath` and nothing else: `contextPathProblems` holds it to that one value, because the exemption
+     * for keys ending in `Path` would otherwise let any text ride here. The file is data, never instruction.
+     */
+    readonly contextPath?: string;
+    /**
      * The SHAPE the effects record must have, not prose about it.
      *
      * THE SECOND LIVE DISCOVERY DIED HERE, AND THE FIRST ONE SURVIVED BY LUCK. The worker
@@ -243,6 +249,8 @@ export interface BriefRecordPaths {
   readonly findingsPath: string;
   readonly effectsPath: string;
   readonly evidencePath: string;
+  /** Present only when the run has stored context to hand over; see `contextPathProblems`. */
+  readonly contextPath?: string;
 }
 
 /**
@@ -408,7 +416,25 @@ export function briefProvenanceProblems(
     ...effectsContractProblems(brief),
     ...verificationContractProblems(brief),
     ...ownerGateDerivationProblems(brief, context),
+    ...contextPathProblems(brief),
   ];
+}
+
+/**
+ * The context path is EXACTLY the one derived from the brief's own path, or the brief is refused.
+ *
+ * The provenance walk exempts every key ending in `Path` (addressing, not instruction), so by itself it would pass any text under
+ * `records.contextPath`. Equality with `briefPath`, with `.brief.json` read as `.context.md`, is the stronger test, and it leaves a
+ * worker, a request and a stored file no say in where the file is. An absent path is not a problem: no stored context, no field.
+ */
+export function contextPathProblems(brief: WorkerBrief): readonly string[] {
+  const records = brief.records as { readonly briefPath?: unknown; readonly contextPath?: unknown } | null | undefined;
+  if (records === null || records === undefined || !Object.hasOwn(records, 'contextPath')) return [];
+  const { briefPath, contextPath } = records;
+  const derived = typeof briefPath === 'string' && briefPath.endsWith('.brief.json') ? `${briefPath.slice(0, -'.brief.json'.length)}.context.md` : null;
+  return typeof contextPath === 'string' && derived !== null && contextPath === derived
+    ? []
+    : ['brief.records.contextPath is not the path derived from brief.records.briefPath'];
 }
 
 /**

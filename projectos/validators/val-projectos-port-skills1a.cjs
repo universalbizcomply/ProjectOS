@@ -231,6 +231,43 @@ const RULE_NAMES = {
 const normalise = (text) => text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
 const withoutComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
 
+/**
+ * PK-16, NARROWED BY PROJECTOS-CONTEXT-MANAGER1A (plan 3.4): from "nothing outside this port reaches a skill" to "nothing outside this
+ * port CALLS a skill entry point but the call sites already named here". The context manager adds NONE: it neither lists, loads nor
+ * proposes a skill (that is PROJECTOS-SKILLS-ADOPT1A's, which moves this rule with it). The one site that exists is the proposal door
+ * MEMORY-STORES1A added, which turns a worker's `proposals` entry into a pending proposal and nothing else.
+ */
+const SKILL_CALL_SITES = { "projectos/agent/src/memory/proposalDoor.ts": ["listPendingSkillProposals", "proposeSkill"] };
+/** A CALL of a skill entry point: the name, then an argument list, and not a method of something else. */
+const SKILL_CALL = /(?<![.\w])(?:listPendingSkillProposals|loadPromotedSkill|loadSkillBlock|loadSkillProposal|proposeSkill|rejectSkillProposal|reviewAndPromoteSkill)\(/g;
+/** Every product source (a package's `src`) except this port's own directories. Read once, so a mutation can name any of them. */
+function productSourcePaths() {
+  const found = [];
+  const visit = (rel) => {
+    for (const entry of fs.readdirSync(path.join(ROOT, ...rel.split("/")), { withFileTypes: true })) {
+      const child = `${rel}/${entry.name}`;
+      if (entry.isDirectory() && !["node_modules", "dist", "target", ".next"].includes(entry.name)) visit(child);
+      else if (entry.isFile() && /\.(?:ts|tsx|cjs|mjs|js)$/.test(entry.name)) found.push(child);
+    }
+  };
+  for (const entry of fs.readdirSync(path.join(ROOT, "projectos"), { withFileTypes: true })) {
+    const src = `projectos/${entry.name}/src`;
+    if (entry.isDirectory() && fs.existsSync(path.join(ROOT, ...src.split("/")))) visit(src);
+  }
+  return found.filter((rel) => !rel.startsWith(`${CORE}/`) && !rel.startsWith(`${AGENT}/`)).sort();
+}
+const PRODUCT_SOURCES = productSourcePaths();
+const SKILL_CALLS_CACHE = new Map();
+/** The skill entry points a source calls, outside its comments. Remembered by text, so only a changed file is read again. */
+function skillCallsIn(text) {
+  let found = SKILL_CALLS_CACHE.get(text);
+  if (found === undefined) {
+    found = [...new Set((withoutComments(text).match(SKILL_CALL) ?? []).map((call) => call.slice(0, -1)))];
+    SKILL_CALLS_CACHE.set(text, found);
+  }
+  return found;
+}
+
 const scratchPath = (rel) =>
   rel === TYPES ? "core/types.mts"
     : rel === CONTEXT ? "agent/context.mts"
@@ -1203,6 +1240,17 @@ function textProblems(raw) {
   if ((queue.match(/\bpromoteSkill\(/g) ?? []).length !== 1) E("PK-16", "an approved proposal is promoted from more than one place");
   if ((queue.match(/\bsys\.(?:writeText|createExclusive|renameFile)\([^)]*promoted/g) ?? []).length !== 0) E("PK-16", "the queue writes a promoted skill around its one writer");
   if (/\b(?:writeWhole|writeFileAtomically|underSkillLock|land|promoteSkill)\b/.test(raw[AGENT_BARREL])) E("PK-16", "the agent's barrel exports a way to write around the queue");
+  // Narrowed to the call sites that exist: this phase adds none, and no other product file calls a skill entry point.
+  for (const rel of PRODUCT_SOURCES) {
+    if (typeof raw[rel] !== "string") continue;
+    const called = skillCallsIn(raw[rel]);
+    const allowed = SKILL_CALL_SITES[rel];
+    const refused = allowed === undefined ? called : called.filter((name) => !allowed.includes(name));
+    if (refused.length > 0) E("PK-16", `${rel} calls ${refused.join(", ")}${allowed === undefined ? ", and this phase adds no call site there" : `, and the only entry points it may call are ${allowed.join(", ")}`}`);
+  }
+  for (const [rel, names] of Object.entries(SKILL_CALL_SITES)) {
+    if (typeof raw[rel] !== "string" || !names.every((name) => skillCallsIn(raw[rel]).includes(name))) E("PK-16", `${rel}, the proposal door, no longer calls ${names.join(", ")}`);
+  }
 
   // PK-17: core stays pure.
   for (const rel of CORE_SOURCES) {
@@ -1559,6 +1607,13 @@ const MUTATIONS = [
   T("direct-promoted-write", "PK-16", QUEUE, "export function rejectSkillProposal(", "export function forceWrite(sys: System, root: string): void {\n  sys.writeText(promotedSkillPath(root, 'x'), '');\n}\n\nexport function rejectSkillProposal("),
   T("shared-write-called-directly", "PK-16", QUEUE, "export function rejectSkillProposal(", "export function forceWrite(sys: System): void {\n  writeFileAtomically(sys, 'x', '');\n}\n\nexport function rejectSkillProposal("),
   T("second-promote-route", "PK-16", QUEUE, "export function rejectSkillProposal(", "export const again = promoteSkill(null as never, null);\n\nexport function rejectSkillProposal("),
+  T("the-runner-loads-a-skill", "PK-16", "projectos/agent/src/loop/runner.ts", "import type { System } from '../system.js';", "import type { System } from '../system.js';\nexport const skill = (sys: System) => loadSkillBlock(sys, '/');"),
+  T("another-product-file-proposes-a-skill", "PK-16", "projectos/agent/src/loop/observation.ts", "import type { System } from '../system.js';", "import type { System } from '../system.js';\nexport const skill = (sys: System) => proposeSkill(sys, '/', {} as never, {} as never);"),
+  T("another-product-file-promotes-a-skill", "PK-16", "projectos/agent/src/closureGate.ts", "import type { System } from './system.js';", "import type { System } from './system.js';\nexport const skill = (sys: System) => reviewAndPromoteSkill(sys, '/', {} as never);"),
+  T("the-context-manager-loads-a-skill", "PK-16", "projectos/agent/src/context/contextRetrieval.ts", "export const MAX_DECISION_PHASES = 20;", "export const skill = (sys: never) => loadPromotedSkill(sys, '/', 'x');\nexport const MAX_DECISION_PHASES = 20;"),
+  T("the-context-ports-list-pending-skills", "PK-16", "projectos/agent/src/context/contextPorts.ts", "export interface ContextDraftOffer {", "export const skills = (sys: never) => listPendingSkillProposals(sys, '/');\nexport interface ContextDraftOffer {"),
+  T("the-proposal-door-promotes", "PK-16", "projectos/agent/src/memory/proposalDoor.ts", "import { listPendingSkillProposals, proposeSkill } from '../skills/skillQueue.js';", "import { listPendingSkillProposals, proposeSkill, reviewAndPromoteSkill } from '../skills/skillQueue.js';\nexport const promote = (sys: never) => reviewAndPromoteSkill(sys, '/', {} as never);"),
+  T("the-proposal-door-no-longer-proposes", "PK-16", "projectos/agent/src/memory/proposalDoor.ts", "const made = proposeSkill(sys, root, { actor: caller.author, role: caller.role, session: caller.session }, { files: one.files });", "const made = { ok: false } as never;"),
   // PK-17
   T("core-reads-a-file", "PK-17", LINTER, "import { frontmatterList,", "import { readFileSync } from 'node:fs';\nimport { frontmatterList,"),
   T("core-imports-the-agent", "PK-17", PROMOTION, "import { createHash } from 'node:crypto';", "import { createHash } from 'node:crypto';\nimport { join } from '../../../agent/src/context.js';"),
@@ -1634,7 +1689,7 @@ function selfTest(raw, dir) {
 
 function readAll() {
   const raw = {};
-  for (const rel of new Set([...LOADED, ...AUTHORITY_FILES, ...TEST_FILES, CORE_INDEX, NOTICES, VA, CR, SAMPLES, MEMORY_FILES])) {
+  for (const rel of new Set([...LOADED, ...AUTHORITY_FILES, ...TEST_FILES, CORE_INDEX, NOTICES, VA, CR, SAMPLES, MEMORY_FILES, ...PRODUCT_SOURCES, ...Object.keys(SKILL_CALL_SITES)])) {
     const abs = path.join(ROOT, ...rel.split("/"));
     raw[rel] = fs.existsSync(abs) ? normalise(fs.readFileSync(abs, "utf8")) : null;
   }

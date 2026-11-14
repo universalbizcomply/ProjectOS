@@ -170,6 +170,8 @@ const MODULES = [
   "val-projectos-memory-stores1a",
   // PROJECTOS-MEMORY-PROVENANCE1A - committed decisions outrank recollection; decisions, plan memory and approved memory are read from committed bytes and a differing working copy is refused; a citation from an index built before HEAD is marked stale; retention per class; deleting approved memory is the P5 action memory-delete, owner only, and every deletion is recorded.
   "val-projectos-memory-provenance1a",
+  // PROJECTOS-CONTEXT-MANAGER1A - retrieval is keyed on the admitted run envelope and recorded in a loop-written ledger; stored text reaches the worker only as a fenced, scanned, capped file named by the brief and gone before the checks; approved decisions are always loaded; compaction is deterministic and stops on overLimit; the evidence names what the worker was shown; run.ts changes by exactly one option.
+  "val-projectos-context-manager1a",
   // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
   "val-projectos-connector-contract1a"
 ];

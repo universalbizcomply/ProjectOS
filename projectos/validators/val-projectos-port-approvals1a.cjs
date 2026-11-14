@@ -106,7 +106,14 @@ const ORIGINAL = [APPROVAL_REL, INSTANT_REL, BARREL_REL];
 const ALL_FILES = [...Object.keys(PORTED), ...ORIGINAL];
 
 /** The core barrel may name this directory once, and nothing else in the product may at all. */
-const WIRED_NAMES = /\b(?:checkToolCall|issueToolApproval|startRunGuard|recordOutsideContent|recordToolResult|markToolCalled|declarePlanChecks|claimDone|recordCheckReceipt|deriveToolEffect)\b|approvals\/(?:index|effectKey|taint|toolApproval|evidenceReceipt|instant)\b/;
+const WIRED_NAMES = /\b(?:checkToolCall|issueToolApproval|startRunGuard|recordOutsideContent|recordToolResult|markToolCalled|declarePlanChecks|claimDone|recordCheckReceipt|deriveToolEffect|toolResultTaintsRun|isRunTainted|freshApprovalNeeded|actionCouldBeSteered|RunGuardRefused|CHECK_SOURCES|MAX_APPROVAL_LIFETIME_MS)\b|approvals\/(?:index|effectKey|taint|toolApproval|evidenceReceipt|instant)\b/;
+const WIRED_NAMES_ALL = new RegExp(WIRED_NAMES.source, "g");
+/**
+ * AP-29, NARROWED BY PROJECTOS-CONTEXT-MANAGER1A (plan 3.4) from "no product file names a rule" to "no product file names one but
+ * the call sites this phase adds". The phase adds one: the context manager's taint answer, which asks whether showing stored text
+ * taints a run and asks nothing else. Every other file, the run loop included, still refuses, and the one site may name only that rule.
+ */
+const ALLOWED_CALL_SITES = { "projectos/agent/src/context/contextTaint.ts": ["toolResultTaintsRun"] };
 const BARREL_LINE = "export * from './approvals/index.js';";
 /** The barrel is what `@projectos/core` shows. It may check, and it may not mint. */
 const PUBLIC_NAMES = ["canonicalArguments", "deriveToolEffect", "actionCouldBeSteered", "freshApprovalNeeded", "isRunTainted", "RunGuardRefused", "toolResultTaintsRun", "checkToolCall", "MAX_APPROVAL_LIFETIME_MS", "CHECK_SOURCES", "claimDone"];
@@ -764,8 +771,14 @@ function textProblems(raw, wired) {
   const barrelUses = code(raw[CORE_BARREL_REL]).split("\n").filter((line) => line.includes("approvals/"));
   if (JSON.stringify(barrelUses) !== JSON.stringify([BARREL_LINE])) E("AP-29", `${CORE_BARREL_REL} should name the directory once, as ${BARREL_LINE}`);
   for (const { rel, text } of wired) {
-    const found = WIRED_NAMES.exec(code(text));
-    if (found !== null) E("AP-29", `${rel} reaches ${found[0]}, and this phase wires in nothing`);
+    const found = [...new Set(code(text).match(WIRED_NAMES_ALL) ?? [])];
+    const allowed = ALLOWED_CALL_SITES[rel];
+    const refused = allowed === undefined ? found : found.filter((name) => !allowed.includes(name));
+    if (refused.length > 0) E("AP-29", `${rel} reaches ${refused.join(", ")}${allowed === undefined ? ", and this phase adds no call site there" : `, and the only name this phase lets it call is ${allowed.join(", ")}`}`);
+  }
+  for (const [rel, names] of Object.entries(ALLOWED_CALL_SITES)) {
+    const present = wired.filter((entry) => entry.rel === rel).flatMap((entry) => code(entry.text).match(WIRED_NAMES_ALL) ?? []);
+    if (!names.every((name) => present.includes(name))) E("AP-29", `${rel}, the call site this phase adds, no longer calls ${names.join(", ")}`);
   }
 
   // AP-30: the credit header and the notices may name a source. Code, tests and identifiers may not.
@@ -859,6 +872,10 @@ const TEXT_MUTATIONS = [
   // AP-29: the two wiring mutations add a file to the scan.
   { name: "the-run-loop-calls-the-check", rule: "AP-29", wire: WIRED_FILE },
   { name: "a-core-file-reaches-into-the-directory", rule: "AP-29", wire: RAW_WIRED_FILE },
+  { name: "a-second-file-asks-whether-the-run-is-tainted", rule: "AP-29", wire: { rel: "projectos/agent/src/loop/wired.ts", text: "import { toolResultTaintsRun } from '@projectos/core';\n" } },
+  { name: "the-run-loop-names-the-taint-question", rule: "AP-29", wire: { rel: "projectos/agent/src/loop/runner.ts", text: "export const asked = isRunTainted;\n" } },
+  { name: "the-one-call-site-calls-another-rule", rule: "AP-29", wire: { rel: "projectos/agent/src/context/contextTaint.ts", text: "import { checkToolCall } from '@projectos/core';\n" } },
+  { name: "the-one-call-site-is-gone", rule: "AP-29", drop: "projectos/agent/src/context/contextTaint.ts" },
   R("the-core-barrel-names-a-file-directly", "AP-29", CORE_BARREL_REL, BARREL_LINE, `${BARREL_LINE}\nexport * from './approvals/taint.js';`),
   // AP-30
   R("the-upstream-name-reaches-an-identifier", "AP-30", APPROVAL_REL, "const LIVE_APPROVALS =", "const RAKAZO_APPROVALS =", ),
@@ -920,6 +937,10 @@ const TEXT_MUTATIONS = [
 function textKill(m, raw, wired) {
   if (m.wire !== undefined) {
     return textProblems(raw, [...wired, m.wire]).some(([rule]) => rule === m.rule) ? null : `AP-M: mutation '${m.name}' survived; ${m.rule} did not fire`;
+  }
+  if (m.drop !== undefined) {
+    if (!wired.some((entry) => entry.rel === m.drop)) return `AP-M: mutation '${m.name}' no longer applies to ${m.drop}; update it with the rule`;
+    return textProblems(raw, wired.filter((entry) => entry.rel !== m.drop)).some(([rule]) => rule === m.rule) ? null : `AP-M: mutation '${m.name}' survived; ${m.rule} did not fire`;
   }
   const text = raw[m.rel];
   if (m.from !== null && (typeof text !== "string" || !text.includes(m.from))) return `AP-M: mutation '${m.name}' no longer applies to ${m.rel}; update it with the rule`;

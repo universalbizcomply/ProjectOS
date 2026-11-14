@@ -42,7 +42,7 @@ const credit = require("./val-projectos-port-credit1a.cjs");
 const ROOT = path.resolve(__dirname, "..", "..");
 const THIS_VALIDATOR = "val-projectos-memory-provenance1a";
 const PREV_VALIDATOR = "val-projectos-memory-stores1a";
-const NEXT_VALIDATOR = "val-projectos-connector-contract1a";
+const NEXT_VALIDATOR = "val-projectos-context-manager1a";
 
 const CORE_MEMORY = "projectos/core/src/memory";
 const CORE_SEARCH = "projectos/core/src/search";
