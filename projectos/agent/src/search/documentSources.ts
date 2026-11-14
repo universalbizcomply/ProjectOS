@@ -11,10 +11,10 @@
  * that holds less than the tree says so. A file that cannot be read is reported the same way, and does not stop
  * the walk.
  *
- * NOT ON THE SYSTEM PORT. `system.ts` has no `lstat`, and this walk needs one to see a link, so it uses `node:fs`.
+ * THROUGH A PORT (STORES1A). The walk reads through a `DocumentFs`, built from the agent's `System` and an `lstat` probe,
+ * and touches no file system of its own. `system.ts` has no `lstat`, so the probe is a separate port; see `ports.ts`.
  */
-import { lstatSync, readdirSync, readFileSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { extname } from 'node:path';
 import {
   citationPathProblem,
   sensitiveContentProblem,
@@ -22,6 +22,7 @@ import {
   type SearchSourceText,
   type SensitiveReason,
 } from '@projectos/core';
+import type { DocumentFs } from './ports.js';
 
 export const DOCUMENT_EXTENSIONS: readonly string[] = ['.md', '.markdown', '.mdx', '.txt'];
 const UNENTERED_DIRECTORIES: readonly string[] = ['node_modules', 'dist', 'build', 'target', 'vendor', 'coverage'];
@@ -42,29 +43,24 @@ export interface CollectedDocuments {
 
 type Found = SearchSourceText | SkippedDocument;
 
-const readUtf8 = (abs: string): string => readFileSync(abs, 'utf8');
-
 /** Every document under `root`, in a stable order, with a project-relative `/` path. */
 export function collectDocumentSources(params: {
   readonly project: string;
   readonly root: string;
+  /** The file system the walk reads through. Required: there is no ambient one. */
+  readonly fs: DocumentFs;
   readonly maxFileBytes?: number;
   readonly maxTotalBytes?: number;
-  readonly readText?: (abs: string) => string;
 }): CollectedDocuments {
   const maxFileBytes = params.maxFileBytes ?? DEFAULT_MAX_DOCUMENT_BYTES;
   const maxTotalBytes = params.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES;
-  const readText = params.readText ?? readUtf8;
+  const { fs } = params;
   let totalBytes = 0;
 
   const documentAt = (abs: string, rel: string, size: number, mtimeMs: number): Found => {
     if (totalBytes + size > maxTotalBytes) return { path: rel, reason: 'total-size' };
-    let raw: string;
-    try {
-      raw = readText(abs);
-    } catch {
-      return { path: rel, reason: 'unreadable' };
-    }
+    const raw = fs.readText(abs);
+    if (raw === null) return { path: rel, reason: 'unreadable' };
     const content = raw.replace(/^\ufeff/, '');
     if (content.includes('\0')) return { path: rel, reason: 'binary' };
     const secret = sensitiveContentProblem(content);
@@ -76,11 +72,12 @@ export function collectDocumentSources(params: {
   const entryAt = (relDir: string, name: string): readonly Found[] => {
     if (name.startsWith('.')) return [];
     const rel = relDir === '' ? name : `${relDir}/${name}`;
-    const abs = join(params.root, rel);
-    const stat = lstatSync(abs);
-    if (stat.isSymbolicLink()) return [{ path: rel, reason: 'link' }];
-    if (stat.isDirectory()) return UNENTERED_DIRECTORIES.includes(name.toLowerCase()) ? [] : visit(rel);
-    if (!stat.isFile() || !DOCUMENT_EXTENSIONS.includes(extname(name).toLowerCase())) return [];
+    const abs = `${params.root}/${rel}`;
+    const stat = fs.stat(abs);
+    if (stat === null) return [{ path: rel, reason: 'unreadable' }];
+    if (stat.kind === 'link') return [{ path: rel, reason: 'link' }];
+    if (stat.kind === 'directory') return UNENTERED_DIRECTORIES.includes(name.toLowerCase()) ? [] : visit(rel);
+    if (stat.kind !== 'file' || !DOCUMENT_EXTENSIONS.includes(extname(name).toLowerCase())) return [];
     if (citationPathProblem(rel) !== null) return [{ path: rel, reason: 'uncitable-path' }];
     const named = sensitivePathProblem(rel);
     if (named !== null) return [{ path: rel, reason: named }];
@@ -89,12 +86,10 @@ export function collectDocumentSources(params: {
   };
 
   const visit = (relDir: string): readonly Found[] => {
-    let names: readonly string[];
-    try {
-      names = readdirSync(relDir === '' ? params.root : join(params.root, relDir));
-    } catch {
-      return [{ path: relDir === '' ? '.' : relDir, reason: 'unreadable' }];
-    }
+    // `listDir` answers an empty list for a directory that is not there, so the root is asked, and a root that is not a
+    // directory is reported, not read as an empty project.
+    if (relDir === '' && fs.stat(params.root)?.kind !== 'directory') return [{ path: '.', reason: 'unreadable' }];
+    const names = fs.listDir(relDir === '' ? params.root : `${params.root}/${relDir}`);
     return [...names].sort().flatMap((name) => entryAt(relDir, name));
   };
 

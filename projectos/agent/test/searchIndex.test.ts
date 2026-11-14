@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -10,10 +10,27 @@ import {
   type SearchSourceText,
   type VectorCandidate,
 } from '@projectos/core';
-import { SEARCH_SCHEMA_VERSION, collectDocumentSources, openSearchIndex, type SearchIndex, type SearchOutcome } from '../src/search/index.js';
+import {
+  SEARCH_SCHEMA_VERSION,
+  collectDocumentSources,
+  documentFsOver,
+  nodeEntryProbe,
+  openSearchIndex,
+  type DocumentFs,
+  type SearchClock,
+  type SearchIndex,
+  type SearchOutcome,
+} from '../src/search/index.js';
+import { nodeSystem } from '../src/system.js';
 
+const TENANT = 'agency-one';
 const PROJECT = 'alpha-project';
 const OTHER = 'beta-project';
+/** The real file system, through the ports the walk takes. */
+const realFs: DocumentFs = documentFsOver(nodeSystem, nodeEntryProbe);
+/** The index's only clock. A test moves it; nothing reads the real one. */
+let now = 1;
+const clock: SearchClock = { nowMs: () => now };
 
 let dir: string;
 let open: SearchIndex[];
@@ -30,8 +47,8 @@ const doc = (project: string, path: string, content: string, extra: Partial<Sear
   content,
   ...extra,
 });
-const index = (location = ':memory:'): SearchIndex => {
-  const opened = openSearchIndex(location);
+const index = (location = ':memory:', project = PROJECT): SearchIndex => {
+  const opened = openSearchIndex(location, { owner: { tenant: TENANT, project }, clock });
   open.push(opened);
   return opened;
 };
@@ -49,6 +66,7 @@ const rawly = (location: string, run: (db: DatabaseSync) => void): void => {
 };
 
 beforeEach(() => {
+  now = 1;
   dir = mkdtempSync(join(tmpdir(), 'projectos-search-'));
   mkdirSync(join(dir, 'tree'));
   open = [];
@@ -168,14 +186,14 @@ describe('every hit names its file and line range', () => {
   it('honours the result cap, and recency when asked for it', () => {
     const search = index();
     const day = 24 * 60 * 60 * 1000;
-    const nowMs = 400 * day;
+    now = 400 * day;
     search.rebuildProject(PROJECT, [
       doc(PROJECT, 'old.md', 'quince', { mtimeMs: 10 * day }),
       doc(PROJECT, 'new.md', 'quince', { mtimeMs: 399 * day }),
     ]);
 
     const paths = (temporalDecay: { enabled: boolean; halfLifeDays: number }) =>
-      hitsOf(search.search({ project: PROJECT, query: 'quince', nowMs, temporalDecay, mmr: { enabled: false, lambda: 1 } })).map((h) => h.citation.path);
+      hitsOf(search.search({ project: PROJECT, query: 'quince', temporalDecay, mmr: { enabled: false, lambda: 1 } })).map((h) => h.citation.path);
 
     expect(paths({ enabled: true, halfLifeDays: 30 })).toEqual(['new.md', 'old.md']);
     expect(paths({ enabled: false, halfLifeDays: 30 })).toEqual(['new.md', 'old.md'].sort());
@@ -271,7 +289,7 @@ describe('a secret does not reach the index', () => {
     write('credentials.txt', 'guava login hunter2');
     write('plain.md', 'guava note');
     const search = index();
-    const { sources, skipped } = collectDocumentSources({ project: PROJECT, root: join(dir, 'tree') });
+    const { sources, skipped } = collectDocumentSources({ project: PROJECT, root: join(dir, 'tree'), fs: realFs });
     search.rebuildProject(PROJECT, sources);
 
     expect(skipped).toEqual([{ path: 'credentials.txt', reason: 'credential-name' }]);
@@ -283,7 +301,7 @@ describe('a secret does not reach the index', () => {
     write('notes.md', `guava\n${AWS}`);
     write('key.txt', PEM);
 
-    const found = collectDocumentSources({ project: PROJECT, root: join(dir, 'tree') });
+    const found = collectDocumentSources({ project: PROJECT, root: join(dir, 'tree'), fs: realFs });
 
     expect(found.sources).toEqual([]);
     expect(found.skipped).toEqual([{ path: 'key.txt', reason: 'secret-content' }, { path: 'notes.md', reason: 'secret-content' }]);
@@ -320,7 +338,7 @@ describe('the handle and the schema', () => {
     const location = join(dir, 'not-a-database.sqlite');
     writeFileSync(location, 'this is not a database, it is plain text and long enough to be read as a header');
 
-    expect(() => openSearchIndex(location)).toThrow();
+    expect(() => openSearchIndex(location, { owner: { tenant: TENANT, project: PROJECT }, clock })).toThrow();
 
     expect(() => rmSync(location)).not.toThrow();
   });
@@ -376,29 +394,37 @@ describe('the handle and the schema', () => {
   });
 });
 
-describe('the index records its project', () => {
-  const both = (): SearchIndex => {
+describe('the index records its owner and holds one project', () => {
+  const mine = (): SearchIndex => {
     const search = index();
     search.rebuildProject(PROJECT, [doc(PROJECT, 'mine.md', 'walnut alpha only')]);
-    search.rebuildProject(OTHER, [doc(OTHER, 'theirs.md', 'walnut beta only')]);
     return search;
   };
+  const asked = (project: string): SearchOutcome => index().search({ project, query: 'walnut' });
 
-  it('a search sees its own project and never the other, and the other sees its own', () => {
-    const search = both();
-
-    expect(hitsOf(search.search({ project: PROJECT, query: 'walnut' })).map((h) => h.citation.path)).toEqual(['mine.md']);
-    expect(hitsOf(search.search({ project: OTHER, query: 'walnut' })).map((h) => h.citation.path)).toEqual(['theirs.md']);
+  it('a search sees its own project: the positive control', () => {
+    expect(hitsOf(mine().search({ project: PROJECT, query: 'walnut' })).map((h) => h.citation.path)).toEqual(['mine.md']);
   });
 
   it('every hit states the project it was asked in', () => {
-    const search = both();
+    expect(hitsOf(mine().search({ project: PROJECT, query: 'walnut' }))[0]?.citation.project).toBe(PROJECT);
+  });
 
-    expect(hitsOf(search.search({ project: OTHER, query: 'walnut' }))[0]?.citation.project).toBe(OTHER);
+  it('refuses another project by its own reason, however well the project id is formed', () => {
+    const search = mine();
+
+    expect(search.search({ project: OTHER, query: 'walnut' })).toEqual({ ok: false, reason: 'wrong-project' });
+    expect(search.statusOf(OTHER)).toBe('not-built');
+  });
+
+  it('refuses an unbuilt project and an invalid one, rather than answering nothing', () => {
+    expect(asked(PROJECT)).toEqual({ ok: false, reason: 'not-built' });
+    expect(asked('')).toEqual({ ok: false, reason: 'invalid-project' });
+    expect(asked('a b')).toEqual({ ok: false, reason: 'invalid-project' });
   });
 
   it('no query text can reach the project or another file', () => {
-    const search = both();
+    const search = mine();
 
     for (const query of [`walnut" OR project:${OTHER}`, `project:${OTHER}`, 'walnut OR beta', 'walnut*', 'NEAR(walnut beta)', `' OR 1=1 --`]) {
       const paths = hitsOf(search.search({ project: PROJECT, query, matchAny: true })).map((h) => h.citation.path);
@@ -406,39 +432,51 @@ describe('the index records its project', () => {
     }
   });
 
-  it('refuses an unbuilt project and an invalid one, rather than answering nothing', () => {
-    const search = both();
-
-    expect(search.search({ project: 'never-built', query: 'walnut' })).toEqual({ ok: false, reason: 'not-built' });
-    expect(search.search({ project: '', query: 'walnut' })).toEqual({ ok: false, reason: 'invalid-project' });
-    expect(search.search({ project: 'a b', query: 'walnut' })).toEqual({ ok: false, reason: 'invalid-project' });
-  });
-
-  it('rebuilding one project leaves the other standing', () => {
-    const search = both();
-
-    search.rebuildProject(PROJECT, []);
-
-    expect(hitsOf(search.search({ project: PROJECT, query: 'walnut' }))).toEqual([]);
-    expect(hitsOf(search.search({ project: OTHER, query: 'walnut' }))).toHaveLength(1);
-  });
-
-  it('a rebuild refuses a source that belongs to another project', () => {
+  it('a rebuild refuses another project, and a source that belongs to another project', () => {
     const search = index();
 
-    const result = search.rebuildProject(PROJECT, [doc(OTHER, 'theirs.md', 'walnut')]);
-
-    expect(result).toEqual({ ok: false, problem: expect.stringContaining(OTHER) });
+    expect(search.rebuildProject(OTHER, [doc(OTHER, 'theirs.md', 'walnut')])).toEqual({ ok: false, problem: expect.stringContaining(OTHER) });
+    expect(search.rebuildProject(PROJECT, [doc(OTHER, 'theirs.md', 'walnut')])).toEqual({ ok: false, problem: expect.stringContaining(OTHER) });
     expect(search.statusOf(OTHER)).toBe('not-built');
+    expect(search.statusOf(PROJECT)).toBe('not-built');
+  });
+
+  it('records its owner in the file, and a file of another owner does not open', () => {
+    const location = join(dir, 'owned.sqlite');
+    index(location).close();
+
+    rawly(location, (db) => {
+      expect(db.prepare('SELECT tenant, project FROM search_owner').all()).toEqual([{ tenant: TENANT, project: PROJECT }]);
+    });
+    expect(() => index(location, OTHER)).toThrow(/another tenant or project/);
+    expect(() => openSearchIndex(location, { owner: { tenant: 'agency-two', project: PROJECT }, clock })).toThrow(/another tenant or project/);
+    expect(() => index(location)).not.toThrow();
+  });
+
+  it('a refused open closes its handle, so the file can be removed', () => {
+    const location = join(dir, 'owned.sqlite');
+    index(location).close();
+
+    expect(() => index(location, OTHER)).toThrow();
+
+    expect(() => rmSync(location)).not.toThrow();
+  });
+
+  it('refuses an owner that is not a tenant id and a project id, before it opens a file', () => {
+    const location = join(dir, 'bad-owner.sqlite');
+
+    expect(() => openSearchIndex(location, { owner: { tenant: '../x', project: PROJECT }, clock })).toThrow(/tenant id and a project id/);
+    expect(() => openSearchIndex(location, { owner: { tenant: TENANT, project: 'a/b' }, clock })).toThrow(/tenant id and a project id/);
+    expect(existsSync(location)).toBe(false);
   });
 });
 
 describe('the index is rebuildable from source files', () => {
   const rebuildFromTree = (search: SearchIndex): void => {
-    search.rebuildProject(PROJECT, collectDocumentSources({ project: PROJECT, root: join(dir, 'tree') }).sources, { nowMs: 1 });
+    search.rebuildProject(PROJECT, collectDocumentSources({ project: PROJECT, root: join(dir, 'tree'), fs: realFs }).sources);
   };
   const answers = (search: SearchIndex, query: string) =>
-    hitsOf(search.search({ project: PROJECT, query, nowMs: 1 })).map((h) => [h.citation, h.untrustedText]);
+    hitsOf(search.search({ project: PROJECT, query })).map((h) => [h.citation, h.untrustedText]);
 
   it('a deleted database rebuilds to the same answers', () => {
     write('docs/a.md', '# Title\n\nthe mango policy\n');
@@ -532,7 +570,7 @@ describe('the index is rebuildable from source files', () => {
 
 describe('the walk reads only documents inside the project', () => {
   const collect = (maxFileBytes?: number) =>
-    collectDocumentSources({ project: PROJECT, root: join(dir, 'tree'), ...(maxFileBytes === undefined ? {} : { maxFileBytes }) });
+    collectDocumentSources({ project: PROJECT, root: join(dir, 'tree'), fs: realFs, ...(maxFileBytes === undefined ? {} : { maxFileBytes }) });
   const paths = (found: ReturnType<typeof collect>) => found.sources.map((source) => source.path);
 
   it('takes documents at any depth, in a stable order, with project-relative paths', () => {
@@ -585,12 +623,9 @@ describe('the walk reads only documents inside the project', () => {
   it('reports an unreadable file rather than throwing, and keeps the rest', () => {
     write('bad.md', 'x');
     write('good.md', 'y');
-    const unreadable = (abs: string): string => {
-      if (abs.endsWith('bad.md')) throw new Error('EPERM');
-      return readFileSync(abs, 'utf8');
-    };
+    const unreadable: DocumentFs = { ...realFs, readText: (abs) => (abs.endsWith('bad.md') ? null : readFileSync(abs, 'utf8')) };
 
-    const found = collectDocumentSources({ project: PROJECT, root: join(dir, 'tree'), readText: unreadable });
+    const found = collectDocumentSources({ project: PROJECT, root: join(dir, 'tree'), fs: unreadable });
 
     expect(paths(found)).toEqual(['good.md']);
     expect(found.skipped).toEqual([{ path: 'bad.md', reason: 'unreadable' }]);
@@ -609,7 +644,7 @@ describe('the walk reads only documents inside the project', () => {
     write('b.md', 'x'.repeat(6));
     write('c.md', 'x'.repeat(2));
 
-    const found = collectDocumentSources({ project: PROJECT, root: join(dir, 'tree'), maxTotalBytes: 10 });
+    const found = collectDocumentSources({ project: PROJECT, root: join(dir, 'tree'), fs: realFs, maxTotalBytes: 10 });
 
     expect(paths(found)).toEqual(['a.md', 'c.md']);
     expect(found.skipped).toEqual([{ path: 'b.md', reason: 'total-size' }]);
@@ -670,7 +705,7 @@ describe('indexed content is untrusted data', () => {
     const search = injected();
 
     expect(search.statusOf(OTHER)).toBe('not-built');
-    expect(search.search({ project: OTHER, query: 'apricot' })).toEqual({ ok: false, reason: 'not-built' });
+    expect(search.search({ project: OTHER, query: 'apricot' })).toEqual({ ok: false, reason: 'wrong-project' });
   });
 
   it('SQL in a document is stored as text, and the tables stand', () => {
@@ -767,7 +802,7 @@ describe('the fixture reads as a real file would', () => {
   it('cites a real file on disk, line for line, from the walk to the hit', () => {
     write('docs/guide.md', '# Guide\n\nFirst paragraph.\n\nThe pomelo procedure is here.\n');
     const search = index();
-    search.rebuildProject(PROJECT, collectDocumentSources({ project: PROJECT, root: join(dir, 'tree') }).sources);
+    search.rebuildProject(PROJECT, collectDocumentSources({ project: PROJECT, root: join(dir, 'tree'), fs: realFs }).sources);
 
     const [found] = hitsOf(search.search({ project: PROJECT, query: 'pomelo' }));
     const lines = readFileSync(join(dir, 'tree', 'docs', 'guide.md'), 'utf8').split('\n');

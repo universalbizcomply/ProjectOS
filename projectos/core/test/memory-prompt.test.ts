@@ -192,3 +192,90 @@ describe('a store over its cap', () => {
     expect(renderMemoryBlock('user', proven('x'.repeat(1375))).ok).toBe(true);
   });
 });
+
+describe('a credential never reaches the prompt (STORES1A)', () => {
+  const FAKE = 'CREDENTIAL-SHAPED-MARKER';
+  const screen = (text: string): boolean => text.includes(FAKE);
+
+  it('replaces an entry the injected screen calls a credential, and shows none of its text', () => {
+    const shown = block(renderMemoryBlock('memory', proven('Clean fact.', `The key is ${FAKE}.`), { secretScreen: screen }));
+    expect(shown.text).toContain('Clean fact.');
+    expect(shown.text).not.toContain(FAKE);
+    expect(shown.text).toContain('credential');
+    expect(shown.blocked).toHaveLength(1);
+    expect(shown.shown).toBe(1);
+  });
+
+  it('shows the same entry when the screen says no: the positive control', () => {
+    expect(block(renderMemoryBlock('memory', proven(`The key is ${FAKE}.`), { secretScreen: () => false })).text).toContain(FAKE);
+  });
+
+  it('a screen that throws or answers anything but false blocks the entry, so it fails closed', () => {
+    const throwing = (): boolean => {
+      throw new Error('screen down');
+    };
+    expect(block(renderMemoryBlock('memory', proven('Fact one.'), { secretScreen: throwing })).text).not.toContain('Fact one.');
+    expect(block(renderMemoryBlock('memory', proven('Fact two.'), { secretScreen: (() => undefined) as unknown as (text: string) => boolean })).text).not.toContain('Fact two.');
+  });
+});
+
+describe('the rendered body is capped, not only the entry text (STORES1A)', () => {
+  const longRef = `docs/${'a'.repeat(240)}.md`;
+  const decisions = (count: number): MemoryStoreState => {
+    const entries = Array.from({ length: count }, (_, index) => String.fromCharCode(97 + (index % 26)).repeat(1) + String(index).padStart(3, '0'));
+    return {
+      entries,
+      provenance: new Map(entries.map((entry) => [memoryEntryHash(entry), { ...held(entry, 'decision'), ledgerRef: longRef }])),
+    };
+  };
+
+  it('refuses 300 short decisions with long references, which rendered 84,603 characters against a 2,200 cap', () => {
+    const state = decisions(300);
+    expect(state.entries.join(ENTRY_DELIMITER).length).toBeLessThan(2200);
+    const result = renderMemoryBlock('memory', state);
+    expect(!result.ok && result.refusal.code).toBe('MEMORY_RENDERED_OVER_LIMIT');
+  });
+
+  it('shows a handful of decisions with ordinary references: the positive control', () => {
+    expect(renderMemoryBlock('memory', decisions(5)).ok).toBe(true);
+  });
+
+  it('an entry text exactly at the cap still renders with its label: the positive control', () => {
+    expect(renderMemoryBlock('memory', proven('x'.repeat(2200))).ok).toBe(true);
+  });
+
+  it('the refusal names its code and does not repeat the text', () => {
+    const result = renderMemoryBlock('memory', decisions(300));
+    expect(!result.ok && JSON.stringify(result.refusal)).not.toContain('a000');
+  });
+});
+
+describe('the rendered body is capped in UTF-8 bytes as well (fix round 1, L3)', () => {
+  const emoji = (count: number): string => String.fromCodePoint(0x1f600).repeat(count);
+  const han = (count: number): string => String.fromCodePoint(0x4e2d).repeat(count);
+
+  it('refuses a full store of four-byte characters, which passes the code-point cap', () => {
+    const state = proven(emoji(2200));
+    expect(state.entries.join('').length).toBeGreaterThan(2200);
+    const result = renderMemoryBlock('memory', state);
+    expect(!result.ok && result.refusal.code).toBe('MEMORY_RENDERED_OVER_LIMIT');
+    expect(!result.ok && result.refusal.message).toContain('bytes');
+  });
+
+  it('refuses the same in the user store', () => {
+    const result = renderMemoryBlock('user', proven(emoji(1375)));
+    expect(!result.ok && result.refusal.code).toBe('MEMORY_RENDERED_OVER_LIMIT');
+  });
+
+  it('a block of four-byte characters under the byte cap, and a full store of three-byte ones, still render: the positive control', () => {
+    expect(renderMemoryBlock('memory', proven(emoji(1000))).ok).toBe(true);
+    expect(renderMemoryBlock('memory', proven(han(2200))).ok).toBe(true);
+  });
+
+  it('the code-point cap still holds beside it', () => {
+    const decisions = Array.from({ length: 300 }, (_, index) => `d${index}`);
+    const state: MemoryStoreState = { entries: decisions, provenance: new Map(decisions.map((entry) => [memoryEntryHash(entry), { ...held(entry, 'decision'), ledgerRef: `docs/${'a'.repeat(240)}.md` }])) };
+    const result = renderMemoryBlock('memory', state);
+    expect(!result.ok && result.refusal.code).toBe('MEMORY_RENDERED_OVER_LIMIT');
+  });
+});

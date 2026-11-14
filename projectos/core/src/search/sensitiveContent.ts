@@ -34,15 +34,57 @@ const SECRET_SHAPES: readonly RegExp[] = [
   /\bsbp_[a-f0-9]{40,}/,
   /\bnpm_[A-Za-z0-9]{36}/,
   /\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/,
+  // A token-like tail, not a name (final round, N2): 20 or more characters with a digit in the first 64. `sb_secret_rotation_policy`
+  // is a name. The lookahead is bounded so it stays linear, and a Resend key must also mix upper and lower case.
+  /\bsb_secret_(?=[A-Za-z0-9_-]{0,64}\d)[A-Za-z0-9_-]{20,}/,
+  /\bsb_publishable_(?=[A-Za-z0-9_-]{0,64}\d)[A-Za-z0-9_-]{20,}/,
+  /\bvcp_(?=[A-Za-z0-9]{0,64}\d)[A-Za-z0-9]{20,}/,
+  /\bre_(?=[A-Za-z0-9_]{0,64}\d)(?=[A-Za-z0-9_]{0,64}[A-Z])(?=[A-Za-z0-9_]{0,64}[a-z])[A-Za-z0-9_]{20,}/,
 ];
 
+/**
+ * The one dot directory a store citation may open with (PROJECTOS-MEMORY-STORES1A). Plan memory, execution records and
+ * findings live under `.projectops/`, and a citation names the real file, so the path cannot be renamed to hide the dot. Only
+ * the first segment, only that name, and only for a `memory` or `sessions` source: a document may not claim it.
+ */
+const STORE_ROOT_SEGMENT = '.projectops';
+const STORE_SOURCES: readonly string[] = ['memory', 'sessions'];
+
 /** Why this project-relative path is not indexed, or null. Each segment is judged, so a directory counts. */
-export function sensitivePathProblem(path: string): SensitiveReason | null {
-  const segments = path.split('/');
+export function sensitivePathProblem(path: string, source?: string): SensitiveReason | null {
+  const all = path.split('/');
+  const segments = all[0] === STORE_ROOT_SEGMENT && source !== undefined && STORE_SOURCES.includes(source) ? all.slice(1) : all;
   if (segments.some((segment) => segment.startsWith('.'))) return 'dot-segment';
   return segments.some((segment) => CREDENTIAL_NAME.test(segment) || CREDENTIAL_EXTENSION.test(segment)) ? 'credential-name' : null;
 }
 
+/**
+ * A secret spelled in escapes is the same secret (fix round 1, M3). A findings record is JSON, and `\u0073k-ant-...` is
+ * `sk-ant-...` once anything decodes it, so every shape below is asked of the text AND of the text with its escapes undone.
+ * Bounded passes undo an escape of an escape. The same decoding the agent's credential vocabulary applies, and it covers
+ * `\u{...}` and `\x..` as well.
+ */
+const MAX_UNESCAPE_PASSES = 4;
+
+function characterOf(hex: string, whole: string): string {
+  const code = Number.parseInt(hex, 16);
+  return Number.isInteger(code) && code >= 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : whole;
+}
+
+export function normaliseEscapedText(input: string): string {
+  let text = input;
+  for (let pass = 0; pass < MAX_UNESCAPE_PASSES; pass += 1) {
+    const next = text
+      .replace(/\\u\{([0-9a-fA-F]{1,6})\}/g, (whole, hex: string) => characterOf(hex, whole))
+      .replace(/\\u([0-9a-fA-F]{4})/g, (whole, hex: string) => characterOf(hex, whole))
+      .replace(/\\x([0-9a-fA-F]{2})/g, (whole, hex: string) => characterOf(hex, whole));
+    if (next === text) return text;
+    text = next;
+  }
+  return text;
+}
+
 export function sensitiveContentProblem(text: string): SensitiveReason | null {
-  return SECRET_SHAPES.some((shape) => shape.test(text)) ? 'secret-content' : null;
+  const decoded = normaliseEscapedText(text);
+  return SECRET_SHAPES.some((shape) => shape.test(text) || (decoded !== text && shape.test(decoded))) ? 'secret-content' : null;
 }

@@ -14,8 +14,11 @@
  * holds what a citation needs under NOT NULL and CHECK, and `rankCitedResults` judges each row again, because a
  * database file is only as trustworthy as whoever last wrote it.
  *
- * NOT YET A TENANT BOUNDARY. One FTS table serves every project in the file, so BM25 statistics are shared between
- * them and one project's documents shift another's scores. Tenant binding needs a file per project or per tenant.
+ * ONE FILE, ONE TENANT, ONE PROJECT (STORES1A). The FTS table used to serve every project in a file, so BM25 statistics
+ * were shared and one project's documents shifted another's scores. An index is now bound to one owner, recorded in the
+ * file itself, and `projectIndex.ts` names the file from the pair by a collision-proof encoding. An index asked about
+ * another project says so, and a file that belongs to another owner does not open. Rebuilt from the stores, so nothing in
+ * it is the only copy.
  *
  * INDEXED TEXT IS UNTRUSTED. It is stored and returned, and nothing here reads meaning from it. It comes back
  * as `untrustedText`, for `renderUntrustedExcerpt`.
@@ -28,8 +31,11 @@
  *
  * `node:sqlite` IS LOADED WHEN AN INDEX OPENS, not on import. Loading it prints an experimental warning, which
  * nothing that does not search should pay for, and the module exists only under its `node:` name, which the test
- * bundler strips from a static import. `Date.now()` is the fallback clock, because this module is not on the
- * System port.
+ * bundler strips from a static import.
+ *
+ * THE CLOCK IS INJECTED (STORES1A). There is no `Date.now()` fallback and no time in a request: the build time and the age
+ * a temporal decay measures come from the `SearchClock` the caller opened the index with, so a request cannot choose when
+ * "now" is. A clock that does not give a finite number is refused, not stored.
  */
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import {
@@ -43,6 +49,7 @@ import {
   compileFts5Match,
   excerptOf,
   isProjectId,
+  isTenantId,
   planKeywordSearch,
   rankCitedResults,
   type CitedSearchOutcome,
@@ -50,22 +57,30 @@ import {
   type MMRConfig,
   type SearchChunkRecord,
   type SearchChunking,
+  type SearchIndexOwner,
   type SearchSourceKind,
   type SearchSourceText,
   type SkippedSource,
   type TemporalDecayConfig,
   type VectorCandidate,
 } from '@projectos/core';
+import type { SearchClock } from './ports.js';
 
-export const SEARCH_SCHEMA_VERSION = 1;
+/** 2: the file is bound to one tenant and one project. A version 1 file held many, and is dropped and rebuilt. */
+export const SEARCH_SCHEMA_VERSION = 2;
 export const MAX_SEARCH_RESULTS = 50;
 const FTS_TOKENIZER = 'unicode61';
 const CANDIDATE_MULTIPLIER = 4;
 const MAX_CANDIDATES = 200;
 
-const SEARCH_TABLES = ['search_chunks_fts', 'search_chunks', 'search_projects'];
+const SEARCH_TABLES = ['search_chunks_fts', 'search_chunks', 'search_projects', 'search_owner'];
 const SOURCE_KIND_LIST = SEARCH_SOURCE_KINDS.map((kind) => `'${kind}'`).join(', ');
 const SCHEMA = `
+  CREATE TABLE search_owner (
+    slot INTEGER PRIMARY KEY CHECK (slot = 1),
+    tenant TEXT NOT NULL CHECK (length(tenant) > 0),
+    project TEXT NOT NULL CHECK (length(project) > 0)
+  ) STRICT;
   CREATE TABLE search_projects (
     project TEXT PRIMARY KEY CHECK (length(project) > 0),
     chunking_version INTEGER NOT NULL,
@@ -95,7 +110,7 @@ export type RebuildResult =
 
 export type ProjectIndexStatus = 'current' | 'stale' | 'not-built';
 
-export type SearchRefusalReason = 'invalid-project' | 'invalid-max-results' | 'not-built' | 'stale';
+export type SearchRefusalReason = 'invalid-project' | 'wrong-project' | 'invalid-max-results' | 'invalid-clock' | 'not-built' | 'stale';
 
 export type SearchOutcome = ({ readonly ok: true } & CitedSearchOutcome) | { readonly ok: false; readonly reason: SearchRefusalReason };
 
@@ -110,14 +125,13 @@ export interface SearchRequest {
   readonly vectorCandidates?: readonly VectorCandidate[];
   readonly mmr?: MMRConfig;
   readonly temporalDecay?: TemporalDecayConfig;
-  readonly nowMs?: number;
 }
 
 export interface SearchIndex {
   readonly rebuildProject: (
     project: string,
     sources: readonly SearchSourceText[],
-    options?: { readonly chunking?: SearchChunking; readonly nowMs?: number },
+    options?: { readonly chunking?: SearchChunking },
   ) => RebuildResult;
   readonly statusOf: (project: string) => ProjectIndexStatus;
   readonly search: (request: SearchRequest) => SearchOutcome;
@@ -261,10 +275,33 @@ function resultCapOf(maxResults: number | undefined): number | null {
   return Number.isSafeInteger(wanted) && wanted >= 1 ? Math.min(wanted, MAX_SEARCH_RESULTS) : null;
 }
 
-function indexOver(db: DatabaseSync, statements: Statements): SearchIndex {
+/** What an index is opened with. The owner is the one tenant and project the file holds; the clock is the only time. */
+export interface SearchIndexDeps {
+  readonly owner: SearchIndexOwner;
+  readonly clock: SearchClock;
+}
+
+/** The time, or null when the clock does not give a finite number. */
+function timeOf(clock: SearchClock): number | null {
+  const now = clock.nowMs();
+  return typeof now === 'number' && Number.isFinite(now) ? now : null;
+}
+
+/** Record the owner in a new file, and refuse a file that already belongs to another. */
+function bindOwner(db: DatabaseSync, owner: SearchIndexOwner): void {
+  const held = db.prepare('SELECT tenant, project FROM search_owner WHERE slot = 1').get() as { tenant: string; project: string } | undefined;
+  if (held === undefined) {
+    db.prepare('INSERT INTO search_owner (slot, tenant, project) VALUES (1, ?, ?)').run(owner.tenant, owner.project);
+    return;
+  }
+  if (held.tenant !== owner.tenant || held.project !== owner.project) throw new Error('this index file belongs to another tenant or project');
+}
+
+function indexOver(db: DatabaseSync, statements: Statements, deps: SearchIndexDeps): SearchIndex {
   let open = true;
 
   const statusOf = (project: string): ProjectIndexStatus => {
+    if (project !== deps.owner.project) return 'not-built';
     const row = statements.projectVersion.get(project) as { chunking_version: number } | undefined;
     if (row === undefined) return 'not-built';
     return row.chunking_version === MARKDOWN_CHUNKING_VERSION ? 'current' : 'stale';
@@ -273,10 +310,13 @@ function indexOver(db: DatabaseSync, statements: Statements): SearchIndex {
   return {
     rebuildProject(project, sources, options) {
       if (!isProjectId(project)) return { ok: false, problem: `'${String(project)}' is not a project id` };
+      if (project !== deps.owner.project) return { ok: false, problem: `this index holds ${deps.owner.project}, not ${project}` };
+      const now = timeOf(deps.clock);
+      if (now === null) return { ok: false, problem: 'the clock did not give a time, so nothing was built' };
       const built = recordsOf(project, sources, options?.chunking ?? DEFAULT_SEARCH_CHUNKING);
       if (!built.ok) return built;
       const indexed = new Set(built.records.map((record) => record.path)).size;
-      writeProject(db, statements, project, indexed, built.records, options?.nowMs ?? Date.now());
+      writeProject(db, statements, project, indexed, built.records, now);
       return { ok: true, project, sources: indexed, chunks: built.records.length, skipped: built.skipped };
     },
 
@@ -284,8 +324,11 @@ function indexOver(db: DatabaseSync, statements: Statements): SearchIndex {
 
     search(request) {
       if (!isProjectId(request.project)) return { ok: false, reason: 'invalid-project' };
+      if (request.project !== deps.owner.project) return { ok: false, reason: 'wrong-project' };
       const maxResults = resultCapOf(request.maxResults);
       if (maxResults === null) return { ok: false, reason: 'invalid-max-results' };
+      const now = timeOf(deps.clock);
+      if (now === null) return { ok: false, reason: 'invalid-clock' };
       const status = statusOf(request.project);
       if (status === 'not-built') return { ok: false, reason: 'not-built' };
       if (status === 'stale') return { ok: false, reason: 'stale' };
@@ -304,7 +347,7 @@ function indexOver(db: DatabaseSync, statements: Statements): SearchIndex {
           keyword: rows.map(candidateOf),
           vectorCandidates: request.vectorCandidates ?? NO_VECTOR_CANDIDATES,
           maxResults,
-          nowMs: request.nowMs ?? Date.now(),
+          nowMs: now,
           ...(request.minScore === undefined ? {} : { minScore: request.minScore }),
           ...(request.mmr === undefined ? {} : { mmr: request.mmr }),
           ...(request.temporalDecay === undefined ? {} : { temporalDecay: request.temporalDecay }),
@@ -320,13 +363,18 @@ function indexOver(db: DatabaseSync, statements: Statements): SearchIndex {
   };
 }
 
-/** Opens or creates the index at `location`; `:memory:` works for a throwaway. The caller closes it. */
-export function openSearchIndex(location: string): SearchIndex {
+/**
+ * Opens or creates the index at `location` for one owner; `:memory:` works for a throwaway. The caller closes it. A file that
+ * belongs to another tenant or project does not open, and the handle is closed first.
+ */
+export function openSearchIndex(location: string, deps: SearchIndexDeps): SearchIndex {
+  if (!isTenantId(deps.owner.tenant) || !isProjectId(deps.owner.project)) throw new Error('a search index needs a tenant id and a project id');
   const { DatabaseSync: Database } = process.getBuiltinModule('node:sqlite');
   const db = new Database(location);
   try {
     ensureSchema(db);
-    return indexOver(db, prepareStatements(db));
+    bindOwner(db, deps.owner);
+    return indexOver(db, prepareStatements(db), deps);
   } catch (error) {
     db.close();
     throw error;

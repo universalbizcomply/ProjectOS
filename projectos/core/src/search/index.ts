@@ -57,3 +57,4 @@ export {
 } from './citedSearch.js';
 export { UNTRUSTED_EXCERPT_NOTICE, renderUntrustedExcerpt } from './untrustedExcerpt.js';
 export { sensitiveContentProblem, sensitivePathProblem, type SensitiveReason } from './sensitiveContent.js';
+export { SEARCH_INDEX_KEY_DOMAIN, searchIndexFileName, type SearchIndexFileName, type SearchIndexKeyRefusal, type SearchIndexOwner } from './indexKey.js';

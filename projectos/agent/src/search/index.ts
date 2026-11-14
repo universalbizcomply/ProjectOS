@@ -1,7 +1,8 @@
 // Origin: original ProjectOS code
 /**
  * The local search index (PROJECTOS-PORT-SEARCH1A). Nothing calls it yet: the context manager (plan 3.4) is its
- * first caller, and that phase wires it into the agent.
+ * first caller, and that phase wires it into the agent. One file per tenant and project, and a clock and a file system
+ * that arrive as ports (PROJECTOS-MEMORY-STORES1A).
  */
 export {
   DEFAULT_MAX_DOCUMENT_BYTES,
@@ -21,5 +22,10 @@ export {
   type SearchIndex,
   type SearchOutcome,
   type SearchRefusalReason,
+  type SearchIndexDeps,
   type SearchRequest,
 } from './localIndex.js';
+export { openProjectSearchIndex, projectIndexLocation, type ProjectIndexDeps, type ProjectIndexOpening } from './projectIndex.js';
+export { MAX_STORE_FILES_PER_DIRECTORY, collectStoreSources, storeClassOfPath } from './storeSources.js';
+export { documentFsOver, searchClockOver, type DocumentFs, type DocumentSystem, type EntryKind, type EntryProbe, type EntryStat, type SearchClock } from './ports.js';
+export { nodeEnsureDirectory, nodeEntryProbe } from './nodeHost.js';
