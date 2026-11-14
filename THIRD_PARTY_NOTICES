@@ -1068,3 +1068,230 @@ Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
 Licence: MIT
 Copyright: Copyright (c) 2025 Nous Research
 Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/computer/allowlistPattern.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/exec-allowlist-pattern.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/wrapperResolution.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/exec-wrapper-trust-plan.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/wrapperResolution.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/dispatch-wrapper-resolution.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/wrapperResolution.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/shell-wrapper-resolution.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/wrapperResolution.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/exec-wrapper-tokens.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/execCommand.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/exec-command-resolution.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/execCommand.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/exec-approvals-core.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/execCommand.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/exec-argv-analysis.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/execCommand.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/exec-safety.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/execPolicy.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/exec-approvals-core.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/execPolicy.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/exec-command-resolution.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/execGrants.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/exec-approvals-core.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/execDisplay.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/exec-approval-text-sanitize.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/execDisplay.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/infra/exec-approval-command-display.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/processTree.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/process/kill-tree.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/processTree.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: packages/agent-core/src/harness/env/kill-tree.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/computer/actionContext.ts
+Source: copilotkit-openbot
+Upstream: https://github.com/CopilotKit/OpenBot
+Source-Path: server/src/computer/policy.ts
+Source-Commit: c396a5f68c817043846f1ca3c2b42061ee73ceb5
+Licence: MIT
+Copyright: Copyright (c) 2026 CopilotKit
+Licence-Text: SOURCE copilotkit-openbot, in this file
+
+ENTRY: projectos/core/src/computer/actionPolicy.ts
+Source: copilotkit-openbot
+Upstream: https://github.com/CopilotKit/OpenBot
+Source-Path: server/src/computer/policy.ts
+Source-Commit: c396a5f68c817043846f1ca3c2b42061ee73ceb5
+Licence: MIT
+Copyright: Copyright (c) 2026 CopilotKit
+Licence-Text: SOURCE copilotkit-openbot, in this file
+
+ENTRY: projectos/core/src/computer/networkPolicy.ts
+Source: copilotkit-openbot
+Upstream: https://github.com/CopilotKit/OpenBot
+Source-Path: server/src/computer/policy-network.ts
+Source-Commit: c396a5f68c817043846f1ca3c2b42061ee73ceb5
+Licence: MIT
+Copyright: Copyright (c) 2026 CopilotKit
+Licence-Text: SOURCE copilotkit-openbot, in this file
+
+ENTRY: projectos/agent/src/computer/execRunner.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/process/exec-runner.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/agent/src/computer/execRunner.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/process/exec-result.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/agent/src/computer/killTree.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/process/exec-termination.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/agent/src/computer/killTree.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/process/kill-tree.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
