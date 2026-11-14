@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-PORT-AGENTS1A",
+  "project": "ProjectOS",
+  "objective": "Port delta phase 9 (C7, C12). Port the OpenClaw (MIT) routing and binding model re-keyed on the envelope tenant and domain, and translate the Hermes (MIT) delegation dispatch rules. Pure rules only: agent records, queue-state rules the existing agent/src/workforce/ dispatch can adopt in Stage 4, delegation and same-tenant messages. The workforce dispatch stays the only queue (PRD non-goal: no second work queue or orchestrator).",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-14T12:37:41.285Z",
+      "note": "Owner-approved plan v1.36 and delta rev 2. Built by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-14T12:37:41.943Z",
+      "note": "persistent agents: tenant-agreeing records, routes and messages, delegation bounded by the parent envelope snapshot, queue-state transitions, no second queue"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-14T12:37:42.564Z",
+      "note": "core 4132/4132 (100 files), agent 3573/3573 (114 files), control-center 952/952 (69 files) at a6ac6543 on the plan worktree after a rebuild of core then agent; at ba1f7644 (a rename of one computer helper and two validator run() wrappers) core was rebuilt, the 148 computer tests re-ran and the affected validators passed again. validate-all on the stack head ba1f7644: 172 PASS, 1 FAIL, 2 retired (173 registered). The one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4. An earlier run at a6ac6543 found a name clash with the MCP guard (MC-19) and two async run() validators; both fixed in ba1f7644."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-14T12:37:43.179Z",
+      "note": "Evidence: docs/finish/PROJECTOS-PORT-AGENTS1A.md (branch head 4c9b9ec9, stacked at ba1f7644)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-14T12:37:43.943Z",
+      "note": "closure tail only - no implementation. Reviews: ECC security-reviewer, Agency multi-agent-systems-architect, one recheck, final round re-verified by the lead."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-14T12:37:44.557Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
