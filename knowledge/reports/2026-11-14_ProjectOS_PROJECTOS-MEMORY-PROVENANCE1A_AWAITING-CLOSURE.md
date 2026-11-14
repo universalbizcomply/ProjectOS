@@ -1,0 +1,8 @@
+# PROJECTOS-MEMORY-PROVENANCE1A — awaiting closure
+
+**Phase:** PROJECTOS-MEMORY-PROVENANCE1A, phase 43 of 47 of plan v1.36
+**Closure route:** owner-direct, under the owner's full-authority grant. No gatekeeper closure ruling was obtained, and none is claimed.
+
+V4 Stage 3, plan 3.3. Retrieved items rank by provenance fields only (committed decision, then approved or plan memory, then execution record or finding, then summary), never by their text; a summary can never replace or overwrite a decision. A ranking proof is minted only by a committed read (a registered, frozen object bound to its path, kind and commit), so a forged, copied or cloned proof never ranks first, and a proof from another HEAD or with no HEAD never ranks tier 0 or 1. Decisions, plan memory and approved memory are read from the bytes committed at HEAD through an injected git port; a differing working copy, symlink, submodule, non-regular blob or path escape is refused. A citation from an index built before HEAD is marked stale, and an answer keeps the stale mark of the hit it cites. Retention is a per-class table; deleting approved memory, or anything a committed decision cites, is the P5 action memory-delete and is refused without an owner verifier answering exactly true, bound to root, tenant, project, item hash and the ledger position; a derived index deletes as memory-index-rebuild (P2); every deletion and refused attempt goes to an append-only hash-chained record, and no record means no deletion. Ships UNWIRED: pieces, call sites and the owner verifier are named for Stage 4.1.
+
+Full record: `docs/finish/PROJECTOS-MEMORY-PROVENANCE1A.md`.

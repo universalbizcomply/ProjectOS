@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-MEMORY-PROVENANCE1A",
+  "evidenceSubjectHead": "278f9b711c210b879a262bafec8648b4a08c6da9",
+  "baselineCommit": "b5073c1a8862f7e2a446ca0dc61b66a79a8e61f8",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-14T20:44:29.600Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-MEMORY-PROVENANCE1A, phase 43 of 47 of plan v1.36, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 278f9b71 on the plan worktree (provenance and freshness: committed decisions outrank recollection, memory read from committed bytes only, stale citations marked, retention per class and owner-gated recorded deletion).",
+    "validatorsPass: val-projectos-memory-provenance1a (204 text and 125 behavioural named mutations killed), val-projectos-memory-stores1a (three pins updated by the lead in de9e7b01, none loosened), val-projectos-port-search1a, val-projectos-port-memory1a, val-projectos-port-credit1a, val-projectos-port-skills1a, val-projectos-port-context1a and validate-no-secrets PASS. validate-all on the stack head 278f9b71: 174 PASS, 1 FAIL, 2 retired (175 registered). The one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4.",
+    "checksPass: core 4642/4642 (108 files), agent 3793/3793 (120 files), control-center 952/952 (69 files) on the merged stack 278f9b71 after a rebuild of core then agent.",
+    "reviewsComplete: Claude self-review; ECC security-reviewer (1 HIGH: a forged committed proof ranked first; 3 MEDIUM: stale mark lost in cited answers, a deletion not bound to its checkout, a hostile contradicts list crashed the ranking; 5 LOW; all reproduced); fix round 1; one recheck that reproduced (confirmed the six fixed, found 2 MEDIUM: an uncapped citation freshness cost of 6.4 s and a proof with no HEAD binding or ledger position in the claim, plus LOWs, all fixed in a final round); the lead re-ran every suite and validator and a scratch script against the built dist (forged, copied, cloned and Proxy proofs; no head; hostile contradicts; 600-item timing; a summary replacing a decision; null deletion facts). No Agency specialist: the phase spec asks for ECC SECURITY only.",
+    "unresolved: zero CRITICAL/HIGH. Residuals are named in docs/finish/PROJECTOS-MEMORY-PROVENANCE1A.md: (1) NOTHING IS WIRED: the context manager (3.4) must read committed memory, build items and rank them with the current head; Stage 4.1 wires the deletion command, the index open and agent/src/index.ts exports. (2) The owner verifier has no production implementation and the owner is asserted by the caller until owner proof exists; judgeCommittedRead trusts its facts so wiring must feed it only from the git port. (3) The deletion ledger tail can be cut or wiped without detection (anchor the head hash elsewhere); a failed closing write leaves an authorised entry with no result and returns recorded:false. (4) Deleting an uncited execution record or a rejected proposal is P5 only because the registry has no weaker entry: a lighter entry is one owner registry act. (5) A deletion removes the working-tree file only; git history keeps the committed bytes. (6) The item hash is over decoded text, items over 1 MiB are not deleted, and real case-distinct files Notes.md and notes.md are listed as collisions. (7) builtAtCommit is supplied by the caller; nothing forces it to be taken before collecting sources. (8) researchLoop.ts rebuilds citations without freshness and is outside this phase's paths. (9) memory-classes.md still says marking stale citations is plan 3.3; a later phase updates it together with its pin. (10) A hanging verifier is not covered (the port is synchronous) and the real System adapters were not exercised.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
