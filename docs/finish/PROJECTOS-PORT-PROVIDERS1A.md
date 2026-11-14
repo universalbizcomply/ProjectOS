@@ -7,26 +7,25 @@ Not pushed, not merged, phase not closed, no phase record created. `docs/06_Plan
 Nothing was run from a vendor folder, `openbot-lower` and every `DO-NOT-PORT.txt` were not opened, no dependency was
 added, and no xAI or Grok path exists. Vendor text was read as data.
 
-## Two things the lead must act on
+## What the lead needs to know
 
-1. **The credit validator cannot see `modelBroker/`, and fixing that is outside this phase's write paths.**
-   `val-projectos-port-credit1a` judges only the directories in its `PORT_DIRS`, and ADR-P1 §7 must list the same ones
-   (PC-17). `modelBroker/` is in neither, so on this branch **`val-projectos-port-credit1a` fails** (PC-23, a credit mark
-   outside a port directory, and PC-16, notice entries outside one) and **`validate-all` fails on it**. The fix is
-   three lines in the validator and two in the ADR, and it needs one more thing a path-based search would miss: the
-   ADR directory pattern is lower-case only (`src\/[a-z]+`), so a camelCase directory like `modelBroker` is not
-   matched until it reads `[A-Za-z]+`. The patch is
-   `docs/finish/PROJECTOS-PORT-PROVIDERS1A-credit-adoption.patch` (`git apply`). **Proved both ways** on this tree:
-   with it applied, the credit validator reads `PASS (75 real file(s) judged; 149 fixture and 59 record mutations
-   killed)`; without it, it fails as above. It was applied only for the proof and then reverted, so this branch's
-   commit holds neither the validator nor the ADR edit. The sibling ports (routines, agents, research, mcp, computer)
-   will meet the same wall with their own camelCase directories.
-2. **The agent cannot see this phase's core through its `node_modules` junction.** `agent/node_modules/@projectos/core`
-   is a junction to `host-review-path1b`'s older build, so plain `npm run build` in `projectos/agent` fails with
-   TS2305 for every name this phase adds, whatever core's build says. As in `PORT-SEARCH1A`, the agent typecheck and
-   tests ran against a scratchpad config that aliases `@projectos/core` to this worktree's `core/src/index.ts`. The
-   junction was not touched.
-
+1. **Credit validator and directories.** The shared credit-dirs commit `86f18e23` (merged into this branch) lists
+   `modelBroker` in `PORT_DIRS`, ADR-P1 §7 and the PC-17 pattern, so the earlier adoption patch is gone. One more edit
+   was needed and is recorded here, outside this phase's write paths and approved by the lead: `"providers"` was added to
+   `PORT_VALIDATORS` in `val-projectos-port-credit1a.cjs` (one line), so this phase's validator may quote upstream marks
+   in its own proofs. The credit validator then passes (75 real files judged).
+2. **The agent's `@projectos/core` junction.** `agent/node_modules/@projectos/core` points at the `host-review-path1b`
+   worktree. Core was built in this worktree first (exit 0), but the agent still reads the other worktree, so the plain
+   `npm run -s build` in `projectos/agent` fails with TS2305 on every name this phase adds. The agent typecheck and
+   tests therefore ran against a scratchpad config that aliases `@projectos/core` to this worktree's
+   `core/src/index.ts` (the same method as `PORT-SEARCH1A`). The junction was not touched.
+3. **`tenantSidecar.test.ts` fails here only because of that junction.** It runs the plain `tsc -p agent/tsconfig.json`
+   and so meets the same TS2305. On base `d443a0fa` (agent sources from `git archive` in a scratch directory, the same
+   `node_modules`) the plain `tsc` exits 0, so it passes on base. It goes green once the junction sees this core, as
+   after a merge and a core build in the main checkout.
+4. **Registration order.** `val-projectos-port-providers1a` is registered before `val-projectos-connector-contract1a` in
+   both lists, not after it, because that validator pins its own entry as the last one in the list
+   (`CC-27`). Both lists are identical and in the same order.
 ## Existing code found (B1, before any file was written)
 
 | Found | Where | Used how |
@@ -99,7 +98,7 @@ and `provider-id` (normalisation the closed registry does not need), the streami
 | Pricing from committed bytes only, feeding `RateCard`; an unpriced model is refused | `modelBroker-pricing.test.ts` (commit shapes, unpriced, zero, decimals, tiers, cache), `modelBroker-call.test.ts` "refuses an unpriced model", agent `loadCommittedBrokerConfig` tests |
 | A fallback stays in the registry; cooldown by an injected clock | `modelBroker-routing.test.ts` (registry, cooldown, route choice), `modelBroker-call.test.ts` fallback block |
 | Local detection accepts loopback only | `modelBroker-endpoints.test.ts`, agent "refuses any other host and never calls the port for it" |
-| Credit headers and entries; the credit validator passes | PP-2, PP-3, PP-4. The validator passes with the patch above and not without it (see the first section) |
+| Credit headers and entries; the credit validator passes | PP-2, PP-3, PP-4. The credit validator passes (see the first section) |
 | The validator refuses an importer outside the module | PP-24 and its two mutations |
 | Validator pin and named mutations | See below |
 
@@ -143,41 +142,59 @@ looped for ever instead of failing, and was removed; its text twin stays.
 
 ## Checks
 
-Seen passing (exit codes read, not assumed):
+Every line below was read from an exit code or an output on this tree (last commit `07f423d0` plus this phase's edits).
 
 | Check | Result |
 |---|---|
-| core `npx vitest run` | 64 files, 2947 tests, all pass |
 | core `npm run -s build` | exit 0 |
-| agent `npm run -s build` (plain) | exit 2: TS2305, the junction (first section) |
-| agent `tsc` through the alias config, all of `src` | exit 0 |
-| agent `vitest` through the alias config, whole suite | 108 of 110 files, 3424 tests pass, 1 fails: `workerLifecycle.test.ts`, which passes alone (28 of 28) and is a process-liveness test, so a load flake. The second failing file was not identified, because the re-run was stopped. `modelBroker.test.ts` passes (11) |
-| `val-projectos-port-providers1a` | PASS (15 real files; 151 text and 39 behavioural mutations killed), before the last agent edit |
+| core `npx vitest run` | 64 files, 2947 tests, all pass (65 of them in the five `modelBroker-*` files) |
+| agent `npm run -s build` (plain) | **exit 2**, TS2305, the junction (item 2 above) |
+| agent `tsc` over all of `src` through the alias config | exit 0 |
+| agent `tsc` over `src/modelBroker` and its test through the alias config | exit 0 |
+| agent `vitest`, whole suite, alias config | 110 files (109 ran), 3435 tests: 3425 pass, 0 fail, 10 skipped (not ours). One file failed to load: `tenantSidecar.test.ts` (item 3) |
+| `workerLifecycle.test.ts` | Failed once under load in the first full run. Passes alone (28 of 28) and passed in the second full run |
+| `val-projectos-port-providers1a` | PASS (15 real files judged; 151 text and 39 behavioural mutations killed), after the `localModels.ts` edit and after the registration move |
+| `val-projectos-port-credit1a` | PASS (75 real file(s) judged; 152 fixture and 59 record mutations killed) |
 | `validate-no-secrets` | PASS |
-| `val-projectos-port-credit1a` | PASS (75 files) with the adoption patch applied; fails without it |
-| `val-projectos-port-search1a`, `-memory1a`, `-approvals1a` | PASS (run with the patch applied) |
+| `val-projectos-connector-contract1a` | PASS (38 rules; 293 named mutations killed). It failed twice (CC-M) with the first registration order, which is why the order moved |
+| `val-projectos-port-{search,memory,approvals,context,skills}1a` | all PASS (113+25, 197, 81+64, 320, 440 mutations) |
+| `val-projectos-kernel-{cost-cap,followup,platform-stop,role-review}1a`, `boot-continue1a`, `closure-transport1a`, `agent-workforce1a`, `gate-decision-evidence1a`, `gatekeeper-contract1a`, `host-review-path1a`, `host-review-path1b`, `live-gate-owner-floor1a`, `provider-key-shapes1a`, `technical-continuation1a`, `trust-boundary1a`, `work-record-not-authority1a`, `worker-lifecycle-bounded1a`, `v3-validation-evidence1a`, `validator-scratch-lifecycle1a` | all exit 0 |
+| `val-projectos-tenant-{contract,credentials,csp,principal,rls}1a`, `val-watchdog-core1a`, `validate-speed-validation-cache`, `validate-v2-closure-evidence`, `validate-zero-relay-continuity` | all exit 0 |
+| The 14 `val-cd-b4-*` validators | **not run.** They are Rust build fixtures that matched the touched-file search only through a broad pattern. The lead runs `validate-all` |
+| `validate-all` | **not run**, by the lead's instruction |
 
-Not run, or interrupted: `val-projectos-port-context1a`, `-skills1a`, `val-projectos-connector-contract1a`,
-`val-projectos-kernel-followup1a`, `validate-speed-validation-cache`, the rest of the 21 validators that read a touched
-file, and `validate-all`.
-
+The 36 validators that read a touched file were run one process each, after the last source change, except that the
+early batch (up to `val-projectos-port-approvals1a`) ran before the registration move and was run again afterwards
+(17 validators, all exit 0).
 ## Converge (B9)
 
-- **Unbuilt.** No prices are committed: the broker refuses every model until the owner commits a table and a provider
-  list (fail closed by design). The attempt store is in memory only. No action-registry entry exists for a model call
-  (`action-registry.json` is PROTECTED), so P3 is the module's constant plus a grant port, not a registry lookup. The
-  agent barrel (`agent/src/index.ts`) is not edited: it is outside the write paths. No live transport exists.
-- **Drift from the spec.** The criterion "no importer outside its own directory and tests" has one allowed exception, the
-  core barrel's single export line, as in search. Hermes' same-name overwrite became a refusal, and a provider-declared
-  reset is capped at 4 h. OpenClaw's numeric-attempts retry form is cut.
-- **PROTECTED files.** `git diff --stat d443a0fa` touches only `validate-all.cjs` and `speed/cached-runner.cjs`
-  (registration only, approved in the delta), `THIRD_PARTY_NOTICES` and `core/src/index.ts` (listed). The credit
-  validator and ADR-P1 are untouched in the commit; their needed change is the patch file.
+Compared with the phase entry in `docs/projectos-finish-phases.json` and delta row 2:
 
-## PAUSED STATE
+| Requirement | State |
+|---|---|
+| Port the provider registry, retry with a backoff floor, committed pricing feeding `RateCard`, fallback and cooldown, custom endpoint records, loopback-only detection | Built, each with tests and a rule |
+| Every call P3 with a mandatory budget | Built as a refusal before the transport, plus a spend-grant port. **Not built:** an `action-registry.json` entry for a model call (PROTECTED, the owner's O1-style act). P3 is the module's constant, not a registry lookup |
+| "Pricing is read from committed bytes only" | The module accepts only text stamped with a 40-hex commit, and the agent loader only reads through a committed reader. **No price table or provider list is committed**, so the broker refuses every model until the owner commits both (fail closed, intended) |
+| Credit headers, notices, credit validator passes | Built; the credit validator passes after the shared dirs commit and the one-line `PORT_VALIDATORS` edit |
+| The validator refuses an importer outside the module and its tests | Built (PP-24), by import path and by exported name. **One deliberate exception:** the core barrel's single export line, as in `PORT-SEARCH1A`; the spec wording does not say so |
+| Validator pin and named mutations, each killed by its own rule | 151 text, 39 behavioural |
+| Backoff floor owed by CONNECTOR-CONTRACT1A | Closed in the broker (PP-11). `connectorContract.ts` itself is unchanged, so `decideConnectorRetry` still has no floor for connector calls |
 
-Paused before shutdown at the lead's request. Passed: see Checks. Interrupted or not run: the agent suite re-run (one
-unidentified failing file), the other touched-file validators, `validate-all`. The validator was last run before one
-small agent change (`listUrlOf` in `localModels.ts`, with a new test), so re-run it. Left to do: re-run the validator,
-the agent suite and the validators listed above; run `validate-all` with the credit patch applied (`git apply
-docs/finish/PROJECTOS-PORT-PROVIDERS1A-credit-adoption.patch`); then review (ECC SECURITY, Agency api-platform-engineer).
+**Unbuilt, on purpose or by scope:** a durable attempt store (the in-memory one is the double); a live transport; the
+`agent/src/index.ts` barrel (outside the write paths); Hermes `route_binding.py` (wiring); the vendor price snapshots.
+
+**Behaviour drift from upstream, each in a `CHANGED:` line:** a same-name provider registration is refused, not
+overwritten; a provider-declared reset is capped at 4 h; the numeric-attempts retry form is cut; a free cache rate is
+priced as fresh input; cache-write dearer than input is carried as the input rate.
+
+**PROTECTED files.** `git diff --stat d443a0fa..HEAD` was read after the last edit: `validate-all.cjs` and
+`speed/cached-runner.cjs` (registration only, approved by the delta), `THIRD_PARTY_NOTICES`, `core/src/index.ts` (one
+line) and `val-projectos-port-credit1a.cjs` (one line, approved by the lead, plus the shared commit's own edits). No
+other PROTECTED file is in the diff; `gatekeeperConfig.ts`, `run.ts`, the broker and `credentialResolver.ts` are
+untouched.
+
+## Final state
+
+Ready for review: ECC SECURITY and Agency `api-platform-engineer` (the phase's required reviews), then `validate-all`
+run by the lead. Open for the owner: the committed price table and provider list; the action-registry entry for a
+model call; a durable attempt store when this is wired.

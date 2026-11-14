@@ -186,10 +186,10 @@ const MODULES = [
   "val-projectos-tenant-principal1a",
   // PROJECTOS-TENANT-CREDENTIALS1A — a requester is a kernel-issued run handle; tenant and platform classes; reach; bound mutators.
   "val-projectos-tenant-credentials1a",
-  // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
-  "val-projectos-connector-contract1a",
   // PROJECTOS-PORT-PROVIDERS1A — the model broker: a budget on every call, a backoff floor, committed prices, a closed registry, loopback only.
-  "val-projectos-port-providers1a"
+  "val-projectos-port-providers1a",
+  // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
+  "val-projectos-connector-contract1a"
 ];
 
 const REGISTERED_MODULE_COUNT = MODULES.length;
