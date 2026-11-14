@@ -22,6 +22,7 @@
  *   MS-16 "the tests exist"                     — and a proof is skipped, isolated or renamed away
  *   MS-17 "it works on my disk"                 — and git ignores a file the code imports
  *   MS-18 "git will list the write"             — and a write to a git-ignored store is seen by nobody
+ *   MS-19 "it is only node:util"                — and core no longer loads in a browser (the control-center suite found it)
  *
  * THE RULES ARE RUN, NOT ONLY READ. A pin on a call site survives a gutted function, so the pins sit inside the function
  * that decides, and the code also runs: `behaviour` copies this phase's own TypeScript into a scratch directory (Node strips
@@ -123,6 +124,7 @@ const TESTS = {
     "refuses a run with more paths than can be judged, unread",
   ],
   "projectos/core/test/memory-proposal-door.test.ts": [
+    "the Proxy test is a required, fail-closed port, so core needs no node:util",
     "a key that would reach the prototype is refused",
     "a findings proposals entry is read into a request",
     "refuses a decision: worker-written text is never passed on as one",
@@ -189,6 +191,7 @@ const RULE_NAMES = {
   "MS-16": "the proof does not run",
   "MS-17": "a file is not tracked",
   "MS-18": "a write to an ignored store passes",
+  "MS-19": "core is not browser-pure",
 };
 
 const NOT_RUN = /\b(?:it|test|describe|suite|bench)\.(?:skip|only|todo|fails|skipIf|runIf)\b|\.(?:skip|only)\(|\b(?:xit|fit|xdescribe|fdescribe)\(/;
@@ -325,8 +328,15 @@ const PINS = [
   PM("MS-9", "an-unknown-skill-field-is-trimmed-not-refused", DOOR_CORE, "skillRequestOf", "if (unknownFieldOf(fields, SKILL_FIELDS) !== null) {", "if (false) {"),
   PM("MS-9", "a-getter-is-read", DOOR_CORE, "fieldsOf", "descriptor.enumerable !== true", "false"),
   PM("MS-9", "a-getter-is-called", DOOR_CORE, "fieldsOf", "!('value' in descriptor)", "false"),
-  PM("MS-9", "a-proxy-is-read", DOOR_CORE, "fieldsOf", "isProxy(value) || ", ""),
-  PM("MS-9", "a-proxy-list-is-read", DOOR_CORE, "elementsOf", "isProxy(value) || ", ""),
+  PM("MS-9", "a-proxy-is-read", DOOR_CORE, "fieldsOf", "proxied(isProxy, value) || ", ""),
+  PM("MS-9", "a-proxy-list-is-read", DOOR_CORE, "elementsOf", "proxied(isProxy, value) || ", ""),
+  PM("MS-9", "the-proxy-probe-is-optional", DOOR_CORE, "readFindingsProposals", "if (typeof isProxy !== 'function') {", "if (false) {"),
+  PM("MS-9", "an-answer-other-than-false-clears-a-value", DOOR_CORE, "proxied", "return isProxy(value) !== false;", "return isProxy(value) === true;"),
+  PM("MS-9", "a-throwing-probe-is-not-a-proxy", DOOR_CORE, "proxied", "  } catch {\n    return true;\n  }", "  } catch {\n    return false;\n  }"),
+  PM("MS-9", "the-field-reads-are-not-guarded", DOOR_CORE, "fieldsOf", "  try {\n    if (typeof value !== 'object' || value === null || proxied", "  {\n    if (typeof value !== 'object' || value === null || proxied"),
+  PM("MS-9", "the-element-reads-are-not-guarded", DOOR_CORE, "elementsOf", "  try {\n    if (typeof value !== 'object' || value === null || proxied", "  {\n    if (typeof value !== 'object' || value === null || proxied"),
+  PM("MS-9", "the-agent-supplies-a-probe-that-says-no", DOOR_AGENT, "openProposalDoor", "(value) => types.isProxy(value)", "() => false"),
+  PM("MS-9", "the-agent-supplies-no-probe", DOOR_AGENT, "openProposalDoor", "readFindingsProposals(parsed.record, (value) => types.isProxy(value))", "readFindingsProposals(parsed.record, undefined as never)"),
   PM("MS-9", "a-symbol-key-is-read", DOOR_CORE, "fieldsOf", "if (typeof key !== 'string' || PROTOTYPE_KEYS.includes(key)) return null;", "if (PROTOTYPE_KEYS.includes(key as string)) return null;"),
   PM("MS-9", "a-prototype-key-is-copied", DOOR_CORE, "fieldsOf", "typeof key !== 'string' || PROTOTYPE_KEYS.includes(key)", "typeof key !== 'string'"),
   PM("MS-9", "the-copy-has-a-prototype", DOOR_CORE, "fieldsOf", "Object.create(null) as Record<string, unknown>", "{} as Record<string, unknown>"),
@@ -342,7 +352,7 @@ const PINS = [
   PM("MS-9", "a-skill-entry-skips-the-queue", DOOR_AGENT, "skillEntry", "proposeSkill(sys, root, { actor: caller.author, role: caller.role, session: caller.session }, { files: one.files })", "{ ok: true, value: { id: 'skl-000000000000000000000000', proposalHash: 'sha256:00' } } as const", ["MS-11"]),
   PM("MS-9", "a-skill-origin-comes-from-the-record", DOOR_AGENT, "skillEntry", "{ files: one.files })", "{ files: one.files, origin: 'imported' })"),
   PM("MS-9", "the-record-is-parsed-before-its-size-is-judged", DOOR_AGENT, "openProposalDoor", "if (findingsText.length > MAX_FINDINGS_RECORD_CHARS) {", "if (false) {"),
-  PM("MS-9", "the-record-is-not-read-through-core", DOOR_AGENT, "openProposalDoor", "readFindingsProposals(parsed.record)", "{ requests: [], refused: [] }"),
+  PM("MS-9", "the-record-is-not-read-through-core", DOOR_AGENT, "openProposalDoor", "readFindingsProposals(parsed.record, (value) => types.isProxy(value))", "{ requests: [], refused: [] }"),
   PM("MS-9", "an-already-pending-entry-is-queued-again", DOOR_AGENT, "memoryEntry", "if (same !== undefined) return { ok: true, index: one.index, class: 'memory', id: same.id, proposalHash: same.proposalHash, state: 'pending', duplicate: true };", ""),
   PM("MS-9", "the-agent-door-is-not-exported", AGENT_MEMORY_BARREL, null, "  openProposalDoor,\n", ""),
 
@@ -399,14 +409,20 @@ const TEXT_MUTATIONS = [
   { rule: "MS-18", name: "the-digest-writes", rel: STORE_DIGEST, from: "const sha256 = ", to: "const leak = (fs: { writeText(a: string, b: string): void }): void => fs.writeText('a', 'b');\nconst sha256 = ", also: [] },
   { rule: "MS-14", name: "the-digest-loses-its-mark", rel: STORE_DIGEST, from: `${ORIGIN_LINE}\n`, to: "", also: [] },
 
+  { rule: "MS-19", name: "the-core-door-imports-node-util-again", rel: DOOR_CORE, from: "import { MEMORY_ENTRY_KINDS,", to: "import { types } from 'node:util';\nimport { MEMORY_ENTRY_KINDS,", also: ["MS-12"] },
+  { rule: "MS-19", name: "the-core-store-imports-node-util", rel: cm("store.ts"), from: "import { createHash } from 'node:crypto';", to: "import { createHash } from 'node:crypto';\nimport { types } from 'node:util';", also: [] },
+  { rule: "MS-19", name: "the-core-search-barrel-imports-node-fs", rel: CORE_SEARCH_BARREL, from: ORIGIN_LINE, to: `${ORIGIN_LINE}\nimport { readFileSync } from 'node:fs';`, also: [] },
+  { rule: "MS-19", name: "the-core-index-key-imports-node-os", rel: KEY, from: "import { sha256Hex }", to: "import { tmpdir } from 'node:os';\nimport { sha256Hex }", also: ["MS-12"] },
+  { rule: "MS-19", name: "the-core-prompt-imports-node-buffer", rel: PROMPT, from: "import { createHash } from 'node:crypto';", to: "import { createHash } from 'node:crypto';\nimport { Buffer } from 'node:buffer';", also: ["MS-12"] },
+
   // MS-12: the pure rules stay pure.
-  { rule: "MS-12", name: "core-door-reads-a-file", rel: DOOR_CORE, from: "import { types } from 'node:util';", to: "import { types } from 'node:util';\nimport { readFileSync } from 'node:fs';", also: [] },
+  { rule: "MS-12", name: "core-door-reads-a-file", rel: DOOR_CORE, from: "import { MEMORY_ENTRY_KINDS,", to: "import { readFileSync } from 'node:fs';\nimport { MEMORY_ENTRY_KINDS,", also: ["MS-19"] },
   { rule: "MS-12", name: "core-door-reads-the-environment", rel: DOOR_CORE, from: "const refusal = (index", to: "const leak = process.env;\nconst refusal = (index", also: [] },
   { rule: "MS-12", name: "direct-write-reads-the-clock", rel: DIRECT, from: "const MAX_PATHS_JUDGED", to: "const stamp = Date.now();\nconst MAX_PATHS_JUDGED", also: [] },
-  { rule: "MS-12", name: "index-key-reads-a-file", rel: KEY, from: "import { sha256Hex }", to: "import { readFileSync } from 'node:fs';\nimport { sha256Hex }", also: [] },
+  { rule: "MS-12", name: "index-key-reads-a-file", rel: KEY, from: "import { sha256Hex }", to: "import { readFileSync } from 'node:fs';\nimport { sha256Hex }", also: ["MS-19"] },
   { rule: "MS-12", name: "index-key-imports-the-agent", rel: KEY, from: "import { sha256Hex }", to: "import { join } from '../../../agent/src/context.js';\nimport { sha256Hex }", also: [] },
   { rule: "MS-12", name: "the-render-reads-the-environment", rel: PROMPT, from: "const NOT_AUTHORITY =", to: "const leak = process.env;\nconst NOT_AUTHORITY =", also: [] },
-  { rule: "MS-12", name: "the-sensitive-boundary-imports-fs", rel: SENSITIVE, from: "export type SensitiveReason", to: "import { readFileSync } from 'node:fs';\nexport type SensitiveReason", also: [] },
+  { rule: "MS-12", name: "the-sensitive-boundary-imports-fs", rel: SENSITIVE, from: "export type SensitiveReason", to: "import { readFileSync } from 'node:fs';\nexport type SensitiveReason", also: ["MS-19"] },
   { rule: "MS-4", name: "the-clock-port-reads-the-real-clock", rel: PORTS, from: "const read = Date.parse(system.now());", to: "const read = Date.now();", also: [] },
   { rule: "MS-5", name: "the-project-index-reaches-the-file-system", rel: PROJECT_INDEX, from: "import { searchIndexFileName,", to: "import { mkdirSync } from 'node:fs';\nimport { searchIndexFileName,", also: [] },
   { rule: "MS-5", name: "the-store-walk-reaches-the-file-system", rel: STORES, from: "import { sensitiveContentProblem,", to: "import { readFileSync } from 'node:fs';\nimport { sensitiveContentProblem,", also: [] },
@@ -416,7 +432,7 @@ const TEXT_MUTATIONS = [
   { rule: "MS-13", name: "the-store-walk-parses-the-records", rel: STORES, from: "    totalBytes += size;\n", to: "    totalBytes += size;\n    JSON.parse(content);\n", also: [] },
   { rule: "MS-13", name: "the-index-imports-an-authority-module", rel: INDEX, from: "import type { SearchClock } from './ports.js';", to: "import type { SearchClock } from './ports.js';\nimport { closureDecision } from '../closureDecision.js';", also: ["MS-5"] },
   { rule: "MS-13", name: "the-door-imports-an-authority-module", rel: DOOR_AGENT, from: "import type { System } from '../system.js';", to: "import type { System } from '../system.js';\nimport { ownerOnlyAction } from '../../../core/src/ownerOnlyActions.js';", also: [] },
-  { rule: "MS-13", name: "the-core-door-imports-an-authority-module", rel: DOOR_CORE, from: "import { types } from 'node:util';", to: "import { types } from 'node:util';\nimport { gatekeeperDecision } from '../gatekeeperDecision.js';", also: ["MS-12"] },
+  { rule: "MS-13", name: "the-core-door-imports-an-authority-module", rel: DOOR_CORE, from: "import { MEMORY_ENTRY_KINDS,", to: "import { gatekeeperDecision } from '../gatekeeperDecision.js';\nimport { MEMORY_ENTRY_KINDS,", also: ["MS-12"] },
   { rule: "MS-13", name: "the-direct-write-rule-imports-the-approval", rel: DIRECT, from: "export const MEMORY_STORE_ROOTS", to: "import { approve } from '../approval.js';\nexport const MEMORY_STORE_ROOTS", also: ["MS-12"] },
 
   // MS-14: a statement of origin.
@@ -523,7 +539,7 @@ function check(raw) {
   // MS-12: core stays pure. The new core files import only what they need, and reach for nothing outside themselves.
   const CORE_ALLOWED = {
     [DIRECT]: [],
-    [DOOR_CORE]: ["node:util", "./proposal.js", "./store.js"],
+    [DOOR_CORE]: ["./proposal.js", "./store.js"],
     [KEY]: ["../execution/evidence.js", "../tenant.js"],
   };
   for (const rel of NEW_CORE) {
@@ -551,6 +567,13 @@ function check(raw) {
   if (/\bnowMs\b/.test(/rebuildProject:[\s\S]*?\) => RebuildResult;/.exec(code[INDEX])?.[0] ?? "")) E("MS-4", "a rebuild can be handed the time");
   for (const rel of [INDEX, PROJECT_INDEX, STORES, WALK, PORTS]) {
     if (/\bprocess\./.test(code[rel].replace(/process\.getBuiltinModule\('node:sqlite'\)/g, ""))) E("MS-5", `${rel} reaches the process`);
+  }
+
+  // MS-19: core loads in a browser, where `node:crypto` is aliased to a stub and nothing else under `node:` exists.
+  for (const rel of Object.keys(raw).filter((name) => (name.startsWith(`${CORE_MEMORY}/`) || name.startsWith(`${CORE_SEARCH}/`)) && name.endsWith(".ts"))) {
+    for (const spec of [...code[rel].matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"]([^'"]+)['"]/g)].map((m) => m[1])) {
+      if (spec.startsWith("node:") && spec !== "node:crypto") E("MS-19", `${rel} imports ${spec}, which a browser does not have`);
+    }
   }
 
   // MS-18: the digest reads through its port, with no git, no shell and no write.
@@ -974,7 +997,8 @@ expectIt('MS-8', () => {
 
 // MS-9: the one door.
 const mem = (extra = {}) => ({ class: 'memory', target: 'memory', op: 'add', kind: 'fact', content: 'The build uses Node 24.', ...extra });
-const readDoor = (proposals) => core.readFindingsProposals({ reviews: [], findings: [], proposals });
+const isProxyPort = (v) => process.getBuiltinModule('node:util').types.isProxy(v);
+const readDoor = (proposals) => core.readFindingsProposals({ reviews: [], findings: [], proposals }, isProxyPort);
 expectIt('MS-9', () => {
   const r = readDoor([mem(), { class: 'skill', files: [{ path: 'SKILL.md', text: 'x' }] }]);
   return r.refused.length === 0 && r.requests.map((x) => x.class).join() === 'memory,skill' && Object.isFrozen(r.requests[0]);
@@ -991,7 +1015,7 @@ expectIt('MS-9', () => {
   const r = readDoor([entry]);
   return r.requests.length === 0 && r.refused[0].code === 'PROPOSAL_DOOR_NOT_PLAIN' && reads === 0;
 });
-expectIt('MS-9', () => readDoor([new Proxy(mem(), {})]).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN' && core.readFindingsProposals({ proposals: new Proxy([mem()], {}) }).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN' && readDoor([{ ...mem(), [Symbol('x')]: 1 }]).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN');
+expectIt('MS-9', () => readDoor([new Proxy(mem(), {})]).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN' && core.readFindingsProposals({ proposals: new Proxy([mem()], {}) }, isProxyPort).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN' && readDoor([{ ...mem(), [Symbol('x')]: 1 }]).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN');
 expectIt('MS-9', () => {
   const many = Array.from({ length: 11 }, () => mem());
   const r = readDoor(many);
@@ -999,7 +1023,7 @@ expectIt('MS-9', () => {
 });
 expectIt('MS-9', () => {
   const wide = Object.fromEntries(Array.from({ length: 201 }, (_, i) => ['k' + i, i]));
-  return core.readFindingsProposals(wide).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN' && readDoor([{ ...mem(), ...wide }]).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN';
+  return core.readFindingsProposals(wide, isProxyPort).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN' && readDoor([{ ...mem(), ...wide }]).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN';
 });
 const WORKER = { author: 'worker-1', role: 'implementer', session: 'sess-1' };
 const OWNER = { author: 'owner', role: 'owner', session: 'sess-2' };
@@ -1115,7 +1139,7 @@ expectIt('MS-8', () => core.scanForThreats('&lt;!-- x --&gt;', 'strict').include
 expectIt('MS-8', () => core.scanForThreats('AT&amp;T said 1 &lt; 2, and &copy; stays.\n- [x]: done\n- [ ] next\n> a quoted line', 'strict').length === 0);
 
 // MS-9: prototype keys, canonical duplicates, one author's share of the queue.
-expectIt('MS-9', () => ['__proto__', 'constructor', 'prototype'].every((k) => readDoor([JSON.parse('{"class":"memory","target":"memory","op":"add","kind":"fact","content":"x","' + k + '":{"author":"owner"}}')]).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN') && core.readFindingsProposals(JSON.parse('{"proposals":[],"__proto__":{"a":1}}')).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN');
+expectIt('MS-9', () => ['__proto__', 'constructor', 'prototype'].every((k) => readDoor([JSON.parse('{"class":"memory","target":"memory","op":"add","kind":"fact","content":"x","' + k + '":{"author":"owner"}}')]).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN') && core.readFindingsProposals(JSON.parse('{"proposals":[],"__proto__":{"a":1}}'), isProxyPort).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN');
 expectIt('MS-9', () => {
   const sys = fakeSystem();
   const first = openProposalDoor(sys, ROOT, WORKER, findings([mem({ content: 'Prefer the release branch.' })])).entries[0];
@@ -1177,6 +1201,19 @@ expectIt('MS-8', () => {
 expectIt('MS-8', () => ['[x]: &lt;a' + BSL + '&gt; b&gt; "hidden"', '[' + 'a'.repeat(600) + ']: &lt;&gt;', '[x]:' + NLC + '#', '[x]:  ' + NLC + '  #', '[x]: a' + NLC + '"t"'].every((s) => core.scanForThreats('before' + NLC + s + NLC + 'after', 'strict').some((id) => id.startsWith('markdown_'))));
 expectIt('MS-5', () => ['Call re_render_count_total_value after the update.', 'Use re_render_v2_count_total_value_again for the v2 path.', 'The setting sb_publishable_key_name_for_client_config is documented.', 'The flag sb_secret_rotation_policy_for_service_roles is on.', 'See vcp_deployment_configuration_for_production.'].every((s) => core.sensitiveContentProblem(s) === null)
   && ['re_A1b2C3d4_Ef56Gh78Ij90Kl12Mn34Op56', 'sb_secret_' + 'a1b2'.repeat(8), 'sb_publishable_' + 'a1b2'.repeat(8), 'vcp_' + 'A1b2C3d4'.repeat(3)].every((s) => core.sensitiveContentProblem('Notes ' + s + ' more') === 'secret-content'));
+
+// STACK DEFECT probes: the Proxy test is a required, fail-closed port.
+expectIt('MS-9', () => {
+  const record = { proposals: [mem()] };
+  const whole = (r) => r.requests.length === 0 && r.refused.length > 0 && r.refused.every((x) => x.code === 'PROPOSAL_DOOR_NOT_PLAIN');
+  const throwing = () => { throw new Error('probe down'); };
+  return core.readFindingsProposals(record, () => false).requests.length === 1 && whole(core.readFindingsProposals(record)) && whole(core.readFindingsProposals(record, 'yes')) && whole(core.readFindingsProposals(record, throwing)) && [undefined, null, 0, 'false', 1].every((a) => whole(core.readFindingsProposals(record, () => a))) && whole(core.readFindingsProposals(record, () => true));
+});
+expectIt('MS-9', () => {
+  const hostile = new Proxy(mem(), { ownKeys() { throw new Error('no keys'); }, getOwnPropertyDescriptor() { throw new Error('no descriptors'); }, getPrototypeOf() { throw new Error('no prototype'); } });
+  const list = new Proxy([mem()], { getOwnPropertyDescriptor() { throw new Error('no descriptors'); } });
+  return core.readFindingsProposals({ proposals: [hostile] }, () => false).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN' && core.readFindingsProposals({ proposals: list }, () => false).refused[0]?.code === 'PROPOSAL_DOOR_NOT_PLAIN';
+});
 
 console.log(JSON.stringify({ count, failed: [...failed].sort() }));
 `;
@@ -1267,7 +1304,9 @@ const BEHAVIOUR_MUTATIONS = [
   B("an-entry-may-name-its-author-when-run", "MS-9", DOOR_CORE, "'ledgerRef'] as const;", "'ledgerRef', 'author'] as const;"),
   B("a-skill-entry-may-name-its-origin-when-run", "MS-9", DOOR_CORE, "const SKILL_FIELDS = ['class', 'files'] as const;", "const SKILL_FIELDS = ['class', 'files', 'origin'] as const;"),
   B("a-getter-is-called-when-run", "MS-9", DOOR_CORE, "!('value' in descriptor) || ", ""),
-  B("a-proxy-is-read-when-run", "MS-9", DOOR_CORE, "isProxy(value) || ", ""),
+  B("a-proxy-is-read-when-run", "MS-9", DOOR_CORE, "proxied(isProxy, value) || ", ""),
+  B("an-answer-other-than-false-clears-a-value-when-run", "MS-9", DOOR_CORE, "return isProxy(value) !== false;", "return isProxy(value) === true;"),
+  B("a-throwing-probe-is-not-a-proxy-when-run", "MS-9", DOOR_CORE, "  } catch {\n    return true;\n  }", "  } catch {\n    return false;\n  }"),
   B("a-symbol-key-is-read-when-run", "MS-9", DOOR_CORE, "    if (typeof key !== 'string' || PROTOTYPE_KEYS.includes(key)) return null;\n", "    if (PROTOTYPE_KEYS.includes(key as string)) return null;\n"),
   B("a-prototype-key-is-copied-when-run", "MS-9", DOOR_CORE, "typeof key !== 'string' || PROTOTYPE_KEYS.includes(key)", "typeof key !== 'string'"),
   B("a-duplicate-is-compared-literally-when-run", "MS-9", DOOR_AGENT, "normalizedEntryKey(held.content ?? '') === wanted", "(held.content ?? '') === (request.content ?? '')"),
