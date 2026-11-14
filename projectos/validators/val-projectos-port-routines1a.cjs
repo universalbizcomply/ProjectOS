@@ -169,13 +169,13 @@ const SOURCE_PINS = {
 };
 const FINISH_PINS = {
   "the existing code found": "Existing code found",
-  "the converge section": "Converge",
+  "the converge section": "## Converge (Code Bible B9)",
   "that nothing is wired": "Nothing is wired into the run loop.",
   "that no gate changed": "No gate was loosened or replaced.",
   "the floors are constants": "Floors are constants, and a record has no field that changes one.",
   "the timezone limit": "Only UTC is read.",
   "the dropped exemption": "The GitHub Authorization-header exemption was not ported",
-  "the credit validator line": "PORT_DIRS needs `projectos/core/src/routines`",
+  "the credit directories commit": "The shared commit `86f18e23` lists this directory",
   "the escalation port": "The owner queue is a port the caller supplies",
   "the record reader limit": "The reader checks the shape of an approval, not the approval",
   "the state limit": "A state is data the store holds",
@@ -724,17 +724,17 @@ const TEXT_MUTATIONS = [
   R("the-admission-header-loses-the-claim-order", "RT-15", ADMISSION_REL, "THE CLAIM COMES LAST.", "The claim is made."),
   R("the-prompt-header-loses-its-limit", "RT-15", PROMPT_REL, "WHAT A CLEAN RESULT MEANS.", "A clean result."),
   R("the-finish-record-loses-the-existing-code", "RT-15", FINISH_REL, "Existing code found", "Code"),
-  R("the-finish-record-loses-the-converge-section", "RT-15", FINISH_REL, "## Converge", "## Done"),
+  { ...R("the-finish-record-loses-the-converge-section", "RT-15", FINISH_REL, "## Converge (Code Bible B9)", "## Done"), all: true },
   R("the-finish-record-loses-the-wiring-line", "RT-15", FINISH_REL, "Nothing is wired into the run loop.", "Wiring is done."),
   R("the-finish-record-loses-the-gate-line", "RT-15", FINISH_REL, "No gate was loosened or replaced.", "Gates changed."),
   R("the-finish-record-loses-the-constants-line", "RT-15", FINISH_REL, "Floors are constants, and a record has no field that changes one.", "Floors are settings."),
   { ...R("the-finish-record-loses-the-timezone-limit", "RT-15", FINISH_REL, "Only UTC is read.", "Every zone is read."), all: true },
   R("the-finish-record-loses-the-dropped-exemption", "RT-15", FINISH_REL, "The GitHub Authorization-header exemption was not ported", "The exemption was ported"),
-  R("the-finish-record-loses-the-credit-validator-line", "RT-15", FINISH_REL, "PORT_DIRS needs `projectos/core/src/routines`", "PORT_DIRS is fine"),
+  { ...R("the-finish-record-loses-the-credit-directories-commit", "RT-15", FINISH_REL, "The shared commit `86f18e23` lists this directory", "The list is fine"), all: true },
   R("the-finish-record-loses-the-queue-port", "RT-15", FINISH_REL, "The owner queue is a port the caller supplies", "The owner queue is built in"),
   R("the-finish-record-loses-the-reader-limit", "RT-15", FINISH_REL, "The reader checks the shape of an approval, not the approval", "The reader checks approvals"),
   R("the-finish-record-loses-the-state-limit", "RT-15", FINISH_REL, "A state is data the store holds", "A state is proof"),
-  R("the-finish-record-loses-the-review", "RT-15", FINISH_REL, "ECC SECURITY", "A review"),
+  { ...R("the-finish-record-loses-the-review", "RT-15", FINISH_REL, "ECC SECURITY", "A review"), all: true },
 ];
 
 function textKill(m, raw, wired) {

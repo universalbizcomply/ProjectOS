@@ -28,13 +28,14 @@ idempotency, escalation, cost and connector code. Nothing schedules anything. Wh
 | `deriveIdempotencyKey`, whose doc says the intent scope may be "a schedule's occurrence id" | `core/src/taskEnvelope.ts` | Reused as the occurrence key. The key is the one `mintEnvelope` would derive for the same intent. |
 | `resolveAction`, `classAtMost`, `isActionName`, the registered `run-start` action (P2, local) | `core/src/actionRegistry.ts`, `security/action-registry.json` | The unattended class is read from the registry, never from the caller. A routine run is keyed as `run-start`. Nothing was added to the registry. |
 | `firstThreat` and the strict threat scan (invisible characters, comments, oversize, injection, exfiltration) | `core/src/memory/threatScan.ts` | The routine prompt scan runs it first, then the Hermes cron patterns. No second invisible-character list. |
-| The credit validator, notices file, header format | `val-projectos-port-credit1a.cjs`, `THIRD_PARTY_NOTICES` | Used as is. See the one line it needs, below. |
+| The credit validator, notices file, header format | `val-projectos-port-credit1a.cjs`, `THIRD_PARTY_NOTICES` | Used as is. The shared commit `86f18e23` lists this directory, so the credit validator judges it. |
 | `connectorContract` idempotency vocabulary, `gatekeeperModelPolicy` and cost ledger | `core/src/connectorContract.ts`, `gatekeeper*.ts` | Read, not reused: they concern connectors and model spend, and a routine run has neither here. |
 | Retry and backoff | nothing in core or agent | The model broker (phase 2) owns it. Not built here. |
 
-The approved delta names no file outside `core/src/routines/`, `core/src/index.ts`, `core/test/`,
-`THIRD_PARTY_NOTICES`, this phase's validator, the two registration lists and `docs/`. The credit validator is the
-one place that needed a change outside that list; see Residuals.
+Everything this phase touched is inside the approved rows: `core/src/routines/`, `core/src/index.ts`, `core/test/`,
+`THIRD_PARTY_NOTICES`, this phase's validator, the two registration lists and `docs/finish/`. The credit validator and
+ADR-P1 §7 needed the new directory listed. That came from the shared commit `86f18e23`, merged into this branch, and
+this phase does not edit either file.
 
 ## Ported files
 
@@ -120,16 +121,32 @@ refused mode; a dropped export; an unregistered validator; a skipped test; a los
 
 ## Checks
 
-Filled in from the runs; see the section at the end of the report for counts. (Updated at commit.)
+Run in this worktree after the merge of `86f18e23`; exit codes read, counts copied from the output. `validate-all` was
+not run here (the lead runs it serially).
+
+| Check | Result |
+|---|---|
+| core `npx vitest run` | exit 0: 65 files, 2994 tests passed (the six `routines-*` files are 112 of them: schedule 33, record 20, occurrence 18, fatigue 15, prompt scan 15, unattended 11) |
+| core `npm run -s build` | exit 0 |
+| `val-projectos-port-routines1a` | exit 0: PASS (59 scenarios; 52 behaviour and 57 text mutations killed) |
+| `val-projectos-port-credit1a` | exit 0: PASS (68 real files judged; 152 fixture and 59 record mutations killed) |
+| `validate-no-secrets` | exit 0: PASS |
+| validators that read a touched file | search1a PASS (17 files; 113 text, 25 behavioural mutations); memory1a PASS (20 rules; 197 mutations); approvals1a PASS (83 scenarios; 64 text mutations); kernel-followup1a PASS (88); tenant-contract1a PASS (346); tenant-credentials1a PASS (279); tenant-principal1a PASS (210); tenant-csp1a PASS (106); connector-contract1a PASS (38 rules; 293 mutations) after the registration fix below; validate-speed-validation-cache PASS; validator-scratch-lifecycle1a PASS; v3-validation-evidence1a PASS |
+| skills1a, context1a | skills1a exit 0: PASS (21 rules; 440 mutations); context1a exit 0: PASS (18 rules; 320 mutations). Both timed out at 280 s in the first batch loop (exit 124) and were re-run alone with a 900 s limit (128 s and 383 s). |
+
+**Registration order.** `val-projectos-connector-contract1a` pins that its own entry is the last in both lists, and
+refused a list with this phase's entry after it. This phase is therefore registered in `validate-all.cjs` and
+`speed/cached-runner.cjs` immediately before the connector entry, in the same place in both. The other port phases that
+register after this one will meet the same pin and should insert before that entry as well.
+
+Mutation results come from the validator's own output above: each mutation is applied to the source in memory and
+counted only when its named scenario or rule moved, so the PASS line means every one was killed by its own rule.
+An earlier run in this phase found two finish-record mutations that survived (the pinned word also appeared elsewhere in
+this record); they were fixed by making each mutation replace every occurrence and the pin a heading, not by loosening
+a rule.
 
 ## Residuals
 
-- **The credit validator needs one line to judge this directory, and it is outside this phase's write paths.**
-  PORT_DIRS needs `projectos/core/src/routines` in `val-projectos-port-credit1a.cjs`, and ADR-P1 §7 needs the matching
-  bullet (PC-17 keeps the two lists equal). Without them, PC-16 refuses all four notices entries as "outside the port
-  directories". The edit is two lines. It was applied in the working tree to verify everything passes, and it is NOT in
-  the committed change: the lead or the owner must either add the two paths to this phase's write paths or take the edit
-  in a micro-change. Cost: two lines and a re-run of the credit validator.
 - **Only UTC is read.** Zone-aware schedules come with the Stage 4 parser and its dependency approval.
 - **The reader checks the shape of an approval, not the approval.** That `decisionId` names a committed owner decision
   with this plan digest is for the wiring to check against the committed bytes.
@@ -142,23 +159,42 @@ Filled in from the runs; see the section at the end of the report for counts. (U
 - **A routine's own prompt is scanned once, at approval.** An admitted record is frozen. A wiring that reads records
   from files must admit each one again, which scans again.
 - **Review:** ECC SECURITY and Claude self-review are required by the plan; both are the lead's to run on this commit.
+- **The `waiting` outcome counts as neither a failure nor a success.** The fatigue source this phase was given
+  (`runner.ts`) calls a store for the failure count and does not say how a waiting run is read there. Treating it as
+  neutral is this phase's choice, stated in `fatigue.ts` and proved by a test.
+- **The cap of 20 comes from the delta and the port map** (OpenBot `store.ts`, not among this phase's sources). The value
+  is pinned here; the store that enforces it in OpenBot was not read.
 
 ## Converge (Code Bible B9)
 
-Filled in at commit; see below.
+Compared the code against the phase entry in `docs/projectos-finish-phases.json`, the approved delta row 1, ADR-P1 and
+the V4 port map row C13.
 
-## PAUSED STATE (owner shutdown, work committed as wip)
+**Built, per acceptance criterion:** all eight. The 14 and 15 minute floor over 200 occurrences; the 21st enabled
+routine refused and the tenth failure in a row switching a routine off until a new admitted record; P3 and above refused
+and escalated unattended with a P2 control; one key per occurrence and a replay refused; the prompt scan at approval;
+credit header and notices entry on every ported file and the credit validator passing; the unwired fence; the pin and
+named mutations.
 
-Passed, seen in this tree: core `npx vitest run` 65 files / 2994 tests (the six new `routines-*` files included);
-core `npm run -s build` exit 0; `val-projectos-port-routines1a` PASS (59 scenarios, 52 behaviour and 57 text mutations
-killed); `validate-no-secrets` PASS; `val-projectos-port-credit1a` PASS only with the uncommitted two-line patch below.
+**Unbuilt (inside the delta, not in this phase's scope):**
+- `projectos/agent/src/routines/` and its tests (the delta lists an agent directory for routines). This phase was core
+  only, by instruction. Nothing reads routine records from git yet, and nothing enqueues to a real owner queue.
+- The envelope call itself. The occurrence key equals the one `mintEnvelope` would derive; admission through the
+  envelope is the Stage 4 wiring.
+- Metering of the per-run budget. The record carries it and admission returns it; nothing spends against it.
+- Zone-aware schedules and `cron-parser` (A9: approved for later, with the Stage 4 wiring).
 
-Interrupted: `validate-all` was stopped part way, after 124 PASS lines. Failures seen: `val-cd-b4-sealed-expected-window-facts1a`
-(the allowed val-cd-b4 family) and `validate-desktop-e2e` (no Control Centre production bundle built in this worktree, an
-environment gap, not this change). It never finished, so no full-run result is claimed.
+**Behaviour drift from the sources (each stated above and in a file header):** UTC only; no second pair measure; no
+`describeCron`; no GitHub Authorization-header exemption or ZWJ allowance; a disabled routine re-enables only through a
+new admitted record; an agent cannot create a routine; a never-firing expression is refused.
 
-Left: (1) re-run `validate-all` to the end (only `val-cd-b4` may fail); (2) the two-line credit patch is in the working
-tree, not committed (`val-projectos-port-credit1a.cjs` PORT_DIRS and ADR-P1 §7): needs approval to widen write paths,
-then commit; without it the credit validator refuses the four notices entries (PC-16); (3) fill the Checks and Converge
-sections above with final counts; (4) ECC SECURITY review of the commit; (5) `git diff --stat` base vs HEAD confirms the
-only PROTECTED file touched is `validate-all.cjs`, registration only.
+**PROTECTED files touched:** one, `projectos/validators/validate-all.cjs`, by two added lines (a comment and the
+registration), the registration-only edit the delta approved. `projectos/speed/cached-runner.cjs` has the same two
+lines. `git diff d443a0fa --stat` shows no other file from `docs/00_Baseline_State.md` §4 or the delta's Zone 3:
+`actionRegistry.ts`, `taskEnvelope.ts`, `permissions.ts`, `gatekeeper*`, `run.ts`, `host/**` and `action-registry.json`
+are untouched, and `core` gained no dependency (the validator pins the dependency list empty).
+
+## Final state
+
+Built and committed on `projectos-port-routines1a`. Not pushed, not merged, not closed. The remaining steps are the
+lead's: `validate-all` (only `val-cd-b4` may fail), the ECC SECURITY review, and the owner's closure.
