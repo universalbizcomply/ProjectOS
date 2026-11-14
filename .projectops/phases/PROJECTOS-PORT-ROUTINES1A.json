@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-PORT-ROUTINES1A",
+  "project": "ProjectOS",
+  "objective": "Port delta phase 7 (C13). Port the CopilotKit OpenBot (MIT) routine schedule validator and fatigue logic, and translate the Hermes (MIT) cron prompt scan and occurrence ids. A routine is a plan-approved record, never created by an agent. Floors are never-lowered constants. Pure rules plus a record reader; no scheduler runs.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-14T04:47:42.200Z",
+      "note": "Owner-approved plan v1.36 and delta rev 2. Built by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-14T04:47:42.821Z",
+      "note": "routine floors: exact minimum-gap check, 20 enabled, off after 10 failures, P2 ceiling unattended, one key per occurrence, scoped guard with lease, per-project spend cap, scanner with lookalike fold"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-14T04:47:43.759Z",
+      "note": "core 3523/3523, agent 3529/3529, control-center 952/952 at e77c4acf on the plan worktree after a rebuild of core and agent. validate-all 169/170 at e77c4acf; the one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-14T04:47:44.563Z",
+      "note": "Evidence: docs/finish/PROJECTOS-PORT-ROUTINES1A.md (460499df, stacked at e77c4acf)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-14T04:47:45.257Z",
+      "note": "closure tail only - no implementation. Reviews: ECC SECURITY (no CRITICAL; one MEDIUM bypass of the 15-minute floor, reproduced and fixed), one recheck (5 fixed, 4 partial, 2 new MEDIUM), final round fixed and re-verified by the lead with a scratch reproduction of every failing input."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-14T04:47:45.893Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
