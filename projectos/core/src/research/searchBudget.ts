@@ -8,6 +8,7 @@
  *   - there is no budget, or it is not a whole positive number of micro-USD (`BUDGET_REQUIRED`);
  *   - no grant answers exactly `true` for it, and a grant that throws is not a grant (`NO_GRANT`);
  *   - its price on top of what is already reserved is over the budget (`OVER_BUDGET`).
+ * The grant is asked through the injected timer: one that does not answer in time is `TIMEOUT`, which is a refusal.
  * All three are asked BEFORE the provider is called, and the cost is reserved before the call, so two queries cannot
  * both fit a budget that holds one. A reservation is given back only when the provider failed before it could have
  * sent anything.
@@ -20,8 +21,9 @@
  * and the planner's grant is asked for every call. Reconciliation with what was billed is a later phase.
  */
 
-import type { ResearchScope } from './ports.js';
+import type { ResearchScope, TimerPort } from './ports.js';
 import { researchRefused } from './refusal.js';
+import { callWithin, timeoutOf, type ResearchTimeouts } from './timing.js';
 
 export interface SpendBook {
   /** Null when the run has no usable budget. A paid query is refused then. */
@@ -64,18 +66,25 @@ export function createSpendBook(budget: unknown): SpendBook {
   };
 }
 
-async function granted(grant: SpendGrant, request: SpendRequest): Promise<boolean> {
-  try {
-    return (await grant(request)) === true;
-  } catch {
-    return false;
-  }
+/** True only when the grant answers exactly `true`, in time. A grant that throws, that is slow, or that gives nothing is no grant. */
+async function granted(grant: SpendGrant, request: SpendRequest, timer: TimerPort, timeouts: Partial<ResearchTimeouts> | undefined): Promise<'yes' | 'no' | 'timeout'> {
+  const timed = await callWithin(timer, timeoutOf(timeouts, 'grantMs'), async () => {
+    try {
+      return { yes: (await grant(request)) === true };
+    } catch {
+      return { yes: false };
+    }
+  });
+  if (timed.kind === 'timeout') return 'timeout';
+  return timed.kind === 'value' && timed.value.yes === true ? 'yes' : 'no';
 }
 
 /** Reserve a paid query's price, or refuse. The budget is asked first, then the grant, then the room. */
-export async function reservePaidQuery(book: SpendBook, grant: SpendGrant, request: SpendRequest) {
+export async function reservePaidQuery(book: SpendBook, grant: SpendGrant, request: SpendRequest, timer: TimerPort, timeouts?: Partial<ResearchTimeouts>) {
   if (book.capMicroUsd === null) return researchRefused('BUDGET_REQUIRED', 'a paid search needs a budget of whole micro-USD');
-  if (!(await granted(grant, request))) return researchRefused('NO_GRANT', 'no spend grant confirms this paid search');
+  const answer = await granted(grant, request, timer, timeouts);
+  if (answer === 'timeout') return researchRefused('TIMEOUT', 'the spend grant did not answer in time');
+  if (answer !== 'yes') return researchRefused('NO_GRANT', 'no spend grant confirms this paid search');
   if (!book.reserve(request.microUsd)) return researchRefused('OVER_BUDGET', 'this paid search does not fit the budget that is left');
   return null;
 }

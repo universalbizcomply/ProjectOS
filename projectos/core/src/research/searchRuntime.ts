@@ -7,6 +7,7 @@
 // Port-Strategy: ADAPT
 // Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: config, auth-profile and plugin discovery are cut, and the providers are a list handed in; the candidate loop is kept (an explicit provider is not replaced, an implicit one falls back, the first failure is kept); a paid candidate is asked for a budget, a grant and room before it is called, and a failure is accounted by whether anything could have been sent; the structured missing-credential result and its not-set-up wording become a refusal that carries no provider text; the OAuth refresh and HTTP-status diagnostics are cut; the query and the count are judged, and the provider's results are bounded
 // Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED (review round 1): every search call is made through an injected timer and a hang is a TIMEOUT; results are screened for hidden characters, special tokens and instructions before they are returned, and what was dropped is reported by index and reason
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED (review round 2): the spend grant is asked through the injected timer, and an answer from the timer that has the wrong shape is a refusal, never a throw
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 /**
@@ -90,7 +91,7 @@ async function askOne(
   const price = priceOf(provider);
   if (price === null) return { refusal: researchRefused('INVALID_REQUEST', `the search provider '${provider.id}' declares a price that cannot be used`).refusal };
   if (price.paid) {
-    const reserved = await reservePaidQuery(deps.spend, deps.grant, { scope: request.scope, provider: provider.id, microUsd: price.microUsd });
+    const reserved = await reservePaidQuery(deps.spend, deps.grant, { scope: request.scope, provider: provider.id, microUsd: price.microUsd }, deps.timer, deps.timeouts);
     // A refusal for money asks nothing of the provider. A later free provider may still answer, and a later paid one is refused the same way.
     if (reserved !== null) return { refusal: reserved.refusal };
   }
@@ -105,7 +106,7 @@ async function askOne(
   });
   // A call that timed out may have been sent, so its price stays charged.
   if (timed.kind === 'timeout') return { refusal: failed(provider.id, 'timeout') };
-  if (timed.kind === 'value' && timed.value !== null) {
+  if (timed.kind === 'value' && typeof timed.value === 'object' && timed.value !== null && 'answer' in timed.value) {
     const screened = screenSearchResults(resultsOf(timed.value.answer, request.count));
     return { results: screened.kept, dropped: screened.dropped };
   }

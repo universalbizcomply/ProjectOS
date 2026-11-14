@@ -17,6 +17,9 @@
  * screened search results (`urlProvenance.ts`), so a page cannot tell it to fetch an address that carries the evidence out. A
  * run touches at most `MAX_HOSTS_PER_RUN` hosts.
  *
+ * THE SEARCH QUERY IS GATED TOO. It is an outbound string, so it is refused when it is long, carries an address or an encoded run, or
+ * quotes a page the run fetched (`queryProvenanceProblem`), with one neutral note to the planner and the exact reason in the audit.
+ *
  * THE PLANNER IS A PAID CALL. Each call re-sends the evidence, so it is charged to the run's spend book by its size, and
  * asked of the grant, before it is made. A free planner (both prices zero) needs no budget.
  *
@@ -42,7 +45,7 @@ import { createSpendBook, reservePaidQuery, type SpendGrant } from './searchBudg
 import { runWebSearch } from './searchRuntime.js';
 import type { WebSearchProvider } from './searchProvider.js';
 import { callWithin, timeoutOf, type ResearchTimeouts } from './timing.js';
-import { canonicalOf, listedUrlsOf, urlProvenanceProblem } from './urlProvenance.js';
+import { canonicalOf, listedUrlsOf, queryProvenanceProblem, urlProvenanceProblem } from './urlProvenance.js';
 import { fetchPage, type FetchedPage, type FetchPageDeps } from './webFetch.js';
 
 export const DEFAULT_MAX_STEPS = 6;
@@ -53,6 +56,8 @@ export const MAX_DEADLINE_MS = 600_000;
 export const MAX_ANSWER_CHARS = 20_000;
 export const MAX_CITATIONS = 20;
 export const MAX_QUESTION_CHARS = 2000;
+/** What a run keeps back from the run deadline when it gives a fetch its total time. */
+export const DEADLINE_MARGIN_MS = 1_000;
 const NOTES_KEPT = 8;
 const SEARCHES_SHOWN = 3;
 const AUDIT_KEPT = 200;
@@ -205,6 +210,8 @@ export async function runResearch(request: ResearchRequest, deps: ResearchDeps):
     const timeouts: Partial<ResearchTimeouts> = {
       dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), left),
       fetchMs: Math.min(timeoutOf(deps.timeouts, 'fetchMs'), left),
+      fetchTotalMs: Math.max(1, Math.min(timeoutOf(deps.timeouts, 'fetchTotalMs'), left - DEADLINE_MARGIN_MS)),
+      grantMs: Math.min(timeoutOf(deps.timeouts, 'grantMs'), left),
       searchMs: Math.min(timeoutOf(deps.timeouts, 'searchMs'), left),
       plannerMs: Math.min(timeoutOf(deps.timeouts, 'plannerMs'), left),
     };
@@ -220,7 +227,7 @@ export async function runResearch(request: ResearchRequest, deps: ResearchDeps):
     const chars = view.question.length + [...view.evidence, ...view.searchResults, ...view.notes].reduce((sum, text) => sum + text.length, 0);
     const cost = plannerCostOf(deps.plannerPrice, chars);
     if (cost > 0) {
-      const gate = await reservePaidQuery(spend, deps.grant, { scope, provider: 'planner', microUsd: cost });
+      const gate = await reservePaidQuery(spend, deps.grant, { scope, provider: 'planner', microUsd: cost }, deps.timer, { grantMs: Math.min(timeoutOf(deps.timeouts, 'grantMs'), left) });
       if (gate !== null) {
         record({ step, action: 'planner', code: gate.refusal.code });
         return refuse(gate.refusal.code, gate.refusal.message, step - 1);
@@ -239,7 +246,7 @@ export async function runResearch(request: ResearchRequest, deps: ResearchDeps):
       record({ step, action: 'planner', code: 'TIMEOUT' });
       return ended('the planner');
     }
-    if (planned.kind === 'error' || thrown || planned.value === null) {
+    if (planned.kind === 'error' || thrown || typeof planned.value !== 'object' || planned.value === null || !('action' in planned.value)) {
       record({ step, action: 'planner', code: 'PLANNER_FAILED' });
       return refuse('PLANNER_FAILED', 'the planner failed', step - 1);
     }
@@ -247,7 +254,11 @@ export async function runResearch(request: ResearchRequest, deps: ResearchDeps):
     const row = action as { kind?: unknown; query?: unknown; providerId?: unknown; url?: unknown; text?: unknown; citations?: unknown } | null;
     const kind = typeof row === 'object' && row !== null ? row.kind : undefined;
 
-    if (kind === 'search' && row !== null) {
+    const queryProblem = kind === 'search' && row !== null ? queryProvenanceProblem(row.query, [...pages.values()].map((page) => page.text)) : null;
+    if (queryProblem !== null) {
+      note('search refused: QUERY_REFUSED/not-sendable');
+      record({ step, action: 'search', code: 'QUERY_REFUSED', reason: queryProblem });
+    } else if (kind === 'search' && row !== null) {
       const found = await runWebSearch(
         { scope, query: row.query, ...(row.providerId === undefined ? {} : { providerId: row.providerId }) },
         { providers: deps.providers, spend, grant: deps.grant, timer: deps.timer, timeouts },
@@ -305,6 +316,11 @@ export async function runResearch(request: ResearchRequest, deps: ResearchDeps):
           const citedPages = [...pages.values()].filter((page) => cited.has(page.sourcePath));
           const sources = citedPages.map((page) => ({ path: page.sourcePath, url: page.finalUrl, contentSha256: page.contentSha256 }));
           const filtered = filterAnswerText(admitted.answer.text, citedPages.flatMap((page) => [page.finalUrl, page.requestedUrl]));
+          if (!filtered.stable) {
+            note('answer refused: answer-unfilterable');
+            record({ step, action: 'answer', code: 'answer-unfilterable' });
+            continue;
+          }
           return {
             ok: true,
             value: { answer: { text: filtered.text, citations: admitted.answer.citations }, sources, removedFromAnswer: filtered.removed },

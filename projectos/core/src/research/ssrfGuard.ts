@@ -5,6 +5,7 @@
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
 // Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: translated from Python to TypeScript with the network behind injected ports; the guard resolves twice and judges both answers, then hands the fetch port only the addresses it judged, which replaces the httpx connect-time hook; a redirect is read from the Location header, resolved against the hop and judged again, with a hop cap; a resolver answer that is empty, too long or unparseable is refused, and a DNS failure is refused even when a proxy might resolve it; the allow-private toggle, the proxy exception and the trusted-private-host list are cut; a refusal carries a closed reason; the port must name the address it connected to and the guard refuses a response whose address was not pinned; every wait is bounded through an injected timer; a redirect never downgrades https to http and carries none of the caller's headers; the caller's Accept-Encoding is replaced
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED (review round 2): all the hops of one fetch share a total time budget read from the injected clock, and each wait is the smaller of its own limit and what is left, so slow hops cannot outlast the run
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 /**
@@ -30,6 +31,10 @@
  * refused with `connected-address-not-pinned`. A port that dials the name again after the guard judged it is therefore caught
  * the first time it reaches somewhere else, though the request has by then been sent: the pinning stays the port's duty,
  * and this is the proof that it kept it.
+ *
+ * ONE BUDGET FOR ALL THE HOPS. `fetchTotalMs` is the most all the hops together may take, read from the injected clock. Each wait is the
+ * smaller of its own limit and what is left of that total, and a fetch whose total is spent ends in `TIMEOUT`, so six slow hops cannot
+ * outlast the run that asked for them.
  *
  * EVERY WAIT IS BOUNDED. The resolver and the port are called through `callWithin`, so a hang ends in `TIMEOUT`, the fetch slot
  * above this call is released, and the port is told to stop through its `signal`.
@@ -221,14 +226,22 @@ export async function fetchGuarded(params: GuardedFetchParams, deps: GuardedFetc
   const chain: string[] = [];
   let current: string = params.url;
   let previous: ParsedWebUrl | null = null;
+  const startedAt = clock.now();
+  if (startedAt === null) return researchRefused('BAD_CLOCK', 'the clock did not give a usable time');
+  const totalMs = timeoutOf(deps.timeouts, 'fetchTotalMs');
   for (let hop = 0; hop <= maxHops; hop += 1) {
-    if (clock.now() === null) return researchRefused('BAD_CLOCK', 'the clock did not give a usable time');
-    const verdict = await judgeUrl(current, deps, params.mode);
+    const at = clock.now();
+    if (at === null) return researchRefused('BAD_CLOCK', 'the clock did not give a usable time');
+    // The hops share one budget: nothing below waits longer than what is left of it.
+    const left = Math.floor(totalMs - (at - startedAt));
+    if (left < 1) return researchRefused('TIMEOUT', 'the fetch used up its total time', { hop });
+    const hopDeps: GuardedFetchDeps = { ...deps, timeouts: { ...deps.timeouts, dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), left) } };
+    const verdict = await judgeUrl(current, hopDeps, params.mode);
     if (!verdict.ok && verdict.timedOut === true) return researchRefused('TIMEOUT', 'the resolver did not answer in time', { hop });
     if (!verdict.ok) return researchRefused('URL_REFUSED', `the address was refused: ${verdict.reason}`, { reason: verdict.reason, hop });
     if (hop > 0 && previous?.scheme === 'https' && verdict.url.scheme === 'http') return researchRefused('URL_REFUSED', 'a redirect may not leave https for http', { reason: 'redirect-downgrade', hop });
     chain.push(verdict.url.canonical);
-    const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS);
+    const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS, left);
     const timed = await callWithin(deps.timer, hopMs, (signal) => deps.fetch({ url: verdict.url.canonical, pinnedAddresses: verdict.addresses, timeoutMs, maxBytes: params.maxBytes, headers: headersFor(params.headers, hop), signal }));
     if (timed.kind === 'timeout') return researchRefused('TIMEOUT', 'the fetch port did not answer in time', { hop });
     if (timed.kind === 'error') return researchRefused('FETCH_FAILED', 'the fetch port failed', { hop });

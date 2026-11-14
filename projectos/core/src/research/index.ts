@@ -45,8 +45,8 @@ export { DEFAULT_PAGE_CACHE, createFetchSlots, createPageCache, isResearchScope,
 export { MAX_PAGE_BYTES, MAX_PAGE_TEXT_CHARS, PAGE_TIMEOUT_MS, fetchPage, sourcePathOf, type FetchPageDeps, type FetchPageOutcome, type FetchedPage } from './webFetch.js';
 export { hitOfPage, renderResearchEvidence, renderSearchResults } from './evidence.js';
 export { screenSearchResults, type DropReason, type DroppedResult, type ScreenedResults } from './resultScreen.js';
-export { LINK_REMOVED, filterAnswerText, type FilteredAnswer } from './answerFilter.js';
-export { MAX_FETCH_URL_CHARS, MAX_HOSTS_PER_RUN, canonicalOf, listedUrlsOf, urlProvenanceProblem } from './urlProvenance.js';
+export { LINK_REMOVED, MAX_FILTER_PASSES, filterAnswerText, type FilteredAnswer } from './answerFilter.js';
+export { MAX_ALLOW_LIST_PATH_CHARS, MAX_FETCH_URL_CHARS, MAX_HOSTS_PER_RUN, MAX_PLANNER_QUERY_CHARS, MAX_QUERY_QUOTE_CHARS, MIN_ENCODED_RUN_CHARS, canonicalOf, listedUrlsOf, queryProvenanceProblem, urlProvenanceProblem } from './urlProvenance.js';
 export { MAX_RUN_BUDGET_MICRO_USD, createSpendBook, reservePaidQuery, type SpendBook, type SpendGrant, type SpendRequest } from './searchBudget.js';
 export {
   DEFAULT_SEARCH_COUNT,

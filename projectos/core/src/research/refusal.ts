@@ -37,6 +37,12 @@ export const URL_REFUSAL_REASONS = [
   'too-many-hosts',
   /** The one reason the planner is told for every address, name and DNS refusal. The exact one stays in the audit record. */
   'not-fetchable',
+  'query-too-long',
+  'query-has-address',
+  'query-has-encoded-data',
+  'query-quotes-a-page',
+  /** The one reason the planner is told for every refused search query. */
+  'not-sendable',
 ] as const;
 export type UrlRefusalReason = (typeof URL_REFUSAL_REASONS)[number];
 
@@ -46,6 +52,7 @@ export const RESEARCH_REFUSAL_CODES = [
   'BAD_CLOCK',
   'DEADLINE',
   'TIMEOUT',
+  'QUERY_REFUSED',
   'URL_REFUSED',
   'TOO_MANY_REDIRECTS',
   'FETCH_FAILED',
