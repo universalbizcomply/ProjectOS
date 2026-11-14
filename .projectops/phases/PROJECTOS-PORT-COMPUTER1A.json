@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-PORT-COMPUTER1A",
+  "project": "ProjectOS",
+  "objective": "Port delta phase 10 (C14). Port a named subset of OpenClaw (MIT) exec approval (src/infra/exec-allowlist-pattern.ts and the exec-approval files the phase lists by path) and the src/process kill-tree logic, and the CopilotKit OpenBot (MIT) action policy as a typed default-deny table. The runner sits behind an injected spawn port with fakes only. Browser and computer-use interfaces refuse SANDBOX_NOT_AVAILABLE until Stage 4.3. Serves plan 4.3.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-14T12:37:51.083Z",
+      "note": "Owner-approved plan v1.36 and delta rev 2. Built by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-14T12:37:51.770Z",
+      "note": "computer-use policy: owner-hash exec grants with a verifier port, one shared policy gate, a P5 action floor over folded text, exact allowlists, env allow-list, most-restrictive network policy, bounded kill path"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-14T12:37:52.419Z",
+      "note": "core 4132/4132 (100 files), agent 3573/3573 (114 files), control-center 952/952 (69 files) at a6ac6543 on the plan worktree after a rebuild of core then agent; at ba1f7644 (a rename of one computer helper and two validator run() wrappers) core was rebuilt, the 148 computer tests re-ran and the affected validators passed again. validate-all on the stack head ba1f7644: 172 PASS, 1 FAIL, 2 retired (173 registered). The one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4. An earlier run at a6ac6543 found a name clash with the MCP guard (MC-19) and two async run() validators; both fixed in ba1f7644."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-14T12:37:53.096Z",
+      "note": "Evidence: docs/finish/PROJECTOS-PORT-COMPUTER1A.md (branch head 6302b124, stacked at ba1f7644)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-14T12:37:53.919Z",
+      "note": "closure tail only - no implementation. Reviews: ECC security-reviewer, Agency application-security-engineer, fix round 1, one recheck, final round re-verified by the lead."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-14T12:37:54.700Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
