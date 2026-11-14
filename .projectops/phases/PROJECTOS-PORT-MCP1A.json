@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-PORT-MCP1A",
+  "project": "ProjectOS",
+  "objective": "Port delta phase 12 (C15). Port the OpenClaw (MIT) MCP client lifecycle behind an injected spawn port, and translate the Hermes (MIT) per-tool cost, scope and sampling ideas, on core/src/connectorContract.ts. Zero live connectors: projectos/connectors/registry.json stays empty and CC-25 stands. Lives in mcpConnectors/ because agent/src/mcp/ (the owner bridge) exists and is not touched.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-14T04:49:07.637Z",
+      "note": "Owner-approved plan v1.36 and delta rev 2. Built by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-14T04:49:08.217Z",
+      "note": "governed MCP connection: tenant agreement, hash-pinned server and per-tool descriptor pins, connector-clock spend windows, awaited start record, sampling refused, output fenced as untrusted"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-14T04:49:08.945Z",
+      "note": "core 3523/3523, agent 3529/3529, control-center 952/952 at e77c4acf on the plan worktree after a rebuild of core and agent. validate-all 169/170 at e77c4acf; the one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-14T04:49:09.487Z",
+      "note": "Evidence: docs/finish/PROJECTOS-PORT-MCP1A.md (8f116942, stacked at e77c4acf)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-14T04:49:10.062Z",
+      "note": "closure tail only - no implementation. Reviews: ECC SECURITY, Agency application-security-engineer, one recheck, final round re-verified by the lead."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-14T04:49:10.729Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
