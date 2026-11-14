@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-PORT-PROVIDERS1A",
+  "project": "ProjectOS",
+  "objective": "Port delta phase 8 (C11). Port the OpenClaw (MIT) llm-core transport shape, retry, model catalogue and pricing, and translate the Hermes (MIT) provider registry, fallback chain and cooldown. The transport is an injected port with fakes in tests. Every call is P3 with a mandatory budget. Lives in modelBroker/ because core/src/execution/providers/ and projectos/providers/ already exist. Serves plan 4.2.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-14T04:49:02.090Z",
+      "note": "Owner-approved plan v1.36 and delta rev 2. Built by an agent under the lead (Claude) in a parallel worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-14T04:49:02.701Z",
+      "note": "model broker: committed prices, budget floored from the prompt, derived idempotency key with single flight and replay, sticky may-have-acted, backoff floor in the raw runner, endpoint and model screens"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-14T04:49:03.300Z",
+      "note": "core 3523/3523, agent 3529/3529, control-center 952/952 at e77c4acf on the plan worktree after a rebuild of core and agent. validate-all 169/170 at e77c4acf; the one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-14T04:49:03.923Z",
+      "note": "Evidence: docs/finish/PROJECTOS-PORT-PROVIDERS1A.md (2f0acd52, stacked at e77c4acf)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-14T04:49:04.585Z",
+      "note": "closure tail only - no implementation. Reviews: ECC SECURITY, Agency api-platform-engineer, one recheck, final round re-verified by the lead."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-14T04:49:05.103Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
