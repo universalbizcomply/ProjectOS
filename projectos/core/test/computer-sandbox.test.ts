@@ -58,7 +58,8 @@ describe('browser and computer use refuse until Stage 4.3', () => {
 describe('untrusted output is data, fenced by the hash of what it holds', () => {
   it('labels, bounds and fences output, and names the hash of the exact body in the fence: the positive control', () => {
     const fenced = fenceUntrustedOutput('stdout', 'hello');
-    expect(fenced).toMatchObject({ trust: 'untrusted-data', kind: 'stdout', body: 'hello', truncated: false });
+    expect(fenced).toMatchObject({ trust: 'untrusted-data', kind: 'stdout', length: 5, truncated: false });
+expect(Object.keys(fenced)).not.toContain('body');
     expect(fenced.fence).toMatch(/^computer-output:sha256:[0-9a-f]{64}$/);
     expect(fenced.framed).toBe(`<<${fenced.fence} kind=stdout trust=untrusted-data>>\nhello\n<</${fenced.fence}>>`);
     expect(fenceUntrustedOutput('stdout', 'hello').fence).toBe(fenced.fence);
@@ -75,8 +76,8 @@ describe('untrusted output is data, fenced by the hash of what it holds', () => 
   it('cuts a body at the cap and says so, and gives an empty body for anything that is not text', () => {
     const long = fenceUntrustedOutput('screenshot-text', 'a'.repeat(MAX_FENCED_CHARS + 10));
     expect(long.truncated).toBe(true);
-    expect(long.body.length).toBe(MAX_FENCED_CHARS);
-    expect(fenceUntrustedOutput('stdout', { toString: () => 'x' }).body).toBe('');
+    expect(long.length).toBe(MAX_FENCED_CHARS);
+    expect(fenceUntrustedOutput('stdout', { toString: () => 'x' }).length).toBe(0);
     expect(fenceUntrustedOutput('stdout', undefined).truncated).toBe(false);
   });
 });
@@ -138,10 +139,10 @@ describe('kill plan: terminate, then force after a grace period, and never the w
     expect(planKillTree(kill({ ownGroupId: null }))).toMatchObject({ ok: true });
   });
 
-  it('plans the tree on Windows, the group or the tree on Linux, and the process elsewhere', () => {
+  it('plans the tree on Windows, the group or the tree on Linux, and the tree elsewhere, never a root-only kill', () => {
     expect(planOf({ platform: 'win32' }).target).toBe('tree');
     expect(planOf({ platform: 'win32', isGroupLeader: true, ownGroupId: null }).target).toBe('tree');
-    expect(planOf({ platform: 'darwin' }).target).toBe('process');
+    expect(planOf({ platform: 'darwin' }).target).toBe('tree');
     expect(planOf({ platform: 'darwin', isGroupLeader: true }).target).toBe('group');
     expect(planOf({ platform: 'linux' }).target).toBe('tree');
   });

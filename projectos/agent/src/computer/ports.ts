@@ -7,10 +7,16 @@
  * own answer about that child, so the runner never signals a process number it only remembers: once the handle says the child
  * has exited, no signal goes out, and a recycled number is never hit.
  *
+ * THE REAL PORTS ARE STAGE 4.3'S, AND THEY HAVE A CONTRACT. The real executable resolver (core's `ExecutableResolverPort`) and the
+ * real spawn port must refuse a resolved `.cmd` or `.bat` target (a batch file runs a shell, whatever its name), must start
+ * exactly the argument list they are given with no shell, must read only the names they are handed from the environment, and
+ * must be conformance-tested against the path and launcher rules in core before anything is switched on. Nothing here proves
+ * that; a fake stands in for each in every test.
+ *
  * NO CHILD PROCESS API IS IMPORTED HERE. The validator refuses `node:child_process` in this directory and in the core side. The
  * real spawn port is Stage 4.3's, behind the sandbox.
  */
-import type { KillPlatform, KillSignal, KillTarget } from '@projectos/core';
+import type { ComputerClock, KillPlatform, KillSignal, KillTarget } from '@projectos/core';
 
 export type OutputStream = 'stdout' | 'stderr';
 
@@ -64,7 +70,22 @@ export interface RunnerProcessFacts {
   readonly platform: KillPlatform;
 }
 
+/**
+ * What the runner asks at the moment it would start, because a plan is only good for a minute and a grant can be revoked or a
+ * policy changed after the plan was made. A port that is missing, throws or answers anything but a plain boolean or the digest
+ * of a policy makes the plan stale: the answer is no.
+ */
+export interface PlanGatePort {
+  /** The caller's clock, read once at the start of a run and never allowed to run backwards. */
+  readonly clock: ComputerClock;
+  /** The digest of the exec policy now in force, or `null` when there is none. */
+  readonly policyDigest: () => string | null;
+  /** Whether the grant a plan spent has been revoked. A grant the store does not hold reads as revoked. */
+  readonly grantRevoked: (tenant: string, project: string, grantId: string) => boolean;
+}
+
 export interface RunnerPorts {
+  readonly gate: PlanGatePort;
   readonly spawn: SpawnPort;
   readonly timer: TimerPort;
   readonly env: EnvPort;

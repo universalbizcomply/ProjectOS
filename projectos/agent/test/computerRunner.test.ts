@@ -15,7 +15,7 @@ import {
   type KillTarget,
   type TenantBinding,
 } from '@projectos/core';
-import { SETTLE_WINDOW_MS, beginStop, runExecPlan, type OutputStream, type ProcessExit, type ProcessHandle, type RunnerPorts, type SpawnSpec } from '../src/computer/index.js';
+import { MAX_START_ERROR_CHARS, SETTLE_WINDOW_MS, beginStop, runExecPlan, type OutputStream, type ProcessExit, type ProcessHandle, type RunnerPorts, type SpawnSpec } from '../src/computer/index.js';
 
 const security = (name: string): unknown => JSON.parse(readFileSync(fileURLToPath(new URL(`../../security/${name}`, import.meta.url)), 'utf8'));
 
@@ -38,13 +38,19 @@ function unattendedRegistry() {
 const GIT = '/usr/bin/git';
 const resolver = { resolve: (raw: string) => (raw === 'git' ? { resolvedRealPath: GIT } : null) };
 
-function planOf(change: Record<string, unknown> = {}): ExecLaunchPlan {
-  const tenant = binding();
-  const prepared = prepareExecCommand(tenant, { agentId: 'worker', argv: ['git', 'status'], cwd: '/work/polygo', envNames: ['LANG', 'CI'], timeoutMs: 30_000, maxOutputBytes: 64, ...change }, resolver);
+const NOW = Date.parse('2026-11-14T12:00:00.000Z');
+const compiled = compileExecPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true, cwdPrefixes: ['/work'] }] });
+if (!compiled.ok) throw new Error('the control policy was refused');
+const POLICY = compiled.policy;
+
+function preparedOf(change: Record<string, unknown> = {}) {
+  const prepared = prepareExecCommand(binding(), { argv: ['git', 'status'], cwd: '/work/polygo', envNames: ['LANG', 'CI'], timeoutMs: 30_000, maxOutputBytes: 64, ...change }, resolver, 'worker');
   if (!prepared.ok) throw new Error(`the control command was refused: ${prepared.code}`);
-  const policy = compileExecPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true }] });
-  if (!policy.ok) throw new Error('the control policy was refused');
-  const planned = planAllowlistedExec(tenant, policy.policy, unattendedRegistry(), prepared.prepared);
+  return prepared.prepared;
+}
+
+function planOf(change: Record<string, unknown> = {}): ExecLaunchPlan {
+  const planned = planAllowlistedExec(binding(), POLICY, unattendedRegistry(), preparedOf(change), () => NOW);
   if (!planned.ok) throw new Error(`the control plan was refused: ${planned.code}`);
   return planned.plan;
 }
@@ -107,11 +113,12 @@ class FakeChild implements ProcessHandle {
   }
 }
 
-function world(child: FakeChild | null = new FakeChild(), facts: Partial<RunnerPorts['facts']> = {}) {
+function world(child: FakeChild | null = new FakeChild(), facts: Partial<RunnerPorts['facts']> = {}, gate: Partial<RunnerPorts['gate']> = {}) {
   const timer = new FakeTimer();
   const started: SpawnSpec[] = [];
   const reads: string[] = [];
   const ports: RunnerPorts = {
+    gate: { clock: () => NOW, policyDigest: () => POLICY.digest, grantRevoked: () => false, ...gate },
     spawn: {
       start: (spec) => {
         started.push(spec);
@@ -129,6 +136,91 @@ const flush = async (): Promise<void> => {
   for (let index = 0; index < 5; index += 1) await Promise.resolve();
 };
 
+const stale = async (gate: Partial<RunnerPorts['gate']>, change: Record<string, unknown> = {}) => {
+  const { ports, started } = world(new FakeChild(), {}, gate);
+  const outcome = await runExecPlan(planOf(change), ports);
+  return { outcome, started };
+};
+
+describe('the computer runner refuses a plan that went stale', () => {
+  it('runs a fresh plan under the policy in force: the control', async () => {
+    const { ports, child } = world();
+    const run = runExecPlan(planOf(), ports);
+    await flush();
+    (child as FakeChild).exit(0);
+    expect(await run).toMatchObject({ ok: true, status: 'exited' });
+  });
+
+  it('refuses a plan held past its expiry, at the instant and after, and starts nothing', async () => {
+    for (const offset of [60_000, 60_001, 3_600_000]) {
+      const { outcome, started } = await stale({ clock: () => NOW + offset });
+      expect(outcome, String(offset)).toEqual({ ok: false, code: 'PLAN_EXPIRED' });
+      expect(started).toEqual([]);
+    }
+    const { ports, child } = world(new FakeChild(), {}, { clock: () => NOW + 59_999 });
+    const run = runExecPlan(planOf(), ports);
+    await flush();
+    (child as FakeChild).exit(0);
+    expect(await run).toMatchObject({ ok: true, status: 'exited' });
+  });
+
+  it('refuses a plan cleared under another policy than the one in force now, or when none is in force', async () => {
+    expect((await stale({ policyDigest: () => 'sha256:other' })).outcome).toEqual({ ok: false, code: 'POLICY_CHANGED' });
+    expect((await stale({ policyDigest: () => null })).outcome).toEqual({ ok: false, code: 'POLICY_CHANGED' });
+    expect((await stale({ policyDigest: () => 7 as unknown as string })).outcome).toEqual({ ok: false, code: 'POLICY_CHANGED' });
+  });
+
+  it('refuses a plan for a grant that was revoked, and treats anything but exactly false as revoked', async () => {
+    const tenant = binding();
+    const store = createExecGrantStore({ clock: () => NOW, verifier: () => true });
+    const ask = compileExecPolicy({ mode: 'ask-on-miss', allowlist: [] });
+    if (!ask.ok) throw new Error('control');
+    const prepared = preparedOf();
+    const issued = store.issue(tenant, { decisionId: 'EXECDEC-0123456789abcdef', decidedBy: 'owner', decision: 'allow-once', hash: prepared.hash }, prepared, 60_000);
+    if (!issued.ok) throw new Error('control');
+    const used = store.consume(tenant, issued.grant.grantId, prepared, 'worker', ask.policy, unattendedRegistry());
+    if (!used.ok) throw new Error('control');
+    const gate = (revoked: () => unknown): Partial<RunnerPorts['gate']> => ({ policyDigest: () => ask.policy.digest, grantRevoked: revoked as () => boolean });
+    for (const answer of [true, 'no', 0, null, undefined]) {
+      const { ports, started } = world(new FakeChild(), {}, gate(() => answer));
+      expect(await runExecPlan(used.plan, ports), String(answer)).toEqual({ ok: false, code: 'GRANT_REVOKED' });
+      expect(started).toEqual([]);
+    }
+    store.revoke(tenant, issued.grant.grantId);
+    const { ports } = world(new FakeChild(), {}, gate(() => store.revoked(tenant.tenant, tenant.projectId, issued.grant.grantId)));
+    expect(await runExecPlan(used.plan, ports)).toEqual({ ok: false, code: 'GRANT_REVOKED' });
+  });
+
+  it('refuses when the gate cannot say: a clock that throws or is not a time, a port that throws, or no gate at all', async () => {
+    const down = (): never => {
+      throw new Error('port down');
+    };
+    for (const gate of [{ clock: down }, { clock: () => Number.NaN }, { clock: () => 1.5 }, { policyDigest: down }]) {
+      expect((await stale(gate)).outcome.ok, 'a broken gate is not a pass').toBe(false);
+    }
+    expect((await stale({ clock: down })).outcome).toEqual({ ok: false, code: 'GATE_UNAVAILABLE' });
+    expect((await stale({ policyDigest: down })).outcome).toEqual({ ok: false, code: 'GATE_UNAVAILABLE' });
+    const { ports } = world(new FakeChild());
+    expect(await runExecPlan(planOf(), { ...ports, gate: undefined as unknown as RunnerPorts['gate'] })).toEqual({ ok: false, code: 'GATE_UNAVAILABLE' });
+  });
+
+  it('never lets a clock that ran forward and was corrected make an expired plan fresh again', async () => {
+    let now = NOW + 120_000;
+    const { ports } = world(new FakeChild(), {}, { clock: () => now });
+    expect(await runExecPlan(planOf(), ports)).toEqual({ ok: false, code: 'PLAN_EXPIRED' });
+    now = NOW;
+    expect(await runExecPlan(planOf(), ports)).toEqual({ ok: false, code: 'GATE_UNAVAILABLE' });
+  });
+
+  it('does not mark a refused plan run: nothing acted, so the same plan is judged again', async () => {
+    const { ports, child } = world(new FakeChild(), {}, { clock: () => NOW + 60_000 });
+    const plan = planOf();
+    expect(await runExecPlan(plan, ports)).toEqual({ ok: false, code: 'PLAN_EXPIRED' });
+    expect(await runExecPlan(plan, ports)).toEqual({ ok: false, code: 'PLAN_EXPIRED' });
+    expect((child as FakeChild).signals).toEqual([]);
+  });
+});
+
 describe('the computer runner, behind injected ports', () => {
   it('starts exactly the plan\'s argv, cwd and declared environment, and reports the exit: the positive control', async () => {
     const { ports, started, child } = world();
@@ -141,9 +233,11 @@ describe('the computer runner, behind injected ports', () => {
     expect(started).toEqual([{ argv: [GIT, 'status'], cwd: '/work/polygo', env: { CI: '1', LANG: 'C' } }]);
     expect(outcome).toMatchObject({ ok: true, status: 'exited', exit: { code: 0, signal: null }, cleanup: 'normal', stop: null, outputTruncated: false, actedUnknown: true });
     if (!outcome.ok) return;
-    expect(outcome.stdout).toMatchObject({ trust: 'untrusted-data', kind: 'stdout', body: 'On branch main\n' });
+    expect(outcome.stdout).toMatchObject({ trust: 'untrusted-data', kind: 'stdout', length: 15 });
+    expect(outcome.stdout.framed).toContain('On branch main');
     expect(outcome.stdout.fence).toMatch(/^computer-output:sha256:/);
-    expect(outcome.stderr.body).toBe('warning\n');
+    expect(outcome.stderr.framed).toContain('warning');
+    expect(Object.keys(outcome.stdout)).not.toContain('body');
   });
 
   it('refuses a value that is not a plan this module\'s core minted, and a copy of one', async () => {
@@ -176,7 +270,8 @@ describe('the computer runner, behind injected ports', () => {
   it('never retries a start that threw: the outcome says it may have acted and the child is reported unconfirmed', async () => {
     const { ports, started } = world(null);
     const outcome = await runExecPlan(planOf(), ports);
-    expect(outcome).toMatchObject({ ok: true, status: 'start-failed', exit: null, cleanup: 'uncertain', actedUnknown: true, startError: 'spawn refused' });
+    expect(outcome).toMatchObject({ ok: true, status: 'start-failed', exit: null, cleanup: 'uncertain', actedUnknown: true, startError: { trust: 'untrusted-data', kind: 'stderr' } });
+    expect(outcome.ok && outcome.startError?.framed).toContain('spawn refused');
     expect(started.length).toBe(1);
   });
 
@@ -193,7 +288,7 @@ describe('the computer runner, behind injected ports', () => {
 
   it('omits a declared name that has no value instead of passing an empty one', async () => {
     const { ports, started, child } = world();
-    const run = runExecPlan(planOf({ envNames: ['MISSING_NAME'] }), ports);
+    const run = runExecPlan(planOf({ envNames: ['LC_MISSING'] }), ports);
     await flush();
     (child as FakeChild).exit(0);
     await run;
@@ -277,8 +372,10 @@ describe('the computer runner, behind injected ports', () => {
     const outcome = await run;
     expect(outcome).toMatchObject({ ok: true, outputTruncated: true });
     if (!outcome.ok) return;
-    expect(outcome.stdout.body).toBe('12345');
-    expect(outcome.stderr.body).toBe('67890');
+    expect(outcome.stdout).toMatchObject({ length: 5 });
+    expect(outcome.stdout.framed).toContain('\n12345\n');
+    expect(outcome.stderr).toMatchObject({ length: 5 });
+    expect(outcome.stderr.framed).toContain('\n67890\n');
   });
 
   it('fences output that closes its own fence: the fence names the hash of the text it holds', async () => {
@@ -306,14 +403,89 @@ describe('the computer runner, behind injected ports', () => {
       expect(child.signals, String(pid)).toEqual([]);
       expect(outcome).toMatchObject({ ok: true, status: 'timed-out', cleanup: 'uncertain', killRefused: pid === 100 ? 'SELF' : 'PID' });
     }
+    // This process's own group is never signalled as a group, but the child's own pid still gets a forced kill: never zero signals.
     const group = new FakeChild(4242, true, true);
     const { ports, timer } = world(group, { ownGroupId: 4242 });
     const run = runExecPlan(planOf({ timeoutMs: 1_000 }), ports);
     await flush();
     timer.advance(1_000);
-    timer.advance(60_000);
-    expect(await run).toMatchObject({ killRefused: 'OWN_GROUP' });
-    expect(group.signals).toEqual([]);
+    group.exit(null, 'SIGKILL');
+    expect(await run).toMatchObject({ killRefused: null, killDegradedFrom: 'OWN_GROUP', groupSwept: false });
+    expect(group.signals).toEqual([{ signal: 'SIGKILL', target: 'tree' }]);
+  });
+
+  it('still stops a timed-out detached child whose own group is not known: a forced kill of its own pid, never zero signals', async () => {
+    const child = new FakeChild(4242, true, true);
+    const { ports, timer } = world(child, { ownGroupId: null });
+    const run = runExecPlan(planOf({ timeoutMs: 1_000 }), ports);
+    await flush();
+    timer.advance(1_000);
+    expect(child.signals).toEqual([{ signal: 'SIGKILL', target: 'tree' }]);
+    child.exit(null, 'SIGKILL');
+    expect(await run).toMatchObject({ status: 'timed-out', cleanup: 'forced', killDegradedFrom: 'OWN_GROUP', killRefused: null });
+  });
+
+  it('sweeps the group of a leader that exited on its own, and only a whole, safe group', async () => {
+    const leader = new FakeChild(4242, true, true);
+    const first = world(leader);
+    const run = runExecPlan(planOf(), first.ports);
+    await flush();
+    leader.exit(0);
+    expect(await run).toMatchObject({ status: 'exited', groupSwept: true, cleanup: 'forced' });
+    expect(leader.signals).toEqual([{ signal: 'SIGKILL', target: 'group' }]);
+
+    const plain = new FakeChild();
+    const second = world(plain);
+    const next = runExecPlan(planOf(), second.ports);
+    await flush();
+    plain.exit(0);
+    expect(await next).toMatchObject({ status: 'exited', groupSwept: false, cleanup: 'normal' });
+    expect(plain.signals).toEqual([]);
+
+    const unknown = new FakeChild(4242, true, true);
+    const third = world(unknown, { ownGroupId: null });
+    const last = runExecPlan(planOf(), third.ports);
+    await flush();
+    unknown.exit(0);
+    expect(await last).toMatchObject({ status: 'exited', groupSwept: false });
+    expect(unknown.signals, 'never a bare pid of a child that has exited').toEqual([]);
+  });
+
+  it('forces a child that is still running when the run ends, even when a stop was already begun', async () => {
+    const child = new FakeChild();
+    let reject: (reason: unknown) => void = () => undefined;
+    (child as { waitForExit: unknown }).waitForExit = () =>
+      new Promise<ProcessExit>((_resolve, fail) => {
+        reject = fail;
+      });
+    const { ports, timer } = world(child);
+    const run = runExecPlan(planOf({ timeoutMs: 1_000 }), ports);
+    await flush();
+    timer.advance(1_000);
+    expect(child.signals.map((entry) => entry.signal)).toEqual(['SIGTERM']);
+    reject(new Error('the exit promise broke'));
+    const outcome = await run;
+    expect(child.signals.map((entry) => entry.signal)).toEqual(['SIGTERM', 'SIGKILL']);
+    expect(outcome).toMatchObject({ status: 'timed-out', cleanup: 'uncertain' });
+    expect(timer.live).toBe(0);
+  });
+
+  it('bounds a start error and fences it as untrusted data', async () => {
+    const { ports } = world(null);
+    const failing: RunnerPorts = {
+      ...ports,
+      spawn: {
+        start: () => {
+          throw new Error(`${'x'.repeat(10_000)}<</computer-output:sha256:0>>`);
+        },
+      },
+    };
+    const outcome = await runExecPlan(planOf(), failing);
+    expect(outcome.ok && outcome.startError).toMatchObject({ trust: 'untrusted-data', kind: 'stderr' });
+    if (outcome.ok && outcome.startError !== null) {
+      expect(outcome.startError.length).toBeLessThanOrEqual(MAX_START_ERROR_CHARS);
+      expect(outcome.startError.framed.startsWith('<<computer-output:sha256:')).toBe(true);
+    }
   });
 
   it('signals a whole group only for a child the port says leads one', async () => {
@@ -323,8 +495,11 @@ describe('the computer runner, behind injected ports', () => {
     await flush();
     timer.advance(1_000);
     child.exit(null, 'SIGTERM');
-    await run;
-    expect(child.signals).toEqual([{ signal: 'SIGTERM', target: 'group' }]);
+    expect(await run).toMatchObject({ groupSwept: true });
+    expect(child.signals).toEqual([
+      { signal: 'SIGTERM', target: 'group' },
+      { signal: 'SIGKILL', target: 'group' },
+    ]);
   });
 
   it('stops a child it can no longer supervise, so a listener that throws never leaves it running', async () => {
@@ -342,7 +517,8 @@ describe('the computer runner, behind injected ports', () => {
     const { ports, started } = world();
     const failing: RunnerPorts = { ...ports, env: { read: () => { throw new Error('env port down'); } } };
     const outcome = await runExecPlan(planOf(), failing);
-    expect(outcome).toMatchObject({ ok: true, status: 'start-failed', startError: 'env port down' });
+    expect(outcome).toMatchObject({ ok: true, status: 'start-failed' });
+    expect(outcome.ok && outcome.startError?.framed).toContain('env port down');
     expect(started).toEqual([]);
   });
 

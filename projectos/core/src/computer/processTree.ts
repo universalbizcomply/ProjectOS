@@ -84,7 +84,7 @@ export function planKillTree(request: KillRequest): KillPlanResult {
   if (!(KILL_PLATFORMS as readonly unknown[]).includes(platform)) return { ok: false, code: 'REQUEST_SHAPE' };
   const leadsGroup = detached === true || (detached !== false && isGroupLeader === true);
   if (leadsGroup && platform !== 'win32' && (ownGroupId === pid || ownGroupId === null)) return { ok: false, code: 'OWN_GROUP' };
-  const target: KillTarget = platform === 'win32' ? 'tree' : leadsGroup ? 'group' : platform === 'linux' ? 'tree' : 'process';
+  const target: KillTarget = platform === 'win32' ? 'tree' : leadsGroup ? 'group' : 'tree';
   const graceMs = normalizeGraceMs(request.graceMs);
   const steps: readonly KillStep[] =
     force === true

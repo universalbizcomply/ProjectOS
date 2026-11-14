@@ -41,13 +41,13 @@ const LOOKALIKES: readonly (readonly [number, string])[] = [
   [0x0501, 'd'], [0x04bb, 'h'], [0x043a, 'k'], [0x043c, 'm'], [0x0442, 't'], [0x0432, 'v'], [0x0261, 'g'], [0x03bf, 'o'], [0x03b1, 'a'], [0x03bd, 'v'],
   [0x03c1, 'p'], [0x03b9, 'i'], [0x03ba, 'k'], [0x03c5, 'u'], [0x0131, 'i'],
 ];
-const LOOKALIKE = new Map<number, string>(LOOKALIKES);
+const LOOKALIKE: Readonly<Record<number, string | undefined>> = Object.freeze(Object.fromEntries(LOOKALIKES));
 
 /** Text folded for matching: hidden characters stripped before and after NFKC, lower case, lookalikes mapped to Latin. */
 export function foldForMatch(text: string): string {
   const folded = stripHiddenText(stripHiddenText(text).normalize('NFKC')).toLowerCase();
   let out = '';
-  for (const char of folded) out += LOOKALIKE.get(char.codePointAt(0) ?? 0) ?? char;
+  for (const char of folded) out += LOOKALIKE[char.codePointAt(0) ?? 0] ?? char;
   return out;
 }
 

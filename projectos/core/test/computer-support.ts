@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseActionRegistry, type ActionRegistry } from '../src/actionRegistry.js';
 import {
+  compileExecPolicy,
   prepareExecCommand,
+  type ExecPolicy,
   type ExecutableResolverPort,
   type PreparedExec,
 } from '../src/computer/index.js';
@@ -108,3 +110,10 @@ export const verifyAll = (): boolean => true;
 /** The committed registry with the exec action registered at a class that runs unattended, and a policy that allows git. */
 export const unattendedRegistry = (): ActionRegistry => registryWith({ 'exec-command': 'P3' });
 
+
+/** A compiled exec policy that allows `git` from any argument list, run under `/work`. A refused policy is a bug in the test. */
+export function execPolicyOf(mode: 'deny' | 'allowlist' | 'ask-on-miss' | 'ask-always' = 'allowlist', extra: Record<string, unknown> = {}): ExecPolicy {
+  const result = compileExecPolicy({ mode, allowlist: [{ pattern: GIT, anyArgs: true, cwdPrefixes: ['/work'], ...extra }] });
+  if (!result.ok) throw new Error(`the control exec policy was refused: ${result.code}: ${result.detail}`);
+  return result.policy;
+}

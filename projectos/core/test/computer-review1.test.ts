@@ -116,7 +116,7 @@ describe('review round 1: grant minting, the one gate and a plan that goes stale
     const issued = w.store.issue(w.binding, decisionFor(forB), forB, 60_000);
     if (!issued.ok) throw new Error('control');
     expect(w.store.consume(w.binding, issued.grant.grantId, forB, 'agent-a', gitPolicy(), unattendedRegistry())).toEqual({ ok: false, code: 'AGENT_MISMATCH' });
-    expect(w.store.consume(w.binding, issued.grant.grantId, preparedFor(w.binding, 'agent-a'), 'agent-a', gitPolicy(), unattendedRegistry())).toMatchObject({ ok: false, code: 'BINDING_MISMATCH' });
+    expect(w.store.consume(w.binding, issued.grant.grantId, preparedFor(w.binding, 'agent-a'), 'agent-a', gitPolicy(), unattendedRegistry())).toMatchObject({ ok: false, code: 'AGENT_MISMATCH' });
     expect(w.store.consume(w.binding, issued.grant.grantId, forB, 'agent-b', gitPolicy(), unattendedRegistry()).ok).toBe(true);
   });
 
@@ -296,11 +296,11 @@ describe('review round 1: the exec allowlist re-checks the resolved path, the ar
   it('checks the working directory against the entry, by segment, canonical, and never a UNC share', () => {
     const policy = gitPolicy();
     const at = (cwd: string) => decide(policy, preparedOf(polygo(), { cwd }));
+    expect(prepareExecCommand(polygo(), request({ cwd: '/work/../etc' }), resolverOf(TABLE), AGENT)).toMatchObject({ ok: false, code: 'CWD' });
     expect(at('/work/polygo')).toBe('allowlist-hit');
     expect(at('/work')).toBe('allowlist-hit');
     expect(at('/workshop')).toBe('refuse');
     expect(at('/etc')).toBe('refuse');
-    expect(at('/work/../etc')).not.toBe('allowlist-hit');
     expect(prepareExecCommand(polygo(), request({ cwd: '\\\\host\\share\\x' }), resolverOf(TABLE), AGENT)).toMatchObject({ ok: false, code: 'CWD' });
     expect(prepareExecCommand(polygo(), request({ cwd: '//host/share/x' }), resolverOf(TABLE), AGENT)).toMatchObject({ ok: false, code: 'CWD' });
     expect(compileExecPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true }] })).toMatchObject({ ok: false, code: 'ENTRY_CWD' });
@@ -362,7 +362,7 @@ describe('review round 1: output, command lines and the clock', () => {
   it('strips ANSI and bidi and zero-width characters from output, and gives callers only the fenced form', () => {
     const esc = String.fromCharCode(0x1b);
     const fenced = fenceUntrustedOutput('stdout', `${esc}[31mred${esc}[0m ${ZW}a${String.fromCharCode(0x202e)}b ${esc}]0;title${String.fromCharCode(7)}ok`);
-    expect(Object.keys(fenced).sort()).toEqual(['fence', 'framed', 'kind', 'length', 'trust', 'truncated']);
+    expect(Object.keys(fenced).sort()).toEqual(['fence', 'framed', 'kind', 'length', 'truncated', 'trust']);
     expect(fenced.framed).toContain('red ab ok');
     expect(fenced.framed).not.toContain(esc);
     expect(fenced.framed).not.toContain(ZW);

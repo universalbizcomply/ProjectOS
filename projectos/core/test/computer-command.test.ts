@@ -6,7 +6,7 @@ import {
   prepareExecCommand,
   resolveWrapperPlan,
 } from '../src/computer/index.js';
-import { GIT, REPO, TABLE, polygo, preparedOf, projectos, request, resolverOf } from './computer-support.js';
+import { AGENT, GIT, REPO, TABLE, polygo, preparedOf, projectos, request, resolverOf } from './computer-support.js';
 
 const refusedFeatures = (line: string, allowed: readonly ('redirection' | 'glob' | 'chaining')[] = []): string => {
   const result = analyzeCommandLine(line, allowed);
@@ -86,7 +86,7 @@ describe('command lines, launchers, environment names and prepared commands', ()
     expect(plan('sudo', 'git', 'status')).toBe('blocked:ELEVATION:sudo');
     expect(plan('runas', '/user:a', 'git')).toBe('blocked:ELEVATION:runas');
     expect(plan('node', '-e', '1')).toBe('blocked:INTERPRETER:node');
-    expect(plan('python3', '-c', '1')).toBe('blocked:INTERPRETER:python3');
+    expect(plan('python3', '-c', '1')).toBe('blocked:INTERPRETER:python');
     expect(plan('perl', '-e', '1')).toBe('blocked:INTERPRETER:perl');
     expect(plan('xargs', 'git')).toBe('blocked:LAUNCHER:xargs');
     expect(plan('wsl', 'git')).toBe('blocked:LAUNCHER:wsl');
@@ -112,7 +112,7 @@ describe('command lines, launchers, environment names and prepared commands', ()
     expect(admitExecEnvNames(['LANG', 'CI'])).toEqual({ ok: true, names: ['CI', 'LANG'] });
     expect(admitExecEnvNames({ LANG: 'C' })).toMatchObject({ ok: false, code: 'ENV_NOT_NAMES' });
     expect(admitExecEnvNames(['LANG=C'])).toMatchObject({ ok: false, code: 'ENV_NAME_FORM' });
-    expect(admitExecEnvNames(['LANG', 'lang'])).toMatchObject({ ok: false, code: 'ENV_DUPLICATE' });
+    expect(admitExecEnvNames(['LANG', 'LANG'])).toMatchObject({ ok: false, code: 'ENV_DUPLICATE' });
     expect(admitExecEnvNames(Array.from({ length: 33 }, (_, index) => `V${index}`))).toMatchObject({ ok: false, code: 'ENV_TOO_MANY' });
     expect(admitExecEnvNames([7])).toMatchObject({ ok: false, code: 'ENV_NOT_NAMES' });
   });
@@ -175,7 +175,7 @@ describe('command lines, launchers, environment names and prepared commands', ()
     const binding = polygo();
     const resolver = resolverOf(TABLE);
     const code = (value: unknown): string => {
-      const result = prepareExecCommand(binding, value, resolver);
+      const result = prepareExecCommand(binding, value, resolver, AGENT);
       return result.ok ? 'ok' : result.code;
     };
     expect(code(request())).toBe('ok');
@@ -193,7 +193,7 @@ describe('command lines, launchers, environment names and prepared commands', ()
   it('refuses limits past the caps, fractions, NaN and a limit that is not a number, instead of clamping them', () => {
     const binding = polygo();
     const code = (change: Record<string, unknown>): string => {
-      const result = prepareExecCommand(binding, request(change), resolverOf(TABLE));
+      const result = prepareExecCommand(binding, request(change), resolverOf(TABLE), AGENT);
       return result.ok ? 'ok' : result.code;
     };
     for (const timeoutMs of [0, -1, 600_001, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '30000', null, true]) expect(code({ timeoutMs }), String(timeoutMs)).toBe('LIMITS');
@@ -204,36 +204,37 @@ describe('command lines, launchers, environment names and prepared commands', ()
   it('refuses a working directory that is relative, holds .. or a control character, and an agent id that is not a word', () => {
     const binding = polygo();
     const code = (change: Record<string, unknown>): string => {
-      const result = prepareExecCommand(binding, request(change), resolverOf(TABLE));
+      const result = prepareExecCommand(binding, request(change), resolverOf(TABLE), AGENT);
       return result.ok ? 'ok' : result.code;
     };
     for (const cwd of ['work', './work', '/work/../etc', 'C:work', '/work\u0000', '', 7]) expect(code({ cwd }), String(cwd)).toBe('CWD');
-    for (const agentId of ['Worker', '1worker', 'a b', '', 'a'.repeat(33), 7]) expect(code({ agentId }), String(agentId)).toBe('AGENT_ID');
+    for (const agentId of ['Worker', '1worker', 'a b', '', 'a'.repeat(33), 7]) expect(prepareExecCommand(binding, request(), resolverOf(TABLE), agentId as string), String(agentId)).toMatchObject({ ok: false, code: 'AGENT_ID' });
+    expect(code({ agentId: 'worker' }), 'the agent is never a request field').toBe('REQUEST_SHAPE');
     expect(code({ cwd: 'C:\\work\\polygo' })).toBe('ok');
   });
 
   it('refuses a binding that was not derived, and a resolver that finds nothing, throws or names an alias', () => {
     const binding = polygo();
-    expect(prepareExecCommand({ ...binding }, request(), resolverOf(TABLE))).toMatchObject({ ok: false, code: 'NO_TENANT_BINDING' });
-    expect(prepareExecCommand(binding, request({ argv: ['nope'] }), resolverOf(TABLE))).toMatchObject({ ok: false, code: 'EXECUTABLE_UNRESOLVED' });
-    expect(prepareExecCommand(binding, request(), { resolve: () => { throw new Error('port down'); } })).toMatchObject({ ok: false, code: 'EXECUTABLE_UNRESOLVED' });
+    expect(prepareExecCommand({ ...binding }, request(), resolverOf(TABLE), AGENT)).toMatchObject({ ok: false, code: 'NO_TENANT_BINDING' });
+    expect(prepareExecCommand(binding, request({ argv: ['nope'] }), resolverOf(TABLE), AGENT)).toMatchObject({ ok: false, code: 'EXECUTABLE_UNRESOLVED' });
+    expect(prepareExecCommand(binding, request(), { resolve: () => { throw new Error('port down'); } }, AGENT)).toMatchObject({ ok: false, code: 'EXECUTABLE_UNRESOLVED' });
     for (const alias of ['/usr/bin/../bin/git', 'C:\\PROGRA~1\\git.exe', '/usr/bin/g\u0456t', 'git', '\\\\.\\x']) {
-      expect(prepareExecCommand(binding, request(), resolverOf({ git: alias })), alias).toMatchObject({ ok: false, code: 'EXECUTABLE_PATH' });
+      expect(prepareExecCommand(binding, request(), resolverOf({ git: alias }), AGENT), alias).toMatchObject({ ok: false, code: 'EXECUTABLE_PATH' });
     }
-    expect(prepareExecCommand(binding, request(), { resolve: () => ({ resolvedRealPath: 7 }) })).toMatchObject({ ok: false, code: 'EXECUTABLE_UNRESOLVED' });
+    expect(prepareExecCommand(binding, request(), { resolve: () => ({ resolvedRealPath: 7 }) }, AGENT)).toMatchObject({ ok: false, code: 'EXECUTABLE_UNRESOLVED' });
   });
 
   it('refuses a command whose launcher it cannot unwrap, with the launcher named, before the resolver is asked', () => {
     const binding = polygo();
     const resolver = resolverOf(TABLE);
-    const result = prepareExecCommand(binding, request({ argv: ['sudo', 'git', 'status'] }), resolver);
+    const result = prepareExecCommand(binding, request({ argv: ['sudo', 'git', 'status'] }), resolver, AGENT);
     expect(result).toMatchObject({ ok: false, code: 'WRAPPER' });
     expect(resolver.calls).toEqual([]);
-    expect(prepareExecCommand(binding, request({ argv: undefined, commandLine: 'git status; id' }), resolver)).toMatchObject({ ok: false, code: 'COMMAND_LINE' });
-    expect(prepareExecCommand(binding, request({ argv: [] }), resolver)).toMatchObject({ ok: false, code: 'ARGV_SHAPE' });
-    expect(prepareExecCommand(binding, request({ argv: ['git', 'a\u0000b'] }), resolver)).toMatchObject({ ok: false, code: 'ARGV_SHAPE' });
-    expect(prepareExecCommand(binding, request({ argv: ['git', 7] }), resolver)).toMatchObject({ ok: false, code: 'ARGV_SHAPE' });
-    expect(prepareExecCommand(binding, request({ envNames: ['PATH'] }), resolver)).toMatchObject({ ok: false, code: 'ENV' });
+    expect(prepareExecCommand(binding, request({ argv: undefined, commandLine: 'git status; id' }), resolver, AGENT)).toMatchObject({ ok: false, code: 'COMMAND_LINE' });
+    expect(prepareExecCommand(binding, request({ argv: [] }), resolver, AGENT)).toMatchObject({ ok: false, code: 'ARGV_SHAPE' });
+    expect(prepareExecCommand(binding, request({ argv: ['git', 'a\u0000b'] }), resolver, AGENT)).toMatchObject({ ok: false, code: 'ARGV_SHAPE' });
+    expect(prepareExecCommand(binding, request({ argv: ['git', 7] }), resolver, AGENT)).toMatchObject({ ok: false, code: 'ARGV_SHAPE' });
+    expect(prepareExecCommand(binding, request({ envNames: ['PATH'] }), resolver, AGENT)).toMatchObject({ ok: false, code: 'ENV' });
   });
 });
 

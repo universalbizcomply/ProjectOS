@@ -37,9 +37,10 @@
  */
 import { classAtMost, resolveAction, type ActionClass, type ActionRegistry } from '../actionRegistry.js';
 import { isDerivedBinding, type TenantBinding } from '../tenant.js';
-import { computerDigest } from './canonicalJson.js';
+import { digestOfCanonical as computerDigest } from './canonicalJson.js';
 import { readComputerClock, type ComputerClock } from './clock.js';
 import { ALLOWABLE_SYNTAX, type SyntaxFeature } from './commandLine.js';
+import { deniedEnvName } from './execEnv.js';
 import { isPreparedExec, type PreparedExec } from './execCommand.js';
 import { PLAN_TTL_MS, mintExecLaunchPlan, type ExecLaunchPlan } from './execLaunch.js';
 import { compileExecAllowlistPattern, type ExecAllowlistPattern } from './allowlistPattern.js';
@@ -205,6 +206,9 @@ function cwdAllowed(prepared: PreparedExec, entry: CompiledAllowlistEntry): bool
   return entry.cwdPrefixes.some((prefix) => prefix.length <= have.length && prefix.every((segment, index) => segment === have[index]));
 }
 
+/** Whether every environment name of the command is on the allow-list. `prepare` already admitted them; an allowlist hit asks again. */
+const envAllowed = (prepared: PreparedExec): boolean => prepared.envNames.every((name) => deniedEnvName(name) === null);
+
 function hitOf(policy: ExecPolicy, prepared: PreparedExec): CompiledAllowlistEntry | null {
   return (
     policy.entries.find(
@@ -212,6 +216,7 @@ function hitOf(policy: ExecPolicy, prepared: PreparedExec): CompiledAllowlistEnt
         entry.pattern.matches(prepared.executable) &&
         (entry.args === null ? openArgsAllowed(prepared, entry) : sameWords(entry.args, prepared.argv.slice(1))) &&
         cwdAllowed(prepared, entry) &&
+        envAllowed(prepared) &&
         prepared.features.every((feature) => entry.allowSyntax.includes(feature)),
     ) ?? null
   );

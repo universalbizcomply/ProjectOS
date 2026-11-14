@@ -13,7 +13,7 @@ import {
   type ExecPolicy,
   type NetworkPolicyRow,
 } from '../src/computer/index.js';
-import { GIT, committedRegistry, polygo, preparedOf, projectos, registryWith } from './computer-support.js';
+import { GIT, committedRegistry, movingClock, polygo, preparedOf, projectos, registryWith } from './computer-support.js';
 
 const execPolicy = (raw: unknown): ExecPolicy => {
   const result = compileExecPolicy(raw);
@@ -25,7 +25,7 @@ const actionPolicy = (raw: unknown): ActionPolicy => {
   if (!result.ok) throw new Error(`the control action policy was refused: ${result.code}: ${result.detail}`);
   return result.policy;
 };
-const GIT_ENTRY = { pattern: GIT, args: ['status'] };
+const GIT_ENTRY = { pattern: GIT, args: ['status'], cwdPrefixes: ['/work'] };
 const unattended = registryWith({ 'exec-command': 'P3' });
 const refusalOf = (raw: unknown): string => {
   const result = compileExecPolicy(raw);
@@ -57,13 +57,13 @@ describe('exec policy: default deny, an allowlist hit is not a grant, and the cl
     for (const argv of [['git', 'status', '-s'], ['git'], ['git', 'statu'], ['git', 'status ']]) {
       expect(evaluateExecPolicy(policy, unattended, preparedOf(binding, { argv })).outcome, argv.join(' ')).toBe('refuse');
     }
-    const any = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true }] });
+    const any = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true, cwdPrefixes: ['/work'] }] });
     expect(evaluateExecPolicy(any, unattended, preparedOf(binding, { argv: ['git', 'log', '-p'] })).outcome).toBe('allowlist-hit');
   });
 
   it('matches the real executable and never the name a request gave it: an alias of an allowlisted name is a miss', () => {
     const binding = polygo();
-    const policy = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: '/usr/bin/git', anyArgs: true }] });
+    const policy = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: '/usr/bin/git', cwdPrefixes: ['/work'], anyArgs: true }] });
     const elsewhere = preparedOf(binding, {}, { resolve: () => ({ resolvedRealPath: '/tmp/git' }) });
     expect(evaluateExecPolicy(policy, unattended, elsewhere).outcome).toBe('refuse');
     const sameName = preparedOf(binding, { argv: ['/tmp/git', 'status'] }, { resolve: () => ({ resolvedRealPath: '/tmp/git' }) });
@@ -82,8 +82,8 @@ describe('exec policy: default deny, an allowlist hit is not a grant, and the cl
   it('allows shell syntax only when the entry names it: a glob in an argument misses an entry that does not allow globs', () => {
     const binding = polygo();
     const globbed = preparedOf(binding, { argv: undefined, commandLine: 'git add *.ts' });
-    const without = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true }] });
-    const withGlob = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true, allowSyntax: ['glob'] }] });
+    const without = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true, cwdPrefixes: ['/work'] }] });
+    const withGlob = execPolicy({ mode: 'allowlist', allowlist: [{ pattern: GIT, cwdPrefixes: ['/work'], anyArgs: true, allowSyntax: ['glob'] }] });
     expect(evaluateExecPolicy(without, unattended, globbed).outcome).toBe('refuse');
     expect(evaluateExecPolicy(withGlob, unattended, globbed).outcome).toBe('allowlist-hit');
     const redirected = preparedOf(binding, { argv: undefined, commandLine: 'git log > out.txt' });
@@ -113,15 +113,15 @@ describe('exec policy: default deny, an allowlist hit is not a grant, and the cl
     expect(refusalOf({ mode: 'allowlist', allowlist: [GIT_ENTRY] })).toBe('ok');
     expect(refusalOf({ mode: 'full', allowlist: [] })).toBe('POLICY_MODE');
     expect(refusalOf({ mode: 'auto', allowlist: [] })).toBe('POLICY_MODE');
-    expect(refusalOf({ mode: 'allowlist', allowlist: [GIT_ENTRY, { pattern: '*', anyArgs: true }] })).toBe('ENTRY_PATTERN');
-    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: '/**', anyArgs: true }] })).toBe('ENTRY_PATTERN');
-    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT }] })).toBe('ENTRY_ARGS');
-    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, args: [], anyArgs: true }] })).toBe('ENTRY_ARGS');
-    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: false }] })).toBe('ENTRY_ARGS');
-    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, args: [1] }] })).toBe('ENTRY_ARGS');
-    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true, allowSyntax: ['chaining'] }] })).toBe('ENTRY_SYNTAX');
-    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true, allowSyntax: ['substitution'] }] })).toBe('ENTRY_SYNTAX');
-    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, anyArgs: true, elevated: true }] })).toBe('ENTRY_SHAPE');
+    expect(refusalOf({ mode: 'allowlist', allowlist: [GIT_ENTRY, { pattern: '*', cwdPrefixes: ['/work'], anyArgs: true }] })).toBe('ENTRY_PATTERN');
+    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: '/**', cwdPrefixes: ['/work'], anyArgs: true }] })).toBe('ENTRY_PATTERN');
+    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, cwdPrefixes: ['/work'] }] })).toBe('ENTRY_ARGS');
+    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, cwdPrefixes: ['/work'], args: [], anyArgs: true }] })).toBe('ENTRY_ARGS');
+    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, cwdPrefixes: ['/work'], anyArgs: false }] })).toBe('ENTRY_ARGS');
+    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, cwdPrefixes: ['/work'], args: [1] }] })).toBe('ENTRY_ARGS');
+    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, cwdPrefixes: ['/work'], anyArgs: true, allowSyntax: ['chaining'] }] })).toBe('ENTRY_SYNTAX');
+    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, cwdPrefixes: ['/work'], anyArgs: true, allowSyntax: ['substitution'] }] })).toBe('ENTRY_SYNTAX');
+    expect(refusalOf({ mode: 'allowlist', allowlist: [{ pattern: GIT, cwdPrefixes: ['/work'], anyArgs: true, elevated: true }] })).toBe('ENTRY_SHAPE');
     expect(refusalOf({ mode: 'allowlist', allowlist: Array.from({ length: 65 }, () => GIT_ENTRY) })).toBe('POLICY_ENTRIES');
     expect(refusalOf({ mode: 'allowlist', allowlist: [], dryRun: true })).toBe('POLICY_SHAPE');
     expect(refusalOf(null)).toBe('POLICY_SHAPE');
@@ -130,16 +130,17 @@ describe('exec policy: default deny, an allowlist hit is not a grant, and the cl
   it('makes a launch plan only for an allowlist hit in the scope of the binding, and for nothing else', () => {
     const binding = polygo();
     const policy = execPolicy({ mode: 'allowlist', allowlist: [GIT_ENTRY] });
-    const planned = planAllowlistedExec(binding, policy, unattended, preparedOf(binding));
+    const clock = movingClock().clock;
+    const planned = planAllowlistedExec(binding, policy, unattended, preparedOf(binding), clock);
     expect(planned.ok).toBe(true);
     if (planned.ok) {
       expect(isExecLaunchPlan(planned.plan)).toBe(true);
       expect(planned.plan).toMatchObject({ via: 'allowlist', grantId: null, argv: [GIT, 'status'] });
     }
-    expect(planAllowlistedExec(binding, policy, committedRegistry(), preparedOf(binding))).toMatchObject({ ok: false, code: 'NOT_AN_ALLOWLIST_HIT' });
-    expect(planAllowlistedExec(binding, policy, unattended, preparedOf(binding, { argv: ['git', 'log'] }))).toMatchObject({ ok: false, code: 'NOT_AN_ALLOWLIST_HIT' });
-    expect(planAllowlistedExec(binding, policy, unattended, preparedOf(projectos()))).toMatchObject({ ok: false, code: 'WRONG_SCOPE' });
-    expect(planAllowlistedExec({ ...binding }, policy, unattended, preparedOf(binding))).toMatchObject({ ok: false, code: 'NO_TENANT_BINDING' });
+    expect(planAllowlistedExec(binding, policy, committedRegistry(), preparedOf(binding), clock)).toMatchObject({ ok: false, code: 'NOT_AN_ALLOWLIST_HIT' });
+    expect(planAllowlistedExec(binding, policy, unattended, preparedOf(binding, { argv: ['git', 'log'] }), clock)).toMatchObject({ ok: false, code: 'NOT_AN_ALLOWLIST_HIT' });
+    expect(planAllowlistedExec(binding, policy, unattended, preparedOf(projectos()), clock)).toMatchObject({ ok: false, code: 'WRONG_SCOPE' });
+    expect(planAllowlistedExec({ ...binding }, policy, unattended, preparedOf(binding), clock)).toMatchObject({ ok: false, code: 'NO_TENANT_BINDING' });
   });
 });
 
@@ -224,7 +225,7 @@ describe('action policy: a typed default-deny table with machine-readable reason
     expect(owner({ tool: 'read-file', file: { path: '.env' }, initiator: 'agent' })).toMatchObject({ allowed: false, floor: 'credential-adjacent' });
     expect(owner({ tool: 'read-file', file: { path: 'docs/.SSH/id_rsa' }, initiator: 'agent' })).toMatchObject({ allowed: false, floor: 'credential-adjacent' });
     expect(owner({ tool: 'write-file', file: { path: 'notes/a.md' }, initiator: 'agent' })).toMatchObject({ allowed: false, floor: 'destructive', actionClass: 'P5' });
-    expect(owner({ tool: 'run-command', command: 'ls', initiator: 'agent' })).toMatchObject({ allowed: false, floor: 'destructive' });
+    expect(owner({ tool: 'run-command', exec: preparedOf(polygo(), { argv: ['ls'] }), initiator: 'agent' })).toMatchObject({ allowed: false, floor: 'destructive' });
     expect(owner({ tool: 'read-file', file: { path: 'docs/readme.md' }, initiator: 'agent' })).toMatchObject({ allowed: false, code: 'OWNER_DECISION_REQUIRED', floor: null });
   });
 
@@ -274,8 +275,8 @@ describe('action policy: a typed default-deny table with machine-readable reason
     expect(decide({ tool: 'read-file', file: { path: 'Secrets/a.txt' }, initiator: 'agent' })).toMatchObject({ matched: 'no-secrets-dir' });
     expect(decide({ tool: 'mcp-write', mcp: { server: 'Jira', tool: 'editIssue', effect: 'write' }, initiator: 'agent' })).toMatchObject({ matched: 'no-mcp-writes' });
     expect(decide({ tool: 'mcp-write', mcp: { server: 'notes', tool: 'edit', effect: 'write' }, initiator: 'agent' }).matched).toBe('allow-everything-useful');
-    expect(decide({ tool: 'run-command', command: 'ls', initiator: 'routine' })).toMatchObject({ matched: 'no-routine-shell' });
-    expect(decide({ tool: 'run-command', command: 'ls', initiator: 'person' }).matched).toBe('allow-everything-useful');
+    expect(decide({ tool: 'run-command', exec: preparedOf(polygo(), { argv: ['ls'] }), initiator: 'routine' })).toMatchObject({ matched: 'no-routine-shell' });
+    expect(decide({ tool: 'run-command', exec: preparedOf(polygo(), { argv: ['ls'] }), initiator: 'person' }).matched).toBe('allow-everything-useful');
   });
 
   it('refuses an unbounded or unreadable fact: an escaping file path, a host that is an address, a control character', () => {
@@ -335,18 +336,23 @@ describe('network policy: no row is no network, and there is no allow-all', () =
     expect(effectiveNetworkPolicy({ ...binding }, [row()], { groups: [] }, true)).toMatchObject({ mode: 'deny_all', from: 'no-binding' });
   });
 
-  it('lets a group row replace the organization row unless the organization row is locked', () => {
-    const group = row({ scopeKind: 'group', scopeId: 'ops', rules: [{ host: 'ops.example.com' }] });
-    expect(effective([row(), group], ['ops'])).toMatchObject({ mode: 'allowlist_only', from: 'group:ops', rules: ['ops.example.com'] });
-    expect(effective([row({ locked: true }), group], ['ops'])).toMatchObject({ from: 'organization' });
+  it('never lets a group row widen the organization row: every applying row must allow the host', () => {
+    const group = row({ scopeKind: 'group', scopeId: 'ops', rules: [{ host: 'ops.example.com' }, { host: 'api.example.com' }] });
+    const policy = effective([row(), group], ['ops']);
+    expect(policy).toMatchObject({ mode: 'allowlist_only', from: 'group:ops+organization' });
+    expect(egressAllowed(policy, 'api.example.com')).toBe(true);
+    expect(egressAllowed(policy, 'ops.example.com')).toBe(false);
+    expect(effective([row({ locked: true }), group], ['ops'])).toMatchObject({ from: 'group:ops+organization' });
     expect(effective([row(), group], ['other'])).toMatchObject({ from: 'organization' });
   });
 
-  it('takes the first group by id when several apply, so the answer does not depend on row order', () => {
-    const a = row({ scopeKind: 'group', scopeId: 'a-team', rules: [{ host: 'a.example.com' }] });
-    const b = row({ scopeKind: 'group', scopeId: 'b-team', rules: [{ host: 'b.example.com' }] });
-    expect(effective([b, a], ['a-team', 'b-team'])).toMatchObject({ from: 'group:a-team' });
-    expect(effective([a, b], ['a-team', 'b-team'])).toMatchObject({ from: 'group:a-team' });
+  it('answers the same whatever the order or the names of the groups that apply', () => {
+    const a = row({ scopeKind: 'group', scopeId: 'a-team', rules: [{ host: 'api.example.com' }] });
+    const b = row({ scopeKind: 'group', scopeId: 'b-team', rules: [{ host: 'api.example.com' }, { host: 'b.example.com' }] });
+    expect(effective([b, a], ['a-team', 'b-team'])).toMatchObject({ from: 'group:a-team+group:b-team' });
+    expect(effective([a, b], ['a-team', 'b-team'])).toMatchObject({ from: 'group:a-team+group:b-team' });
+    expect(egressAllowed(effective([b, a], ['a-team', 'b-team']), 'b.example.com')).toBe(false);
+    expect(egressAllowed(effective([a, b], ['a-team', 'b-team']), 'b.example.com')).toBe(false);
   });
 
   it('refuses a row that does not read, or asks for allow all, and denies instead of half applying it', () => {
