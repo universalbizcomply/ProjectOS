@@ -65,10 +65,12 @@ const SUPPORT_REL = "projectos/core/test/agents-support.ts";
 const TEST_DIR = "projectos/core/test";
 
 const FILES = {
-  clockGuard: src("clockGuard"), plainRecords: src("plainRecords"), limits: src("delegationLimits"), record: src("agentRecord"), book: src("agentBook"),
+  clockGuard: src("clockGuard"), plainRecords: src("plainRecords"), envelopeSnapshot: src("envelopeSnapshot"), ownerForm: src("ownerForm"), limits: src("delegationLimits"), record: src("agentRecord"), book: src("agentBook"),
   sessionKey: src("sessionKey"), bindingScope: src("bindingScope"), routeBinding: src("routeBinding"), routeResolve: src("routeResolve"),
   toolsets: src("delegationToolsets"), tasks: src("delegationTasks"), delegation: src("delegation"), messages: src("messages"), queue: src("queueState"),
 };
+const OWNERFORM_REL = FILES.ownerForm;
+const PLAIN_REL = FILES.plainRecords;
 const { clockGuard: CLOCK_REL, limits: LIMITS_REL, record: RECORD_REL, book: BOOK_REL, sessionKey: SESSION_REL, routeBinding: BINDING_REL,
   routeResolve: RESOLVE_REL, toolsets: TOOLSETS_REL, tasks: TASKS_REL, delegation: DELEGATION_REL, messages: MESSAGES_REL, queue: QUEUE_REL } = FILES;
 
@@ -81,7 +83,7 @@ const PORTED = {
   [TASKS_REL]: { id: "hermes-agent", paths: ["tools/delegate_tool_tasks.py"] },
   [QUEUE_REL]: { id: "hermes-agent", paths: ["tools/async_delegation.py"] },
 };
-const ORIGINAL = [CLOCK_REL, FILES.plainRecords, LIMITS_REL, RECORD_REL, BOOK_REL, BINDING_REL, DELEGATION_REL, MESSAGES_REL, BARREL_REL];
+const ORIGINAL = [CLOCK_REL, FILES.plainRecords, FILES.envelopeSnapshot, FILES.ownerForm, LIMITS_REL, RECORD_REL, BOOK_REL, BINDING_REL, DELEGATION_REL, MESSAGES_REL, BARREL_REL];
 const ALL_FILES = [...Object.keys(PORTED), ...ORIGINAL];
 const MODULE_FILES = ALL_FILES.filter((rel) => rel !== BARREL_REL);
 
@@ -92,7 +94,7 @@ const PUBLIC_NAMES = [
   "DELEGATED_CLASS_CEILING", "MESSAGE_CLASS_CEILING", "DELEGATE_BLOCKED_GRANTS", "QUEUE_LEASE_MS", "MAX_QUEUE_ATTEMPTS", "readClock",
   "admitAgentRecord", "isAdmittedAgentRecord", "addAgent", "emptyAgentBook", "findAgent", "admitRouteBinding", "resolveAgentRoute",
   "buildAgentSessionKey", "parseAgentSessionKey", "sessionKeyInScope", "routeBindingScopeMatches", "registerRoot", "admitDelegation",
-  "settleDelegation", "expireStaleDelegations", "runDelegated", "delegateOutput", "emptyDelegationBook", "delegationNodeAt", "isDelegationBook", "goalProblem", "childGrantProblem",
+  "settleDelegation", "expireStaleDelegations", "runDelegated", "delegateOutput", "emptyDelegationBook", "delegationNodeAt", "isDelegationBook", "emptyMessageLedger", "exportDelegationBook", "restoreDelegationBook", "pruneSettledDelegations", "recordDelegateSpend", "releaseDelegation", "renewLease", "isBlockedGrant", "normalizeGrantName", "readOwnerForm", "verifiedByPort", "snapshotEnvelope", "goalProblem", "childGrantProblem",
   "admitAgentMessage", "newQueueItem", "claimItem", "completeItem", "pauseItem", "resumeItem", "cancelItem", "recoverAbandoned", "resolveUnknown",
   "restoreQueueItem", "emptyQueueControl", "pauseScope", "resumeScope", "isScopePaused",
 ];
@@ -110,6 +112,8 @@ const LIBRARIES = /\bzod\b|\blodash\b|\bimmer\b|\bbullmq\b|\bbull\b|\bagenda\b|\
 const PURITY = {
   [CLOCK_REL]: [],
   [FILES.plainRecords]: [],
+  [FILES.envelopeSnapshot]: ["../taskEnvelope.js", "./plainRecords.js"],
+  [FILES.ownerForm]: ["./plainRecords.js"],
   [LIMITS_REL]: [],
   [RECORD_REL]: ["node:crypto", "../tenant.js", "./delegationLimits.js", "./plainRecords.js"],
   [BOOK_REL]: ["./agentRecord.js", "./delegationLimits.js"],
@@ -119,10 +123,10 @@ const PURITY = {
   [RESOLVE_REL]: ["../tenant.js", "./agentBook.js", "./bindingScope.js", "./delegationLimits.js", "./routeBinding.js", "./sessionKey.js"],
   [TOOLSETS_REL]: ["./agentRecord.js", "./delegationLimits.js"],
   [TASKS_REL]: ["./delegationLimits.js"],
-  [DELEGATION_REL]: ["node:crypto", "../actionRegistry.js", "../taskEnvelope.js", "../tenant.js", "./agentBook.js", "./clockGuard.js", "./delegationLimits.js", "./delegationTasks.js", "./delegationToolsets.js"],
-  [MESSAGES_REL]: ["node:crypto", "../actionRegistry.js", "../taskEnvelope.js", "../tenant.js", "./agentBook.js", "./clockGuard.js", "./delegation.js", "./delegationLimits.js"],
-  [QUEUE_REL]: ["../tenant.js", "./agentBook.js", "./clockGuard.js", "./delegationLimits.js", "./plainRecords.js"],
-  [BARREL_REL]: ["./clockGuard.js", "./delegationLimits.js", "./agentRecord.js", "./agentBook.js", "./sessionKey.js", "./bindingScope.js", "./routeBinding.js", "./routeResolve.js", "./delegationToolsets.js", "./delegationTasks.js", "./delegation.js", "./messages.js", "./queueState.js"],
+  [DELEGATION_REL]: ["node:crypto", "../actionRegistry.js", "../taskEnvelope.js", "../tenant.js", "./agentBook.js", "./clockGuard.js", "./delegationLimits.js", "./delegationTasks.js", "./delegationToolsets.js", "./envelopeSnapshot.js", "./ownerForm.js", "./plainRecords.js"],
+  [MESSAGES_REL]: ["node:crypto", "../actionRegistry.js", "../taskEnvelope.js", "../tenant.js", "./agentBook.js", "./clockGuard.js", "./delegation.js", "./delegationLimits.js", "./delegationToolsets.js", "./envelopeSnapshot.js"],
+  [QUEUE_REL]: ["../tenant.js", "./agentBook.js", "./clockGuard.js", "./delegationLimits.js", "./ownerForm.js", "./plainRecords.js"],
+  [BARREL_REL]: ["./clockGuard.js", "./delegationLimits.js", "./agentRecord.js", "./agentBook.js", "./sessionKey.js", "./bindingScope.js", "./routeBinding.js", "./routeResolve.js", "./delegationToolsets.js", "./ownerForm.js", "./envelopeSnapshot.js", "./delegationTasks.js", "./delegation.js", "./messages.js", "./queueState.js"],
 };
 const SPECIFIERS = [/^\s*import\s*['"]([^'"]+)['"]/gm, /^\s*import\b[^'"]*?\bfrom\s*['"]([^'"]+)['"]/gm, /^\s*export\b[^'"=]*?\bfrom\s*['"]([^'"]+)['"]/gm];
 const IMPURE = /\bprocess\s*[.[]|\bperformance\s*[.[]|\bglobalThis\b|\bglobal\s*[.[]|\bimport\s*\(|\bimport\.meta\b|\brequire\(|\beval\(|\bnew Function\b|Date\.now|new Date\(\)|Math\.random|\bfetch\(|\bconsole\.|\breadFile|\bwriteFile|\bexecSync|\bspawn\(|\bchild_process\b/;
@@ -151,8 +155,22 @@ const TESTS = {
     "refuses a P5 child of a P5 parent: the class check, not the envelope check, decides", "refuses a child whose action the registry does not list, which reads as P5",
     "runs the work and settles the child as completed when it returns", "settles the child as failed and frees its slot when the work throws, then reports the error",
     "does not run the work at all when the delegation is refused", "wraps the text, labels it untrusted and names whose it is", "cannot be closed from inside: the fence names the hash of the text it holds",
-    "treats a child that was never settled as unknown once its lease ends, and frees its slot but not its budget", "refuses a clock that reads earlier than one the book has already seen",
+    "treats a child that was never settled as unknown once its lease ends, and keeps its slot and its budget", "refuses a clock that reads earlier than one the book has already seen",
     "reads each field of a request once: a grants list that changes between reads is not what is stored", "gives the work the goal that was checked, from the node the book holds",
+  ],
+  [`${TEST_DIR}/agents-review1.test.ts`]: [
+    "refuses a child envelope whose %s is a getter", "refuses a child envelope whose actor is a getter, or whose scope holds one", "keeps the parent reservation sane even when a budget getter returns a negative the second time",
+    "refuses a hand-built root with a budget of 10^12 and a P5 class", "refuses a perfect copy of an admitted root", "refuses a message envelope that is a getter",
+  ],
+  [`${TEST_DIR}/agents-review1b.test.ts`]: [
+    "refuses a record with no verifier, or a verifier that does not answer exactly true", "cannot use one record for two items, or twice for one item",
+    "refuses to restore a formerly unknown item as queued without its verified resolution", "refuses a move that names a revision the item is no longer at",
+    "renews a lease that is still held, and does not then call the run lost at its old lease end", "names a blocked grant under any spelling, case or separator",
+    "refuses a delegate that has a messageAllow list: it cannot hold the grant", "marks the live children of a settled parent unknown, and refuses their messages",
+    "lets a child have only what is left after the parent", "refuses a delegation when the book now holds a different record for the parent",
+    "admits a message id once", "counts the hops of a reply chain from the ledger, and stops at the cap", "caps the messages one pair exchanges, and the size of a ledger, and forgets nothing",
+    "prunes ended delegates with nothing beneath them", "exports a book as plain data and restores it when the verifier answers exactly true", "refuses a snapshot with no verifier, or one the verifier does not vouch for",
+    "refuses a snapshot whose tree the rules could not have produced", "releases a lapsed delegate", "holds a per-root cap on delegates that hold a slot", "does not cut a surrogate pair when it cuts a delegate",
   ],
   [`${TEST_DIR}/agents-messages.test.ts`]: [
     "admits the same message within the tenant: the positive control", "refuses a message that names an agent of another tenant as its recipient",
@@ -172,17 +190,19 @@ const NOT_RUN = /\b(?:it|test|describe|suite|bench)\.(?:skip|only|todo|fails|ski
 
 const SOURCE_PINS = {
   [CLOCK_REL]: ["A TIME THAT CANNOT BE TRUSTED IS NO TIME."],
+  [FILES.envelopeSnapshot]: ["AN ENVELOPE FROM A CALLER IS READ ONCE."],
+  [FILES.ownerForm]: ["A WELL-FORMED RECORD IS NOT AN APPROVAL."],
   [LIMITS_REL]: ["THESE NUMBERS WERE CHOSEN HERE, NOT TAKEN FROM A SOURCE."],
   [RECORD_REL]: ["A RECORD NAMES A PLAN DECISION; THIS READER CHECKS ITS FORM, NOT THE DECISION.", "THE RECORD NAMES NO TENANT.", "GRANTS ARE AN ALLOWLIST OF WORDS.", "WHAT THIS MODULE CANNOT PROVE."],
   [BOOK_REL]: ["A BOOK IS DATA, AND IT NEVER EVICTS.", "THE BOOK IS THIS MODULE'S."],
   [BINDING_REL]: ["A BINDING NAMES NO TENANT.", "AN UNUSABLE CONSTRAINT IS REFUSED, NOT SKIPPED."],
   [DELEGATION_REL]: [
     "A DELEGATE NEVER GETS MORE THAN ITS PARENT.", "THE DEPTH, THE COUNT AND THE BUDGET ARE THE BOOK'S.", "EVERY COUNT IS KEYED BY TENANT AND PROJECT.",
-    "A LOST DELEGATE IS UNKNOWN FOR GOOD.", "WHAT A DELEGATE SENDS BACK IS DATA.", "WHAT THIS MODULE CANNOT PROVE.",
+    "A LOST DELEGATE IS UNKNOWN FOR GOOD.", "WHAT IS CHECKED IS WHAT RUNS.", "AN AGENT'S RECORD IS PINNED.", "WHAT A DELEGATE SENDS BACK IS DATA.", "WHAT THIS MODULE CANNOT PROVE.",
   ],
-  [MESSAGES_REL]: ["A MESSAGE STAYS WHERE ITS SENDER IS.", "THE SENDER IS THE BOOK'S, NOT THE CALLER'S.", "MESSAGING IS OFF UNTIL A RECORD ALLOWS IT.", "A MESSAGE IS ENVELOPED AND CARRIES NO AUTHORITY.", "WHAT THIS MODULE CANNOT PROVE."],
+  [MESSAGES_REL]: ["A MESSAGE STAYS WHERE ITS SENDER IS.", "THE SENDER IS THE BOOK'S, NOT THE CALLER'S.", "MESSAGING IS OFF UNTIL A RECORD ALLOWS IT, AND A GRANT HOLDS IT.", "A MESSAGE IS ENVELOPED AND CARRIES NO AUTHORITY.", "A CONVERSATION ENDS.", "WHAT THIS MODULE CANNOT PROVE."],
   [QUEUE_REL]: [
-    "THIS IS NOT A QUEUE.", "AN ITEM MOVES ONLY BY THESE RULES.", "A RUNNING ITEM IS POSSIBLY ACTED.", "THE COUNT, THE LEASE AND THE SCOPE ARE THE RULES'.",
+    "THIS IS NOT A QUEUE.", "AN ITEM MOVES ONLY BY THESE RULES.", "A RUNNING ITEM IS POSSIBLY ACTED.", "THE COUNT, THE LEASE, THE REVISION AND THE SCOPE ARE THE RULES'.",
     "A PAUSE IS A SCOPE'S AND NEVER LAPSES.", "WHAT THIS MODULE CANNOT PROVE.",
   ],
 };
@@ -193,10 +213,9 @@ const FINISH_PINS = {
   "that the workforce stays the only queue": "The workforce dispatch stays the only queue",
   "that no gate changed": "No gate was loosened or replaced.",
   "the wording": "A well-formed record that names a decision id is not an approval",
-  "the root limit": "That a root envelope's limits came from the kernel is the caller's",
+  "the root rule": "A root is only the envelope object the kernel's door admitted", "the wiring-owned limit": "is taken to be that run", "the verifier ports": "Whether a verifier port is honest is the wiring's", "the retry residual": "Retry counting is not unified with the workforce dispatch", "the review round": "## Review round 1",
   "the budget residual": "A finished delegate does not give its budget back",
-  "the replay residual": "Refusing a message id already seen is the receiving queue's",
-  "the store residual": "A restored item is only as trustworthy as the store it came from",
+    "the store residual": "A restored item is only as trustworthy as the store it came from",
   "the credit directories commit": "The shared commit `86f18e23` lists this directory",
   "the review": "ECC SECURITY",
   "the multi-agent review": "multi-agent-systems-architect",
@@ -294,8 +313,8 @@ function worldOf(core, actionJson, tenantJson) {
     return result.record;
   };
   const bookOf = (binding, specs, book = core.emptyAgentBook()) => specs.reduce((held, spec) => must(core.addAgent(held, agentOf(binding, spec))).book, book);
-  const LEAD = { recordId: "AGT-lead-v1", agentId: "lead", mayDelegate: true, grants: ["read-repository", "search-repository", "run-sandbox-tests"] };
-  const WORKER = { recordId: "AGT-worker-v1", agentId: "worker", grants: ["read-repository", "search-repository", "run-sandbox-tests", "memory", "draft-proposal"] };
+  const LEAD = { recordId: "AGT-lead-v1", agentId: "lead", mayDelegate: true, grants: ["read-repository", "search-repository", "run-sandbox-tests", "send_message"] };
+  const WORKER = { recordId: "AGT-worker-v1", agentId: "worker", grants: ["read-repository", "search-repository", "run-sandbox-tests", "memory", "draft-proposal", "send_message"] };
   const chain = ["mid", "leaf", "deep"].map((agentId) => ({ recordId: `AGT-${agentId}`, agentId, mayDelegate: true, grants: ["read-repository"] }));
   const team = (binding = home) => bookOf(binding, [LEAD, WORKER, ...chain]);
 
@@ -329,11 +348,11 @@ function worldOf(core, actionJson, tenantJson) {
   const settle = (book, envelopeId, outcome = "completed", ms = NOW, binding = home, agents = team()) => core.settleDelegation(book, ctx(binding, agents, ms), envelopeId, outcome);
 
   const messageAgents = () =>
-    bookOf(other, [{ recordId: "AGT-agency-only", agentId: "agency-only" }], bookOf(home, [{ ...LEAD, messageAllow: ["worker", "agency-only"] }, { ...WORKER, messageAllow: [] }, { recordId: "AGT-other", agentId: "other" }]));
+    bookOf(other, [{ recordId: "AGT-agency-only", agentId: "agency-only" }], bookOf(home, [{ ...LEAD, messageAllow: ["worker", "agency-only"] }, { ...WORKER, messageAllow: [] }, { recordId: "AGT-other", agentId: "other", grants: ["send_message"] }]));
   /** A sender run the delegation book holds, and everything a message needs around it. */
   const msgWorld = (agentId = "lead", agents = messageAgents(), envelopeChange = {}, binding = home) => {
     const sender = root(binding, envelopeChange);
-    return { sender, agents, binding, delegations: start(binding, agents, sender, agentId) };
+    return { sender, agents, binding, delegations: start(binding, agents, sender, agentId), ledger: core.emptyMessageLedger() };
   };
   const message = (sender, over = {}) => {
     const { envelope, ...rest } = over;
@@ -343,11 +362,33 @@ function worldOf(core, actionJson, tenantJson) {
     };
   };
   const send = (request, m, over = {}) =>
-    core.admitAgentMessage(over.agents ?? m.agents, { binding: over.binding ?? m.binding, registry, clock: () => over.ms ?? NOW, delegations: over.delegations ?? m.delegations }, request);
+    core.admitAgentMessage(over.agents ?? m.agents, { binding: over.binding ?? m.binding, registry, clock: () => over.ms ?? NOW, delegations: over.delegations ?? m.delegations, ledger: over.ledger ?? m.ledger }, request);
 
-  const at = (ms, binding = home) => ({ binding, clock: () => ms });
+  const at = (ms, binding = home) => ({ binding, clock: () => ms, verifyResolution: () => true });
+  const q = {
+    claimItem: (c, ctl, i, rev = i.revision) => core.claimItem(c, ctl, i, rev),
+    completeItem: (c, i, o, rev = i.revision) => core.completeItem(c, i, o, rev),
+    pauseItem: (c, i, rev = i.revision) => core.pauseItem(c, i, rev),
+    recoverAbandoned: (c, i, rev = i.revision) => core.recoverAbandoned(c, i, rev),
+    resolveUnknown: (c, i, r, rev = i.revision) => core.resolveUnknown(c, i, r, rev),
+    renewLease: (c, i, rev = i.revision) => core.renewLease(c, i, rev),
+  };
+  /** A resolution record bound to this item, its tenant, project and current revision. */
+  const res = (item, over = {}) => ({ ...OWNER, outcome: "requeue", itemId: item.itemId, tenant: item.tenant, project: item.project, revision: item.revision, ...over });
+  const admittedChild = (parent, binding = home) => {
+    const context = { binding, registry, principal: "implementer", actor: { agent: "claude-code-cli", provider: "anthropic", model: "claude-opus-5-5" }, envelopeId: nextId() };
+    const minted = core.mintEnvelope(context, { action: "run_validators", subjectHash: "a".repeat(40), scope: ["docs/"], budget: 100, expiry: LATER, intentScope: `RUN-${nextId()}` }, parent);
+    const admission = core.admitEnvelope(minted, NOW_ISO, () => true, () => true);
+    if (!admission.admitted) throw new Error(`the control child was refused: ${admission.reasons.join("; ")}`);
+    return admission.envelope;
+  };
+  const registryWith = (change) => {
+    const parsed = core.parseActionRegistry({ ...actionJson, actions: actionJson.actions.map((entry) => ({ ...entry, ...(change[entry.id] ?? {}) })) });
+    if (!parsed.ok) throw new Error("the changed action registry does not parse");
+    return parsed.registry;
+  };
   const item = (id = "ITEM-1", ms = NOW, binding = home) => must(core.newQueueItem(at(ms, binding), id)).item;
-  const running = (id = "ITEM-1", ms = NOW) => must(core.claimItem(at(ms), core.emptyQueueControl(), item(id, ms))).item;
+  const running = (id = "ITEM-1", ms = NOW) => must(q.claimItem(at(ms), core.emptyQueueControl(), item(id, ms))).item;
   const stored = (change) => ({ ...item(), ...change });
   const QC = (result) => (result.ok ? result.item.status : result.code);
 
@@ -357,7 +398,7 @@ function worldOf(core, actionJson, tenantJson) {
   const RC = (result) => (result.ok ? `${result.route.agentId}/${result.route.matchedBy}` : result.code);
 
   return {
-    core, registry, home, sibling, other, C, must, rawAgent, agentOf, bookOf, LEAD, WORKER, team, root, child, ctx, start, req, delegate, admitChild, settle,
+    core, registry, home, sibling, other, C, must, rawAgent, agentOf, bookOf, LEAD, WORKER, team, root, child, ctx, start, req, delegate, admitChild, settle, q, res, admittedChild, registryWith,
     messageAgents, msgWorld, message, send, at, item, running, stored, QC, routeBinding, routeBook, route, RC,
   };
 }
@@ -408,13 +449,6 @@ const SCENARIOS = [
     const parent = w.root(w.home);
     return w.C(w.delegate(w.start(w.home, w.team(), parent), w.req(parent, { grants: ["read-repository", "search-repository"] })));
   }, true),
-  S("AG-1", "a-request-is-read-once", ANSWER, "read-repository", (w) => {
-    const parent = w.root(w.home);
-    const asked = w.req(parent);
-    let reads = 0;
-    Object.defineProperty(asked, "grants", { enumerable: true, get: () => (reads++ === 0 ? ["read-repository"] : ["read-repository", "run-sandbox-tests"]) });
-    return w.must(w.delegate(w.start(w.home, w.team(), parent), asked)).node.grants.join(",");
-  }),
   // AG-2: the child is in the parent's tenant, project and environment
   S("AG-2", "a-child-in-another-tenant-is-refused", REFUSE, "ENVELOPE_R3", (w) => {
     const parent = w.root(w.home);
@@ -452,14 +486,18 @@ const SCENARIOS = [
   }, true),
   S("AG-3", "a-child-envelope-is-not-a-root", REFUSE, "ROOT_IS_A_CHILD", (w) => {
     const parent = w.root(w.home);
-    return w.C(w.core.registerRoot(w.core.emptyDelegationBook(), w.ctx(w.home, w.team()), { agentId: "lead", envelope: w.child(parent) }));
+    return w.C(w.core.registerRoot(w.core.emptyDelegationBook(), w.ctx(w.home, w.team()), { agentId: "lead", envelope: w.admittedChild(parent) }));
   }),
   S("AG-3", "a-root-registered-twice-is-refused", REFUSE, "DUPLICATE_ENVELOPE", (w) => {
     const parent = w.root(w.home);
     return w.C(w.core.registerRoot(w.start(w.home, w.team(), parent), w.ctx(w.home, w.team()), { agentId: "lead", envelope: parent }));
   }),
-  S("AG-3", "a-root-with-a-false-class-label-is-refused", REFUSE, "ROOT_LABEL", (w) =>
-    w.C(w.core.registerRoot(w.core.emptyDelegationBook(), w.ctx(w.home, w.team()), { agentId: "lead", envelope: { ...w.root(w.home, { action: "approve" }), actionClass: "P1" } }))),
+  S("AG-3", "a-root-with-a-false-class-label-is-refused", REFUSE, "ROOT_LABEL", (w) => {
+    const stricter = { ...w.ctx(w.home, w.team()), registry: w.registryWith({ implement: { class: "P3" } }) };
+    return w.C(w.core.registerRoot(w.core.emptyDelegationBook(), stricter, { agentId: "lead", envelope: w.root(w.home, { action: "implement" }) }));
+  }),
+  S("AG-3", "a-hand-built-root-is-refused", REFUSE, "ROOT_NOT_ADMITTED", (w) =>
+    w.C(w.core.registerRoot(w.core.emptyDelegationBook(), w.ctx(w.home, w.team()), { agentId: "lead", envelope: { ...w.root(w.home), budget: 1e12 } }))),
   S("AG-3", "a-parent-that-may-not-delegate-is-refused", REFUSE, "NOT_DELEGATE_CAPABLE", (w) => {
     const parent = w.root(w.home);
     const agents = w.bookOf(w.home, [{ ...w.LEAD, mayDelegate: false }, w.WORKER]);
@@ -637,34 +675,76 @@ const SCENARIOS = [
     return w.C(w.core.addAgent(book, w.agentOf(w.home, { recordId: "AGT-over", agentId: "over" })));
   }),
   // AG-9: the queue rules
-  S("AG-9", "a-running-item-whose-lease-ended-is-unknown", ANSWER, "unknown", (w) => w.QC(w.core.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()))),
-  S("AG-9", "a-running-item-is-left-alone-while-its-lease-runs", ANSWER, "false", (w) => String(w.core.recoverAbandoned(w.at(NOW + 15 * MINUTE - 1), w.running()).recovered), true),
+  S("AG-9", "a-running-item-whose-lease-ended-is-unknown", ANSWER, "unknown", (w) => w.QC(w.q.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()))),
+  S("AG-9", "a-running-item-is-left-alone-while-its-lease-runs", ANSWER, "false", (w) => String(w.q.recoverAbandoned(w.at(NOW + 15 * MINUTE - 1), w.running()).recovered), true),
   S("AG-9", "an-unknown-item-is-not-claimed", REFUSE, "BAD_TRANSITION", (w) => {
-    const unknown = w.core.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()).item;
-    return w.C(w.core.claimItem(w.at(NOW + 15 * MINUTE + 1), w.core.emptyQueueControl(), unknown));
+    const unknown = w.q.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()).item;
+    return w.C(w.q.claimItem(w.at(NOW + 15 * MINUTE + 1), w.core.emptyQueueControl(), unknown));
   }),
   S("AG-9", "an-agent-cannot-resolve-an-unknown-item", REFUSE, "RESOLUTION", (w) => {
-    const unknown = w.core.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()).item;
-    return w.C(w.core.resolveUnknown(w.at(NOW + 15 * MINUTE + 1), unknown, { ...OWNER, decidedBy: "agent", outcome: "requeue" }));
+    const unknown = w.q.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()).item;
+    return w.C(w.q.resolveUnknown(w.at(NOW + 15 * MINUTE + 1), unknown, w.res(unknown, { decidedBy: "agent" })));
   }),
   S("AG-9", "an-owner-form-record-requeues-an-unknown-item", ANSWER, "queued", (w) => {
-    const unknown = w.core.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()).item;
-    return w.QC(w.core.resolveUnknown(w.at(NOW + 15 * MINUTE + 1), unknown, { ...OWNER, outcome: "requeue" }));
+    const unknown = w.q.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()).item;
+    return w.QC(w.q.resolveUnknown(w.at(NOW + 15 * MINUTE + 1), unknown, w.res(unknown)));
   }, true),
+  S("AG-9", "a-resolution-for-another-item-is-refused", REFUSE, "RESOLUTION", (w) => {
+    const unknown = w.q.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running("ITEM-1")).item;
+    return w.C(w.q.resolveUnknown(w.at(NOW + 15 * MINUTE + 1), unknown, w.res(unknown, { itemId: "ITEM-2" })));
+  }),
+  S("AG-9", "a-resolution-of-another-revision-is-refused", REFUSE, "RESOLUTION", (w) => {
+    const unknown = w.q.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()).item;
+    return w.C(w.q.resolveUnknown(w.at(NOW + 15 * MINUTE + 1), unknown, w.res(unknown, { revision: unknown.revision + 1 })));
+  }),
+  S("AG-9", "a-resolution-nobody-vouches-for-is-refused", REFUSE, "RESOLUTION_UNVERIFIED", (w) => {
+    const unknown = w.q.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()).item;
+    return w.C(w.q.resolveUnknown({ ...w.at(NOW + 15 * MINUTE + 1), verifyResolution: () => false }, unknown, w.res(unknown)));
+  }),
+  S("AG-9", "a-resolution-with-no-verifier-is-refused", REFUSE, "RESOLUTION_UNVERIFIED", (w) => {
+    const unknown = w.q.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()).item;
+    const { verifyResolution, ...bare } = w.at(NOW + 15 * MINUTE + 1);
+    void verifyResolution;
+    return w.C(w.q.resolveUnknown(bare, unknown, w.res(unknown)));
+  }),
+  S("AG-9", "a-formerly-unknown-item-is-not-restored-without-its-resolution", REFUSE, "ITEM_SHAPE", (w) => {
+    const unknown = w.q.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()).item;
+    const queued = w.q.resolveUnknown(w.at(NOW + 15 * MINUTE + 1), unknown, w.res(unknown)).item;
+    return w.C(w.core.restoreQueueItem(w.at(NOW + 15 * MINUTE + 2), { ...queued, resolution: null }));
+  }),
+  S("AG-9", "a-restored-resolution-nobody-vouches-for-is-refused", REFUSE, "RESOLUTION_UNVERIFIED", (w) => {
+    const unknown = w.q.recoverAbandoned(w.at(NOW + 15 * MINUTE), w.running()).item;
+    const queued = w.q.resolveUnknown(w.at(NOW + 15 * MINUTE + 1), unknown, w.res(unknown)).item;
+    return w.C(w.core.restoreQueueItem({ ...w.at(NOW + 15 * MINUTE + 2), verifyResolution: () => false }, { ...queued }));
+  }),
+  S("AG-9", "a-stale-revision-is-refused", REFUSE, "STALE_REVISION", (w) => w.C(w.q.recoverAbandoned(w.at(NOW + 1), w.running(), 0))),
+  S("AG-9", "a-lease-that-is-renewed-is-not-lost-at-its-old-end", ANSWER, "false", (w) => {
+    const item = w.running();
+    const renewed = w.q.renewLease(w.at(NOW + 10 * MINUTE), item).item;
+    return String(w.q.recoverAbandoned(w.at(NOW + 15 * MINUTE), renewed).recovered);
+  }),
+  S("AG-9", "a-lease-is-renewed-only-a-bounded-number-of-times", REFUSE, "RENEWAL_REFUSED", (w) => {
+    let item = w.running();
+    for (let count = 0; count < 8; count += 1) item = w.q.renewLease(w.at(NOW + (count + 1) * MINUTE), item).item;
+    return w.C(w.q.renewLease(w.at(NOW + 20 * MINUTE), item));
+  }),
+  S("AG-9", "an-ended-lease-is-not-renewed", REFUSE, "RENEWAL_REFUSED", (w) => w.C(w.q.renewLease(w.at(NOW + 15 * MINUTE), w.running()))),
   S("AG-9", "a-fourth-claim-is-refused", REFUSE, "ATTEMPTS_EXHAUSTED", (w) =>
-    w.C(w.core.claimItem(w.at(NOW + 1), w.core.emptyQueueControl(), w.must(w.core.restoreQueueItem(w.at(NOW + 1), w.stored({ attempts: 3 }))).item))),
-  S("AG-9", "an-exhausted-unknown-item-is-not-requeued", REFUSE, "ATTEMPTS_EXHAUSTED", (w) =>
-    w.C(w.core.resolveUnknown(w.at(NOW + 1), w.must(w.core.restoreQueueItem(w.at(NOW + 1), w.stored({ status: "unknown", attempts: 3 }))).item, { ...OWNER, outcome: "requeue" }))),
-  S("AG-9", "a-running-item-is-not-paused", REFUSE, "BAD_TRANSITION", (w) => w.C(w.core.pauseItem(w.at(NOW + 1), w.running()))),
+    w.C(w.q.claimItem(w.at(NOW + 1), w.core.emptyQueueControl(), w.must(w.core.restoreQueueItem(w.at(NOW + 1), w.stored({ attempts: 3 }))).item))),
+  S("AG-9", "an-exhausted-unknown-item-is-not-requeued", REFUSE, "ATTEMPTS_EXHAUSTED", (w) => {
+    const item = w.must(w.core.restoreQueueItem(w.at(NOW + 1), w.stored({ status: "unknown", attempts: 3, wasUnknown: true }))).item;
+    return w.C(w.q.resolveUnknown(w.at(NOW + 1), item, w.res(item)));
+  }),
+  S("AG-9", "a-running-item-is-not-paused", REFUSE, "BAD_TRANSITION", (w) => w.C(w.q.pauseItem(w.at(NOW + 1), w.running()))),
   S("AG-9", "a-paused-scope-is-not-claimed", REFUSE, "SCOPE_PAUSED", (w) =>
-    w.C(w.core.claimItem(w.at(NOW + 1), w.must(w.core.pauseScope(w.at(NOW), w.core.emptyQueueControl())).control, w.item()))),
+    w.C(w.q.claimItem(w.at(NOW + 1), w.must(w.core.pauseScope(w.at(NOW), w.core.emptyQueueControl())).control, w.item()))),
   S("AG-9", "a-pause-is-the-scopes-own", ANSWER, "running", (w) => {
     const paused = w.must(w.core.pauseScope(w.at(NOW), w.core.emptyQueueControl())).control;
-    return w.QC(w.core.claimItem(w.at(NOW + 1, w.other), paused, w.item("ITEM-1", NOW, w.other)));
+    return w.QC(w.q.claimItem(w.at(NOW + 1, w.other), paused, w.item("ITEM-1", NOW, w.other)));
   }),
   S("AG-9", "a-control-this-module-did-not-build-reads-as-paused", ANSWER, "true", (w) => String(w.core.isScopePaused({ size: 0 }, w.home))),
-  S("AG-9", "a-hand-built-item-is-not-an-item", REFUSE, "ITEM_NOT_ADMITTED", (w) => w.C(w.core.claimItem(w.at(NOW), w.core.emptyQueueControl(), { ...w.item() }))),
-  S("AG-9", "an-item-of-another-tenant-does-not-move", REFUSE, "ITEM_SCOPE", (w) => w.C(w.core.claimItem(w.at(NOW, w.other), w.core.emptyQueueControl(), w.item()))),
+  S("AG-9", "a-hand-built-item-is-not-an-item", REFUSE, "ITEM_NOT_ADMITTED", (w) => w.C(w.q.claimItem(w.at(NOW), w.core.emptyQueueControl(), { ...w.item() }))),
+  S("AG-9", "an-item-of-another-tenant-does-not-move", REFUSE, "ITEM_SCOPE", (w) => w.C(w.q.claimItem(w.at(NOW, w.other), w.core.emptyQueueControl(), w.item()))),
   S("AG-9", "a-restored-item-with-a-longer-lease-is-refused", REFUSE, "ITEM_SHAPE", (w) => w.C(w.core.restoreQueueItem(w.at(NOW + 1), { ...w.running(), leaseExpiresAt: NOW + 1000 * 15 * MINUTE }))),
   S("AG-9", "a-restored-item-of-another-tenant-is-refused", REFUSE, "ITEM_SCOPE", (w) => w.C(w.core.restoreQueueItem(w.at(NOW + 1, w.other), { ...w.running() }))),
   S("AG-9", "a-restored-count-past-the-cap-is-refused", REFUSE, "ITEM_SHAPE", (w) => w.C(w.core.restoreQueueItem(w.at(NOW + 1), w.stored({ attempts: 4 })))),
@@ -714,7 +794,7 @@ const SCENARIOS = [
     await w.core.runDelegated(holder, w.ctx(w.home, w.team()), w.req(parent), async (node) => {
       id = node.envelopeId;
       throw new Error("the worker crashed");
-    });
+    }, () => () => undefined);
     return w.C(w.settle(holder.book, id, "completed"));
   }),
   S("AG-11", "a-lost-delegate-stays-unknown-after-a-late-completion", ANSWER, "ALREADY_SETTLED", (w) => {
@@ -773,7 +853,216 @@ const SCENARIOS = [
     const parent = w.root(w.home);
     return w.C(w.delegate(w.start(w.home, w.team(), parent), w.req(parent), w.team(), NOW + 0.5));
   }),
-  S("AG-21", "a-queue-clock-behind-the-item-is-refused", REFUSE, "CLOCK", (w) => w.C(w.core.completeItem(w.at(NOW), w.running("ITEM-1", NOW + 10 * MINUTE), "completed"))),
+  S("AG-21", "a-queue-clock-behind-the-item-is-refused", REFUSE, "CLOCK", (w) => w.C(w.q.completeItem(w.at(NOW), w.running("ITEM-1", NOW + 10 * MINUTE), "completed"))),
+
+  // Review round 1
+  S("AG-1", "a-blocked-grant-under-another-spelling-is-refused", REFUSE, "GRANT_BLOCKED", (w) => {
+    const parent = w.root(w.home);
+    const agents = w.bookOf(w.home, [{ ...w.LEAD, grants: [...w.LEAD.grants, "delegate.task"] }, { ...w.WORKER, grants: [...w.WORKER.grants, "delegate.task"] }]);
+    return w.C(w.delegate(w.start(w.home, agents, parent), w.req(parent, { grants: ["delegate.task"] }), agents));
+  }),
+  S("AG-2", "a-child-envelope-with-a-getter-is-refused", REFUSE, "ENVELOPE_R1", (w) => {
+    const parent = w.root(w.home);
+    const sly = { ...w.child(parent) };
+    let reads = 0;
+    Object.defineProperty(sly, "budget", { enumerable: true, get: () => (reads++ === 0 ? 0 : -1e15) });
+    return w.C(w.delegate(w.start(w.home, w.team(), parent), { ...w.req(parent), childEnvelope: sly }));
+  }),
+  S("AG-2", "a-context-is-read-once", ANSWER, "ok", (w) => {
+    const parent = w.root(w.home);
+    const book = w.start(w.home, w.team(), parent);
+    const context = { ...w.ctx(w.home, w.team()) };
+    let reads = 0;
+    Object.defineProperty(context, "binding", { enumerable: true, get: () => (reads++ === 0 ? w.home : w.other) });
+    return w.C(w.core.admitDelegation(book, context, w.req(parent)));
+  }, false),
+  S("AG-7", "a-message-envelope-with-a-getter-is-refused", REFUSE, "ENVELOPE_R1", (w) => {
+    const m = w.msgWorld();
+    const sly = { ...w.child(m.sender, { action: "request_review", actionClass: "P2", budget: 0 }) };
+    let reads = 0;
+    Object.defineProperty(sly, "budget", { enumerable: true, get: () => (reads++ === 0 ? 0 : 5) });
+    return w.C(w.send({ ...w.message(m.sender), envelope: sly }, m));
+  }),
+  S("AG-7", "a-run-without-the-send-grant-cannot-message", REFUSE, "SENDER_NO_GRANT", (w) => {
+    const agents = w.bookOf(w.home, [{ ...w.LEAD, grants: ["read-repository"], messageAllow: ["worker"] }, w.WORKER]);
+    const m = w.msgWorld("lead", agents);
+    return w.C(w.send(w.message(m.sender), m));
+  }),
+  S("AG-7", "a-changed-sender-record-is-refused", REFUSE, "SENDER_RECORD_CHANGED", (w) => {
+    const m = w.msgWorld();
+    const swapped = w.bookOf(w.home, [{ ...w.LEAD, messageAllow: ["worker", "other", "agency-only"] }, { ...w.WORKER, messageAllow: [] }]);
+    return w.C(w.send(w.message(m.sender), m, { agents: swapped }));
+  }),
+  S("AG-7", "a-message-id-is-admitted-once", REFUSE, "DUPLICATE_MESSAGE", (w) => {
+    const m = w.msgWorld();
+    const first = w.must(w.send(w.message(m.sender), m));
+    return w.C(w.send(w.message(m.sender), m, { ledger: first.ledger }));
+  }),
+  S("AG-7", "a-reply-to-a-message-never-received-is-refused", REFUSE, "REPLY_UNKNOWN", (w) => {
+    const m = w.msgWorld();
+    const first = w.must(w.send(w.message(m.sender), m));
+    return w.C(w.send(w.message(m.sender, { messageId: "MSG-0002", inReplyTo: "MSG-0001" }), m, { ledger: first.ledger }));
+  }),
+  S("AG-7", "a-reply-chain-has-a-hop-cap", REFUSE, "HOP_CAP", (w) => {
+    const agents = w.bookOf(w.home, [{ ...w.LEAD, messageAllow: ["worker"] }, { ...w.WORKER, messageAllow: ["lead"] }]);
+    const lead = w.root(w.home);
+    const worker = w.root(w.home);
+    const delegations = w.must(w.core.registerRoot(w.start(w.home, agents, lead, "lead"), w.ctx(w.home, agents), { agentId: "worker", envelope: worker })).book;
+    const world = { agents, binding: w.home, delegations };
+    let ledger = w.core.emptyMessageLedger();
+    for (let hop = 1; hop <= 4; hop += 1) {
+      const sender = hop % 2 === 1 ? lead : worker;
+      const request = w.message(sender, { messageId: `MSG-${hop}`, toAgentId: hop % 2 === 1 ? "worker" : "lead", ...(hop > 1 ? { inReplyTo: `MSG-${hop - 1}` } : {}) });
+      ledger = w.must(w.send(request, world, { ledger })).ledger;
+    }
+    return w.C(w.send(w.message(lead, { messageId: "MSG-5", toAgentId: "worker", inReplyTo: "MSG-4" }), world, { ledger }));
+  }),
+  S("AG-7", "a-pair-may-not-ping-pong-for-ever", REFUSE, "PAIR_CAP", (w) => {
+    const m = w.msgWorld();
+    let ledger = m.ledger;
+    for (let count = 0; count < 20; count += 1) ledger = w.must(w.send(w.message(m.sender, { messageId: `MSG-A${count}` }), m, { ledger })).ledger;
+    return w.C(w.send(w.message(m.sender, { messageId: "MSG-A-over" }), m, { ledger }));
+  }),
+  S("AG-7", "a-full-ledger-forgets-nothing-and-refuses", REFUSE, "LEDGER_FULL", (w) => {
+    const agents = w.bookOf(w.home, [{ ...w.LEAD, messageAllow: ["worker", "other", "third"] }, w.WORKER, { recordId: "AGT-other", agentId: "other" }, { recordId: "AGT-third", agentId: "third" }]);
+    const m = w.msgWorld("lead", agents);
+    let ledger = m.ledger;
+    for (let count = 0; count < 40; count += 1) ledger = w.must(w.send(w.message(m.sender, { messageId: `MSG-B${count}`, toAgentId: ["worker", "other", "third"][count % 3] }), m, { ledger })).ledger;
+    return w.C(w.send(w.message(m.sender, { messageId: "MSG-B-over", toAgentId: "third" }), m, { ledger }));
+  }),
+  S("AG-3", "a-changed-parent-record-is-refused", REFUSE, "RECORD_CHANGED", (w) => {
+    const parent = w.root(w.home);
+    const book = w.start(w.home, w.team(), parent);
+    const swapped = w.bookOf(w.home, [{ ...w.LEAD, grants: [...w.LEAD.grants, "draft-proposal"] }, w.WORKER, ...["mid", "leaf", "deep"].map((agentId) => ({ recordId: `AGT-${agentId}`, agentId, mayDelegate: true, grants: ["read-repository"] }))]);
+    return w.C(w.delegate(book, w.req(parent), swapped));
+  }),
+  S("AG-5", "a-parents-own-spend-is-held-against-its-children", REFUSE, "OVER_BUDGET", (w) => {
+    const parent = w.root(w.home, { budget: 1000 });
+    const spent = w.must(w.core.recordDelegateSpend(w.start(w.home, w.team(), parent), w.ctx(w.home, w.team()), parent.envelopeId, 700)).book;
+    return w.C(w.delegate(spent, w.req(parent, { child: { budget: 301 } })));
+  }),
+  S("AG-5", "spend-past-the-budget-is-refused", REFUSE, "OVER_BUDGET", (w) => {
+    const parent = w.root(w.home, { budget: 1000 });
+    return w.C(w.core.recordDelegateSpend(w.start(w.home, w.team(), parent), w.ctx(w.home, w.team()), parent.envelopeId, 1001));
+  }),
+  S("AG-11", "ending-a-parent-ends-its-children", ANSWER, "unknown", (w) => {
+    const parent = w.root(w.home);
+    const first = w.admitChild(w.start(w.home, w.team(), parent), parent, "worker");
+    const ended = w.must(w.settle(first.book, parent.envelopeId, "completed")).book;
+    return w.core.delegationNodeAt(ended, "owner-personal", "polygo", first.envelope.envelopeId, NOW).state;
+  }),
+  S("AG-11", "a-lapsed-delegate-keeps-its-slot", REFUSE, "CONCURRENCY_CAP", (w) => {
+    const roots = [0, 1, 2].map(() => w.root(w.home, { budget: 10_000 }));
+    let book = w.core.emptyDelegationBook();
+    for (const parent of roots) book = w.must(w.core.registerRoot(book, w.ctx(w.home, w.team()), { agentId: "lead", envelope: parent })).book;
+    book = grow(w, 5, roots[1], grow(w, 5, roots[0], book));
+    return w.C(w.delegate(book, w.req(roots[2]), w.team(), NOW + 31 * MINUTE));
+  }),
+  S("AG-11", "a-released-delegate-frees-its-slot", ANSWER, "ok", (w) => {
+    const roots = [0, 1, 2].map(() => w.root(w.home, { budget: 10_000 }));
+    let book = w.core.emptyDelegationBook();
+    for (const parent of roots) book = w.must(w.core.registerRoot(book, w.ctx(w.home, w.team()), { agentId: "lead", envelope: parent })).book;
+    const last = w.admitChild(grow(w, 5, roots[1], grow(w, 4, roots[0], book)), roots[0], "worker");
+    const unknown = w.must(w.settle(last.book, last.envelope.envelopeId, "unknown")).book;
+    const record = { ...OWNER, envelopeId: last.envelope.envelopeId, tenant: "owner-personal", project: "polygo" };
+    const freed = w.must(w.core.releaseDelegation(unknown, w.ctx(w.home, w.team()), last.envelope.envelopeId, record, () => true)).book;
+    return w.C(w.delegate(freed, w.req(roots[2])));
+  }),
+  S("AG-11", "an-unvouched-release-is-refused", REFUSE, "RELEASE_UNVERIFIED", (w) => {
+    const parent = w.root(w.home);
+    const first = w.admitChild(w.start(w.home, w.team(), parent), parent, "worker");
+    const unknown = w.must(w.settle(first.book, first.envelope.envelopeId, "unknown")).book;
+    const record = { ...OWNER, envelopeId: first.envelope.envelopeId, tenant: "owner-personal", project: "polygo" };
+    return w.C(w.core.releaseDelegation(unknown, w.ctx(w.home, w.team()), first.envelope.envelopeId, record, () => false));
+  }),
+  S("AG-11", "a-run-past-its-deadline-is-lapsed", ANSWER, "LAPSED", async (w) => {
+    const parent = w.root(w.home);
+    const holder = { book: w.start(w.home, w.team(), parent) };
+    const answer = await w.core.runDelegated(holder, w.ctx(w.home, w.team()), w.req(parent), async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      return 1;
+    }, (_ms, fire) => {
+      fire();
+      return () => undefined;
+    });
+    return answer.ok ? "ok" : answer.code;
+  }),
+  S("AG-11", "a-late-result-is-refused", ANSWER, "LAPSED", async (w) => {
+    const parent = w.root(w.home);
+    let now = NOW;
+    const holder = { book: w.start(w.home, w.team(), parent) };
+    const answer = await w.core.runDelegated(holder, { ...w.ctx(w.home, w.team()), clock: () => now }, w.req(parent), async () => {
+      now += 30 * MINUTE;
+      return 1;
+    }, () => () => undefined);
+    return answer.ok ? "ok" : answer.code;
+  }),
+  S("AG-4", "a-pruned-delegate-frees-the-node-cap", ANSWER, "ok", (w) => {
+    const parent = w.root(w.home, { budget: 10_000 });
+    let book = w.start(w.home, w.team(), parent);
+    const first = w.admitChild(book, parent, "worker");
+    book = first.book;
+    for (let count = 0; count < 58; count += 1) book = w.must(w.core.registerRoot(book, w.ctx(w.home, w.team()), { agentId: "lead", envelope: w.root(w.home) })).book;
+    const ended = w.must(w.settle(book, first.envelope.envelopeId, "completed")).book;
+    const pruned = w.must(w.core.pruneSettledDelegations(ended, w.ctx(w.home, w.team()))).book;
+    return w.C(w.core.registerRoot(pruned, w.ctx(w.home, w.team()), { agentId: "lead", envelope: w.root(w.home) }));
+  }),
+  S("AG-4", "a-root-is-not-pruned-so-its-budget-cannot-be-reset", REFUSE, "DUPLICATE_ENVELOPE", (w) => {
+    const parent = w.root(w.home, { budget: 1000 });
+    const ended = w.must(w.settle(w.start(w.home, w.team(), parent), parent.envelopeId, "completed")).book;
+    const pruned = w.must(w.core.pruneSettledDelegations(ended, w.ctx(w.home, w.team()))).book;
+    return w.C(w.core.registerRoot(pruned, w.ctx(w.home, w.team()), { agentId: "lead", envelope: parent }));
+  }),
+  S("AG-4", "a-root-cap-holds-the-delegates-under-one-run", REFUSE, "ROOT_CAP", (w) => {
+    const parent = w.root(w.home, { budget: 100_000 });
+    let book = w.start(w.home, w.team(), parent);
+    const mids = [];
+    for (let count = 0; count < 5; count += 1) {
+      const admitted = w.admitChild(book, parent, "mid", { child: { budget: 1000 } });
+      book = admitted.book;
+      mids.push(admitted.envelope);
+    }
+    for (let count = 0; count < 3; count += 1) book = w.admitChild(book, mids[0], "leaf", { child: { budget: 100 } }).book;
+    return w.C(w.delegate(book, w.req(mids[0], { childAgentId: "leaf", child: { budget: 100 } })));
+  }),
+  S("AG-4", "a-snapshot-of-a-valid-book-restores", ANSWER, "true", (w) => {
+    const parent = w.root(w.home, { budget: 1000 });
+    const first = w.admitChild(w.start(w.home, w.team(), parent), parent, "worker");
+    const snapshot = JSON.parse(JSON.stringify(w.core.exportDelegationBook(first.book, w.home)));
+    return String(w.core.restoreDelegationBook(w.ctx(w.home, w.team()), snapshot, () => true).ok);
+  }, true),
+  S("AG-4", "a-snapshot-nobody-vouches-for-is-refused", REFUSE, "SNAPSHOT_UNVERIFIED", (w) => {
+    const parent = w.root(w.home, { budget: 1000 });
+    const snapshot = w.core.exportDelegationBook(w.start(w.home, w.team(), parent), w.home);
+    return w.C(w.core.restoreDelegationBook(w.ctx(w.home, w.team()), snapshot, () => false));
+  }),
+  S("AG-4", "a-snapshot-with-an-impossible-reservation-is-refused", REFUSE, "SNAPSHOT_INVARIANT", (w) => {
+    const parent = w.root(w.home, { budget: 1000 });
+    const first = w.admitChild(w.start(w.home, w.team(), parent), parent, "worker");
+    const snapshot = JSON.parse(JSON.stringify(w.core.exportDelegationBook(first.book, w.home)));
+    snapshot.nodes.find((node) => node.parentEnvelopeId === null).reserved = 0;
+    return w.C(w.core.restoreDelegationBook(w.ctx(w.home, w.team()), snapshot, () => true));
+  }),
+  S("AG-4", "a-snapshot-with-a-depth-that-does-not-follow-is-refused", REFUSE, "SNAPSHOT_INVARIANT", (w) => {
+    const parent = w.root(w.home, { budget: 1000 });
+    const first = w.admitChild(w.start(w.home, w.team(), parent), parent, "worker");
+    const snapshot = JSON.parse(JSON.stringify(w.core.exportDelegationBook(first.book, w.home)));
+    snapshot.nodes.find((node) => node.parentEnvelopeId !== null).depth = 2;
+    return w.C(w.core.restoreDelegationBook(w.ctx(w.home, w.team()), snapshot, () => true));
+  }),
+  S("AG-12", "a-cut-does-not-split-a-surrogate-pair", ANSWER, "false", (w) => {
+    const parent = w.root(w.home);
+    const first = w.admitChild(w.start(w.home, w.team(), parent), parent, "worker");
+    const text = `${"x".repeat(19_999)}\u{1F600}tail`;
+    const out = w.must(w.core.delegateOutput(first.book, w.ctx(w.home, w.team()), first.envelope.envelopeId, text)).output;
+    return String(/[\ud800-\udbff]$/.test(out.text));
+  }),
+  S("AG-21", "a-node-read-at-a-time-behind-the-book-finds-nothing", ANSWER, "null", (w) => {
+    const parent = w.root(w.home);
+    const book = w.start(w.home, w.team(), parent);
+    return String(w.core.delegationNodeAt(book, "owner-personal", "polygo", parent.envelopeId, NOW - 1));
+  }),
 ];
 void unusedClock;
 
@@ -783,11 +1072,14 @@ const BEHAVIOUR_MUTATIONS = [
   // AG-1: grants
   M("the-parent-need-not-hold-the-grant", "a-grant-the-parent-lacks-is-refused", TOOLSETS_REL, "const beyondParent = grants.find((grant) => !parentGrants.includes(grant));", "const beyondParent = undefined;"),
   M("the-childs-own-record-need-not-hold-the-grant", "a-grant-the-childs-record-lacks-is-refused", TOOLSETS_REL, "const beyondRecord = grants.find((grant) => !childRecordGrants.includes(grant));", "const beyondRecord = undefined;"),
-  M("a-blocked-grant-is-given", "a-blocked-grant-is-refused", TOOLSETS_REL, "const blocked = grants.find((grant) => DELEGATE_BLOCKED_GRANTS.includes(grant));", "const blocked = undefined;"),
+  M("a-blocked-grant-is-given", "a-blocked-grant-is-refused", TOOLSETS_REL, "const blocked = (requested as readonly unknown[]).find((grant) => typeof grant === 'string' && isBlockedGrant(grant));", "const blocked = undefined;"),
+  M("a-blocked-name-is-matched-as-spelled", "a-blocked-grant-under-another-spelling-is-refused", TOOLSETS_REL, "BLOCKED_NORMALIZED.includes(normalizeGrantName(name))", "DELEGATE_BLOCKED_GRANTS.includes(name)"),
   M("a-repeated-grant-is-read", "a-repeated-grant-is-refused", TOOLSETS_REL, " && all.indexOf(grant) === index", ""),
   // AG-2: the same place
-  M("the-child-envelope-is-not-held-to-its-parent", "a-child-in-another-tenant-is-refused", DELEGATION_REL, "checkChildEnvelope(parent.envelope, childEnvelope, registry)", "parseEnvelope(childEnvelope)"),
-  M("a-grants-list-is-read-twice", "a-request-is-read-once", DELEGATION_REL, "grants: Object.freeze([...(grants as readonly string[])].sort()),", "grants: Object.freeze([...(request.grants as readonly string[])].sort()),"),
+  M("the-child-envelope-is-not-held-to-its-parent", "a-child-in-another-tenant-is-refused", DELEGATION_REL, "checkChildEnvelope(parent.envelope, plain, registry)", "parseEnvelope(plain)"),
+  M("a-context-is-read-through-its-accessors", "a-context-is-read-once", DELEGATION_REL, "  const context = once(input);\n  const request = once(asked);\n  const prepared = prepare(book, context);\n  if (isFailure(prepared)) return prepared;\n  const { binding, registry } = context;\n  const { parentEnvelopeId", "  const context = input;\n  const request = once(asked);\n  const prepared = prepare(book, context);\n  if (isFailure(prepared)) return prepared;\n  const { binding, registry } = context;\n  const { parentEnvelopeId"),
+  M("a-root-need-not-be-admitted", "a-hand-built-root-is-refused", DELEGATION_REL, "if (!kernelAdmitted(request.envelope)) return fail(", "if (false) return fail("),
+  M("a-getter-envelope-is-read-twice", "a-child-envelope-with-a-getter-is-refused", PLAIN_REL, "    if (descriptor === undefined || !('value' in descriptor) || descriptor.enumerable !== true) return null;\n    copy[key] = descriptor.value;", "    copy[key] = (value as Record<string, unknown>)[key];"),
   M("a-node-is-keyed-by-envelope-id-alone", "a-parent-of-another-tenant-is-not-found", DELEGATION_REL, "JSON.stringify([tenant, project, envelopeId])", "JSON.stringify([envelopeId])"),
   // AG-3: depth, cycles, roots
   M("the-depth-cap-is-three", "a-delegate-past-the-depth-cap-is-refused", LIMITS_REL, "export const MAX_DELEGATION_DEPTH = 2;", "export const MAX_DELEGATION_DEPTH = 3;"),
@@ -805,8 +1097,8 @@ const BEHAVIOUR_MUTATIONS = [
   M("a-settled-child-frees-a-fan-out-place", "a-finished-child-still-counts-toward-the-fan-out", DELEGATION_REL, "next.set(key, Object.freeze({ ...node, state: outcome }));",
     "next.set(key, Object.freeze({ ...node, state: outcome }));\n  const parentKey = nodeKey(context.binding.tenant, context.binding.projectId, String(node.parentEnvelopeId));\n  const parentNode = next.get(parentKey);\n  if (parentNode !== undefined) next.set(parentKey, Object.freeze({ ...parentNode, children: parentNode.children - 1 }));"),
   M("the-live-cap-is-eleven", "an-eleventh-live-delegate-is-refused", LIMITS_REL, "export const MAX_LIVE_DELEGATES_PER_PROJECT = 10;", "export const MAX_LIVE_DELEGATES_PER_PROJECT = 11;"),
-  M("a-settled-delegate-still-holds-its-slot", "a-settled-delegate-frees-its-slot", DELEGATION_REL, "&& node.depth > 0 && node.state === 'live').length;", "&& node.depth > 0).length;"),
-  M("the-live-count-ignores-the-tenant", "another-tenants-delegates-do-not-count-against-this-one", DELEGATION_REL, "inScope(node, binding) && node.depth > 0 && node.state === 'live').length;", "node.depth > 0 && node.state === 'live').length;"),
+  M("a-settled-delegate-still-holds-its-slot", "a-settled-delegate-frees-its-slot", DELEGATION_REL, "&& node.depth > 0 && holdsSlot(node));", "&& node.depth > 0);"),
+  M("the-live-count-ignores-the-tenant", "another-tenants-delegates-do-not-count-against-this-one", DELEGATION_REL, "inScope(node, binding) && node.depth > 0 && holdsSlot(node));", "node.depth > 0 && holdsSlot(node));"),
   M("the-book-cap-is-sixty-one", "the-sixty-first-node-is-refused", LIMITS_REL, "export const MAX_DELEGATION_NODES_PER_PROJECT = 60;", "export const MAX_DELEGATION_NODES_PER_PROJECT = 61;"),
   // AG-5: budget
   M("the-remaining-budget-is-the-whole-budget", "a-child-beyond-the-remaining-budget-is-refused", DELEGATION_REL, "child.budget > parent.envelope.budget - parent.reserved", "child.budget > parent.envelope.budget"),
@@ -816,10 +1108,11 @@ const BEHAVIOUR_MUTATIONS = [
   // AG-7: messages
   M("a-message-may-name-another-tenant", "a-message-naming-another-tenant-is-refused", MESSAGES_REL, "request.toTenant !== undefined && request.toTenant !== binding.tenant", "false"),
   M("a-message-may-name-another-project", "a-message-naming-another-project-is-refused", MESSAGES_REL, "request.toProject !== undefined && request.toProject !== binding.projectId", "false"),
-  M("a-message-envelope-is-not-held-to-the-sender", "a-message-envelope-of-another-tenant-is-refused", MESSAGES_REL, "checkChildEnvelope(from, request.envelope, registry)", "({ ok: true, envelope: request.envelope })"),
+  M("a-message-envelope-is-not-held-to-the-sender", "a-message-envelope-of-another-tenant-is-refused", MESSAGES_REL, "checkChildEnvelope(from, plain, registry)", "({ ok: true, envelope: plain })"),
   M("an-ended-run-may-send", "a-sender-run-that-has-ended-is-refused", MESSAGES_REL, "  if (node.state !== 'live') return no('SENDER_NOT_LIVE', 'the sender run has ended');\n", ""),
   M("an-expired-sender-may-send", "a-sender-run-with-an-expired-envelope-is-refused", MESSAGES_REL, "  if (envelopeExpired(from, new Date(now).toISOString())) return no('SENDER_EXPIRED', \"the sender's envelope has expired\");\n", ""),
-  M("the-sender-is-the-requests-claim", "the-sending-agent-is-the-runs-not-the-requests", MESSAGES_REL, "findAgent(book, binding.tenant, binding.projectId, node.agentId)", "findAgent(book, binding.tenant, binding.projectId, request.fromAgentId ?? node.agentId)"),
+  M("the-sender-is-the-requests-claim", "the-sending-agent-is-the-runs-not-the-requests", MESSAGES_REL, "  const sender = findAgent(book, binding.tenant, binding.projectId, node.agentId);\n  if (sender === null) return no('SENDER_UNKNOWN', 'the sender agent is not held by this tenant and project');\n  if (sender.recordHash !== node.recordHash) return no(", "  const sender = findAgent(book, binding.tenant, binding.projectId, (request as { fromAgentId?: string }).fromAgentId ?? node.agentId);\n  if (sender === null) return no('SENDER_UNKNOWN', 'the sender agent is not held by this tenant and project');\n  if (false) return no("),
+  M("a-record-swapped-for-another-is-taken-as-the-same", "a-changed-sender-record-is-refused", MESSAGES_REL, "if (sender.recordHash !== node.recordHash) return no(", "if (false) return no("),
   M("every-agent-may-be-messaged", "a-recipient-not-on-the-allowlist-is-refused", MESSAGES_REL, "if (!sender.messageAllow.includes(recipient.agentId))", "if (false)"),
   M("an-agent-may-message-itself", "a-message-to-oneself-is-refused", MESSAGES_REL, "if (request.toAgentId === sender.agentId)", "if (false)"),
   M("a-message-may-act-at-any-class", "a-message-that-needs-a-grant-is-refused", MESSAGES_REL, "resolveAction(registry, envelope.action).actionClass, MESSAGE_CLASS_CEILING)", "resolveAction(registry, envelope.action).actionClass, 'P6')"),
@@ -836,12 +1129,12 @@ const BEHAVIOUR_MUTATIONS = [
   M("a-second-record-replaces-the-first", "a-second-record-for-an-agent-does-not-replace-it", BOOK_REL, "if (held.has(key)) return", "if (false) return"),
   M("the-agent-cap-is-fifty-one", "the-fifty-first-agent-of-a-project-is-refused", LIMITS_REL, "export const MAX_AGENTS_PER_PROJECT = 50;", "export const MAX_AGENTS_PER_PROJECT = 51;"),
   // AG-9: queue
-  M("a-lost-item-is-queued-again", "a-running-item-whose-lease-ended-is-unknown", QUEUE_REL, "const moved = admit({ ...item, status: 'unknown', leaseExpiresAt: null, updatedAt: now });", "const moved = admit({ ...item, status: 'queued', leaseExpiresAt: null, updatedAt: now });"),
+  M("a-lost-item-is-queued-again", "a-running-item-whose-lease-ended-is-unknown", QUEUE_REL, "const moved = admit({ ...item, status: 'unknown', leaseExpiresAt: null, updatedAt: now, revision: item.revision + 1, wasUnknown: true, resolution: null });", "const moved = admit({ ...item, status: 'queued', leaseExpiresAt: null, updatedAt: now, revision: item.revision + 1, wasUnknown: true, resolution: null });"),
   M("an-unknown-item-may-be-claimed", "an-unknown-item-is-not-claimed", QUEUE_REL, "  if (item.status !== 'queued') return no('BAD_TRANSITION', `an item that is ${item.status} cannot be claimed`);\n", ""),
-  M("any-decider-resolves-an-unknown-item", "an-agent-cannot-resolve-an-unknown-item", QUEUE_REL, "    fields['decidedBy'] === 'owner' &&\n", ""),
+  M("any-decider-resolves-an-unknown-item", "an-agent-cannot-resolve-an-unknown-item", OWNERFORM_REL, " || decidedBy !== 'owner'", ""),
   M("the-claim-cap-is-four", "a-fourth-claim-is-refused", LIMITS_REL, "export const MAX_QUEUE_ATTEMPTS = 3;", "export const MAX_QUEUE_ATTEMPTS = 4;"),
   M("an-exhausted-item-is-requeued", "an-exhausted-unknown-item-is-not-requeued", QUEUE_REL, "  if (item.attempts >= MAX_QUEUE_ATTEMPTS) return no('ATTEMPTS_EXHAUSTED', 'the attempts are used up; the item can only be abandoned');\n", ""),
-  M("a-running-item-may-be-paused", "a-running-item-is-not-paused", QUEUE_REL, "move(context, item, ['queued'], 'paused')", "move(context, item, ['queued', 'running'], 'paused')"),
+  M("a-running-item-may-be-paused", "a-running-item-is-not-paused", QUEUE_REL, "move(input, item, expectedRevision, ['queued'], 'paused')", "move(input, item, expectedRevision, ['queued', 'running'], 'paused')"),
   M("a-paused-scope-is-claimed", "a-paused-scope-is-not-claimed", QUEUE_REL, "  if (isScopePaused(control, context.binding)) return no('SCOPE_PAUSED', 'this tenant and project are paused');\n", ""),
   M("a-pause-covers-every-scope", "a-pause-is-the-scopes-own", QUEUE_REL, "return paused.has(scopeKey(binding.tenant, binding.projectId));", "return paused.size > 0;"),
   M("an-unknown-control-reads-as-running", "a-control-this-module-did-not-build-reads-as-paused", QUEUE_REL, "if (paused === undefined || !isDerivedBinding(binding)) return true;", "if (paused === undefined || !isDerivedBinding(binding)) return false;"),
@@ -862,14 +1155,14 @@ const BEHAVIOUR_MUTATIONS = [
   M("a-binding-may-name-a-tenant", "a-binding-naming-a-tenant-is-refused", BINDING_REL, "const BINDING_FIELDS = ['agentId', 'match'] as const;", "const BINDING_FIELDS = ['tenant', 'agentId', 'match'] as const;"),
   M("an-unusable-peer-is-skipped", "a-binding-for-an-unusable-peer-is-refused", BINDING_REL, "|| peer === null ||", "||"),
   // AG-11: slots
-  M("a-failed-delegate-keeps-its-slot", "a-failed-delegate-is-settled-as-failed", DELEGATION_REL, "    const settled = settleDelegation(holder.book, context, admitted.node.envelopeId, outcome);\n    if (settled.ok) holder.book = settled.book;\n    settledByBook = settled.ok;\n", ""),
+  M("a-failed-delegate-keeps-its-slot", "a-failed-delegate-is-settled-as-failed", DELEGATION_REL, "    const settled = settleDelegation(holder.book, context, admitted.node.envelopeId, outcome);\n    if (settled.ok) holder.book = settled.book;\n    else if (outcome === 'completed') outcome = 'unknown';\n", ""),
   M("a-lease-never-ends", "a-lost-delegate-stays-unknown-after-a-late-completion", DELEGATION_REL, "now >= node.admittedAt + DELEGATION_LEASE_MS", "false"),
   M("a-delegate-expires-early", "a-delegate-is-live-until-its-lease-ends", DELEGATION_REL, "now >= node.admittedAt + DELEGATION_LEASE_MS", "now >= node.admittedAt + 1"),
-  M("a-lost-delegate-gives-its-budget-back", "a-lost-delegate-does-not-give-its-budget-back", DELEGATION_REL, "for (const [key, node] of lapsed) next.set(key, Object.freeze({ ...node, state: 'unknown' as const }));",
-    "for (const [key, node] of lapsed) {\n    next.set(key, Object.freeze({ ...node, state: 'unknown' as const }));\n    const parentKey = nodeKey(node.tenant, node.project, String(node.parentEnvelopeId));\n    const parentNode = next.get(parentKey);\n    if (parentNode !== undefined) next.set(parentKey, Object.freeze({ ...parentNode, reserved: parentNode.reserved - node.envelope.budget }));\n  }"),
+  M("a-lost-delegate-gives-its-budget-back", "a-lost-delegate-does-not-give-its-budget-back", DELEGATION_REL, "    endBelow(next, node);\n  }\n  return { nodes: next, expired: lapsed.length };",
+    "    endBelow(next, node);\n    const parentKey = nodeKey(node.tenant, node.project, String(node.parentEnvelopeId));\n    const parentNode = next.get(parentKey);\n    if (parentNode !== undefined) next.set(parentKey, Object.freeze({ ...parentNode, reserved: parentNode.reserved - node.envelope.budget }));\n  }\n  return { nodes: next, expired: lapsed.length };"),
   // AG-12: output
   M("a-delegates-output-is-trusted", "a-delegates-output-is-labelled-untrusted", DELEGATION_REL, "trust: 'untrusted-data', tenant: node.tenant,", "trust: 'trusted', tenant: node.tenant,"),
-  M("a-delegates-output-is-not-cut", "a-delegates-output-is-cut-at-the-cap", DELEGATION_REL, "const body = truncated ? text.slice(0, MAX_DELEGATE_OUTPUT_CHARS) : text;", "const body = text;"),
+  M("a-delegates-output-is-not-cut", "a-delegates-output-is-cut-at-the-cap", DELEGATION_REL, "const body = truncated ? cutAt(text, MAX_DELEGATE_OUTPUT_CHARS) : text;", "const body = text;"),
   M("the-fence-is-a-fixed-marker", "a-delegates-output-cannot-close-its-own-fence", DELEGATION_REL, "const fence = `delegate-output:sha256:${createHash('sha256').update(body, 'utf8').digest('hex')}`;", "const fence = 'delegate-output';"),
   M("a-placeholder-goal-is-a-task", "a-placeholder-goal-is-refused", TASKS_REL, "if (PLACEHOLDER_GOAL.test(text.toLowerCase().split(/\\s+/).join(' '))) return", "if (false) return"),
   M("a-template-marker-is-a-task", "a-goal-with-a-template-marker-is-refused", TASKS_REL, "if (marker !== null) return", "if (false) return"),
@@ -877,6 +1170,39 @@ const BEHAVIOUR_MUTATIONS = [
   M("the-clock-may-run-backwards", "a-clock-behind-the-book-is-refused", DELEGATION_REL, "readClock(context.clock, book.lastSeen)", "readClock(context.clock)"),
   M("a-fraction-of-a-millisecond-is-a-time", "a-clock-that-is-not-whole-is-refused", CLOCK_REL, "!Number.isSafeInteger(now) || ", ""),
   M("a-queue-clock-may-run-backwards", "a-queue-clock-behind-the-item-is-refused", QUEUE_REL, "readClock(context.clock, item?.updatedAt ?? 0)", "readClock(context.clock)"),
+  // Review round 1
+  M("a-message-needs-no-grant", "a-run-without-the-send-grant-cannot-message", MESSAGES_REL, "if (!node.grants.some((grant) => normalizeGrantName(grant) === SEND_GRANT)) return no(", "if (false) return no("),
+  M("a-message-id-may-repeat", "a-message-id-is-admitted-once", MESSAGES_REL, "if (held.has(key)) return no('DUPLICATE_MESSAGE',", "if (false) return no('DUPLICATE_MESSAGE',"),
+  M("a-reply-may-answer-anything", "a-reply-to-a-message-never-received-is-refused", MESSAGES_REL, "if (request.inReplyTo !== undefined && (answered === undefined || answered.to !== sender.agentId)) return no(", "if (false) return no("),
+  M("the-hop-cap-is-five", "a-reply-chain-has-a-hop-cap", LIMITS_REL, "export const MAX_MESSAGE_HOPS = 4;", "export const MAX_MESSAGE_HOPS = 5;"),
+  M("the-pair-cap-is-twenty-one", "a-pair-may-not-ping-pong-for-ever", LIMITS_REL, "export const MAX_MESSAGES_PER_PAIR = 20;", "export const MAX_MESSAGES_PER_PAIR = 21;"),
+  M("the-ledger-cap-is-forty-one", "a-full-ledger-forgets-nothing-and-refuses", LIMITS_REL, "export const MAX_MESSAGE_LEDGER_ENTRIES = 40;", "export const MAX_MESSAGE_LEDGER_ENTRIES = 41;"),
+  M("a-changed-record-is-taken", "a-changed-parent-record-is-refused", DELEGATION_REL, "if (record.recordHash !== parent.recordHash) return ['RECORD_CHANGED',", "if (false) return ['RECORD_CHANGED',"),
+  M("a-parents-spend-is-not-counted", "a-parents-own-spend-is-held-against-its-children", DELEGATION_REL, "parent.envelope.budget - parent.reserved - parent.spent", "parent.envelope.budget - parent.reserved"),
+  M("spend-has-no-ceiling", "spend-past-the-budget-is-refused", DELEGATION_REL, "if (node.spent + amount + node.reserved > node.envelope.budget) return fail(", "if (false) return fail("),
+  M("ending-a-parent-leaves-its-children-live", "ending-a-parent-ends-its-children", DELEGATION_REL, "  next.set(key, Object.freeze({ ...node, state: outcome }));\n  endBelow(next, node);\n", "  next.set(key, Object.freeze({ ...node, state: outcome }));\n"),
+  M("a-lapsed-delegate-frees-its-slot", "a-lapsed-delegate-keeps-its-slot", DELEGATION_REL, "node.state === 'live' || (node.state === 'unknown' && !node.released)", "node.state === 'live'"),
+  M("a-release-keeps-the-slot", "a-released-delegate-frees-its-slot", DELEGATION_REL, "Object.freeze({ ...node, released: true })", "Object.freeze({ ...node })"),
+  M("an-unvouched-release-is-taken", "an-unvouched-release-is-refused", DELEGATION_REL, " || !verifiedByPort(verify, form)) {", ") {"),
+  M("a-deadline-is-ignored", "a-run-past-its-deadline-is-lapsed", DELEGATION_REL, "const first = await Promise.race([running.then((value) => ({ value })), deadline]);", "const first = await running.then((value) => ({ value }));"),
+  M("a-late-result-is-returned", "a-late-result-is-refused", DELEGATION_REL, "    else if (outcome === 'completed') outcome = 'unknown';\n", ""),
+  M("pruning-drops-nothing", "a-pruned-delegate-frees-the-node-cap", DELEGATION_REL, "  for (const [key] of gone) next.delete(key);\n", ""),
+  M("a-root-is-pruned", "a-root-is-not-pruned-so-its-budget-cannot-be-reset", DELEGATION_REL, "inScope(node, context.binding) && node.depth > 0 && (", "inScope(node, context.binding) && ("),
+  M("the-root-cap-is-nine", "a-root-cap-holds-the-delegates-under-one-run", LIMITS_REL, "export const MAX_LIVE_DELEGATES_PER_ROOT = 8;", "export const MAX_LIVE_DELEGATES_PER_ROOT = 9;"),
+  M("an-unvouched-snapshot-is-restored", "a-snapshot-nobody-vouches-for-is-refused", DELEGATION_REL, "if (!verified) return no(", "if (false) return no("),
+  M("a-reservation-is-not-checked", "a-snapshot-with-an-impossible-reservation-is-refused", DELEGATION_REL, "node.reserved < kids.reduce((sum, kid) => sum + kid.envelope.budget, 0) || ", ""),
+  M("a-restored-depth-is-the-snapshots-own", "a-snapshot-with-a-depth-that-does-not-follow-is-refused", DELEGATION_REL, "node.depth !== parent.depth + 1 || ", ""),
+  M("a-cut-may-split-a-pair", "a-cut-does-not-split-a-surrogate-pair", DELEGATION_REL, "const end = limit > 0 && text.charCodeAt(limit - 1) >= 0xd800 && text.charCodeAt(limit - 1) <= 0xdbff ? limit - 1 : limit;", "const end = limit;"),
+  M("a-node-read-may-use-any-time", "a-node-read-at-a-time-behind-the-book-finds-nothing", DELEGATION_REL, "if (held === undefined || !Number.isSafeInteger(now) || now < book.lastSeen) return null;", "if (held === undefined) return null;"),
+  M("a-resolution-need-not-name-the-item", "a-resolution-for-another-item-is-refused", QUEUE_REL, "  if (form['itemId'] !== item.itemId || form['tenant'] !== item.tenant || form['project'] !== item.project) return null;\n", ""),
+  M("a-resolution-need-not-name-the-revision", "a-resolution-of-another-revision-is-refused", QUEUE_REL, "if (record === null || record.revision !== item.revision) {", "if (record === null) {"),
+  M("an-unvouched-resolution-is-taken", "a-resolution-nobody-vouches-for-is-refused", QUEUE_REL, "if (!verifiedByPort(context.verifyResolution, record as unknown as Readonly<Record<string, unknown>>)) {", "if (false) {"),
+  M("a-formerly-unknown-item-needs-no-resolution", "a-formerly-unknown-item-is-not-restored-without-its-resolution", QUEUE_REL, ": wasUnknown !== (resolution !== null)) return true;", ": false) return true;"),
+  M("a-restored-resolution-is-not-verified", "a-restored-resolution-nobody-vouches-for-is-refused", QUEUE_REL, "if (!verifiedByPort(context.verifyResolution, resolution as unknown as Readonly<Record<string, unknown>>)) {", "if (false) {"),
+  M("a-stale-revision-is-taken", "a-stale-revision-is-refused", QUEUE_REL, "if (item !== null && item.revision !== expectedRevision) return no('STALE_REVISION',", "if (false) return no('STALE_REVISION',"),
+  M("a-renewal-does-not-extend-the-lease", "a-lease-that-is-renewed-is-not-lost-at-its-old-end", QUEUE_REL, "leaseExpiresAt: now + QUEUE_LEASE_MS, updatedAt: now, revision: item.revision + 1, renewals: item.renewals + 1", "leaseExpiresAt: item.leaseExpiresAt, updatedAt: now, revision: item.revision + 1, renewals: item.renewals + 1"),
+  M("the-renewal-cap-is-nine", "a-lease-is-renewed-only-a-bounded-number-of-times", LIMITS_REL, "export const MAX_LEASE_RENEWALS = 8;", "export const MAX_LEASE_RENEWALS = 9;"),
+  M("an-ended-lease-is-renewed", "an-ended-lease-is-not-renewed", QUEUE_REL, "  if (now >= item.leaseExpiresAt) return no('RENEWAL_REFUSED', 'the lease has already ended; recovery, not a renewal, decides what happens to the item');\n", ""),
 ];
 
 /** Run every scenario against one compiled core. A scenario that throws has an outcome too: it threw. */
@@ -1062,6 +1388,7 @@ const TEXT_MUTATIONS = [
   R("the-module-holds-a-mutable-list", "AG-13", DELEGATION_REL, "const BOOKS = new WeakMap", "let waiting: string[] = [];\nconst BOOKS = new WeakMap"),
   R("the-module-has-a-dispatcher", "AG-13", DELEGATION_REL, "export type NodeState", "export class Dispatcher {}\nexport type NodeState"),
   R("the-module-loops-for-ever", "AG-13", QUEUE_REL, "const isRefusal = (value: number | QueueFailure): value is QueueFailure => typeof value !== 'number';", "const isRefusal = (value: number | QueueFailure): value is QueueFailure => typeof value !== 'number';\nexport const spin = (): void => { while (true) { break; } };"),
+  R("the-envelope-copier-reads-the-system-clock", "AG-13", FILES.envelopeSnapshot, "const MAX_SCOPE_ENTRIES = 256;", "const MAX_SCOPE_ENTRIES = 256;\nexport const stamp = (): number => Date.now();"),
   R("the-module-reads-the-system-clock", "AG-13", CLOCK_REL, "    now = clock();", "    now = Date.now();"),
   R("the-module-imports-the-file-system", "AG-13", CLOCK_REL, "/** Milliseconds since the epoch, from the caller's clock. */", "import { readFileSync } from 'node:fs';\n/** Milliseconds since the epoch, from the caller's clock. */"),
   // AG-14: wired to nothing
@@ -1100,8 +1427,13 @@ const TEXT_MUTATIONS = [
   R("the-possibly-acted-rule-is-unstated", "AG-20", QUEUE_REL, "A RUNNING ITEM IS POSSIBLY ACTED.", "A running item is done."),
   R("the-delegation-limit-is-unstated", "AG-20", DELEGATION_REL, "WHAT THIS MODULE CANNOT PROVE.", "What this module proves."),
   R("the-never-more-than-the-parent-rule-is-unstated", "AG-20", DELEGATION_REL, "A DELEGATE NEVER GETS MORE THAN ITS PARENT.", "A delegate gets what it asks."),
+  R("the-read-once-rule-is-unstated", "AG-20", FILES.envelopeSnapshot, "AN ENVELOPE FROM A CALLER IS READ ONCE.", "An envelope is read as often as needed."),
+  R("the-approval-wording-is-unstated", "AG-20", FILES.ownerForm, "A WELL-FORMED RECORD IS NOT AN APPROVAL.", "A well-formed record is an approval."),
+  R("the-checked-is-what-runs-rule-is-unstated", "AG-20", DELEGATION_REL, "WHAT IS CHECKED IS WHAT RUNS.", "What is checked may differ from what runs."),
+  R("the-record-pin-rule-is-unstated", "AG-20", DELEGATION_REL, "AN AGENT'S RECORD IS PINNED.", "An agent record may change."),
+  R("the-conversation-rule-is-unstated", "AG-20", MESSAGES_REL, "A CONVERSATION ENDS.", "A conversation continues."),
   R("the-sender-rule-is-unstated", "AG-20", MESSAGES_REL, "THE SENDER IS THE BOOK'S, NOT THE CALLER'S.", "The sender is whoever says so."),
-  R("the-message-limit-is-unstated", "AG-20", MESSAGES_REL, "MESSAGING IS OFF UNTIL A RECORD ALLOWS IT.", "Messaging is on."),
+  R("the-message-limit-is-unstated", "AG-20", MESSAGES_REL, "MESSAGING IS OFF UNTIL A RECORD ALLOWS IT, AND A GRANT HOLDS IT.", "Messaging is on."),
   R("the-record-wording-is-unstated", "AG-20", RECORD_REL, "A RECORD NAMES A PLAN DECISION; THIS READER CHECKS ITS FORM, NOT THE DECISION.", "A record is approved."),
   R("the-limit-numbers-are-called-sourced", "AG-20", LIMITS_REL, "THESE NUMBERS WERE CHOSEN HERE, NOT TAKEN FROM A SOURCE.", "These numbers are the source's."),
   F("the-finish-record-loses-the-existing-code", "Existing code found", "Code found"),
@@ -1110,9 +1442,12 @@ const TEXT_MUTATIONS = [
   F("the-finish-record-loses-the-only-queue-statement", "The workforce dispatch stays the only queue", "A queue was added"),
   F("the-finish-record-loses-the-no-gate-statement", "No gate was loosened or replaced.", "Gates changed."),
   F("the-finish-record-loses-the-wording", "A well-formed record that names a decision id is not an approval", "A record is an approval"),
-  F("the-finish-record-loses-the-root-limit", "That a root envelope's limits came from the kernel is the caller's", "Roots are proved"),
+  F("the-finish-record-loses-the-root-rule", "A root is only the envelope object the kernel's door admitted", "A root is any envelope"),
+  F("the-finish-record-loses-the-wiring-owned-limit", "is taken to be that run", "is proved to be that run"),
+  F("the-finish-record-loses-the-verifier-ports-limit", "Whether a verifier port is honest is the wiring's", "A verifier port is honest"),
+  F("the-finish-record-loses-the-retry-residual", "Retry counting is not unified with the workforce dispatch", "Retries are unified"),
+  F("the-finish-record-loses-the-review-round", "## Review round 1", "## Notes"),
   F("the-finish-record-loses-the-budget-residual", "A finished delegate does not give its budget back", "A finished delegate gives its budget back"),
-  F("the-finish-record-loses-the-replay-residual", "Refusing a message id already seen is the receiving queue's", "Replays are refused here"),
   F("the-finish-record-loses-the-store-residual", "A restored item is only as trustworthy as the store it came from", "A restored item is proved"),
   F("the-finish-record-loses-the-credit-directories-commit", "The shared commit `86f18e23` lists this directory", "The credit validator was edited"),
   F("the-finish-record-loses-the-review", "ECC SECURITY", "A review"),

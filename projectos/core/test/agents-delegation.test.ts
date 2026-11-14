@@ -9,6 +9,7 @@ import {
   admitDelegation,
   delegateOutput,
   emptyDelegationBook,
+  delegationNodeAt,
   expireStaleDelegations,
   goalProblem,
   registerRoot,
@@ -27,11 +28,14 @@ import {
   WORKER,
   agency,
   bookOf,
+  admittedChild,
   childEnvelope,
   contextOf,
+  fakeTimer,
   nextEnvelopeId,
   polygo,
   projectos,
+  registryWith,
   rootEnvelope,
   withRoot,
 } from './agents-support.js';
@@ -198,9 +202,11 @@ describe('the depth is derived, and capped', () => {
   });
 
   it('cannot be reset by registering the deepest envelope again as a root', () => {
-    const { two } = chain();
-    const again = registerRoot(two.book, contextOf(home, agents()), { agentId: 'leaf', envelope: two.envelope });
-    expect(again).toMatchObject({ ok: false, code: 'ROOT_IS_A_CHILD' });
+    const { root, two } = chain();
+    const asRoot = admittedChild(root, home);
+    expect(asRoot.parentEnvelopeId).not.toBeNull();
+    expect(registerRoot(two.book, contextOf(home, agents()), { agentId: 'leaf', envelope: asRoot })).toMatchObject({ ok: false, code: 'ROOT_IS_A_CHILD' });
+    expect(registerRoot(two.book, contextOf(home, agents()), { agentId: 'leaf', envelope: two.envelope })).toMatchObject({ ok: false, code: 'ROOT_NOT_ADMITTED' });
   });
 
   it('refuses a delegation from a parent the book has never seen, instead of treating it as a root', () => {
@@ -298,7 +304,7 @@ describe('fan-out, concurrency and the size of the book are capped', () => {
 
   it('holds the same envelope id in two tenants without a clash', () => {
     const mine = rootEnvelope(home);
-    const theirs = { ...rootEnvelope(agency()), envelopeId: mine.envelopeId };
+    const theirs = rootEnvelope(agency(), { envelopeId: mine.envelopeId });
     const book = must(registerRoot(withRoot(home, agents(), mine), contextOf(agency(), bookOf(agency(), [LEAD])), { agentId: 'lead', envelope: theirs })).book;
     expect(book).toBeDefined();
   });
@@ -388,8 +394,9 @@ describe('a root enters the book once, for its own tenant', () => {
   });
 
   it('refuses a root whose class label is not the registry\'s for its action: a P5 action labelled P1', () => {
-    const root = { ...rootEnvelope(home, { action: 'approve' }), actionClass: 'P1' } as TaskEnvelope;
-    expect(registerRoot(emptyDelegationBook(), contextOf(home, agents()), { agentId: 'lead', envelope: root })).toMatchObject({ ok: false, code: 'ROOT_LABEL' });
+    const root = rootEnvelope(home, { action: 'implement' });
+    const stricter = { ...contextOf(home, agents()), registry: registryWith({ implement: { class: 'P3' } }) };
+    expect(registerRoot(emptyDelegationBook(), stricter, { agentId: 'lead', envelope: root })).toMatchObject({ ok: false, code: 'ROOT_LABEL' });
   });
 
   it('refuses a root whose agent this tenant does not hold', () => {
@@ -427,13 +434,14 @@ describe('a slot is released on every path, and a lost child is possibly-acted f
     return { root, ...admitted };
   };
 
-  it('treats a child that was never settled as unknown once its lease ends, and frees its slot but not its budget', () => {
+  it('treats a child that was never settled as unknown once its lease ends, and keeps its slot and its budget', () => {
     const { root, book } = live();
     const later = NOW + DELEGATION_LEASE_MS + 1;
     const expired = expireStaleDelegations(book, contextOf(home, agents(), later));
     if (!expired.ok) throw new Error('expiry refused');
     expect(expired.expired).toBe(1);
     expect(code(admitDelegation(expired.book, contextOf(home, agents(), later), request(root, { child: { budget: 1 } })))).toBe('OVER_BUDGET');
+    expect(expired.book.size).toBe(2);
   });
 
   it('does not expire a child before its lease ends', () => {
@@ -456,16 +464,19 @@ describe('a slot is released on every path, and a lost child is possibly-acted f
     expect(settleDelegation(done.book, contextOf(home, agents()), envelope.envelopeId, 'failed')).toMatchObject({ ok: false, code: 'ALREADY_SETTLED' });
   });
 
-  it('settles as completed or failed only on a named outcome, and refuses any other word', () => {
+  it('settles as completed, failed or unknown only on a named outcome, and refuses any other word', () => {
     const { book, envelope } = live();
     expect(settleDelegation(book, contextOf(home, agents()), envelope.envelopeId, 'finished' as never)).toMatchObject({ ok: false, code: 'OUTCOME' });
   });
 
-  it('runs the work and settles the child as completed when it returns', async () => {
+  it('runs the work and settles the child as completed when it returns, and cancels its timer', async () => {
     const root = rootEnvelope(home);
     const holder = { book: withRoot(home, agents(), root) };
-    const answer = await runDelegated(holder, contextOf(home, agents()), request(root), async (node) => node.agentId);
-    expect(answer).toMatchObject({ ok: true, value: 'worker', settled: true });
+    const clock = fakeTimer();
+    const answer = await runDelegated(holder, contextOf(home, agents()), request(root), async (node) => node.agentId, clock.timer);
+    expect(answer).toMatchObject({ ok: true, value: 'worker' });
+    expect(clock.scheduled()).toBe(1);
+    expect(clock.cancelled()).toBe(1);
     const settledAgain = settleDelegation(holder.book, contextOf(home, agents()), (answer.ok ? answer.envelopeId : ''), 'completed');
     expect(settledAgain).toMatchObject({ ok: false, code: 'ALREADY_SETTLED' });
   });
@@ -475,7 +486,7 @@ describe('a slot is released on every path, and a lost child is possibly-acted f
     const holder = { book: withRoot(home, agents(), root) };
     const answer = await runDelegated(holder, contextOf(home, agents()), request(root), async () => {
       throw new Error('the worker crashed');
-    });
+    }, fakeTimer().timer);
     expect(answer).toMatchObject({ ok: false, code: 'WORK_FAILED' });
     const live = Array.from({ length: MAX_LIVE_DELEGATES_PER_PROJECT }, () => request(root));
     let held = holder.book;
@@ -483,7 +494,7 @@ describe('a slot is released on every path, and a lost child is possibly-acted f
     expect(code(delegate(held, request(root)))).toBe('FAN_OUT_CAP');
   });
 
-  it('says the book could not end the node when the work outlived its lease: the book reads it as unknown', async () => {
+  it('refuses a result that arrives after the node lapsed: never ok:true with an unknown node\'s value', async () => {
     const root = rootEnvelope(home);
     let now = NOW;
     const context = { ...contextOf(home, agents()), clock: () => now };
@@ -491,27 +502,51 @@ describe('a slot is released on every path, and a lost child is possibly-acted f
     const answer = await runDelegated(holder, context, request(root), async () => {
       now += DELEGATION_LEASE_MS;
       return 1;
-    });
-    expect(answer).toMatchObject({ ok: true, value: 1, settled: false });
+    }, fakeTimer().timer);
+    expect(answer).toMatchObject({ ok: false, code: 'LAPSED' });
   });
 
-  it('does not run the work at all when the delegation is refused', async () => {
+  it('answers LAPSED at the deadline while the work may still run: the node is unknown, not released, and aborted() says so', async () => {
+    const root = rootEnvelope(home, { budget: 10_000 });
+    const clock = fakeTimer();
+    const holder = { book: withRoot(home, agents(), root) };
+    let id = '';
+    let seen: (() => boolean) | null = null;
+    const pending = runDelegated(holder, contextOf(home, agents()), request(root), (node, control) => {
+      id = node.envelopeId;
+      seen = control.aborted;
+      return new Promise<number>(() => undefined);
+    }, clock.timer);
+    await Promise.resolve();
+    clock.fire(0);
+    const answer = await pending;
+    expect(answer).toMatchObject({ ok: false, code: 'LAPSED' });
+    expect((seen as unknown as () => boolean)()).toBe(true);
+    expect(delegationNodeAt(holder.book, 'owner-personal', 'polygo', id, NOW)).toMatchObject({ state: 'unknown', released: false });
+  });
+
+  it('does not run the work at all when the delegation is refused, and refuses to start without a timer', async () => {
     const root = rootEnvelope(home);
     const holder = { book: withRoot(home, agents(), root) };
     let ran = 0;
     const answer = await runDelegated(holder, contextOf(home, agents()), request(root, { grants: ['draft-proposal'] }), async () => {
       ran += 1;
       return 1;
-    });
+    }, fakeTimer().timer);
     expect(answer).toMatchObject({ ok: false, code: 'GRANT_EXCEEDS_PARENT' });
+    const untimed = await runDelegated(holder, contextOf(home, agents()), request(root), async () => {
+      ran += 1;
+      return 1;
+    }, undefined);
+    expect(untimed).toMatchObject({ ok: false, code: 'NO_TIMER' });
     expect(ran).toBe(0);
   });
 
-  it('settles a child the work abandoned when it returns a promise that never settled is the caller\'s timer, not this module\'s', async () => {
+  it('settles the child as failed when the work rejects without throwing from an async function', async () => {
     const root = rootEnvelope(home);
     const holder = { book: withRoot(home, agents(), root) };
-    const answer = await runDelegated(holder, contextOf(home, agents()), request(root), () => Promise.reject(new Error('no')));
-    expect(answer.ok).toBe(false);
+    const answer = await runDelegated(holder, contextOf(home, agents()), request(root), () => Promise.reject(new Error('no')), fakeTimer().timer);
+    expect(answer).toMatchObject({ ok: false, code: 'WORK_FAILED' });
   });
 });
 
@@ -587,7 +622,7 @@ describe('what is checked is what runs', () => {
   it('gives the work the goal that was checked, from the node the book holds', async () => {
     const root = rootEnvelope(home);
     const holder = { book: withRoot(home, agents(), root) };
-    const answer = await runDelegated(holder, contextOf(home, agents()), request(root, { goal: 'Run the validators and report the failures.' }), async (node) => node.goal);
+    const answer = await runDelegated(holder, contextOf(home, agents()), request(root, { goal: 'Run the validators and report the failures.' }), async (node) => node.goal, fakeTimer().timer);
     expect(answer).toMatchObject({ ok: true, value: 'Run the validators and report the failures.' });
   });
 });

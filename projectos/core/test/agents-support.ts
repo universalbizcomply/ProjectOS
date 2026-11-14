@@ -99,6 +99,7 @@ export interface EnvelopeChange {
   readonly scope?: readonly string[];
   readonly expiry?: string;
   readonly intentScope?: string;
+  readonly envelopeId?: string;
 }
 
 /** An admitted root envelope, the way the kernel mints one and the door admits it. */
@@ -111,10 +112,34 @@ export function rootEnvelope(binding: TenantBinding, change: EnvelopeChange = {}
     expiry: change.expiry ?? LATER,
     intentScope: change.intentScope ?? `RUN-${nextEnvelopeId()}`,
   };
-  const minted = mintEnvelope(kernelContext(binding, nextEnvelopeId()), request);
+  const minted = mintEnvelope(kernelContext(binding, change.envelopeId ?? nextEnvelopeId()), request);
   const admission = admitEnvelope(minted, '2026-11-14T12:00:00.000Z', () => true, () => true);
   if (!admission.admitted) throw new Error(`the control envelope was refused: ${admission.reasons.join('; ')}`);
   return admission.envelope;
+}
+
+/** An envelope the kernel minted as a child of the admitted `parent` and admitted at its door: a child, but kernel-made. */
+export function admittedChild(parent: TaskEnvelope, binding: TenantBinding, change: EnvelopeChange = {}): TaskEnvelope {
+  const request: EnvelopeRequest = {
+    action: change.action ?? 'run_validators',
+    subjectHash: 'a'.repeat(40),
+    scope: change.scope ?? ['docs/'],
+    budget: change.budget ?? 100,
+    expiry: change.expiry ?? LATER,
+    intentScope: `RUN-${nextEnvelopeId()}`,
+  };
+  const minted = mintEnvelope(kernelContext(binding, nextEnvelopeId()), request, parent);
+  const admission = admitEnvelope(minted, '2026-11-14T12:00:00.000Z', () => true, () => true);
+  if (!admission.admitted) throw new Error(`the control child was refused: ${admission.reasons.join('; ')}`);
+  return admission.envelope;
+}
+
+/** The committed action registry with some entries' fields changed, parsed the way the kernel parses it. */
+export function registryWith(change: Record<string, Record<string, unknown>>): ActionRegistry {
+  const raw = json('action-registry.json') as { actions: Record<string, unknown>[] };
+  const parsed = parseActionRegistry({ ...raw, actions: raw.actions.map((entry) => ({ ...entry, ...(change[String(entry['id'])] ?? {}) })) });
+  if (!parsed.ok) throw new Error('the changed action registry does not parse');
+  return parsed.registry;
 }
 
 /** A child envelope of `parent`, written as the kernel would, with whatever the test changes. */
@@ -143,5 +168,22 @@ export function withRoot(binding: TenantBinding, agents: AgentBook, envelope: Ta
 }
 
 /** The delegating lead and the workers the tests name. */
-export const LEAD = { recordId: 'AGT-lead-v1', agentId: 'lead', mayDelegate: true, grants: ['read-repository', 'search-repository', 'run-sandbox-tests'] };
-export const WORKER = { recordId: 'AGT-worker-v1', agentId: 'worker', grants: ['read-repository', 'search-repository', 'run-sandbox-tests', 'memory'] };
+export const LEAD = { recordId: 'AGT-lead-v1', agentId: 'lead', mayDelegate: true, grants: ['read-repository', 'search-repository', 'run-sandbox-tests', 'send_message'] };
+export const WORKER = { recordId: 'AGT-worker-v1', agentId: 'worker', grants: ['read-repository', 'search-repository', 'run-sandbox-tests', 'memory', 'send_message'] };
+
+/** A timer the test drives: `fire(0)` runs the first scheduled callback. */
+export function fakeTimer(): { readonly timer: (ms: number, fire: () => void) => () => void; readonly fire: (index: number) => void; readonly scheduled: () => number; readonly cancelled: () => number } {
+  const pending: (() => void)[] = [];
+  let cancelled = 0;
+  return {
+    timer: (_ms, fire) => {
+      pending.push(fire);
+      return () => {
+        cancelled += 1;
+      };
+    },
+    fire: (index) => pending[index]?.(),
+    scheduled: () => pending.length,
+    cancelled: () => cancelled,
+  };
+}

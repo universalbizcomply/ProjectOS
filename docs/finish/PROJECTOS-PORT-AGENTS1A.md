@@ -18,12 +18,14 @@ only by rules over data:
   re-keyed on the tenant and project, with session keys that start with both,
 - **delegation**: a child never holds more than its parent (grants, tenant, domain, project, environment, scope, budget,
   expiry, class), never a P5 action, never past the depth, fan-out, concurrency or size caps, and never in a cycle; the depth,
-  the counts and the reserved budget are the book's and have no field in a request,
+  the counts and the reserved budget are the book's and have no field in a request, a root is only the envelope the kernel's
+  own door admitted, and a lapsed delegate keeps its slot until an owner-form record that a port verifies releases it,
 - **messages** between agents of one tenant and project, off until the sender's record lists the recipient, enveloped through
   `checkChildEnvelope`, at P2 or below, spending nothing, handed on as untrusted data; the sender is the run the delegation
   book holds for the envelope id, never an agent id the request states,
-- **queue-state rules** (claim, complete, pause, resume, cancel, crash recovery, an owner-form resolution of an unknown
-  item, restore) as pure functions the workforce dispatch can adopt in a later stage.
+- **queue-state rules** (claim, renew, complete, pause, resume, cancel, crash recovery, a resolution of an unknown item that
+  is bound to the item and verified by a port, restore) as pure functions the workforce dispatch can adopt in a later stage;
+  every move states the revision it expects.
 
 Nothing outside this module and its tests imports it, except the one `export *` line in the core barrel.
 The workforce dispatch stays the only queue: `agent/src/workforce/` is not changed.
@@ -108,7 +110,11 @@ nothing was installed or run from them.
 | A message naming another tenant or project, a recipient of another tenant, one not on the allowlist, to oneself, above P2, with a budget | AG-7 |
 | A message from a run the delegation book does not hold for this tenant and project, that has ended, or whose envelope expired; a sending agent stated by the request | AG-7 |
 | A record that says an agent decided, names no decision, names its own tenant, holds a wildcard grant or a flag that is not a boolean | AG-8 |
-| A lost item run again, an unknown item moved by anything but an owner-form record, a running item paused, a paused scope claimed, a fourth claim, a copy of an item | AG-9 |
+| A lost item run again, an unknown item moved by anything but a record bound to it and vouched for by the port, a running item paused, a paused scope claimed, a fourth claim, a copy of an item, a stale revision | AG-9 |
+| A child, message or root envelope that holds an accessor; a hand-built or copied root; a context that answers differently twice | AG-2, AG-3, AG-7 |
+| A grant under another spelling of a blocked name; a message from a run without the `send_message` grant; a message id repeated, a reply to a message never received, a reply chain or a pair past its cap, a full ledger | AG-1, AG-7 |
+| A parent's own spend ignored; an agent record changed under a running node; ending a parent that leaves live children | AG-3, AG-5, AG-11 |
+| A snapshot nobody vouches for, or whose tree the rules could not have produced | AG-4 |
 | A session key without the tenant, a colon in a part, a binding of another scope, an agent the tenant does not hold, more than 200 bindings | AG-10 |
 | A failed delegate that keeps its slot, a lost delegate that gives its budget back or is forgotten | AG-11 |
 | A delegate's output that is trusted, unbounded, or closes its own fence; a placeholder goal | AG-12 |
@@ -153,35 +159,61 @@ derived binding can be paused, and nothing is dropped from it.
   an envelope that has no parent.
 - **Keys are tenant, project and id, everywhere:** the agent book, the node key, the live count, the node cap, the pause set,
   the session key and the message key.
-- **A lost delegate or item is unknown for good.** A live delegate past its lease and a running item past its lease become
-  unknown, their slot is freed, a delegate's budget stays reserved, and a later "completed" does not erase it. Only an
-  owner-form record moves an unknown item, and a requeue is refused once its attempts are used up.
-- **`runDelegated` releases the slot in a `finally`, and does not pass the work's error text on:** it is as untrusted as the
-  output. A failure to release leaves the lease to end it, and the answer says `settled: false` when the book could not end
-  the node, so a caller can see that the book reads it as unknown. There is no timer here: a delegate that never answers is
-  ended by its lease, which the injected clock measures.
+- **A lost delegate or item is unknown for good.** A live delegate past its lease, or past its deadline, and a running item past its lease become unknown. A delegate keeps its slot and its budget stays reserved until an owner-form record, verified by the caller's port, releases the slot; a later "completed" does not erase it, and a result that arrives after the lapse is refused. Ending a node ends what is live beneath it. An item resolves only on a record bound to it and to the revision it was unknown at, vouched for by a port, and a requeue is refused once its attempts are used up.
+- **`runDelegated` needs the caller's timer and releases the slot in a `finally`, and does not pass the work's error text on:** it is as untrusted as the output. With no timer the run is not started. At the deadline the answer is `LAPSED` while the work may still be running, so the node stays unknown and holds its slot.
 - **The sender of a message is the book's.** A request names the envelope id of the run it comes from, and the sending agent,
   tenant, project and envelope are read from the node the delegation book holds, which must be live and unexpired. A request
   that names another agent changes nothing.
-- **What is checked is what runs.** Each field of a delegation or message request is read once, a grants list is copied
-  before it is judged, and the goal is stored on the node that the work is handed.
+- **What is checked is what runs.** The context and the request are copied once into plain data, and the child, message
+  and root envelopes are copied once by descriptor (an accessor in the envelope, its actor or its scope refuses the whole
+  envelope), so what `parseEnvelope` and `checkChildEnvelope` judge, what is stored and what is delivered are the same plain
+  data. The goal is stored on the node that the work is handed. (Round 1 found that the first version only copied the
+  request: `parseEnvelope` validated a getter and then spread it again.)
 - **The clock is injected, whole and not behind the latest time seen.** A clock that gives no time refuses every call.
 
 ## Residuals and what this module cannot prove
 
-- That a root envelope's limits came from the kernel is the caller's: a root is checked for shape, scope, expiry and its
-  class labels against the registry, and nothing more.
-- A well-formed record that names a decision id is not an approval. Whether the plan decision exists and is the owner's is
-  the wiring's to check against the committed plan-decision records.
-- A finished delegate does not give its budget back, because what it really spent is not known here. The ledger is the
-  cumulative cap; a refund needs it.
-- Refusing a message id already seen is the receiving queue's: the key is derived, and the queue that takes the message
-  deduplicates on it.
+- A root is only the envelope object the kernel's door admitted (the module asks the kernel's own record, so a copy or a hand-built envelope is refused), and its class labels are checked against the registry as well.
+  That the caller is the run an envelope id names is the wiring's: a caller that holds a valid envelope id is taken to be that run.
+- Whether a verifier port is honest is the wiring's. The three ports (a resolution, a release, a snapshot) each answer exactly `true` or the record counts for nothing, and with no port every one of them is refused.
+  A well-formed record that names a decision id is not an approval: whether the decision exists and is the owner's is for the port to look up in the committed plan-decision records.
+- A finished delegate does not give its budget back, and neither does a failed or lapsed one: what it really spent belongs to
+  the canonical budget adapter, which owns real spend. This module holds a parent's own recorded spend and its reservations
+  for children against its budget, and nothing more.
+- A pruned delegate's envelope id could be delegated again, because pruning forgets it; deduplicating a task by its
+  idempotency key is the store's. Roots are never pruned, so a spent budget is never reset.
+- The message ledger and the revision are only as durable as the caller makes them, and a revision is a compare-and-swap only
+  if the store compares it. The per-pair and ledger caps are lifetime caps of one ledger, never decremented.
+- Retry counting is not unified with the workforce dispatch's `maxAttemptsPerTask`: that is Stage 4 wiring.
 - A restored item is only as trustworthy as the store it came from: the rules refuse an item they could not have produced,
   not one edited to a state they could.
 - Delegation and queue state are in memory values; durable storage, the hash-chained event store and the adoption by the
   workforce dispatch are Stage 4.
 - The agent's `@projectos/core` junction points at another worktree, so the agent's own typecheck was not run here (see Checks).
+
+## Review round 1
+
+Two independent reviews of head `574a6430`: ECC security-reviewer (block on H1) and Agency
+`multi-agent-systems-architect` (concerns, three HIGH). Each item got a failing test first, the fix, and a named validator
+mutation killed by its own rule.
+
+| Item | What was wrong | The fix | Test, mutation |
+|---|---|---|---|
+| H1 | `parseEnvelope` checked an envelope field through its getter and then spread the same object, which read every getter a second time: a budget that answered 0 and then -1e15 sent the parent's reservation negative | `snapshotEnvelope` copies an envelope once by descriptor (the actor and the scope too), refuses an accessor anywhere, and only the plain copy is judged, stored and delivered; the context and the request are copied once; the same in `registerRoot` and `admitAgentMessage` | `agents-review1.test.ts`; `a-getter-envelope-is-read-twice`, `a-context-is-read-through-its-accessors` |
+| H2 | `registerRoot` trusted a root on shape: a hand-built root with a budget of 10^12 was accepted | a root must be the envelope object the kernel's door admitted: the module asks the kernel's own record (`recordExecution` with a no-op recorder, which answers `true` only for an admitted envelope), nothing in the kernel was changed, and with no admission there is no root | `a-root-need-not-be-admitted` |
+| H3 | an owner-form record was only a shape: any record, with no port and no binding, resolved any unknown item, and a store could restore a formerly unknown item as queued | the resolution is bound to the item id, tenant, project and the revision the item had while unknown, so it resolves one item once; a port must answer exactly `true`, with none the item stays unknown; the item remembers it was unknown, and a restore of a formerly unknown item needs its resolution, bound and verified | `a-resolution-need-not-name-the-item`, `-the-revision`, `an-unvouched-resolution-is-taken`, `a-formerly-unknown-item-needs-no-resolution` |
+| H4 | `send_message` is a blocked grant but nothing read a node's grants, and a blocked name under another spelling passed | a message needs the run to hold `send_message`, which no delegate can; blocked names are matched with case, `-`, `_`, `.` and whitespace taken out, before the shape is judged | `a-message-needs-no-grant`, `a-blocked-name-is-matched-as-spelled` |
+| M1 | a slow run could outlive its lease and still return `ok`, and its slot was freed by the lapse | `runDelegated` takes an injected timer (none: not started); a deadline marks the node unknown and answers `LAPSED`; a late result is refused; an unknown node keeps its slot until a verified owner-form release | `a-deadline-is-ignored`, `a-late-result-is-returned`, `a-lapsed-delegate-frees-its-slot`, `an-unvouched-release-is-taken` |
+| M2 | no compare-and-swap, no lease renewal | every move bumps a revision and states the one it expects; a stale one is refused; a running item may renew its lease a bounded number of times | `a-stale-revision-is-taken`, `a-renewal-does-not-extend-the-lease`, `the-renewal-cap-is-nine` |
+| M3 | no persistence, the 60-node cap was a lifetime cap | `exportDelegationBook` and `restoreDelegationBook` (verified, and held to the tree invariants); `pruneSettledDelegations` drops ended delegates but never a root or an unknown node | `an-unvouched-snapshot-is-restored`, `a-reservation-is-not-checked`, `pruning-drops-nothing`, `a-root-is-pruned` |
+| M4 | ending a parent left live children | ending or lapsing a node marks everything live beneath it unknown, so an orphan cannot message | `ending-a-parent-leaves-its-children-live` |
+| M5 | a parent's own spend was not held against its reservations | `recordDelegateSpend`; a child gets only what is left after the parent's spend. The canonical budget adapter owns real spend, and reservations are never returned here | `a-parents-spend-is-not-counted`, `spend-has-no-ceiling` |
+| M6 | a swapped agent book could change what a run may do | a node pins the hash of its agent record, and a changed record is refused | `a-changed-record-is-taken`, `a-record-swapped-for-another-is-taken-as-the-same` |
+| M7 | two agents could message each other for ever | a ledger records each message id once, the hop count of a reply chain is the ledger's and has a cap, one pair has a cap, and a full ledger refuses | `a-message-id-may-repeat`, `the-hop-cap-is-five`, `the-pair-cap-is-twenty-one`, `the-ledger-cap-is-forty-one` |
+| LOW | a per-root cap, a cut surrogate pair, a node read at a time that cannot be trusted, mojibake in two comments | `MAX_LIVE_DELEGATES_PER_ROOT`; `delegateOutput` does not split a pair; `delegationNodeAt` answers nothing for a time that is not whole or is behind the book; the two registration comments now carry the same em dash as their neighbours. The default agent of a route comes from the book and is refused if this tenant and project do not hold it | `the-root-cap-is-nine`, `a-cut-may-split-a-pair`, `a-node-read-may-use-any-time` |
+
+Deferred, in Residuals: the wiring proving that a caller is the run its envelope id names, and unifying the retry counter with
+the dispatch's `maxAttemptsPerTask`.
 
 ## Checks
 
@@ -189,16 +221,18 @@ Exit codes and counts are from the runs themselves, not from this document. `val
 
 ```text
 core: npm run -s build                      exit 0
-core: npx vitest run                        69 files, 3179 tests passed (this phase: 5 files, 183 tests)
-core: vitest --coverage on src/agents       99.6% lines, 93.1% branches, 100% functions
-val-projectos-port-agents1a                 PASS (101 scenarios; 82 behaviour and 53 text mutations killed)
-val-projectos-port-credit1a                 PASS (91 real files judged; 157 fixture and 59 record mutations killed)
+core: npx vitest run                        71 files, 3228 tests passed (this phase: 7 files, 235 tests)
+core: vitest --coverage on src/agents       99.55% lines, 92.64% branches, 100% functions
+val-projectos-port-agents1a                 PASS (140 scenarios; 118 behaviour and 62 text mutations killed)
+val-projectos-port-credit1a                 PASS (93 real files judged; 157 fixture and 59 record mutations killed)
 validate-no-secrets                         PASS
 val-projectos-connector-contract1a          PASS (reads validate-all and the runner lists)
 val-projectos-kernel-followup1a, port-approvals1a, -context1a, -memory1a, -providers1a, -search1a, -skills1a   PASS
 val-projectos-tenant-contract1a, -credentials1a, -csp1a, -principal1a, -rls1a      PASS
 val-projectos-v3-validation-evidence1a, val-projectos-validator-scratch-lifecycle1a PASS
 ```
+
+The same set was run after review round 1, and every exit code was 0 (the context, memory and skills validators took several minutes each).
 
 The registration is in both lists, in the same position, before `val-projectos-connector-contract1a`, which pins its own entry as
 the last one. The agent package was not typechecked: its `@projectos/core` junction points at another worktree (as for the
@@ -213,4 +247,8 @@ its credit header or its original mark, and every ported file has its notices en
 only edits outside this phase's own files are the one core barrel line, the notices entries, and the registration of the
 validator in the two lists, in the same position and order, before the connector-contract entry.
 
-ECC SECURITY and Agency `multi-agent-systems-architect` reviews are requested for this phase.
+Review round 1 was reconciled against the same shape: the fixes stay inside `core/src/agents/`, its tests, the validator, this
+record and the two registration comments (their mojibake dash is now the em dash their neighbours use). Nothing in the kernel
+was changed to give the module its proof of a root: it reuses `recordExecution`, which already answers `true` only for an
+envelope the door admitted. `envelopeSnapshot.ts` and `ownerForm.ts` are new original files, and the module is still
+unwired. ECC SECURITY and Agency `multi-agent-systems-architect` reviews are requested for the recheck.

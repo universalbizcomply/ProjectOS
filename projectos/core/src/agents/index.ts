@@ -15,6 +15,11 @@ export {
   MAX_DELEGATION_DEPTH,
   MAX_DELEGATION_NODES_PER_PROJECT,
   MAX_GOAL_CHARS,
+  MAX_LEASE_RENEWALS,
+  MAX_LIVE_DELEGATES_PER_ROOT,
+  MAX_MESSAGE_HOPS,
+  MAX_MESSAGES_PER_PAIR,
+  MAX_MESSAGE_LEDGER_ENTRIES,
   MAX_LIVE_DELEGATES_PER_PROJECT,
   MAX_MESSAGE_CHARS,
   MAX_MESSAGE_RECIPIENTS,
@@ -59,16 +64,23 @@ export {
   type RouteBindingResult,
 } from './routeBinding.js';
 export { resolveAgentRoute, type ResolvedRoute, type RouteCode, type RouteInput, type RouteMatchedBy, type RouteResult } from './routeResolve.js';
-export { DELEGATE_BLOCKED_GRANTS, childGrantProblem, type GrantRefusal, type GrantRefusalCode } from './delegationToolsets.js';
+export { DELEGATE_BLOCKED_GRANTS, childGrantProblem, isBlockedGrant, normalizeGrantName, type GrantRefusal, type GrantRefusalCode } from './delegationToolsets.js';
+export { readOwnerForm, verifiedByPort, type OwnerFormVerifier } from './ownerForm.js';
+export { snapshotEnvelope } from './envelopeSnapshot.js';
 export { goalProblem } from './delegationTasks.js';
 export {
   admitDelegation,
   delegateOutput,
   delegationNodeAt,
   emptyDelegationBook,
+  exportDelegationBook,
   expireStaleDelegations,
   isDelegationBook,
+  pruneSettledDelegations,
+  recordDelegateSpend,
   registerRoot,
+  releaseDelegation,
+  restoreDelegationBook,
   runDelegated,
   settleDelegation,
   type DelegateOutput,
@@ -79,10 +91,15 @@ export {
   type DelegationNode,
   type DelegationRequest,
   type DelegationResult,
+  type DelegationSnapshot,
+  type DelegationTimer,
   type ExpireResult,
   type NodeState,
   type OutputResult,
+  type PruneResult,
+  type RestoreResult,
   type RootRequest,
+  type RunControl,
   type RunResult,
   type SettleOutcome,
   type SettleResult,
@@ -90,9 +107,11 @@ export {
 export {
   MESSAGE_CLASS_CEILING,
   admitAgentMessage,
+  emptyMessageLedger,
   type AdmittedMessage,
   type MessageCode,
   type MessageContext,
+  type MessageLedger,
   type MessageRequest,
   type MessageResult,
 } from './messages.js';
@@ -106,6 +125,7 @@ export {
   pauseItem,
   pauseScope,
   recoverAbandoned,
+  renewLease,
   resolveUnknown,
   restoreQueueItem,
   resumeItem,

@@ -3,9 +3,11 @@ import {
   MAX_MESSAGE_CHARS,
   admitAgentMessage,
   emptyDelegationBook,
+  emptyMessageLedger,
   settleDelegation,
   type AgentBook,
   type DelegationBook,
+  type MessageLedger,
   type MessageRequest,
 } from '../src/agents/index.js';
 import type { TaskEnvelope } from '../src/taskEnvelope.js';
@@ -37,10 +39,15 @@ interface Setup {
   readonly binding?: TenantBinding;
   readonly ms?: number;
   readonly delegations: DelegationBook;
+  readonly ledger?: MessageLedger;
 }
 
 const admit = (req: MessageRequest, setup: Setup) =>
-  admitAgentMessage(setup.book ?? held(), { binding: setup.binding ?? home, registry: committedRegistry(), clock: clockAt(setup.ms ?? NOW), delegations: setup.delegations }, req);
+  admitAgentMessage(
+    setup.book ?? held(),
+    { binding: setup.binding ?? home, registry: committedRegistry(), clock: clockAt(setup.ms ?? NOW), delegations: setup.delegations, ledger: setup.ledger ?? emptyMessageLedger() },
+    req,
+  );
 const code = (result: ReturnType<typeof admit>): string => (result.ok ? 'ok' : result.code);
 
 describe('a message stays inside its tenant and project', () => {
@@ -76,8 +83,8 @@ describe('a message stays inside its tenant and project', () => {
   });
 
   it('refuses a recipient this tenant and project do not hold, without saying whose it is', () => {
-    const { envelope, delegations } = run();
     const book = bookOf(agency(), [{ recordId: 'AGT-agency-only', agentId: 'agency-only' }], bookOf(home, [{ ...LEAD, messageAllow: ['agency-only'] }, WORKER]));
+    const { envelope, delegations } = run(rootEnvelope(home), 'lead', book);
     const result = admit(message(envelope, { toAgentId: 'agency-only' }), { delegations, book });
     expect(result).toMatchObject({ ok: false, code: 'RECIPIENT_UNKNOWN' });
     expect(result.ok ? '' : result.message).not.toContain('agency');
@@ -93,9 +100,10 @@ describe('the sender is the delegation book\'s, not the caller\'s', () => {
 
   it('refuses a sender run held for another tenant, even under the same envelope id', () => {
     const theirs = rootEnvelope(agency());
-    const delegations = withRoot(agency(), bookOf(agency(), [LEAD]), theirs, 'lead');
+    const theirBook = bookOf(agency(), [{ ...LEAD, messageAllow: ['worker'] }, WORKER]);
+    const delegations = withRoot(agency(), theirBook, theirs, 'lead');
     expect(code(admit(message(theirs), { delegations }))).toBe('SENDER_UNKNOWN');
-    expect(code(admit(message(theirs), { delegations, book: bookOf(agency(), [{ ...LEAD, messageAllow: ['worker'] }, WORKER]), binding: agency() }))).toBe('ok');
+    expect(code(admit(message(theirs), { delegations, book: theirBook, binding: agency() }))).toBe('ok');
   });
 
   it('takes the sending agent from the run, so a request that names another agent changes nothing', () => {
@@ -195,7 +203,7 @@ describe('a message carries no authority', () => {
 describe('time and the books of a message', () => {
   it('refuses a clock that gives no time', () => {
     const { envelope, delegations } = run();
-    const result = admitAgentMessage(held(), { binding: home, registry: committedRegistry(), clock: () => Number.NaN, delegations }, message(envelope));
+    const result = admitAgentMessage(held(), { binding: home, registry: committedRegistry(), clock: () => Number.NaN, delegations, ledger: emptyMessageLedger() }, message(envelope));
     expect(result).toMatchObject({ ok: false, code: 'CLOCK' });
   });
 

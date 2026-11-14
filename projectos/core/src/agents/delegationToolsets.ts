@@ -19,6 +19,16 @@ export const DELEGATE_BLOCKED_GRANTS: readonly string[] = Object.freeze([
   'cronjob_manage', // no scheduling more work in the parent's name
 ]);
 
+/** A grant name with case, whitespace, `-`, `_` and `.` taken out, so `Send_Message`, `send-message` and `send.message` are one name. */
+export function normalizeGrantName(name: string): string {
+  return name.normalize('NFKC').toLowerCase().replace(/[\s._-]+/g, '');
+}
+
+const BLOCKED_NORMALIZED: readonly string[] = DELEGATE_BLOCKED_GRANTS.map(normalizeGrantName);
+
+/** Is this name one a delegate never holds, under any spelling? */
+export const isBlockedGrant = (name: string): boolean => BLOCKED_NORMALIZED.includes(normalizeGrantName(name));
+
 export type GrantRefusalCode = 'GRANT_SHAPE' | 'GRANT_BLOCKED' | 'GRANT_EXCEEDS_PARENT' | 'GRANT_NOT_ON_RECORD';
 
 export interface GrantRefusal {
@@ -32,16 +42,13 @@ export interface GrantRefusal {
  * the parent holds is refused here instead. The checks run in a fixed order, so the refusal names the first rule broken.
  */
 export function childGrantProblem(parentGrants: readonly string[], childRecordGrants: readonly string[], requested: unknown): GrantRefusal | null {
-  if (
-    !Array.isArray(requested) ||
-    requested.length > MAX_AGENT_GRANTS ||
-    !(requested as readonly unknown[]).every((grant, index, all) => typeof grant === 'string' && GRANT_NAME.test(grant) && all.indexOf(grant) === index)
-  ) {
-    return { code: 'GRANT_SHAPE', message: `grants must be a list of at most ${MAX_AGENT_GRANTS} different tool words, with no wildcard` };
-  }
+  const shape = { code: 'GRANT_SHAPE' as const, message: `grants must be a list of at most ${MAX_AGENT_GRANTS} different tool words, with no wildcard` };
+  if (!Array.isArray(requested) || requested.length > MAX_AGENT_GRANTS) return shape;
+  // A blocked name is refused under any spelling, before the shape is judged.
+  const blocked = (requested as readonly unknown[]).find((grant) => typeof grant === 'string' && isBlockedGrant(grant));
+  if (blocked !== undefined) return { code: 'GRANT_BLOCKED', message: `'${String(blocked)}' is never given to a delegate` };
+  if (!(requested as readonly unknown[]).every((grant, index, all) => typeof grant === 'string' && GRANT_NAME.test(grant) && all.indexOf(grant) === index)) return shape;
   const grants = requested as readonly string[];
-  const blocked = grants.find((grant) => DELEGATE_BLOCKED_GRANTS.includes(grant));
-  if (blocked !== undefined) return { code: 'GRANT_BLOCKED', message: `'${blocked}' is never given to a delegate` };
   const beyondParent = grants.find((grant) => !parentGrants.includes(grant));
   if (beyondParent !== undefined) return { code: 'GRANT_EXCEEDS_PARENT', message: `'${beyondParent}' is not held by the parent, so the child cannot hold it` };
   const beyondRecord = grants.find((grant) => !childRecordGrants.includes(grant));
