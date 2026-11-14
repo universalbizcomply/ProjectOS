@@ -138,6 +138,20 @@ describe('M3 (c): one fetch cannot outlast the run', () => {
     expect(Math.max(...v.waits)).toBeLessThanOrEqual(12_000);
   });
 
+  it('slow lookups eat into the same total: the port is given only what is left AFTER the lookups', async () => {
+    const v = virtual();
+    const waits: { ms: number; at: number }[] = [];
+    const timer: TimerPort = { within: async (ms, work) => { waits.push({ ms, at: v.clock() }); return { done: true, value: await work(new AbortController().signal) }; } };
+    const slow = async () => { v.advance(2_000); return [PUBLIC_IP]; };
+    const served = fetchOf({ [A]: { body: html('<p>x</p>') } });
+    const deps: GuardedFetchDeps = { resolver: slow, fetch: served.fetch, policy: OPEN_POLICY, clock: v.clock, timer, timeouts: { fetchTotalMs: 6_000 } };
+    await fetchGuarded({ url: A, mode: 'public', maxHops: 5, maxBytes: 1000, timeoutMs: 5000, headers: {} }, deps);
+    // Three waits: lookup, lookup, port. The port starts after 4 s of lookups, so it may be given 2 s, and the two lookups share the total.
+    expect(waits).toHaveLength(3);
+    expect(waits.every((w) => w.ms <= 6_000 - w.at)).toBe(true);
+    expect(waits[0]!.ms + waits[1]!.ms).toBeLessThanOrEqual(6_000);
+  });
+
   it('a fetch page with the default budget still follows an ordinary redirect', async () => {
     const served = fetchOf({ [A]: { status: 302, headers: { location: 'https://example.com/b' }, body: '' }, 'https://example.com/b': { body: html('<p>text</p>') } });
     const deps = { resolver: resolverOf(DNS).resolver, fetch: served.fetch, policy: OPEN_POLICY, clock: () => 1, timer: timerOf(), extractors: [READABLE_TEXT_EXTRACTOR], cache: null, slots: null };

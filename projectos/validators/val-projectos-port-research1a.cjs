@@ -362,6 +362,7 @@ const TESTS = {
     "runResearch and runWebSearch resolve with a refusal for a timer that gives {done:true} and no value",
     "fetchGuarded stops when its total budget is spent, and no wait is longer than what is left",
     "a run with a deadline gives its fetch what is left minus a margin, so six slow hops cannot pass the deadline",
+    "slow lookups eat into the same total: the port is given only what is left AFTER the lookups",
     "a fetch page with the default budget still follows an ordinary redirect",
     "removes the reviewer's inputs: reference images and definitions, entity-encoded schemes, assembled tags, bare hosts",
     "refuses text it cannot make stable: nesting deeper than the pass cap",
@@ -742,8 +743,10 @@ const PIN_RULES = [
     P(BUDGET, "reservePaidQuery", "if (answer === 'timeout') return researchRefused('TIMEOUT', 'the spend grant did not answer in time');"),
     P(GUARD, "fetchGuarded", "const totalMs = timeoutOf(deps.timeouts, 'fetchTotalMs');"),
     P(GUARD, "fetchGuarded", "if (left < 1) return researchRefused('TIMEOUT', 'the fetch used up its total time', { hop });"),
-    P(GUARD, "fetchGuarded", "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS, left);"),
-    P(GUARD, "fetchGuarded", "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), left)"),
+    P(GUARD, "fetchGuarded", "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS, leftForPort);"),
+    P(GUARD, "fetchGuarded", "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), Math.max(1, Math.floor(left / 2)))"),
+    P(GUARD, "fetchGuarded", "const leftForPort = Math.floor(totalMs - (afterLookups - startedAt));"),
+    P(GUARD, "fetchGuarded", "if (leftForPort < 1) return researchRefused('TIMEOUT', 'the fetch used up its total time', { hop });"),
     P(TIMING, "callWithin", "return row.done === true && 'value' in row ? { kind: 'value', value: row.value as T } : { kind: 'error' };"),
     P(LOOP, "runResearch", "fetchTotalMs: Math.max(1, Math.min(timeoutOf(deps.timeouts, 'fetchTotalMs'), left - DEADLINE_MARGIN_MS)),"),
     P(LOOP, "runResearch", "|| !('action' in planned.value)) {"),
@@ -1997,6 +2000,22 @@ await expectIt('PR-37', async () => {
   return direct.ok === false && direct.refusal.code === 'TIMEOUT' && w1.requests.length <= 3 && w1.waits.every((ms, i) => ms <= 12000 - 5000 * Math.floor(i / 3)) && w2.requests.length <= 3 && Math.max(...w2.waits) <= 12000;
 });
 
+await expectIt('PR-37', async () => {
+  const run = async (total, step) => {
+    const world = { now: 0, waits: [], calls: 0 };
+    world.timer = { within: async (ms, work) => { world.waits.push({ ms, at: world.now }); return { done: true, value: await work(new AbortController().signal) }; } };
+    const fetch = async (request) => { world.calls += 1; return { status: 200, headers: { 'content-type': 'text/html' }, body: '<p>x</p>', bytesRead: 8, truncated: false, connectedAddress: request.pinnedAddresses[0] }; };
+    const resolver = async () => { world.now += step; return [PUB]; };
+    const out = await guard(A, { resolver, fetch, policy: OPEN, clock: () => world.now, timer: world.timer, timeouts: { fetchTotalMs: total } }, { timeoutMs: 5000 });
+    return { world, out };
+  };
+  // Lookups that take 2 s each: the two lookups and the port all fit one 6 s total, and no wait is longer than what was left when it began.
+  const fits = await run(6000, 2000);
+  // Lookups that take 3.5 s each use the whole total: the port is never called, and the answer is a TIMEOUT.
+  const spent = await run(6000, 3500);
+  return fits.world.waits.length === 3 && fits.world.waits.every((w) => w.ms <= 6000 - w.at) && fits.world.waits[0].ms + fits.world.waits[1].ms <= 6000 && spent.out.ok === false && spent.out.refusal.code === 'TIMEOUT' && spent.world.calls === 0;
+});
+
 // PR-39: the reviewer's inputs, the false positives, and the fixpoint.
 await expectIt('PR-39', async () => {
   const nl = String.fromCharCode(10);
@@ -2240,8 +2259,11 @@ const MUTATIONS = [
   M("a-grant-that-is-slow-is-a-refusal-of-another-kind", "PR-37", BUDGET, "if (answer === 'timeout') return researchRefused('TIMEOUT', 'the spend grant did not answer in time');", ""),
   M("a-value-less-answer-is-a-value", "PR-37", TIMING, "return row.done === true && 'value' in row ?", "return row.done === true ?"),
   M("the-total-fetch-budget-goes", "PR-37", GUARD, "if (left < 1) return researchRefused('TIMEOUT', 'the fetch used up its total time', { hop });", ""),
-  M("a-hop-ignores-the-total", "PR-37", GUARD, "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS, left);", "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS);"),
-  M("a-lookup-ignores-the-total", "PR-37", GUARD, "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), left)", "dnsMs: timeoutOf(deps.timeouts, 'dnsMs')"),
+  M("a-hop-ignores-the-total", "PR-37", GUARD, "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS, leftForPort);", "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS);"),
+  M("a-lookup-ignores-the-total", "PR-37", GUARD, "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), Math.max(1, Math.floor(left / 2)))", "dnsMs: timeoutOf(deps.timeouts, 'dnsMs')"),
+  M("the-lookups-are-not-subtracted", "PR-37", GUARD, "const leftForPort = Math.floor(totalMs - (afterLookups - startedAt));", "const leftForPort = left;"),
+  M("the-two-lookups-each-get-the-whole-total", "PR-37", GUARD, "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), Math.max(1, Math.floor(left / 2)))", "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), left)"),
+  M("the-port-is-called-with-no-time-left", "PR-37", GUARD, "if (leftForPort < 1) return researchRefused('TIMEOUT', 'the fetch used up its total time', { hop });", ""),
   M("the-loop-gives-the-fetch-the-whole-deadline", "PR-37", LOOP, "fetchTotalMs: Math.max(1, Math.min(timeoutOf(deps.timeouts, 'fetchTotalMs'), left - DEADLINE_MARGIN_MS)),", "fetchTotalMs: timeoutOf(deps.timeouts, 'fetchTotalMs'),"),
   M("a-long-allow-list-path-is-fetched", "PR-33", PROVENANCE, "|| pathOf(canonical).length > MAX_ALLOW_LIST_PATH_CHARS) return 'not-listed';", ") return 'not-listed';"),
   M("entities-are-not-decoded-first", "PR-39", FILTER, "const next = pass(decode(current), cited, bare);", "const next = pass(current, cited, bare);"),
@@ -2293,7 +2315,7 @@ const BEHAVIOUR_MUTATIONS = [
   B("a-redirect-has-no-ceiling", "PR-15", GUARD, "const maxHops = isCount(params.maxHops, 0) ? Math.min(params.maxHops, MAX_HOPS_CEILING) : null;", "const maxHops = isCount(params.maxHops, 0) ? params.maxHops : null;"),
   B("a-relative-redirect-is-not-resolved", "PR-15", GUARD, "const next = resolveRedirectTarget(verdict.url, headerOf(response.headers, 'location'));", "const next = headerOf(response.headers, 'location') ?? null;"),
   B("a-later-hop-is-not-refused", "PR-15", GUARD, "if (!verdict.ok) return researchRefused('URL_REFUSED'", "if (!verdict.ok && hop === 0) return researchRefused('URL_REFUSED'"),
-  B("a-name-is-resolved-once", "PR-16", GUARD, "  const second = await answerOf(deps, stat.url.host);\n  if ('verdict' in second) return second.verdict;\n  const secondProblem = judgedAnswer(second.answer, mode, true);\n  if (secondProblem !== null) return secondProblem;\n", ""),
+  B("a-name-is-resolved-once", "PR-16", GUARD, "  const second = await answerOf(deps, stat.url.host);\n  if ('verdict' in second) return second.verdict;\n  const secondProblem = judgedAnswer(second.answer, mode, true);\n  if (secondProblem !== null) return secondProblem;\n", "", ["PR-37"]),
   B("an-empty-answer-is-fetched", "PR-16", GUARD, "if (answer.length === 0) return { verdict: refusal('dns-empty') };", ""),
   B("an-unparseable-answer-is-another-reason", "PR-16", GUARD, "if (verdict.reason === 'unparseable-address') return refusal('dns-unparseable');", ""),
   B("a-body-is-parsed-before-its-size", "PR-17", FETCH, "if (response.truncated || response.body.length > MAX_PAGE_BYTES) return researchRefused('FETCH_TOO_LARGE'", "if (false) return researchRefused('FETCH_TOO_LARGE'"),
@@ -2407,8 +2429,11 @@ const BEHAVIOUR_MUTATIONS = [
   B("a-grant-that-is-slow-is-a-refusal-of-another-kind", "PR-37", BUDGET, "if (answer === 'timeout') return researchRefused('TIMEOUT', 'the spend grant did not answer in time');", ""),
   B("a-value-less-answer-is-a-value", "PR-37", TIMING, "return row.done === true && 'value' in row ?", "return row.done === true ?"),
   B("the-total-fetch-budget-goes", "PR-37", GUARD, "if (left < 1) return researchRefused('TIMEOUT', 'the fetch used up its total time', { hop });", ""),
-  B("a-hop-ignores-the-total", "PR-37", GUARD, "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS, left);", "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS);"),
-  B("a-lookup-ignores-the-total", "PR-37", GUARD, "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), left)", "dnsMs: timeoutOf(deps.timeouts, 'dnsMs')"),
+  B("a-hop-ignores-the-total", "PR-37", GUARD, "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS, leftForPort);", "const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS);"),
+  B("a-lookup-ignores-the-total", "PR-37", GUARD, "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), Math.max(1, Math.floor(left / 2)))", "dnsMs: timeoutOf(deps.timeouts, 'dnsMs')"),
+  B("the-lookups-are-not-subtracted", "PR-37", GUARD, "const leftForPort = Math.floor(totalMs - (afterLookups - startedAt));", "const leftForPort = left;"),
+  B("the-two-lookups-each-get-the-whole-total", "PR-37", GUARD, "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), Math.max(1, Math.floor(left / 2)))", "dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), left)"),
+  B("the-port-is-called-with-no-time-left", "PR-37", GUARD, "if (leftForPort < 1) return researchRefused('TIMEOUT', 'the fetch used up its total time', { hop });", ""),
   B("the-loop-gives-the-fetch-the-whole-deadline", "PR-37", LOOP, "fetchTotalMs: Math.max(1, Math.min(timeoutOf(deps.timeouts, 'fetchTotalMs'), left - DEADLINE_MARGIN_MS)),", "fetchTotalMs: timeoutOf(deps.timeouts, 'fetchTotalMs'),"),
   B("a-long-allow-list-path-is-fetched", "PR-33", PROVENANCE, "|| pathOf(canonical).length > MAX_ALLOW_LIST_PATH_CHARS) return 'not-listed';", ") return 'not-listed';"),
   B("entities-are-not-decoded-first", "PR-39", FILTER, "const next = pass(decode(current), cited, bare);", "const next = pass(current, cited, bare);"),

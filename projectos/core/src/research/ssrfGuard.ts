@@ -235,13 +235,18 @@ export async function fetchGuarded(params: GuardedFetchParams, deps: GuardedFetc
     // The hops share one budget: nothing below waits longer than what is left of it.
     const left = Math.floor(totalMs - (at - startedAt));
     if (left < 1) return researchRefused('TIMEOUT', 'the fetch used up its total time', { hop });
-    const hopDeps: GuardedFetchDeps = { ...deps, timeouts: { ...deps.timeouts, dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), left) } };
+    const hopDeps: GuardedFetchDeps = { ...deps, timeouts: { ...deps.timeouts, dnsMs: Math.min(timeoutOf(deps.timeouts, 'dnsMs'), Math.max(1, Math.floor(left / 2))) } };
     const verdict = await judgeUrl(current, hopDeps, params.mode);
     if (!verdict.ok && verdict.timedOut === true) return researchRefused('TIMEOUT', 'the resolver did not answer in time', { hop });
     if (!verdict.ok) return researchRefused('URL_REFUSED', `the address was refused: ${verdict.reason}`, { reason: verdict.reason, hop });
     if (hop > 0 && previous?.scheme === 'https' && verdict.url.scheme === 'http') return researchRefused('URL_REFUSED', 'a redirect may not leave https for http', { reason: 'redirect-downgrade', hop });
     chain.push(verdict.url.canonical);
-    const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS, left);
+    // The lookups spent some of the total, so what is left is read again before the port is called.
+    const afterLookups = clock.now();
+    if (afterLookups === null) return researchRefused('BAD_CLOCK', 'the clock did not give a usable time');
+    const leftForPort = Math.floor(totalMs - (afterLookups - startedAt));
+    if (leftForPort < 1) return researchRefused('TIMEOUT', 'the fetch used up its total time', { hop });
+    const hopMs = Math.min(timeoutOf(deps.timeouts, 'fetchMs'), timeoutMs + FETCH_GRACE_MS, leftForPort);
     const timed = await callWithin(deps.timer, hopMs, (signal) => deps.fetch({ url: verdict.url.canonical, pinnedAddresses: verdict.addresses, timeoutMs, maxBytes: params.maxBytes, headers: headersFor(params.headers, hop), signal }));
     if (timed.kind === 'timeout') return researchRefused('TIMEOUT', 'the fetch port did not answer in time', { hop });
     if (timed.kind === 'error') return researchRefused('FETCH_FAILED', 'the fetch port failed', { hop });

