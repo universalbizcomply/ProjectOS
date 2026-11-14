@@ -9,7 +9,11 @@
  *                       that differs from HEAD, a link, a file over the cap is refused with its own code and none of its text is
  *                       returned. The entries come from those bytes. An entry is ALSO needed in the provenance record the owner
  *                       approved (`readMemoryStore`, a working-tree file: the owner's approval is read from it, the entry text is
- *                       not). An entry with no whole record is neither shown nor counted.
+ *                       not). An entry with no whole record is NOT SHOWN, and it is not silent: each is a failure
+ *                       `MEMORY_ENTRY_NO_PROVENANCE`, by a hash of the entry, so the record names what was left out and why.
+ *                       It is withheld and named, not a stop: whether an entry would have been a decision is exactly what the
+ *                       missing record says, so it cannot be told, and stopping every run of a project for a note the owner never
+ *                       approved would lock it for the wrong reason. The advice the run prints says the owner approves or removes it.
  *   APPROVED DECISIONS  the entries whose record says `decision` come out on their own, as `ApprovedDecision`s, to be loaded
  *                       into the thread whatever the budget says. They are not repeated inside the memory item.
  *   COMMITTED DECISIONS `.projectops/closure/decisions/<phase>.json` for each phase this one depends on (at most twenty), as
@@ -89,6 +93,9 @@ const MEMORY_FILES: readonly { readonly target: MemoryTarget; readonly path: str
 ];
 
 const NOT_IN_HEAD = 'COMMITTED_NOT_IN_HEAD';
+/** A committed memory entry the owner has no approval record for: it is withheld by this code and never shown. */
+export const MEMORY_ENTRY_NO_PROVENANCE = 'MEMORY_ENTRY_NO_PROVENANCE';
+const NO_PROVENANCE = MEMORY_ENTRY_NO_PROVENANCE;
 
 function approvedMemory(ports: ContextManagerPorts, root: string): { reads: ContextRead[]; decisions: ApprovedDecision[]; failures: ContextFailure[] } {
   const reads: ContextRead[] = [];
@@ -113,7 +120,10 @@ function approvedMemory(ports: ContextManagerPorts, root: string): { reads: Cont
     const shown: string[] = [];
     for (const entry of parseMemoryEntries(committed.read.text)) {
       const record = recordOf(entry);
-      if (record === null) continue;
+      if (record === null) {
+        failures.push({ id: `${path}#${memoryEntryHash(entry).slice(7, 19)}`, code: NO_PROVENANCE, blocking: false });
+        continue;
+      }
       if (record.kind === 'decision') decisions.push({ target, entry, record });
       else shown.push(entry);
     }

@@ -27,12 +27,6 @@ function fakeSystem(initial: Record<string, string> = {}, over: Partial<ContextR
       files[path] = text;
       return true;
     },
-    renameFile: (from, to) => {
-      if (!(from in files)) return false;
-      files[to] = files[from] as string;
-      delete files[from];
-      return true;
-    },
     removeFile: (path) => {
       delete files[path];
       return true;

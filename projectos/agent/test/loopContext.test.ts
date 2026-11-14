@@ -50,21 +50,26 @@ interface World {
   readonly statuses: { readonly afterDispatch: string[] };
   readonly hidden: Set<string>;
   readonly commands: string[];
+  readonly root: string;
   markDispatched(): void;
 }
 
 /** The committed tree the context manager reads: the memory store, as committed. */
 const COMMITTED: Record<string, string> = { [MEMORY_FILE]: storeText([FACT, DECISION]) };
 
-function world(opts: { readonly validatorExit?: number; readonly kind?: string; readonly onValidator?: (files: Record<string, string>) => void } = {}): World {
-  const config = { ...realConfig(), localPath: ROOT, planMemory: { planPath: 'state/plan.json', currentStatePath: 'state/current.json' }, execution: withReviewer({ workers: [{ workerId: 'test', kind: opts.kind ?? KIND, command: '/usr/local/bin/test-worker' }] }, opts.kind ?? KIND) };
+function world(opts: { readonly validatorExit?: number; readonly kind?: string; readonly onValidator?: (files: Record<string, string>) => void; readonly root?: string; readonly failStatusZ?: boolean } = {}): World {
+  const R = opts.root ?? ROOT;
+  // The runner joins paths, which collapses a doubled slash; the fake file system does the same, so a root written with one still finds its files.
+  const N = (p: string): string => p.replace(/\/{2,}/g, '/');
+  const K = N(R);
+  const config = { ...realConfig(), localPath: R, planMemory: { planPath: 'state/plan.json', currentStatePath: 'state/current.json' }, execution: withReviewer({ workers: [{ workerId: 'test', kind: opts.kind ?? KIND, command: '/usr/local/bin/test-worker' }] }, opts.kind ?? KIND) };
   const files: Record<string, string> = {
-    [`${ROOT}/.projectops/project-config.json`]: JSON.stringify(config),
-    [`${ROOT}/state/plan.json`]: JSON.stringify(realPlan()),
-    [`${ROOT}/state/current.json`]: JSON.stringify({ completedPhases: [] }),
-    [`${ROOT}/projectos/validators/${VALIDATOR}.cjs`]: '// present',
+    [`${K}/.projectops/project-config.json`]: JSON.stringify(config),
+    [`${K}/state/plan.json`]: JSON.stringify(realPlan()),
+    [`${K}/state/current.json`]: JSON.stringify({ completedPhases: [] }),
+    [`${K}/projectos/validators/${VALIDATOR}.cjs`]: '// present',
     ...cleanFindings(),
-    ...Object.fromEntries(Object.entries(COMMITTED).map(([path, text]) => [`${ROOT}/${path}`, text])),
+    ...Object.fromEntries(Object.entries(COMMITTED).map(([path, text]) => [`${K}/${path}`, text])),
   };
   const baseline = new Set(Object.keys(files));
   const writes: string[] = [];
@@ -74,35 +79,35 @@ function world(opts: { readonly validatorExit?: number; readonly kind?: string; 
   let dispatched = false;
   const untracked = (): string[] =>
     Object.keys(files)
-      .filter((path) => path.startsWith(`${ROOT}/`) && !baseline.has(path) && !hidden.has(path))
-      .map((path) => path.slice(ROOT.length + 1))
+      .filter((path) => path.startsWith(`${K}/`) && !baseline.has(path) && !hidden.has(path))
+      .map((path) => path.slice(K.length + 1))
       .sort();
   const committedGit = fakeGit(Object.fromEntries(Object.entries(COMMITTED).map(([path, text]) => [path, { text }])), HEAD).git;
   const sys: World['sys'] = {
     writes,
-    cwd: () => ROOT,
+    cwd: () => R,
     now: () => NOW,
-    readText: (path) => files[path] ?? null,
+    readText: (path) => files[N(path)] ?? null,
     writeText: (path, content) => {
       writes.push(path);
-      files[path] = content;
+      files[N(path)] = content;
     },
-    exists: (path) => path in files,
-    listDir: (path) => [...new Set(Object.keys(files).filter((p) => p.startsWith(`${path}/`)).map((p) => p.slice(path.length + 1).split('/')[0] as string))],
+    exists: (path) => N(path) in files,
+    listDir: (path) => [...new Set(Object.keys(files).filter((p) => p.startsWith(`${N(path)}/`)).map((p) => p.slice(N(path).length + 1).split('/')[0] as string))],
     createExclusive: (path, content) => {
-      if (path in files) return false;
-      files[path] = content;
+      if (N(path) in files) return false;
+      files[N(path)] = content;
       writes.push(path);
       return true;
     },
     removeFile: (path) => {
-      delete files[path];
+      delete files[N(path)];
       return true;
     },
     renameFile: (from, to) => {
-      if (!(from in files)) return false;
-      files[to] = files[from] as string;
-      delete files[from];
+      if (!(N(from) in files)) return false;
+      files[N(to)] = files[N(from)] as string;
+      delete files[N(from)];
       writes.push(to);
       return true;
     },
@@ -114,10 +119,11 @@ function world(opts: { readonly validatorExit?: number; readonly kind?: string; 
       }
       const key = args.join(' ');
       if (/ (?:rev-parse --verify HEAD|ls-tree -z (?!-r)|cat-file )/.test(` ${key}`)) {
-        const answer = committedGit(args.slice(args.indexOf(ROOT) + 1));
+        const answer = committedGit(args.slice(args.findIndex((arg) => N(arg) === K) + 1));
         return { code: answer.code ?? 1, stdout: answer.stdout, stderr: '' };
       }
       if (key.includes('hash-object')) return { code: 0, stdout: `${args.slice(args.indexOf('--') + 1).map(() => 'b'.repeat(40)).join('\n')}\n`, stderr: '' };
+      if (key.includes('status --porcelain') && opts.failStatusZ === true && key.includes(' -z')) return { code: 128, stdout: '', stderr: 'fatal' };
       if (key.includes('status --porcelain')) {
         const lines = untracked().map((path) => `?? ${path}`);
         const out = key.includes(' -z') ? lines.map((line) => `${line}\0`).join('') : lines.map((line) => `${line}\n`).join('');
@@ -138,7 +144,7 @@ function world(opts: { readonly validatorExit?: number; readonly kind?: string; 
       return { code: 1, stdout: '', stderr: `unexpected: ${key}` };
     },
   };
-  return { sys, files, statuses, hidden, commands, markDispatched: () => { dispatched = true; } };
+  return { sys, files, statuses, hidden, commands, root: R, markDispatched: () => { dispatched = true; } };
 }
 
 interface Worker {
@@ -166,20 +172,21 @@ const stores = { memory: storeOf([{ text: FACT, kind: 'fact' }, { text: DECISION
 
 function contextPorts(w: World, options: WorldOptions = {}, patch: Partial<ContextManagerPorts> = {}): ContextManagerPorts {
   const base = worldPorts({ tree: COMMITTED, stores, head: HEAD, ...options }).ports;
-  const fsOf = (path: string): string | null => w.files[path] ?? null;
+  const flat = (path: string): string => path.replace(/\/{2,}/g, '/');
+  const fsOf = (path: string): string | null => w.files[flat(path)] ?? null;
   return {
     ...base,
     git: (args) => {
-      const result = w.sys.exec('git', ['--no-replace-objects', '-C', ROOT, ...args]);
+      const result = w.sys.exec('git', ['--no-replace-objects', '-C', w.root, ...args]);
       return { code: result.code, stdout: result.stdout };
     },
-    fs: { readText: fsOf, listDir: (path) => w.sys.listDir(path), stat: (path) => (path in w.files ? { kind: 'file', size: new TextEncoder().encode(w.files[path] ?? '').length, mtimeMs: 1 } : [...Object.keys(w.files)].some((p) => p.startsWith(`${path}/`)) ? { kind: 'directory', size: 0, mtimeMs: 1 } : null) },
+    fs: { readText: fsOf, listDir: (path) => w.sys.listDir(path), stat: (path) => (flat(path) in w.files ? { kind: 'file', size: new TextEncoder().encode(w.files[flat(path)] ?? '').length, mtimeMs: 1 } : [...Object.keys(w.files)].some((p) => p.startsWith(`${flat(path)}/`)) ? { kind: 'directory', size: 0, mtimeMs: 1 } : null) },
     ...patch,
   };
 }
 
 function run(w: World, wk: Worker, over: Partial<RunOptions> = {}, envelope: TaskEnvelope | null = admittedRun(), ports: ContextManagerPorts = contextPorts(w)) {
-  return runLoopRaw(w.sys, ROOT, { invocation: FACTS, adapters: wk.registry, runEnvelope: envelope, contextPorts: ports, contextStateDir: STATE, ...over });
+  return runLoopRaw(w.sys, w.root, { invocation: FACTS, adapters: wk.registry, runEnvelope: envelope, contextPorts: ports, contextStateDir: STATE, ...over });
 }
 
 const ledgerOf = (files: Record<string, string>) =>
@@ -413,5 +420,48 @@ describe('review round 1: item 1, the empty retrieval; item 7, the pointer; item
     const result = run(w, worker(w));
     expect(result.ok && result.stop?.code).toBe('SCOPE_DECISION');
     expect(result.ok && result.stop?.detail).toContain('MEMORY_DIRECT_WRITE');
+  });
+});
+
+describe('review round 2: before the first worker is paid for', () => {
+  it('refuses a root the pointer cannot be derived for (a doubled slash), before the retrieval is recorded, and places no file', () => {
+    const w = world({ root: '/pr//oj' });
+    const wk = worker(w);
+    const result = run(w, wk);
+    expect(result.ok).toBe(false);
+    expect(result.lines.join('\n')).toContain('REFUSED (CONTEXT_NOT_POINTABLE)');
+    expect(result.lines.join('\n')).toContain('Fix:');
+    expect(wk.calls).toEqual([]);
+    expect(ledgerOf(w.files)).toEqual([]);
+  });
+
+  it('refuses, saying the fix, when git cannot list the changed paths, so the baseline cannot be taken', () => {
+    const w = world({ failStatusZ: true });
+    const wk = worker(w);
+    const result = run(w, wk);
+    expect(result.ok).toBe(false);
+    expect(result.lines.join('\n')).toMatch(/REFUSED \(MEMORY_STORE_UNCHECKED\)[\s\S]*Nothing was dispatched[\s\S]*Fix: the owner checks that git runs/);
+    expect(wk.calls).toEqual([]);
+  });
+
+  it('refuses, saying the fix, when the stores are too large to digest, before any worker runs', () => {
+    const w = world();
+    const wk = worker(w);
+    const many = Array.from({ length: 2100 }, (_, index) => `f${index}`);
+    const base = contextPorts(w);
+    const skills = `${ROOT}/.projectops/skills`;
+    const ports = {
+      ...base,
+      fs: {
+        ...base.fs,
+        listDir: (path: string) => (path === skills ? many : base.fs.listDir(path)),
+        stat: (path: string) => (path === skills ? { kind: 'directory' as const, size: 0, mtimeMs: 1 } : path.startsWith(`${skills}/f`) ? { kind: 'file' as const, size: 1, mtimeMs: 1 } : base.fs.stat(path)),
+        readText: (path: string) => (path.startsWith(`${skills}/f`) ? 'x' : base.fs.readText(path)),
+      },
+    };
+    const result = run(w, wk, {}, admittedRun(), ports);
+    expect(result.ok).toBe(false);
+    expect(result.lines.join('\n')).toMatch(/REFUSED \(MEMORY_STORE_TOO_LARGE\)[\s\S]*Nothing was dispatched[\s\S]*Fix: the owner archives or removes entries/);
+    expect(wk.calls).toEqual([]);
   });
 });

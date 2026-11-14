@@ -3,10 +3,13 @@
  * APPENDING TO THE RETRIEVAL LEDGER (PROJECTOS-CONTEXT-MANAGER1A, plan 3.4).
  *
  * The loop writes one numbered file per entry, `000001.json` and up, in a directory under the INSTALLATION'S state (not in the
- * project tree: see `contextRun.ts`). An entry is written to a temporary name by a CREATE-IF-ABSENT write and then renamed to its
- * number, so a crash in the middle leaves a temporary file, which the next run sweeps, and never a truncated entry under a number.
- * The temporary name is per number, so two writers that reach for the same number cannot both create it: the loser reads the
- * directory again and takes the next, once. An entry that exists is never rewritten (the number is checked before the rename).
+ * project tree: see `contextRun.ts`). An entry is first written whole to a temporary name that is UNIQUE TO THE ENTRY (its number and
+ * twelve hex characters of its own hash), checked, and then CREATED UNDER ITS NUMBER BY A CREATE-IF-ABSENT WRITE, and the temporary
+ * name is removed. Two writers that reach for the same number therefore each hold a temporary file of their own and cannot swap each
+ * other's bytes; exactly one creates the number, and the other FAILS (it is told 'raced') and reads the directory again, once. A
+ * number that exists is never replaced. There is no rename and so no overwrite on any platform. A temporary name left by a writer that
+ * died is swept by the next append once its number has an entry. RESIDUAL: a crash in the middle of the final create (one short write)
+ * can leave a truncated entry under a number; it reads as a broken chain and `contextLedgerRepairOf` says what the owner does.
  *
  * WHAT IS CHECKED BEFORE AN ENTRY IS ADDED. The directory must hold only files this module would have written (a name it did not
  * make is refused, so a planted file cannot sit in the chain's place), numbered from 1 with no gap, and the NEWEST
@@ -31,20 +34,19 @@ import {
 /** How much of the end of the chain is read and verified before an entry is added. */
 export const CONTEXT_LEDGER_TAIL_WINDOW = 64;
 
-/** What the ledger touches. `removeFile` is only ever asked of a temporary name, and `renameFile` only moves a temporary name to its number. */
+/** What the ledger touches. `removeFile` is only ever asked of a temporary name, or of an entry this call created and could not read back. */
 export interface ContextLedgerFiles {
   readonly listDir: (path: string) => readonly string[];
   readonly readText: (path: string) => string | null;
   /** Creates the file only if it is not there. True when this call created it. */
   readonly createExclusive: (path: string, content: string) => boolean;
-  readonly renameFile: (from: string, to: string) => boolean;
   readonly removeFile: (path: string) => boolean;
 }
 
 /** What an operating system leaves in a directory. It is not a foreign file. */
 const OS_JUNK = /^(?:desktop\.ini|thumbs\.db|\.ds_store)$/i;
 /** A temporary entry name: an entry that was being written when the process died. */
-const TEMPORARY_ENTRY = /^\d{6}\.json\.tmp$/;
+const TEMPORARY_ENTRY = /^(\d{6})\.json\.[0-9a-f]{12}\.tmp$/;
 
 /** What to do about a ledger that cannot take an entry: who does it, and what. The ledger is ProjectOS's alone, and so is nothing a worker may touch. */
 export function contextLedgerRepairOf(code: string, directory: string): string {
@@ -78,8 +80,14 @@ export type ContextLedgerAppend =
 
 type Tail = { readonly ok: true; readonly last: ContextLedgerEntry | null } | { readonly ok: false; readonly code: ContextLedgerAppendCode };
 
+interface Listing {
+  readonly numbers: readonly number[];
+  /** The temporary names in the directory, by number. */
+  readonly temporaries: readonly { readonly name: string; readonly seq: number }[];
+}
+
 /** The directory's numbers in order, or why it is not a ledger. */
-function numbersOf(files: ContextLedgerFiles, directory: string): readonly number[] | ContextLedgerAppendCode {
+function numbersOf(files: ContextLedgerFiles, directory: string): Listing | ContextLedgerAppendCode {
   let names: readonly string[];
   try {
     names = files.listDir(directory);
@@ -88,14 +96,20 @@ function numbersOf(files: ContextLedgerFiles, directory: string): readonly numbe
   }
   if (!Array.isArray(names) || names.length > MAX_CONTEXT_LEDGER_ENTRIES) return 'CONTEXT_LEDGER_FULL';
   const numbers: number[] = [];
+  const temporaries: { name: string; seq: number }[] = [];
   for (const name of names) {
-    if (OS_JUNK.test(name) || TEMPORARY_ENTRY.test(name)) continue;
+    if (OS_JUNK.test(name)) continue;
+    const temporary = TEMPORARY_ENTRY.exec(name);
+    if (temporary !== null) {
+      temporaries.push({ name, seq: Number(temporary[1]) });
+      continue;
+    }
     const seq = contextLedgerSeqOfFileName(name);
     if (seq === null) return 'CONTEXT_LEDGER_FOREIGN_FILE';
     numbers.push(seq);
   }
   numbers.sort((a, b) => a - b);
-  return numbers;
+  return { numbers, temporaries };
 }
 
 /** The newest entries, read and verified as a chain, and the last of them. */
@@ -123,29 +137,41 @@ function tailOf(files: ContextLedgerFiles, directory: string, numbers: readonly 
 }
 
 function attempt(files: ContextLedgerFiles, directory: string, body: ContextLedgerBody): ContextLedgerAppend | 'raced' {
-  const numbers = numbersOf(files, directory);
-  if (typeof numbers === 'string') return { ok: false, code: numbers };
-  const tail = tailOf(files, directory, numbers);
+  const listing = numbersOf(files, directory);
+  if (typeof listing === 'string') return { ok: false, code: listing };
+  const tail = tailOf(files, directory, listing.numbers);
   if (!tail.ok) return { ok: false, code: tail.code };
   const seq = (tail.last?.seq ?? 0) + 1;
+  // A temporary name whose number already has an entry belongs to a writer that lost or died: it is swept. One above the newest entry may be a live writer's.
+  for (const stale of listing.temporaries) {
+    if (stale.seq < seq) {
+      try {
+        files.removeFile(`${directory}/${stale.name}`);
+      } catch {
+        // a name that cannot be removed is ignored by the next listing as well
+      }
+    }
+  }
   const sealed = sealContextLedgerEntry(body, seq, tail.last?.entryHash ?? null);
   if (!sealed.ok) return { ok: false, code: sealed.code === 'CONTEXT_LEDGER_BODY_INVALID' ? 'CONTEXT_LEDGER_BODY_INVALID' : 'CONTEXT_LEDGER_FULL' };
   const path = `${directory}/${contextLedgerFileName(seq) as string}`;
-  const temporary = `${path}.tmp`;
+  const text = `${JSON.stringify(sealed.entry)}\n`;
+  const temporary = `${path}.${sealed.entry.entryHash.slice(7, 19)}.tmp`;
   let written = false;
   try {
-    // A temporary name left by a process that died is this number's own: sweep it, then create it exclusively.
-    files.removeFile(temporary);
-    written = files.createExclusive(temporary, `${JSON.stringify(sealed.entry)}\n`) && files.readText(path) === null && files.renameFile(temporary, path);
+    // The whole entry is made once under a name of its own, then created under its number if nobody holds the number, and read back.
+    written = files.createExclusive(temporary, text) && files.readText(temporary) === text && files.createExclusive(path, text);
+    if (written && files.readText(path) !== text) {
+      files.removeFile(path);
+      written = false;
+    }
   } catch {
     written = false;
   }
-  if (!written) {
-    try {
-      files.removeFile(temporary);
-    } catch {
-      // nothing is left under a number either way
-    }
+  try {
+    files.removeFile(temporary);
+  } catch {
+    // a temporary name that stays is swept by a later append, and is never read as an entry
   }
   return written ? { ok: true, entry: sealed.entry, path } : 'raced';
 }

@@ -46,7 +46,6 @@ export interface ContextRunSystem {
   exists(path: string): boolean;
   listDir(path: string): readonly string[];
   createExclusive(path: string, content: string): boolean;
-  renameFile(from: string, to: string): boolean;
   removeFile(path: string): boolean;
 }
 
@@ -97,6 +96,8 @@ export interface RunContext {
   readonly contextPath: string;
   /** False when nothing is stored for this run: no file is placed, and the brief names none. */
   readonly hasContent: boolean;
+  /** What the owner can do about what was withheld; printed with the run's other lines. */
+  readonly advice: readonly string[];
   record(): StepResult;
   place(attempt: number): StepResult;
   retire(): StepResult;
@@ -108,11 +109,18 @@ export type PrepareRunContext =
   | { readonly kind: 'refused'; readonly lines: readonly string[] }
   | { readonly kind: 'ready'; readonly run: RunContext };
 
+/** A rooted path: `/x`, `C:/x`, `C:\\x` or a UNC share. A relative one would put the ledger under whatever directory the process happens to stand in. */
+export const isAbsoluteRoot = (path: unknown): path is string => typeof path === 'string' && /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(path);
+
+/** The names a killed run leaves in the execution directory: exactly `<session id>.context.md`, and no other shape. */
+const CONTEXT_FILE_NAME = /^[A-Za-z0-9_.-]{1,64}\.context\.md$/;
+
 /**
  * Where one tenant's one project's ledger lives under the installation's state directory. The name is a hash of the pair, so no id
  * reaches a path and two projects never share a chain.
  */
 export function contextLedgerDirectoryOf(ledgerRoot: string, tenant: string, project: string): string {
+  if (!isAbsoluteRoot(ledgerRoot)) throw new Error('the ledger root is not an absolute path');
   const base = ledgerRoot.replace(/\\/g, '/').replace(/\/+$/, '');
   return `${base}/context-ledger/ledger-${sha256Hex(JSON.stringify([tenant, project])).slice(0, 32)}`;
 }
@@ -140,12 +148,12 @@ function recordRefusal(sys: ContextRunSystem, directory: string, request: RunCon
 export function prepareRunContext(sys: ContextRunSystem, root: string, input: PrepareRunContextInput): PrepareRunContext {
   if (input.envelope === null || input.envelope === undefined) return { kind: 'none' };
   if (typeof input.sessionId !== 'string' || !isSafeSessionId(input.sessionId)) return { kind: 'refused', lines: refusalLines('CONTEXT_MANAGER_SESSION_INVALID', 'The session id does not make a safe file name, so no context file can be named.') };
-  if (input.ledgerRoot === null || typeof input.ledgerRoot !== 'string' || input.ledgerRoot.trim() === '') {
+  if (!isAbsoluteRoot(input.ledgerRoot)) {
     return {
       kind: 'refused',
       lines: refusalLines(
         'CONTEXT_NOT_RECORDED',
-        'the installation gives no state directory, so the retrieval cannot be recorded and no stored text is shown to a worker. Fix: the owner makes the installation state location available to the user who runs ProjectOS (LOCALAPPDATA on Windows, XDG_STATE_HOME or HOME elsewhere), then runs again.',
+        'the installation gives no absolute state directory, so the retrieval cannot be recorded and no stored text is shown to a worker. Fix: the owner makes the installation state location available to the user who runs ProjectOS (LOCALAPPDATA on Windows, XDG_STATE_HOME or HOME elsewhere), then runs again.',
       ),
     };
   }
@@ -189,11 +197,28 @@ export function prepareRunContext(sys: ContextRunSystem, root: string, input: Pr
     return { ok: true, entry: newest };
   };
 
+  // A run that was killed never retired its file, and an untracked file here is one the owner's records commit refuses. Only a regular file named
+  // exactly `<session id>.context.md` goes, never this session's own (placement sweeps that), and never a link, a directory or any other name.
+  const executionDirectory = contextPath.slice(0, contextPath.lastIndexOf('/'));
+  const ownName = contextPath.slice(contextPath.lastIndexOf('/') + 1);
+  const sweepStaleContextFiles = (): void => {
+    try {
+      for (const name of sys.listDir(executionDirectory)) {
+        if (name === ownName || !CONTEXT_FILE_NAME.test(name)) continue;
+        const where = `${executionDirectory}/${name}`;
+        if (input.ports.fs.stat(where)?.kind === 'file') sys.removeFile(where);
+      }
+    } catch {
+      // a directory that cannot be listed leaves nothing to sweep; the records commit says what it finds
+    }
+  };
   const run: RunContext = {
     contextPath,
     hasContent: result.hasContent,
+    advice: result.advice,
     record() {
       if (recorded !== null) return { ok: true };
+      sweepStaleContextFiles();
       const done = append('retrieved', null);
       if (!done.ok || done.entry === undefined) return { ok: false, detail: done.ok ? 'the retrieval was not recorded' : done.detail };
       recorded = done.entry;

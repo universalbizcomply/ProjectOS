@@ -38,13 +38,7 @@ function memory(initial: Record<string, string> = {}) {
     createExclusive: (path, content) => {
       if (path in files) return false;
       files[path] = content;
-      return true;
-    },
-    renameFile: (from, to) => {
-      if (!(from in files) || to in files) return false;
-      files[to] = files[from] as string;
-      delete files[from];
-      created.push(to);
+      if (!path.endsWith('.tmp')) created.push(path);
       return true;
     },
     removeFile: (path) => (delete files[path], true),
@@ -74,10 +68,10 @@ describe('the retrieval ledger is appended by the loop, one exclusive file per e
     expect(contextLedgerProblem(entriesOf(world.files))).toBeNull();
   });
 
-  it('writes through a temporary name that is created exclusively and renamed, so an entry is never overwritten and a crash leaves no truncated entry', () => {
+  it('writes through a temporary name that is created exclusively and then created under its number, so an entry is never overwritten and no rename exists', () => {
     const world = memory();
     appendContextLedger(world.port, DIR, body());
-    expect(Object.keys(world.port)).toEqual(['listDir', 'readText', 'createExclusive', 'renameFile', 'removeFile']);
+    expect(Object.keys(world.port)).toEqual(['listDir', 'readText', 'createExclusive', 'removeFile']);
     expect(world.created).toEqual([`${DIR}/000001.json`]);
     expect(Object.keys(world.files)).toEqual([`${DIR}/000001.json`]);
   });
@@ -150,14 +144,14 @@ describe('the retrieval ledger is appended by the loop, one exclusive file per e
     for (let index = 0; index < CONTEXT_LEDGER_TAIL_WINDOW + 40; index += 1) appendContextLedger(world.port, DIR, body({ event: index === 0 ? 'retrieved' : 'placed', attempt: index === 0 ? null : index }));
     world.reads.length = 0;
     expect(appendContextLedger(world.port, DIR, body({ event: 'placed', attempt: 999 })).ok).toBe(true);
-    // The tail window, and the one read that checks the number it is about to take is not already there.
-    expect(world.reads.length).toBeLessThanOrEqual(CONTEXT_LEDGER_TAIL_WINDOW + 1);
+    // The tail window, and the two reads that check the temporary entry and the entry under its number.
+    expect(world.reads.length).toBeLessThanOrEqual(CONTEXT_LEDGER_TAIL_WINDOW + 2);
   });
 
   it('refuses when the ledger is full, and on a time too hostile to list', () => {
     const names = Object.fromEntries(Array.from({ length: 3 }, (_, index) => [`${DIR}/${String(999_999 - index).padStart(6, '0')}.json`, 'x']));
     expect(appendContextLedger(memory(names).port, DIR, body())).toMatchObject({ ok: false });
-    const crowded: ContextLedgerFiles = { listDir: () => Array.from({ length: 300_000 }, (_, index) => `${String(index + 1).padStart(6, '0')}.json`), readText: () => null, createExclusive: () => true, renameFile: () => true, removeFile: () => true };
+    const crowded: ContextLedgerFiles = { listDir: () => Array.from({ length: 300_000 }, (_, index) => `${String(index + 1).padStart(6, '0')}.json`), readText: () => null, createExclusive: () => true, removeFile: () => true };
     const started = Date.now();
     expect(appendContextLedger(crowded, DIR, body())).toMatchObject({ ok: false });
     expect(Date.now() - started).toBeLessThan(2000);

@@ -250,21 +250,15 @@ describe('item 9: the ledger is robust, and refusals say the fix', () => {
       listDir: (path) => Object.keys(files).filter((p) => p.startsWith(`${path}/`)).map((p) => p.slice(path.length + 1)),
       readText: (path) => files[path] ?? null,
       createExclusive: (path, content) => (path in files ? false : ((files[path] = content), true)),
-      renameFile: (from, to) => {
-        if (!(from in files)) return false;
-        files[to] = files[from] as string;
-        delete files[from];
-        return true;
-      },
       removeFile: (path) => (delete files[path], true),
       ...over,
     };
     return { files, port };
   }
 
-  it('writes an entry through a temporary name and a rename, so a crash leaves no truncated entry', () => {
+  it('writes an entry through a temporary name of its own, so a crash before the number is created leaves no entry under a number', () => {
     const world = memory();
-    const crashing = { ...world.port, renameFile: () => { throw new Error('power cut'); } };
+    const crashing = { ...world.port, createExclusive: (path: string, content: string) => { if (!path.endsWith('.tmp')) throw new Error('power cut'); return world.port.createExclusive(path, content); } };
     expect(appendContextLedger(crashing, DIR, body)).toMatchObject({ ok: false });
     expect(Object.keys(world.files).some((name) => name.endsWith('000001.json'))).toBe(false);
     const again = appendContextLedger(world.port, DIR, body);
@@ -314,7 +308,6 @@ describe('item 9: the ledger is robust, and refusals say the fix', () => {
       exists: (path) => path in files,
       listDir: (path) => Object.keys(files).filter((p) => p.startsWith(`${path}/`)).map((p) => p.slice(path.length + 1).split('/')[0] as string),
       createExclusive: (path, text) => (path in files ? false : ((files[path] = text), true)),
-      renameFile: (from, to) => (from in files ? ((files[to] = files[from] as string), delete files[from], true) : false),
       removeFile: (path) => (delete files[path], true),
     };
     const tree = { [decisionPath('PHASE-A')]: '{"d":1}' };
@@ -346,7 +339,6 @@ describe('item 10: leftovers and placement', () => {
       exists: (path) => path in files,
       listDir: (path) => Object.keys(files).filter((p) => p.startsWith(`${path}/`)).map((p) => p.slice(path.length + 1).split('/')[0] as string),
       createExclusive: (path, text) => (path in files ? false : ((files[path] = text), true)),
-      renameFile: (from, to) => (from in files ? ((files[to] = files[from] as string), delete files[from], true) : false),
       removeFile: (path) => (delete files[path], true),
       ...over,
     };

@@ -27,8 +27,9 @@
  * block, and compaction has no path that drops one: if what must stay (the decisions, the kept turns) does not fit under the
  * trigger, the answer is a STOP that says who shortens what. Each decision meets the SAME gate as any other stored text (hidden
  * text, threats, credentials, size): one the gate refuses is held and named, and shown as a placeholder, never as text. The decisions
- * together are held, per store, to that store's own limit (`memoryCharLimit`, the one the kernel's prompt block refuses over): the
- * rest are placeholders too, so an over-cap store does not stop every run for ever.
+ * together are held, per store, to what the kernel's own block can render (`decisionBlock` is the cap's oracle, so the label each decision
+ * carries and the rendered limits count, not just the raw characters): the rest are placeholders too, so an over-cap store does not stop every
+ * run for ever. A refusal the kernel still gives has a code of this phase and names who shortens what.
  *
  * A DECISION THAT CANNOT BE READ STOPS THE RUN (item 5). A failure on an approved memory file, its provenance, or a committed decision
  * of a phase this one depends on is a refusal that names the file and the fix: a worker not shown a decision would act as if there
@@ -56,9 +57,8 @@ import {
   estimateThreadTokens,
   gateContextItemText,
   isCommitName,
-  memoryCharLimit,
+  decisionBlock,
   memoryEntryHash,
-  memoryStoreChars,
   noteCompactionRefused,
   noteContextCompaction,
   openContextAccount,
@@ -84,9 +84,9 @@ import {
   type ContextWindow,
   type RankedProvenanceItem,
 } from '@projectos/core';
-import type { ContextCheckoutIdentity, ContextManagerPorts, ContextDraftOffer } from './contextPorts.js';
+import type { ContextCheckoutIdentity, ContextCheckoutProblem, ContextManagerPorts, ContextDraftOffer } from './contextPorts.js';
 import { portsProblem } from './contextPorts.js';
-import { retrieveStoredContext, type ContextFailure, type ContextRead } from './contextRetrieval.js';
+import { MEMORY_ENTRY_NO_PROVENANCE, retrieveStoredContext, type ContextFailure, type ContextRead } from './contextRetrieval.js';
 import { storedContextTaintsRun } from './contextTaint.js';
 
 /** What a context file is held to: about 5,000 tokens before it compacts, and a hard stop at 7,000. */
@@ -108,6 +108,10 @@ const SESSION_ID = /^[A-Za-z0-9_.-]{1,64}$/;
 const SOURCE_ID_CHARS = /[^A-Za-z0-9._:/?=&%+~@#-]/g;
 const PARTIAL_STOP_REASONS: readonly string[] = ['length', 'max_tokens', 'max_output_tokens', 'incomplete'];
 const SUMMARISED_BY = 'agent-model';
+/** Said under "Items left out for room": a path listed there is a decision or record that was not copied here, and a committed decision is authority. */
+const LEFT_OUT_NOTE =
+  'A committed decision named below was left out of this file for room. It is still authoritative: read each one from its listed path before you act on anything it could decide.';
+
 /** Who decides what to shorten, when what must stay does not fit. Nothing protected is dropped to make room. */
 const OVER_LIMIT_FIX =
   'Fix: the owner shortens the approved memory decisions or the committed decisions this phase depends on (a decision is never dropped to fit), or raises the context window in the installation, then runs again.';
@@ -144,6 +148,8 @@ export type RunContextResult =
       readonly taintsRun: boolean;
       /** False when no item, no decision and no placeholder exists: there is nothing to place, and no file is made. */
       readonly hasContent: boolean;
+      /** What the owner can do about what was withheld, one sentence each, for the run's own output. Never stored text. */
+      readonly advice: readonly string[];
     };
 
 type Refused = Extract<RunContextResult, { kind: 'refused' }>;
@@ -296,7 +302,8 @@ function decisionsOf(ports: ContextManagerPorts, found: readonly ApprovedDecisio
   const blocked: string[] = [];
   const named: ContextLedgerDecision[] = [];
   const withheld: ContextLedgerWithheld[] = [];
-  const heldTexts: Record<'memory' | 'user', string[]> = { memory: [], user: [] };
+  const heldBy: Record<'memory' | 'user', ApprovedDecision[]> = { memory: [], user: [] };
+  const full: Record<'memory' | 'user', boolean> = { memory: false, user: false };
   for (const decision of found) {
     const hash = memoryEntryHash(decision.entry);
     if (seen.has(hash)) continue;
@@ -311,11 +318,13 @@ function decisionsOf(ports: ContextManagerPorts, found: readonly ApprovedDecisio
       const code = gate.ok ? 'CONTEXT_ITEM_CREDENTIAL' : gate.code;
       blocked.push(`[BLOCKED: entry ${hash.slice(7, 19)} (${code}). It is not shown here.]`);
       withheld.push({ id: `decision:${hash.slice(7, 19)}`, code });
-    } else if (gate.truncated || memoryStoreChars([...heldTexts[decision.target], decision.entry]) > memoryCharLimit(decision.target)) {
+    } else if (gate.truncated || full[decision.target] || !decisionBlock(decision.target, [...heldBy[decision.target], decision]).ok) {
+      // Once one decision does not fit, every later one of that store is a placeholder too: the file order decides, and nothing is tried twice.
+      full[decision.target] = true;
       blocked.push(`[WITHHELD: entry ${hash.slice(7, 19)} (over the limit the memory stores hold). It is not shown here.]`);
       withheld.push({ id: `decision:${hash.slice(7, 19)}`, code: 'CONTEXT_DECISIONS_OVER_CAP' });
     } else {
-      heldTexts[decision.target].push(decision.entry);
+      heldBy[decision.target].push(decision);
       held.push(decision);
     }
   }
@@ -390,7 +399,12 @@ interface FileParts {
 /** Committed decisions first, then the approved memory decisions, then what was left out, then everything else by rank. */
 function fileTextOf(sessionId: string, thread: ContextThread, metaOfTurn: ReadonlyMap<string, Meta>, blocked: readonly string[], committedPlaceholders: readonly string[]): FileParts | Refused {
   const prompt = renderContextPrompt(thread);
-  if (!prompt.ok) return refuse(prompt.refusal.code, prompt.refusal.message, null);
+  if (!prompt.ok) {
+    if (prompt.refusal.code === 'CONTEXT_DECISIONS_REFUSED') {
+      return refuse('CONTEXT_MANAGER_DECISIONS_TOO_LARGE', `The approved memory decisions do not fit the block the kernel renders: ${prompt.refusal.message} Nothing was sent. ${OVER_LIMIT_FIX}`, null);
+    }
+    return refuse(prompt.refusal.code, prompt.refusal.message, null);
+  }
   const decisionBlocks = [...prompt.value.sections.filter((section) => section.rank === 'approved-decision').map((section) => section.text), ...blocked];
   const summary = prompt.value.sections.filter((section) => section.rank === 'summary').map((section) => section.text);
   const ranked = thread.turns
@@ -407,10 +421,25 @@ function fileTextOf(sessionId: string, thread: ContextThread, metaOfTurn: Readon
     CONTEXT_MANAGER_NOTICE,
     ...(committed.length === 0 ? [] : ['## Committed decisions', committed.join('\n\n')]),
     ...(decisionBlocks.length === 0 ? [] : ['## Approved memory decisions (loaded, authority none)', decisionBlocks.join('\n\n')]),
-    ...(summary.length === 0 ? [] : ['## Items left out for room', summary.join('\n\n')]),
+    ...(summary.length === 0 ? [] : ['## Items left out for room', LEFT_OUT_NOTE, summary.join('\n\n')]),
     ...(others.length === 0 ? [] : ['## Other stored items, highest provenance first', others.join('\n\n')]),
   ];
   return { text: `${parts.join('\n\n')}\n`, hasBody: parts.length > 2 };
+}
+
+/** What the owner does about a decision file that could not be read, by the code that says why. Comparing with HEAD cannot shorten a file. */
+function unreadableFix(code: string): string {
+  if (code === 'COMMITTED_TOO_LARGE') return 'Fix: that file is larger than a committed memory file may be, so the owner shortens it (a decision is a few lines, and the longer record belongs in a document it points to) and commits the shorter file, then runs again.';
+  if (code === 'COMMITTED_NOT_REGULAR' || code === 'COMMITTED_SYMLINK') return 'Fix: the owner replaces that path with an ordinary committed file, then runs again.';
+  return 'Fix: the owner compares that file with HEAD (git status, git diff), commits or restores it, then runs again.';
+}
+
+/** One sentence of advice for each kind of thing that was withheld without stopping the run. */
+function adviceOf(failures: readonly ContextFailure[]): readonly string[] {
+  const unapproved = failures.filter((failure) => failure.code === MEMORY_ENTRY_NO_PROVENANCE).length;
+  return unapproved === 0
+    ? []
+    : [`${unapproved} committed memory entr${unapproved === 1 ? 'y has' : 'ies have'} no approval record, so ${unapproved === 1 ? 'it is' : 'they are'} not shown to the worker (${MEMORY_ENTRY_NO_PROVENANCE}). Fix: the owner approves each through the memory proposal flow so a record exists, or removes it from .projectops/memory.`];
 }
 
 /** The first failure that makes the run unsafe to go on, or null: a source that can hold a decision could not be read. */
@@ -418,13 +447,32 @@ function blockingFailure(failures: readonly ContextFailure[]): ContextFailure | 
   return failures.find((failure) => failure.blocking) ?? null;
 }
 
-/** What this checkout is governed as, or null. A port that throws, or answers anything else, says nothing. */
-function checkoutIdentityOf(ports: ContextManagerPorts): ContextCheckoutIdentity | null {
+/** What this checkout is governed as, or why not. A port that throws, or answers anything else, says nothing. */
+function checkoutIdentityOf(ports: ContextManagerPorts): ContextCheckoutIdentity | ContextCheckoutProblem | null {
   try {
     const identity = ports.checkout();
-    return identity !== null && typeof identity === 'object' && typeof identity.tenant === 'string' && typeof identity.project === 'string' ? identity : null;
+    if (identity === null || typeof identity !== 'object') return null;
+    if ('tenant' in identity && typeof identity.tenant === 'string' && 'project' in identity && typeof identity.project === 'string') return identity;
+    return 'cause' in identity ? identity : null;
   } catch {
     return null;
+  }
+}
+
+/** What the owner does about a checkout the installation cannot match to the envelope, by cause: the same words would be wrong for most of them. */
+function notThisCheckoutFix(identity: ContextCheckoutIdentity | ContextCheckoutProblem | null, key: ContextRetrievalKey): string {
+  if (identity !== null && 'tenant' in identity) {
+    return `the envelope names ${key.tenant}/${key.project} and this checkout is governed as ${identity.tenant}/${identity.project}. Fix: the owner starts \`projectos run\` from the checkout of the project the run is for, or corrects the project in the installation tenant registry, then runs again.`;
+  }
+  switch (identity === null ? 'silent' : identity.cause) {
+    case 'no-project-config':
+      return 'this checkout has no readable project configuration, so it names no project. Fix: the owner restores .projectops/project-config.json in this checkout (committed, valid JSON with a projectId), then runs again.';
+    case 'registry-unreadable':
+      return 'the installation tenant registry could not be read from the install root this ProjectOS runs from. Fix: the owner checks that projectos/security/tenant-registry.json and action-registry.json are committed and readable in that install, and that ProjectOS was started from the install the owner means, then runs again.';
+    case 'not-registered':
+      return 'the installation tenant registry does not place this checkout as the registered root or a linked worktree of its project. Fix: the owner runs from the registered root of the project (or a worktree git lists for it), or registers this checkout in the tenant registry (projectos tenant), then runs again.';
+    default:
+      return 'the installation could not say what this checkout is governed as. Fix: the owner runs projectos tenant in this checkout to see why, then runs again.';
   }
 }
 
@@ -460,12 +508,8 @@ export function assembleRunContext(ports: ContextManagerPorts, request: RunConte
   const key = keyed.key;
   // BOUND TO THIS CHECKOUT, before anything is read, and not recorded under the envelope's pair (it is not this checkout's to write).
   const identity = checkoutIdentityOf(ports);
-  if (identity === null || identity.tenant !== key.tenant || identity.project !== key.project) {
-    return refuse(
-      'CONTEXT_MANAGER_NOT_THIS_CHECKOUT',
-      'No stored context: the run envelope names a tenant and project that this checkout is not governed as, or the installation could not say what it is governed as. Nothing was read. Fix: the owner checks the project in the installation tenant registry (projectos tenant) against this checkout, then runs again.',
-      null,
-    );
+  if (identity === null || !('tenant' in identity) || identity.tenant !== key.tenant || identity.project !== key.project) {
+    return refuse('CONTEXT_MANAGER_NOT_THIS_CHECKOUT', `No stored context: ${notThisCheckoutFix(identity, key)} Nothing was read.`, null);
   }
   if (typeof request.sessionId !== 'string' || !SESSION_ID.test(request.sessionId)) return refuse('CONTEXT_MANAGER_SESSION_INVALID', 'No stored context: the session id is not a safe name.', key);
   const head = headOf(ports);
@@ -483,7 +527,7 @@ export function assembleRunContext(ports: ContextManagerPorts, request: RunConte
   if (unreadable !== null) {
     return refuse(
       'CONTEXT_MANAGER_DECISION_UNREADABLE',
-      `No stored context: ${ledgerIdOf(unreadable.id)} can hold a decision and could not be read (${unreadable.code}), so the run does not go on without it. Nothing was sent. Fix: the owner compares that file with HEAD (git status, git diff), commits or restores it, then runs again.`,
+      `No stored context: ${ledgerIdOf(unreadable.id)} can hold a decision and could not be read (${unreadable.code}), so the run does not go on without it. Nothing was sent. ${unreadableFix(unreadable.code)}`,
       key,
     );
   }
@@ -522,5 +566,6 @@ export function assembleRunContext(ports: ContextManagerPorts, request: RunConte
     estimatedTokens: estimateThreadTokens(fitted.thread),
     taintsRun: storedContextTaintsRun(ports.registry),
     hasContent: file.hasBody,
+    advice: adviceOf(retrieval.failures),
   };
 }

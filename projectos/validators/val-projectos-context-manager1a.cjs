@@ -29,6 +29,7 @@
  *   CM-18 "forgot to add it"                          every new file is tracked
  *   CM-19 "loosen the other validators"               the four narrowed rules name exactly the call sites this phase adds
  *   CM-20 "the ledger is just a file"                 review round 1: ledger outside the tree, guard baseline, checkout binding, committed first, decisions gated, relative pointer, screens
+ *   CM-21 "the last small things"                     review round 2: stale files swept, credential near-variants, no silent decisions, render-size cap, pointer root, ledger race, baseline before dispatch, fix texts
  *
  * Reads files and asks git for the base text of run.ts; runs nothing else.
  */
@@ -78,12 +79,13 @@ const TESTS = {
   "projectos/core/test/context-manager-ledger.test.ts": ["every retrieval is recorded in an append-only, hash-chained ledger", "verifies an unbroken chain, and finds a changed entry", "holds a bound on the items an entry names"],
   "projectos/agent/test/contextRetrieval.test.ts": ["two projects get two index files, and one project never reads the other", "drops a hit that names another project", "a working-tree copy that differs from HEAD is refused"],
   "projectos/agent/test/contextManager.test.ts": ["retrieves nothing for a run with no envelope", "keeps them when compaction runs: only stored items are summarised away", "refuses a summary that was cut short, and installs nothing", "stops on overLimit: when what must stay will not fit, no file is made", "calls no model: no network, and no process, whatever the thread"],
-  "projectos/agent/test/contextLedger.test.ts": ["writes through a temporary name that is created exclusively and renamed", "loses a race once and takes the next place, never overwriting the winner"],
-  "projectos/agent/test/contextReviewRound1.test.ts": ["leaves `git status` of a real repository empty after a whole run", "refuses an envelope whose tenant and project are not the checkout governed ones", "puts the committed decision first when memory says the opposite", "stops when the provenance file of an approved store cannot be read", "shows a memory decision with hidden text as a placeholder", "refuses %s", "writes an entry through a temporary name and a rename", "sweeps a stale file left by a killed earlier run"],
+  "projectos/agent/test/contextLedger.test.ts": ["writes through a temporary name that is created exclusively and then created under its number", "loses a race once and takes the next place, never overwriting the winner"],
+  "projectos/agent/test/contextReviewRound1.test.ts": ["leaves `git status` of a real repository empty after a whole run", "refuses an envelope whose tenant and project are not the checkout governed ones", "puts the committed decision first when memory says the opposite", "stops when the provenance file of an approved store cannot be read", "shows a memory decision with hidden text as a placeholder", "refuses %s", "writes an entry through a temporary name of its own", "sweeps a stale file left by a killed earlier run"],
+  "projectos/agent/test/contextReviewRound2.test.ts": ["removes the context file of an earlier killed session when the next run records", "touches no other name", "stays linear: every pattern on 262 KB of hostile text", "names each in the withheld list by its own code", "decisions of ${chars} characters", "with a forced interleaving, the first writer keeps its own bytes", "says shorten and recommit, not compare with HEAD", "tells the worker a committed decision named under", "refuses a ledger root that is not absolute"],
   "projectos/agent/test/contextStoreGuard.test.ts": ["lists every path, and both the new and the old name of a rename", "sees a write that git does not: an ignored store, by its digest"],
   "projectos/agent/test/contextPorts.test.ts": ["a port that is missing is a refusal, never a default", "opens the index of the owner it is asked for once its file is there, and writes nothing to make it"],
   "projectos/agent/test/contextRun.test.ts": ["places the file for each dispatch, writes it again from its own copy, and records each placement", "names the items with their paths, content hashes and provenance rank"],
-  "projectos/agent/test/loopContext.test.ts": ["removes the file as soon as the worker returns: it is never in what the checks judge, and never in the candidate", "stops a run whose worker wrote a memory file, and runs no check", "names every stored item the worker was shown in the run evidence: path, hash, rank", "refuses a worker kind that is not told where the file is", "keeps its baseline across the checks"],
+  "projectos/agent/test/loopContext.test.ts": ["removes the file as soon as the worker returns: it is never in what the checks judge, and never in the candidate", "stops a run whose worker wrote a memory file, and runs no check", "names every stored item the worker was shown in the run evidence: path, hash, rank", "refuses a worker kind that is not told where the file is", "keeps its baseline across the checks", "refuses a root the pointer cannot be derived for", "refuses, saying the fix, when git cannot list the changed paths", "refuses, saying the fix, when the stores are too large to digest"],
   "projectos/agent/test/loopBriefContext.test.ts": ["refuses %s, because the one value it may have is the derived one", "puts a path on the command line only in the shape the loop derives", "points at the file by its project-relative path for the root %s"],
   "projectos/agent/test/support/contextWorld.ts": ["export function admittedRun("],
 };
@@ -109,6 +111,7 @@ const RULE_NAMES = {
   "CM-18": "a file is not tracked",
   "CM-19": "a narrowed rule loosened",
   "CM-20": "the review round 1 hardening has been undone",
+  "CM-21": "the review round 2 fixes have been undone",
 };
 
 const normalise = (text) => (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text).replace(/\r\n/g, "\n");
@@ -285,9 +288,9 @@ function textProblems(raw, base, tracked) {
   }
 
   // CM-7: the loop records, in an append-only chained ledger, before a worker can read a file.
-  if ((agentLedger.match(/createExclusive\(/g) ?? []).length !== 1 || !agentLedger.includes("written = files.createExclusive(temporary, `${JSON.stringify(sealed.entry)}\\n`) && files.readText(path) === null && files.renameFile(temporary, path);")) E("CM-7", "an entry is written some way other than a temporary exclusive create and a rename to a number nobody holds");
-  if (/\b(?:writeText|rmSync|unlink|appendFile)\b/.test(agentLedger) || (agentLedger.match(/\brenameFile\(/g) ?? []).length !== 1 || /files\.removeFile\((?!temporary\))/.test(agentLedger)) E("CM-7", "the ledger can overwrite, move or delete an entry");
-  if (!/export interface ContextLedgerFiles \{\s*readonly listDir: [^\n]*\n\s*readonly readText: [^\n]*\n\s*\/\*\*[^\n]*\n\s*readonly createExclusive: [^\n]*\n\s*readonly renameFile: [^\n]*\n\s*readonly removeFile: [^\n]*\n\}/.test(raw[AGENT_LEDGER])) E("CM-7", "the ledger's port is more than list, read, create-if-absent, and a rename or delete of its own temporary name");
+  if ((agentLedger.match(/createExclusive\(/g) ?? []).length !== 2 || !agentLedger.includes("written = files.createExclusive(temporary, text) && files.readText(temporary) === text && files.createExclusive(path, text);")) E("CM-7", "an entry is written some way other than a temporary create under its own name and a create-if-absent under its number");
+  if (/\b(?:writeText|rmSync|unlink|appendFile|renameFile)\b/.test(agentLedger) || /files\.removeFile\((?!temporary\)|path\)|`\$\{directory\}\/\$\{stale\.name\}`\))/.test(agentLedger)) E("CM-7", "the ledger can overwrite, move or delete an entry");
+  if (!/export interface ContextLedgerFiles \{\s*readonly listDir: [^\n]*\n\s*readonly readText: [^\n]*\n\s*\/\*\*[^\n]*\n\s*readonly createExclusive: [^\n]*\n\s*readonly removeFile: [^\n]*\n\}/.test(raw[AGENT_LEDGER])) E("CM-7", "the ledger's port is more than list, read, create-if-absent and a delete of its own temporary name");
   if (!agentLedger.includes("export const CONTEXT_LEDGER_TAIL_WINDOW = 64;") || !agentLedger.includes("for (const seq of numbers.slice(-CONTEXT_LEDGER_TAIL_WINDOW)) {")) E("CM-7", "the tail of the chain is not read and verified");
   if (!agentLedger.includes("if (seq === null) return 'CONTEXT_LEDGER_FOREIGN_FILE';")) E("CM-7", "a file the ledger did not write is accepted in its directory");
   if (!agentLedger.includes("if (!parsed.ok || parsed.entry.seq !== seq) return { ok: false, code: 'CONTEXT_LEDGER_BROKEN' };") || !agentLedger.includes("if (previous !== null && parsed.entry.prevHash !== previous.entryHash) return { ok: false, code: 'CONTEXT_LEDGER_BROKEN' };")) E("CM-7", "an entry that does not follow the one before it is accepted");
@@ -414,7 +417,7 @@ function textProblems(raw, base, tracked) {
     }
   }
   if (!runContext.includes("nowIso: instantOf(sys.now())")) E("CM-13", "the manager is handed a time the clock did not give");
-  if (!/export function nodeContextPorts\(sys: System, root: string, indexDirectory: ContextIndexDirectory, checkout: \(\) => ContextCheckoutIdentity \| null\): ContextManagerPorts \{/.test(ports)) E("CM-13", "the production ports are not made from the System, an installation directory and the checkout identity");
+  if (!/export function nodeContextPorts\(sys: System, root: string, indexDirectory: ContextIndexDirectory, checkout: \(\) => ContextCheckoutIdentity \| ContextCheckoutProblem \| null\): ContextManagerPorts \{/.test(ports)) E("CM-13", "the production ports are not made from the System, an installation directory and the checkout identity");
   if (!ports.includes("if (!where.ok || !sys.exists(where.location)) return null;")) E("CM-13", "an index nobody built is opened, and an empty file is written under the installation");
   if (!ports.includes("if (ports.openIndex !== null && !isFunction(ports.openIndex)) return 'openIndex';") || !ports.includes("export function portsProblem(")) E("CM-13", "a missing port is not a refusal");
   for (const port of ["git", "fs", "clock", "secretScreen", "isProxy", "readMemoryStore", "checkout"]) {
@@ -479,7 +482,7 @@ function textProblems(raw, base, tracked) {
   // Item 1: the ledger is in the installation state, keyed by tenant and project, and nothing stored means no file.
   if (!runContext.includes("export function contextLedgerDirectoryOf(ledgerRoot: string, tenant: string, project: string): string {") || !runContext.includes("return `${base}/context-ledger/ledger-${sha256Hex(JSON.stringify([tenant, project])).slice(0, 32)}`;")) E("CM-20", "the ledger directory is not keyed by a hash of the tenant and the project under the installation state");
   if (/['"]\.projectops['"]\s*,\s*['"]context-ledger['"]|\.projectops\/context-ledger/.test(`${runContext}\n${runner}\n${manager}\n${agentLedger}`)) E("CM-20", "the ledger is in the project tree again: git sees it, and a closure refuses for it");
-  if (!runContext.includes("if (input.ledgerRoot === null || typeof input.ledgerRoot !== 'string' || input.ledgerRoot.trim() === '') {") || !runContext.includes("'CONTEXT_NOT_RECORDED',")) E("CM-20", "a run with no installation state directory is not refused");
+  if (!runContext.includes("if (!isAbsoluteRoot(input.ledgerRoot)) {") || !runContext.includes("'CONTEXT_NOT_RECORDED',")) E("CM-20", "a run with no installation state directory is not refused");
   if (!runner.includes("ledgerRoot: options.contextStateDir === undefined ? nodeInstallationStateDir() : options.contextStateDir,")) E("CM-20", "the runner does not give the ledger the installation state directory");
   if (!runContext.includes("if (!result.hasContent) return { ok: true };") || !manager.includes("hasContent: file.hasBody,") || !runner.includes("if (contextRun !== null && contextRun.hasContent) {")) E("CM-20", "a run with nothing stored places a file or names one in the brief");
   // Item 2: the stores are judged again after the checks and where the candidate is captured.
@@ -488,7 +491,7 @@ function textProblems(raw, base, tracked) {
   const identityAt = after(manager, "const identity = checkoutIdentityOf(ports);");
   const sourcesAt = after(manager, "const retrieval = sourcesOf(ports, key, request);");
   const headAt = after(manager, "const head = headOf(ports);");
-  if (!manager.includes("if (identity === null || identity.tenant !== key.tenant || identity.project !== key.project) {") || !manager.includes("'CONTEXT_MANAGER_NOT_THIS_CHECKOUT',")) E("CM-20", "an envelope for another project, or a checkout that cannot be placed, is not refused");
+  if (!manager.includes("if (identity === null || !('tenant' in identity) || identity.tenant !== key.tenant || identity.project !== key.project) {") || !manager.includes("'CONTEXT_MANAGER_NOT_THIS_CHECKOUT',")) E("CM-20", "an envelope for another project, or a checkout that cannot be placed, is not refused");
   if (!(identityAt >= 0 && headAt > identityAt && sourcesAt > identityAt) || (manager.match(/sourcesOf\(ports, key, request\)/g) ?? []).length !== 1) E("CM-20", "the key is not bound to the checkout before anything is read");
   if (!ports.includes("if (!isFunction(ports.checkout)) return 'checkout';") || !runner.includes("() => checkoutIdentityOf(sys, root)")) E("CM-20", "the checkout identity is not a required port, or the runner does not supply the real one");
   if (!checkout.includes("const projectId = declaredProjectId(sys, root);") || !checkout.includes("const bound = bindCheckout(sys, root, projectId, registries);") || !checkout.includes("readInstallationRegistries(sys, tenantSourceOf({}).installRoot)") || /\benvelope\b/i.test(checkout)) E("CM-20", "the checkout identity is not read from the installation registries and the checkout, or it looks at an envelope");
@@ -503,7 +506,7 @@ function textProblems(raw, base, tracked) {
   const rankedAt = after(manager, "const metas = rankedMetas(");
   if (!(unreadableAt >= 0 && rankedAt > unreadableAt) || !manager.includes("if (unreadable !== null) {") || !manager.includes("'CONTEXT_MANAGER_DECISION_UNREADABLE',")) E("CM-20", "a decision that cannot be read does not stop the run");
   // Item 6: decisions meet the gate and the limit, a stored name is not shown raw, a stop names its fix, the withheld list is capped.
-  if (!manager.includes("const gate = gateContextItemText(decision.entry, ports.secretScreen);") || !manager.includes("memoryStoreChars([...heldTexts[decision.target], decision.entry]) > memoryCharLimit(decision.target)")) E("CM-20", "an approved memory decision skips the gate, or the decisions are not held to the store's own limit");
+  if (!manager.includes("const gate = gateContextItemText(decision.entry, ports.secretScreen);") || !manager.includes("gate.truncated || full[decision.target] || !decisionBlock(decision.target, [...heldBy[decision.target], decision]).ok")) E("CM-20", "an approved memory decision skips the gate, or the decisions are not held to what the kernel's own block can render");
   if (!manager.includes("const shownId = displayIdOf(read.id);") || !manager.includes("const OVER_LIMIT_FIX =\n  'Fix: the owner shortens")) E("CM-20", "a stored name is shown raw, or a stop that does not fit names no fix");
   if (!manager.includes("export const MAX_RECORDED_WITHHELD = 400;") || !manager.includes("if (sorted.length <= MAX_RECORDED_WITHHELD) return sorted;") || !manager.includes("code: 'CONTEXT_WITHHELD_TRUNCATED'")) E("CM-20", "the withheld list is not capped and counted");
   // Item 7: the pointer is the project-relative path, and only a worker that is told where the file is may be given one.
@@ -511,17 +514,43 @@ function textProblems(raw, base, tracked) {
   const recordedAt = after(runner, "const recorded = contextRun.record();");
   if (!(pointAt >= 0 && recordedAt > pointAt) || !claude.includes("export const CONTEXT_POINTABLE_KINDS: readonly string[] = [CLAUDE_CODE_CLI];") || !claude.includes("export function contextPointerPathOf(contextPath: unknown, root: unknown): string | null {") || !claude.includes("if (!full.startsWith(`${base}/`)) return null;")) E("CM-20", "the record can say a file was shown to a worker that was not pointed at it");
   // Item 8: the credential screen this phase hands the manager knows the shapes a note is written in, and cannot run for ever.
-  if (!ports.includes("secretScreen: storedTextSecretScreen,") || !screen.includes("return containsSecret(text) || SHAPES.some((shape) => shape.test(text));")) E("CM-20", "the stored-text credential screen is not the one that knows password, URL, bearer and AWS shapes");
-  const shapesLine = /const SHAPES: readonly RegExp\[\] = \[([^\]]*)\];/.exec(screen);
-  const listedShapes = shapesLine === null ? [] : shapesLine[1].split(",").map((entry) => entry.trim());
-  for (const shape of ["ASSIGNED_PASSWORD", "QUOTED_PASSWORD", "URL_CREDENTIAL", "BEARER_TOKEN", "AWS_SECRET"]) if (!listedShapes.includes(shape)) E("CM-20", `the stored-text credential screen no longer lists ${shape}`);
-  for (const [, body] of screen.matchAll(/^const [A-Z_]+ = (\/.*\/[a-z]*);$/gm)) if (/[\])][*+]|\{\d+,\}/.test(body)) E("CM-20", "a stored-text credential pattern has an unbounded repeat, so hostile input can make it run for ever");
+  if (!ports.includes("secretScreen: storedTextSecretScreen,") || !screen.includes("return containsSecret(text) || assignedCredential(text) || bearerCredential(text) || URL_CREDENTIAL.test(text) || AWS_SECRET.test(text);")) E("CM-20", "the stored-text credential screen is not the one that knows password, URL, bearer and AWS shapes");
+  const returnLine = /return containsSecret\(text\)[^\n]*/.exec(screen)?.[0] ?? "";
+  const listedShapes = ["assignedCredential(text)", "bearerCredential(text)", "URL_CREDENTIAL.test(text)", "AWS_SECRET.test(text)"];
+  for (const shape of listedShapes) if (!returnLine.includes(shape)) E("CM-20", `the stored-text credential screen no longer asks ${shape}`);
+  if (/\{\d+,\}/.test(screen) || /^const [A-Z_]+ = \/.*[\])][*+].*\/[a-z]*;$/m.test(screen)) E("CM-20", "a stored-text credential pattern has an unbounded repeat, so hostile input can make it run for ever");
   // Item 9: the ledger ignores what an operating system leaves, names a fix, and the evidence anchors its newest entry.
-  if (!agentLedger.includes("const OS_JUNK = /^(?:desktop\\.ini|thumbs\\.db|\\.ds_store)$/i;") || !agentLedger.includes("if (OS_JUNK.test(name) || TEMPORARY_ENTRY.test(name)) continue;")) E("CM-20", "a file an operating system leaves in the ledger directory is read as foreign");
+  if (!agentLedger.includes("const OS_JUNK = /^(?:desktop\\.ini|thumbs\\.db|\\.ds_store)$/i;") || !agentLedger.includes("if (OS_JUNK.test(name)) continue;")) E("CM-20", "a file an operating system leaves in the ledger directory is read as foreign");
   if (!runContext.includes("${contextLedgerRepairOf(appended.code, directory)}") || !runContext.includes("ledgerNewest: newest,")) E("CM-20", "a ledger refusal names no fix, or the evidence does not anchor the newest entry");
   // Item 10: a stale file is swept, the new one is created exclusively, and the envelope is asked again.
   if (!runContext.includes("sys.removeFile(contextPath);\n        if (!sys.createExclusive(contextPath, result.fileText))") || /sys\.writeText\(contextPath/.test(runContext)) E("CM-20", "the context file is not swept and then created exclusively");
   if (!runContext.includes("if (!contextRetrievalKeyOf(input.envelope, input.ports.isProxy, instantOf(sys.now())).ok) return {")) E("CM-20", "a placement does not ask again whether the envelope has expired");
+  // CM-21: review round 2 (the ECC security-reviewer's recheck, the last bounded round).
+  // Item 1: a context file a killed run left is swept, and only a regular file named exactly <session id>.context.md that is not this session's own.
+  if (!runContext.includes("const CONTEXT_FILE_NAME = /^[A-Za-z0-9_.-]{1,64}\\.context\\.md$/;") || !runContext.includes("if (name === ownName || !CONTEXT_FILE_NAME.test(name)) continue;") || !runContext.includes("if (input.ports.fs.stat(where)?.kind === 'file') sys.removeFile(where);")) E("CM-21", "the stale-file sweep is not limited to a regular file named exactly <session id>.context.md that is not this session's own");
+  if (!/sweepStaleContextFiles\(\);\s*const done = append\('retrieved', null\);/.test(runContext)) E("CM-21", "the stale-file sweep does not run when the retrieval is recorded, before the first dispatch");
+  // Item 2: the credential key names have no letter boundary before them, the value shapes stay, and the patterns are bounded (CM-20 holds the bounds).
+  if (!screen.includes("const KEYS =\n  '(?:password|passwd|pwd|passphrase|(?<![a-z])pass|secret(?:[_-]?access)?(?:[_-]?key)?|api[_-]?key|token|private[_-]?key|access[_-]?key)';")) E("CM-21", "the credential key names are not the list that has no letter boundary before it (DB_PASSWORD, dbPassword, client_secret, token, SecretAccessKey)");
+  if (!screen.includes("{16,500})/gi;") || !screen.includes(":[^\\s/]{3,200}@/i;") || !screen.includes("const LOOKS_LIKE_A_CREDENTIAL = /[0-9!@#%^&*+/=~]|[a-z][A-Z]|")) E("CM-21", "the bearer match is case-sensitive, a URL password stops at its first @, or the value shapes were dropped");
+  // Item 3: an entry with no approval record is withheld by its own code, with advice, and never silent.
+  if (!retrieval.includes("failures.push({ id: `${path}#${memoryEntryHash(entry).slice(7, 19)}`, code: NO_PROVENANCE, blocking: false });") || !manager.includes("advice: adviceOf(retrieval.failures),") || !runner.includes("for (const advice of contextRun.advice) lines.push(`Stored context: ${advice}`);")) E("CM-21", "a committed memory entry with no approval record is silent, or its advice is not printed");
+  // Item 4: a refusal the kernel's decision block still gives has a code of this phase.
+  if (!manager.includes("if (prompt.refusal.code === 'CONTEXT_DECISIONS_REFUSED') {") || !manager.includes("'CONTEXT_MANAGER_DECISIONS_TOO_LARGE'")) E("CM-21", "a decision-block refusal has no code of this phase and names no one who shortens");
+  // Item 5: a root the path derivation rewrites is refused before the retrieval is recorded.
+  const pointableAt = after(runner, "if (contextPointerPathOf(contextPathOf(root, sessionId), root) === null) {");
+  const recordedAt2 = after(runner, "const recorded = contextRun.record();");
+  if (!(pointableAt >= 0 && recordedAt2 > pointableAt)) E("CM-21", "a root the pointer cannot be derived for is not refused before the retrieval is recorded");
+  // Item 6: a temporary name is unique to its entry, and the number is created, never replaced.
+  if (!agentLedger.includes("const temporary = `${path}.${sealed.entry.entryHash.slice(7, 19)}.tmp`;") || agentLedger.includes("`${path}.tmp`")) E("CM-21", "the ledger's temporary name is per number, so two writers can swap each other's bytes");
+  // Item 7: a baseline that cannot be used is found out before the first dispatch.
+  const baselineAt = after(runner, "const baselineProblem = storeGuardBaselineProblem(storeGuardBaseline);");
+  const spentAt2 = after(runner, "let writeGrantSpent = false;");
+  if (!(baselineAt >= 0 && baselineAt < spentAt2) || !runner.includes("if (baselineProblem !== null) return refused(") || !guard.includes("export function storeGuardBaselineProblem(before: StoreGuardBefore): string | null {")) E("CM-21", "an unusable store baseline is found out after the worker, not before the first dispatch");
+  // Item 8: each cause has its own fix.
+  if (!manager.includes("function notThisCheckoutFix(") || !manager.includes("case 'no-project-config':") || !manager.includes("case 'registry-unreadable':") || !manager.includes("case 'not-registered':") || !manager.includes("if (code === 'COMMITTED_TOO_LARGE') return 'Fix: that file is larger")) E("CM-21", "the checkout refusal has one text for every cause, or a too-large decision is told to compare with HEAD");
+  // Item 9: the omitted decisions are said to be authoritative, and a relative ledger root is refused.
+  if (!manager.includes("['## Items left out for room', LEFT_OUT_NOTE,") || !manager.includes("It is still authoritative")) E("CM-21", "the worker is not told that a decision left out for room is still authoritative");
+  if (!runContext.includes("if (!isAbsoluteRoot(ledgerRoot)) throw new Error('the ledger root is not an absolute path');")) E("CM-21", "a relative ledger root is accepted");
   // CM-19: the four narrowed rules name exactly what this phase adds.
   const pins = [
     [PX_VALIDATOR, 'const CONTEXT_CALL_SITES = ["projectos/agent/src/context/contextManager.ts"];'],
@@ -638,10 +667,10 @@ const MUTATIONS = [
   M("the-thread-is-not-measured-after", "CM-6", MANAGER, "const after = contextPressure(accounts.value, agentId, estimateThreadTokens(applied.value.thread));", "const after = pressure;"),
   M("the-summary-is-not-tied-to-its-turns", "CM-6", MANAGER, "const metaOfTurn = new Map(metas.map((meta) => [`item-${meta.ranked.rank}`, meta]));", "const metaOfTurn = new Map<string, Meta>();"),
   // CM-7
-  M("an-entry-is-written-with-a-plain-write", "CM-7", AGENT_LEDGER, "written = files.createExclusive(temporary, `${JSON.stringify(sealed.entry)}\\n`) && files.readText(path) === null && files.renameFile(temporary, path);", "written = (files as never as { writeText: (p: string, c: string) => boolean }).writeText(path, `${JSON.stringify(sealed.entry)}\\n`);"),
-  M("an-entry-is-renamed-over-one-that-exists", "CM-7", AGENT_LEDGER, " && files.readText(path) === null && files.renameFile(temporary, path);", " && files.renameFile(temporary, path);"),
+  M("an-entry-is-written-with-a-plain-write", "CM-7", AGENT_LEDGER, "written = files.createExclusive(temporary, text) && files.readText(temporary) === text && files.createExclusive(path, text);", "written = (files as never as { writeText: (p: string, c: string) => boolean }).writeText(path, text);"),
+  M("an-entry-is-created-by-a-plain-write-over-its-number", "CM-7", AGENT_LEDGER, " && files.createExclusive(path, text);", " && (files as never as { writeText: (p: string, c: string) => boolean }).writeText(path, text);"),
   M("the-ledger-port-can-write", "CM-7", AGENT_LEDGER, "  readonly removeFile: (path: string) => boolean;\n}", "  readonly removeFile: (path: string) => boolean;\n  readonly writeText: (path: string, content: string) => void;\n}"),
-  M("the-ledger-deletes-more-than-its-temporary-name", "CM-7", AGENT_LEDGER, "    files.removeFile(temporary);\n    written =", "    files.removeFile(path);\n    written ="),
+  M("the-ledger-deletes-more-than-its-temporary-names", "CM-7", AGENT_LEDGER, "files.removeFile(`${directory}/${stale.name}`);", "files.removeFile(`${directory}/000001.json`);"),
   M("the-tail-is-not-read", "CM-7", AGENT_LEDGER, "for (const seq of numbers.slice(-CONTEXT_LEDGER_TAIL_WINDOW)) {", "for (const seq of numbers.slice(0, 0)) {"),
   M("the-tail-window-grows", "CM-7", AGENT_LEDGER, "export const CONTEXT_LEDGER_TAIL_WINDOW = 64;", "export const CONTEXT_LEDGER_TAIL_WINDOW = 6400000;"),
   M("a-foreign-file-is-ignored", "CM-7", AGENT_LEDGER, "if (seq === null) return 'CONTEXT_LEDGER_FOREIGN_FILE';", "if (seq === null) continue;"),
@@ -656,7 +685,7 @@ const MUTATIONS = [
   M("the-ledger-is-in-the-execution-directory", "CM-7", RUN_CONTEXT, "`${base}/context-ledger/ledger-", "`${base}/execution/ledger-", ["CM-20"]),
   M("a-file-is-placed-before-the-retrieval-is-recorded", "CM-7", RUN_CONTEXT, "if (recorded === null) return { ok: false, detail: 'the retrieval is not recorded, so no context file is placed' };", GONE),
   M("a-file-whose-placement-is-not-recorded-stays", "CM-7", RUN_CONTEXT, "const done = append('placed', attempt);\n      if (!done.ok) {\n        sys.removeFile(contextPath);\n        return done;\n      }", "const done = append('placed', attempt);\n      if (!done.ok) return done;"),
-  M("the-retrieval-is-recorded-after-the-brief", "CM-7", RUNNER, "    const recorded = contextRun.record();\n    if (!recorded.ok) return refused([`REFUSED (CONTEXT_NOT_RECORDED): ${recorded.detail}, so no stored text is shown to a worker`]);\n", GONE, ["CM-20"]),
+  M("the-retrieval-is-recorded-after-the-brief", "CM-7", RUNNER, "    const recorded = contextRun.record();\n    if (!recorded.ok) return refused([`REFUSED (CONTEXT_NOT_RECORDED): ${recorded.detail}, so no stored text is shown to a worker`]);\n", GONE, ["CM-20", "CM-21"]),
   M("a-run-whose-retrieval-is-not-recorded-goes-on", "CM-7", RUNNER, "if (!recorded.ok) return refused([`REFUSED (CONTEXT_NOT_RECORDED): ${recorded.detail}, so no stored text is shown to a worker`]);", "if (!recorded.ok) lines0.push('x');"),
   M("a-refused-context-does-not-refuse", "CM-7", RUNNER, "if (contextPrepared.kind === 'refused') return refused(contextPrepared.lines);", GONE),
   M("the-retrieval-mints-a-crossing", "CM-7", RUN_CONTEXT, "export type StepResult =", "export const crossing = mintRunCrossing;\nexport type StepResult =", ["CM-11"]),
@@ -796,13 +825,13 @@ const MUTATIONS = [
   // CM-20
   M("the-ledger-is-in-the-project-tree", "CM-20", RUN_CONTEXT, "`${base}/context-ledger/ledger-", "`${base}/.projectops/context-ledger/ledger-", ["CM-7"]),
   M("the-ledger-is-keyed-by-the-project-only", "CM-20", RUN_CONTEXT, "JSON.stringify([tenant, project])", "JSON.stringify([project])"),
-  M("a-run-with-no-state-directory-goes-on", "CM-20", RUN_CONTEXT, "if (input.ledgerRoot === null || typeof input.ledgerRoot !== 'string' || input.ledgerRoot.trim() === '') {", "if (false) {"),
+  M("a-run-with-no-state-directory-goes-on", "CM-20", RUN_CONTEXT, "if (!isAbsoluteRoot(input.ledgerRoot)) {", "if (false) {"),
   M("the-runner-puts-the-ledger-in-the-project", "CM-20", RUNNER, "ledgerRoot: options.contextStateDir === undefined ? nodeInstallationStateDir() : options.contextStateDir,", "ledgerRoot: root,"),
   M("a-file-is-placed-when-nothing-is-stored", "CM-20", RUN_CONTEXT, "if (!result.hasContent) return { ok: true };", GONE),
   M("the-brief-names-a-file-when-nothing-is-stored", "CM-20", RUNNER, "if (contextRun !== null && contextRun.hasContent) {", "if (contextRun !== null) {"),
   M("the-stores-are-not-rejudged-after-the-checks", "CM-20", RUNNER, "const storeAfterChecks = storeGuardNow();", "const storeAfterChecks = { ok: true } as const;"),
   M("the-stores-are-not-rejudged-at-capture", "CM-20", RUNNER, "const storeAtCapture = storeGuardNow();", "const storeAtCapture = { ok: true } as const;"),
-  M("the-envelope-is-not-bound-to-the-checkout", "CM-20", MANAGER, "if (identity === null || identity.tenant !== key.tenant || identity.project !== key.project) {", "if (identity === null) {"),
+  M("the-envelope-is-not-bound-to-the-checkout", "CM-20", MANAGER, "if (identity === null || !('tenant' in identity) || identity.tenant !== key.tenant || identity.project !== key.project) {", "if (identity === null || !('tenant' in identity)) {"),
   M("something-is-read-before-the-checkout-is-judged", "CM-20", MANAGER, "  const head = headOf(ports);", "  const early = sourcesOf(ports, key, request);\n  const head = headOf(ports);"),
   M("the-checkout-port-is-not-required", "CM-20", PORTS, "  if (!isFunction(ports.checkout)) return 'checkout';\n", GONE, ["CM-13"]),
   M("the-runner-supplies-a-made-up-checkout", "CM-20", RUNNER, "() => checkoutIdentityOf(sys, root)", "() => ({ tenant: 'x', project: 'y' })"),
@@ -813,7 +842,7 @@ const MUTATIONS = [
   M("an-unreadable-committed-decision-is-only-withheld", "CM-20", RETRIEVAL, "`.projectops/closure/decisions/${phase}.json`, true, reads, failures)", "`.projectops/closure/decisions/${phase}.json`, false, reads, failures)"),
   M("the-run-goes-on-without-a-decision", "CM-20", MANAGER, "const unreadable = blockingFailure(retrieval.failures);", "const unreadable = null as ContextFailure | null;"),
   M("a-memory-decision-skips-the-gate", "CM-20", MANAGER, "const gate = gateContextItemText(decision.entry, ports.secretScreen);", "const gate = { ok: true as const, truncated: false };"),
-  M("the-decisions-are-not-held-to-the-store-limit", "CM-20", MANAGER, "memoryStoreChars([...heldTexts[decision.target], decision.entry]) > memoryCharLimit(decision.target)", "false"),
+  M("the-decisions-are-not-held-to-what-the-kernel-renders", "CM-20", MANAGER, "gate.truncated || full[decision.target] || !decisionBlock(decision.target, [...heldBy[decision.target], decision]).ok", "false"),
   M("a-stored-name-is-shown-raw", "CM-20", MANAGER, "const shownId = displayIdOf(read.id);", "const shownId = read.id;"),
   M("a-stop-names-no-fix", "CM-20", MANAGER, "const OVER_LIMIT_FIX =\n  'Fix: the owner shortens", "const OVER_LIMIT_FIX =\n  'the owner shortens"),
   M("the-withheld-list-is-not-capped", "CM-20", MANAGER, "if (sorted.length <= MAX_RECORDED_WITHHELD) return sorted;", "return sorted;"),
@@ -821,15 +850,35 @@ const MUTATIONS = [
   M("any-worker-kind-may-be-given-a-file", "CM-20", RUNNER, "if (!CONTEXT_POINTABLE_KINDS.includes(resolution.worker.kind)) {", "if (false) {"),
   M("a-worker-kind-that-is-not-told-is-pointable", "CM-20", CLAUDE, "export const CONTEXT_POINTABLE_KINDS: readonly string[] = [CLAUDE_CODE_CLI];", "export const CONTEXT_POINTABLE_KINDS: readonly string[] = [CLAUDE_CODE_CLI, 'codex-cli'];"),
   M("the-pointer-is-not-held-to-the-root", "CM-20", CLAUDE, "  if (!full.startsWith(`${base}/`)) return null;\n", GONE),
-  M("a-password-shape-is-no-longer-screened", "CM-20", SCREEN, "[ASSIGNED_PASSWORD, QUOTED_PASSWORD, URL_CREDENTIAL, BEARER_TOKEN, AWS_SECRET]", "[ASSIGNED_PASSWORD, QUOTED_PASSWORD, URL_CREDENTIAL, AWS_SECRET]"),
+  M("a-bearer-shape-is-no-longer-screened", "CM-20", SCREEN, "assignedCredential(text) || bearerCredential(text) || URL_CREDENTIAL.test(text)", "assignedCredential(text) || URL_CREDENTIAL.test(text)"),
   M("the-stored-text-screen-is-the-old-one", "CM-20", PORTS, "secretScreen: storedTextSecretScreen,", "secretScreen: containsSecret,"),
-  M("a-credential-pattern-is-unbounded", "CM-20", SCREEN, "[A-Za-z0-9._~+/=-]{16,500}", "[A-Za-z0-9._~+/=-]+"),
-  M("an-os-file-is-read-as-foreign", "CM-20", AGENT_LEDGER, "if (OS_JUNK.test(name) || TEMPORARY_ENTRY.test(name)) continue;", GONE),
+  M("a-credential-pattern-is-unbounded", "CM-20", SCREEN, "[^\\s/@:]{1,100}", "[^\\s/@:]+"),
+  M("an-os-file-is-read-as-foreign", "CM-20", AGENT_LEDGER, "    if (OS_JUNK.test(name)) continue;\n", GONE),
   M("a-ledger-refusal-names-no-fix", "CM-20", RUN_CONTEXT, " ${contextLedgerRepairOf(appended.code, directory)}`", "`"),
   M("the-newest-entry-is-not-anchored", "CM-20", RUN_CONTEXT, "ledgerNewest: newest,", "ledgerNewest: recorded,", ["CM-9"]),
   M("a-stale-file-stays", "CM-20", RUN_CONTEXT, "sys.removeFile(contextPath);\n        if (!sys.createExclusive(contextPath, result.fileText))", "if (!sys.createExclusive(contextPath, result.fileText))"),
   M("the-file-is-placed-with-a-plain-write", "CM-20", RUN_CONTEXT, "if (!sys.createExclusive(contextPath, result.fileText)) return { ok: false, detail: 'the context file could not be created, because something else holds that name. Fix: the owner removes it from the project tree and runs again.' };", "sys.writeText(contextPath, result.fileText);"),
   M("an-expired-envelope-is-placed", "CM-20", RUN_CONTEXT, "if (!contextRetrievalKeyOf(input.envelope, input.ports.isProxy, instantOf(sys.now())).ok) return {", "if (false) return {"),
+  // CM-21
+  M("the-sweep-takes-any-name", "CM-21", RUN_CONTEXT, "const CONTEXT_FILE_NAME = /^[A-Za-z0-9_.-]{1,64}\\.context\\.md$/;", "const CONTEXT_FILE_NAME = /^.*$/;"),
+  M("the-sweep-takes-a-link-or-a-directory", "CM-21", RUN_CONTEXT, "if (input.ports.fs.stat(where)?.kind === 'file') sys.removeFile(where);", "sys.removeFile(where);"),
+  M("the-sweep-takes-this-sessions-own-file", "CM-21", RUN_CONTEXT, "if (name === ownName || !CONTEXT_FILE_NAME.test(name)) continue;", "if (!CONTEXT_FILE_NAME.test(name)) continue;"),
+  M("a-stale-file-is-never-swept", "CM-21", RUN_CONTEXT, "      sweepStaleContextFiles();\n", GONE),
+  M("a-letter-boundary-is-asked-before-a-key", "CM-21", SCREEN, "const KEYS =\n  '(?:password|", "const KEYS =\n  '\\b(?:password|"),
+  M("bearer-is-case-sensitive", "CM-21", SCREEN, "{16,500})/gi;", "{16,500})/g;"),
+  M("a-url-password-stops-at-the-first-at", "CM-21", SCREEN, ":[^\\s/]{3,200}@/i;", ":[^\\s@/]{3,200}@/i;"),
+  M("a-token-key-is-not-screened", "CM-21", SCREEN, "|token|private", "|private"),
+  M("an-entry-with-no-record-is-silent", "CM-21", RETRIEVAL, "        failures.push({ id: `${path}#${memoryEntryHash(entry).slice(7, 19)}`, code: NO_PROVENANCE, blocking: false });\n", GONE),
+  M("the-advice-is-not-printed", "CM-21", RUNNER, "for (const advice of contextRun.advice) lines.push(`Stored context: ${advice}`);", GONE),
+  M("a-decision-refusal-has-no-code-of-this-phase", "CM-21", MANAGER, "if (prompt.refusal.code === 'CONTEXT_DECISIONS_REFUSED') {", "if (false) {"),
+  M("a-root-the-pointer-cannot-follow-goes-on", "CM-21", RUNNER, "if (contextPointerPathOf(contextPathOf(root, sessionId), root) === null) {", "if (false) {"),
+  M("the-temporary-name-is-per-number", "CM-21", AGENT_LEDGER, "const temporary = `${path}.${sealed.entry.entryHash.slice(7, 19)}.tmp`;", "const temporary = `${path}.tmp`;"),
+  M("a-baseline-that-cannot-be-used-goes-on", "CM-21", RUNNER, "if (baselineProblem !== null) return refused(", "if (false) return refused("),
+  M("the-baseline-problem-is-not-asked", "CM-21", RUNNER, "const baselineProblem = storeGuardBaselineProblem(storeGuardBaseline);", "const baselineProblem = null as string | null;"),
+  M("the-checkout-fix-is-one-text", "CM-21", MANAGER, "    case 'registry-unreadable':\n", "    case 'x-registry-unreadable':\n"),
+  M("a-too-large-decision-is-told-to-compare-with-head", "CM-21", MANAGER, "if (code === 'COMMITTED_TOO_LARGE') return 'Fix: that file is larger", "if (code === 'COMMITTED_NEVER') return 'Fix: that file is larger"),
+  M("the-left-out-note-is-gone", "CM-21", MANAGER, "['## Items left out for room', LEFT_OUT_NOTE,", "['## Items left out for room',"),
+  M("a-relative-ledger-root-is-accepted", "CM-21", RUN_CONTEXT, "  if (!isAbsoluteRoot(ledgerRoot)) throw new Error('the ledger root is not an absolute path');\n", GONE),
 ];
 
 // ---------------------------------------------------------------------------------------------------------

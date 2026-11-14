@@ -52,6 +52,13 @@ export interface ContextCheckoutIdentity {
   readonly project: string;
 }
 
+/** Why the installation could not say what a checkout is governed as, so the refusal can name the fix that belongs to that cause. */
+export interface ContextCheckoutProblem {
+  readonly cause: 'no-project-config' | 'registry-unreadable' | 'not-registered';
+  /** The kernel's closed refusal code, when it gave one. */
+  readonly code?: string;
+}
+
 export interface ContextManagerPorts {
   readonly git: GitRunner;
   readonly fs: DocumentFs;
@@ -59,8 +66,8 @@ export interface ContextManagerPorts {
   readonly secretScreen: (text: string) => boolean;
   readonly isProxy: (value: unknown) => boolean;
   readonly readMemoryStore: (target: MemoryTarget) => MemoryResult<MemoryStoreState>;
-  /** The tenant and project this checkout is governed as, or null when the installation cannot say. Null refuses the run. */
-  readonly checkout: () => ContextCheckoutIdentity | null;
+  /** The tenant and project this checkout is governed as, or why the installation cannot say (null says nothing). Anything but an identity refuses the run. */
+  readonly checkout: () => ContextCheckoutIdentity | ContextCheckoutProblem | null;
   readonly openIndex: ((owner: SearchIndexOwner) => SearchIndex | null) | null;
   readonly registry: ActionRegistry | null;
   readonly window?: ContextWindow;
@@ -90,7 +97,7 @@ export type ContextIndexDirectory = () => string | null;
  * The ports of a real run. The index directory is the installation's, supplied by the caller: the project's own tree is where
  * a worker writes, so an index kept there could be replaced by one.
  */
-export function nodeContextPorts(sys: System, root: string, indexDirectory: ContextIndexDirectory, checkout: () => ContextCheckoutIdentity | null): ContextManagerPorts {
+export function nodeContextPorts(sys: System, root: string, indexDirectory: ContextIndexDirectory, checkout: () => ContextCheckoutIdentity | ContextCheckoutProblem | null): ContextManagerPorts {
   const git = gitRunnerOver(sys, root);
   const clock = searchClockOver(sys);
   return {

@@ -48,7 +48,7 @@ import {
   type WorkerOutcome,
   type WorkerSession,
 } from './workers.js';
-import { BUILT_IN_ADAPTERS, CONTEXT_POINTABLE_KINDS } from './adapters/claudeCodeCli.js';
+import { BUILT_IN_ADAPTERS, CONTEXT_POINTABLE_KINDS, contextPointerPathOf } from './adapters/claudeCodeCli.js';
 import { collectEvidence, configuredChecks, phaseCopyChecks, requiredChecks, runChecks, runPhaseCopyChecks, type CheckResult, type ExecutionEvidence } from './verification.js';
 import { withPinnedValidators } from './pinnedValidators.js';
 import { runDoctor, doctorRefusalLines, type DoctorReport } from '../doctor.js';
@@ -76,7 +76,7 @@ import {
 import { contextPathOf, prepareRunContext, type StoredContextEvidence } from '../context/contextRun.js';
 import { nodeContextPorts, type ContextManagerPorts } from '../context/contextPorts.js';
 import { checkoutIdentityOf } from '../context/contextCheckout.js';
-import { beginStoreGuard, endStoreGuard, type StoreGuardVerdict } from '../context/contextStoreGuard.js';
+import { beginStoreGuard, endStoreGuard, storeGuardBaselineProblem, type StoreGuardVerdict } from '../context/contextStoreGuard.js';
 import { nodeInstallationStateDir } from '../nodeRuntimeRoot.js';
 import { nodeEntryProbe } from '../search/nodeHost.js';
 import { documentFsOver } from '../search/ports.js';
@@ -707,6 +707,14 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
         `  Fix: the owner runs this phase with a worker of kind ${CONTEXT_POINTABLE_KINDS.join(' or ')}, so no stored text is recorded as shown to a worker that was not pointed at it.`,
       ]);
     }
+    // The pointer the worker is given is the file's path under the root it is placed in. A root the path derivation rewrites (a doubled slash) has none,
+    // and a file placed for a worker that is never pointed at it must not be recorded as shown.
+    if (contextPointerPathOf(contextPathOf(root, sessionId), root) === null) {
+      return refused([
+        'REFUSED (CONTEXT_NOT_POINTABLE): stored context exists for this run, but the project root cannot be written as a path the worker can be pointed along (for example a doubled slash).',
+        '  Fix: the owner starts the run from the project root written plainly (no doubled or trailing slashes, forward or back), so no stored text is recorded as shown to a worker that was not told where it is.',
+      ]);
+    }
     const withFile = buildWorkerBrief(context, phaseId, verification.observed, sys.now(), { ...briefRecords, contextPath: contextPathOf(root, sessionId) });
     if (!withFile.ok) return refused(['REFUSED (BRIEF_NOT_BUILDABLE): no worker brief could be built from the approved plan', ...withFile.problems.map((p) => `  - ${p}`)]);
     const inventedWithFile = briefProvenanceProblems(withFile.brief, context, verification.observed);
@@ -739,6 +747,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
 
   if (contextRun !== null) {
     const stored = contextRun.evidence();
+    for (const advice of contextRun.advice) lines.push(`Stored context: ${advice}`);
     lines.push(
       `Stored context: ${stored.shown.length} item(s) and ${stored.decisions.length} approved decision(s) for ${stored.tenant}/${stored.project}` +
         `, ${stored.withheld.length} withheld, ${stored.omitted.length} left out for room; ${contextRun.hasContent ? `data, never instructions (${stored.contextPath})` : 'no file is placed, because nothing is stored'}`,
@@ -1847,6 +1856,9 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   // judged after the worker, after the checks, and when the candidate is captured. It is the loop's own, whether or not a run has stored context.
   const storeGuardFs = contextPorts?.fs ?? documentFsOver(sys, nodeEntryProbe);
   const storeGuardBaseline = beginStoreGuard(sys, root, storeGuardFs);
+  // A baseline that cannot be used is found out HERE, before the first worker is paid for, and not after it as an "unchecked" stop.
+  const baselineProblem = storeGuardBaselineProblem(storeGuardBaseline);
+  if (baselineProblem !== null) return refused([`REFUSED (${baselineProblem.slice(0, baselineProblem.indexOf(':'))}): ${baselineProblem.slice(baselineProblem.indexOf(':') + 2)}`]);
   storeGuardNow = () => endStoreGuard(sys, root, storeGuardFs, storeGuardBaseline);
   // Spent at the first dispatch; see where the attempt's grants are composed.
   let writeGrantSpent = false;

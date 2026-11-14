@@ -13,16 +13,17 @@
  */
 import { bindCheckout, declaredProjectId, readInstallationRegistries, tenantSourceOf } from '../governedContext.js';
 import type { System } from '../system.js';
-import type { ContextCheckoutIdentity } from './contextPorts.js';
+import type { ContextCheckoutIdentity, ContextCheckoutProblem } from './contextPorts.js';
 
-export function checkoutIdentityOf(sys: System, root: string): ContextCheckoutIdentity | null {
+/** The identity, or the cause that stopped it: the project names no id, the installation's registries cannot be read, or the checkout is not a registered root or worktree. */
+export function checkoutIdentityOf(sys: System, root: string): ContextCheckoutIdentity | ContextCheckoutProblem | null {
   try {
     const projectId = declaredProjectId(sys, root);
-    if (projectId === null) return null;
+    if (projectId === null) return { cause: 'no-project-config' };
     const registries = readInstallationRegistries(sys, tenantSourceOf({}).installRoot);
-    if (!registries.ok) return null;
+    if (!registries.ok) return { cause: 'registry-unreadable', code: registries.code };
     const bound = bindCheckout(sys, root, projectId, registries);
-    return bound.ok ? { tenant: bound.binding.tenant, project: bound.binding.projectId } : null;
+    return bound.ok ? { tenant: bound.binding.tenant, project: bound.binding.projectId } : { cause: 'not-registered', code: bound.code };
   } catch {
     return null;
   }

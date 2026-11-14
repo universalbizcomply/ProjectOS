@@ -80,6 +80,27 @@ export function beginStoreGuard(sys: StoreGuardSystem, root: string, fs: Documen
   return { snapshot: snapshotMemoryStores(root, fs), dirty: dirtyPathsOf(sys, root) };
 }
 
+/**
+ * Why the baseline cannot be used, or null. A baseline that could not be taken means every later judgement is "unchecked", and the loop
+ * would only find out after the worker had run and been paid for: so it asks BEFORE the first dispatch, and the answer says who does what.
+ */
+export function storeGuardBaselineProblem(before: StoreGuardBefore): string | null {
+  if (!before.snapshot.ok) {
+    const where = before.snapshot.path === '' ? 'the memory or skill store' : before.snapshot.path;
+    const fix =
+      before.snapshot.code === 'MEMORY_STORE_TOO_LARGE'
+        ? 'the owner archives or removes entries from .projectops/memory and .projectops/skills until the digest can read both (it reads at most 2,000 entries and 8 MB)'
+        : before.snapshot.code === 'MEMORY_STORE_LINK'
+          ? 'the owner replaces the link with an ordinary file or directory'
+          : 'the owner checks that the user who runs ProjectOS can read .projectops/memory and .projectops/skills';
+    return `${before.snapshot.code}: the memory and skill stores cannot be digested (${where}), so a worker's writes to them could not be judged. Nothing was dispatched. Fix: ${fix}, then runs again.`;
+  }
+  if (before.dirty === null) {
+    return 'MEMORY_STORE_UNCHECKED: git could not list the changed paths of this checkout, so a worker\'s writes to the memory and skill stores could not be judged. Nothing was dispatched. Fix: the owner checks that git runs in this checkout (git status), then runs again.';
+  }
+  return null;
+}
+
 const unchecked = (detail: string): StoreGuardVerdict => ({ ok: false, code: 'MEMORY_STORE_UNCHECKED', detail });
 
 /** Judge what the worker changed, after it ran and before any check does. */
