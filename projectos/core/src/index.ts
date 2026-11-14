@@ -48,6 +48,7 @@ export * from './memory/index.js';
 export * from './skills/index.js';
 export * from './context/index.js';
 export * from './modelBroker/index.js';
+export * from './agents/index.js';
 
 /** Engine version — bump on breaking changes to the public API. */
 export const CORE_VERSION = '0.1.0';

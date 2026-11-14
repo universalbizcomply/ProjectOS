@@ -1001,3 +1001,70 @@ Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
 Licence: MIT
 Copyright: Copyright (c) 2025 Nous Research
 Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/agents/sessionKey.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/routing/session-key.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/agents/sessionKey.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/routing/account-id.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/agents/bindingScope.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/routing/binding-scope.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/agents/routeResolve.ts
+Source: openclaw
+Upstream: https://github.com/openclaw/openclaw
+Source-Path: src/routing/resolve-route.ts
+Source-Commit: c5b56f2505c4f6a5803125d2923e2934c5f750af
+Licence: MIT
+Copyright: Copyright (c) 2026 OpenClaw Foundation
+Licence-Text: SOURCE openclaw, in this file
+Also-Credits: pi-mono
+
+ENTRY: projectos/core/src/agents/delegationToolsets.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/delegate_tool_toolsets.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/agents/delegationTasks.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/delegate_tool_tasks.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
+
+ENTRY: projectos/core/src/agents/queueState.ts
+Source: hermes-agent
+Upstream: https://github.com/NousResearch/hermes-agent
+Source-Path: tools/async_delegation.py
+Source-Commit: d3e586881eacb132595edcbe4c170be8381e40c5
+Licence: MIT
+Copyright: Copyright (c) 2025 Nous Research
+Licence-Text: SOURCE hermes-agent, in this file
