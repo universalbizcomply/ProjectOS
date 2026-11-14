@@ -47,7 +47,7 @@ const credit = require("./val-projectos-port-credit1a.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const THIS_VALIDATOR = "val-projectos-memory-stores1a";
-const NEXT_VALIDATOR = "val-projectos-connector-contract1a";
+const NEXT_VALIDATOR = "val-projectos-memory-provenance1a";
 const BS = String.fromCharCode(92);
 
 const CORE_MEMORY = "projectos/core/src/memory";
@@ -244,7 +244,7 @@ const PINS = [
   PM("MS-3", "the-owner-table-survives-a-schema-change", INDEX, null, "'search_projects', 'search_owner'];", "'search_projects'];"),
   PM("MS-3", "the-location-ignores-the-name", PROJECT_INDEX, "projectIndexLocation", "const named = searchIndexFileName(owner);", "const named = { ok: true, fileName: 'index.sqlite' } as const;"),
   PM("MS-3", "a-refused-owner-makes-a-directory", PROJECT_INDEX, "openProjectSearchIndex", "if (!where.ok) return where;", ""),
-  PM("MS-3", "the-index-opens-without-its-owner", PROJECT_INDEX, "openProjectSearchIndex", "openSearchIndex(where.location, { owner, clock: deps.clock })", "openSearchIndex(where.location, { owner: { tenant: 'agency-one', project: 'alpha-project' }, clock: deps.clock })"),
+  PM("MS-3", "the-index-opens-without-its-owner", PROJECT_INDEX, "openProjectSearchIndex", "openSearchIndex(where.location, { owner, clock: deps.clock, ...(deps.head === undefined ? {} : { head: deps.head }) })","openSearchIndex(where.location, { owner: { tenant: 'agency-one', project: 'alpha-project' }, clock: deps.clock })"),
 
   // MS-4: the only clock is the one the caller opened the index with.
   PM("MS-4", "the-index-reads-the-real-clock", INDEX, "timeOf", "const now = clock.nowMs();", "const now = Date.now();"),
@@ -430,7 +430,7 @@ const TEXT_MUTATIONS = [
 
   // MS-13: stored text is data.
   { rule: "MS-13", name: "the-store-walk-parses-the-records", rel: STORES, from: "    totalBytes += size;\n", to: "    totalBytes += size;\n    JSON.parse(content);\n", also: [] },
-  { rule: "MS-13", name: "the-index-imports-an-authority-module", rel: INDEX, from: "import type { SearchClock } from './ports.js';", to: "import type { SearchClock } from './ports.js';\nimport { closureDecision } from '../closureDecision.js';", also: ["MS-5"] },
+  { rule: "MS-13", name: "the-index-imports-an-authority-module", rel: INDEX, from: "import type { SearchClock, SearchHead } from './ports.js';", to: "import type { SearchClock, SearchHead } from './ports.js';\nimport { closureDecision } from '../closureDecision.js';", also: ["MS-5"] },
   { rule: "MS-13", name: "the-door-imports-an-authority-module", rel: DOOR_AGENT, from: "import type { System } from '../system.js';", to: "import type { System } from '../system.js';\nimport { ownerOnlyAction } from '../../../core/src/ownerOnlyActions.js';", also: [] },
   { rule: "MS-13", name: "the-core-door-imports-an-authority-module", rel: DOOR_CORE, from: "import { MEMORY_ENTRY_KINDS,", to: "import { gatekeeperDecision } from '../gatekeeperDecision.js';\nimport { MEMORY_ENTRY_KINDS,", also: ["MS-12"] },
   { rule: "MS-13", name: "the-direct-write-rule-imports-the-approval", rel: DIRECT, from: "export const MEMORY_STORE_ROOTS", to: "import { approve } from '../approval.js';\nexport const MEMORY_STORE_ROOTS", also: ["MS-12"] },
@@ -445,7 +445,7 @@ const TEXT_MUTATIONS = [
   { rule: "MS-15", name: "validate-all-omits-this-validator", rel: VA, from: `  "${THIS_VALIDATOR}"`, to: `  "${THIS_VALIDATOR}-disabled"`, also: [] },
   { rule: "MS-15", name: "cached-runner-omits-this-validator", rel: CR, from: `  "${THIS_VALIDATOR}"`, to: `  "${THIS_VALIDATOR}-disabled"`, also: [] },
   { rule: "MS-15", name: "validate-all-comments-this-validator-out", rel: VA, from: `  "${THIS_VALIDATOR}"`, to: `  // "${THIS_VALIDATOR}"`, also: [] },
-  { rule: "MS-15", name: "the-cached-runner-entry-is-removed", rel: CR, from: `  "${THIS_VALIDATOR}",\n  // PROJECTOS-CONNECTOR-CONTRACT1A`, to: `  // PROJECTOS-CONNECTOR-CONTRACT1A`, also: ["MS-15"] },
+  { rule: "MS-15", name: "the-cached-runner-entry-is-removed", rel: CR, from: `  "${THIS_VALIDATOR}",\n  // PROJECTOS-MEMORY-PROVENANCE1A`, to: `  // PROJECTOS-MEMORY-PROVENANCE1A`, also: ["MS-15"] },
 
   // MS-16: the proofs run.
   { rule: "MS-16", name: "a-door-test-is-skipped", rel: "projectos/agent/test/memoryStores.test.ts", from: "it('refuses a worker proposing as the owner, and queues nothing'", to: "it.skip('refuses a worker proposing as the owner, and queues nothing'", also: [] },
