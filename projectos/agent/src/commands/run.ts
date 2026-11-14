@@ -16,7 +16,7 @@ import { type Flags, str, bool } from '../flags.js';
 import { runLoop, type RunResult } from '../loop/runner.js';
 import { continuationLines, continueProgramme, phaseAttemptOf } from '../loop/programmeContinuation.js';
 import { isDegradedOperation, DEGRADED_OPERATIONS } from '../loop/degradedMode.js';
-import { loadGovernedContext, refusalLines, runStartTenantRefusal, type GovernedContext } from '../governedContext.js';
+import { admittedRunEnvelopeOf, loadGovernedContext, refusalLines, runStartTenantRefusal, type GovernedContext } from '../governedContext.js';
 import { selectNextPhase, selectionStopLines } from '../loop/selection.js';
 import { readClosureWait } from '../closureWait.js';
 import { changesSince, closureEvidencePath, gitFacts, programmeStateTailPaths, validationRecordPath } from '../closureGate.js';
@@ -516,6 +516,7 @@ export function run(ctx: CommandContext, flags: Flags): CommandResult {
    */
   const runLoopOnce = (): RunResult => runLoop(ctx.sys, ctx.root, {
     platformStopStateDir: platformStopDirOf(ctx),
+    runEnvelope: admittedRunEnvelopeOf(ctx),
     onWorkState,
     workforce: true,
     ...(worker === '' ? {} : { workerId: worker }),

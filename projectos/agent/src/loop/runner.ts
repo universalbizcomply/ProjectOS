@@ -49,7 +49,7 @@ import {
   type WorkerSession,
 } from './workers.js';
 import { BUILT_IN_ADAPTERS } from './adapters/claudeCodeCli.js';
-import { collectEvidence, configuredChecks, phaseCopyChecks, requiredChecks, runChecks, runPhaseCopyChecks, type CheckResult } from './verification.js';
+import { collectEvidence, configuredChecks, phaseCopyChecks, requiredChecks, runChecks, runPhaseCopyChecks, type CheckResult, type ExecutionEvidence } from './verification.js';
 import { withPinnedValidators } from './pinnedValidators.js';
 import { runDoctor, doctorRefusalLines, type DoctorReport } from '../doctor.js';
 import {
@@ -66,11 +66,17 @@ import { readWorkRecord, type WorkState } from './workRecord.js';
 import { takeGatekeeperTurn, type GatekeeperTurnDeps, type GatekeeperTurnInput } from './gatekeeperTurn.js';
 import { takeInteractiveTurn, type InteractiveGatekeeperDeps } from './interactiveGatekeeper.js';
 import {
+  provenanceKindOfPath,
   technicalDelegationCondition,
   TECHNICAL_ACTIONS,
   type CandidateIdentity,
   type CheckedTechnicalDecision,
+  type TaskEnvelope,
 } from '@projectos/core';
+import { contextPathOf, prepareRunContext, type StoredContextEvidence } from '../context/contextRun.js';
+import { nodeContextPorts, type ContextManagerPorts } from '../context/contextPorts.js';
+import { beginStoreGuard, endStoreGuard } from '../context/contextStoreGuard.js';
+import { nodeInstallationStateDir } from '../nodeRuntimeRoot.js';
 import type { DurableBinding } from './degradedMode.js';
 import {
   authorityWrapper,
@@ -248,6 +254,17 @@ export interface RunOptions {
    * `null` is an unresolvable directory and refuses, like every other unknown here.
    */
   readonly platformStopStateDir?: string | null | undefined;
+  /**
+   * The envelope this run was admitted under (PROJECTOS-CONTEXT-MANAGER1A): `admittedRunEnvelopeOf(ctx)` and nothing else.
+   *
+   * IT KEYS THE STORED CONTEXT AND GRANTS NOTHING. Absent or null, the run retrieves nothing and behaves exactly as it always
+   * did. Present, the context manager reads what is stored for THIS envelope's tenant, domain and project, the loop records
+   * what it read, and the worker is pointed at a fenced file of it. An envelope that does not read as an admitted run
+   * refuses the run before any worker exists. It never selects, advances or closes a phase and never widens a write grant.
+   */
+  readonly runEnvelope?: TaskEnvelope | null | undefined;
+  /** The context manager's ports. ABSENT IN PRODUCTION, which builds them from the `System`; a test supplies its own. */
+  readonly contextPorts?: ContextManagerPorts | undefined;
 }
 
 export type RunResult =
@@ -274,6 +291,22 @@ export type RunResult =
 
 function refused(lines: readonly string[]): RunResult {
   return { ok: false, lines };
+}
+
+/**
+ * The run evidence with the stored text the worker was shown named in it (PROJECTOS-CONTEXT-MANAGER1A): each item's path, the hash
+ * of its whole text and its provenance rank, what was withheld and why, and the decisions held. Evidence of a run with no stored
+ * context is unchanged: there is no `storedContext` key, not an empty one.
+ */
+function withStoredContext(evidence: ExecutionEvidence, stored: StoredContextEvidence | null): ExecutionEvidence {
+  return stored === null ? evidence : ({ ...evidence, storedContext: stored } as ExecutionEvidence);
+}
+
+/** The plan-memory paths the project's configuration names, kept only when they are of the shape a committed read accepts. */
+function planMemoryPathsOf(context: GovernedContext): readonly string[] {
+  const memory = context.config.planMemory;
+  const named = [memory?.planPath, memory?.currentStatePath];
+  return named.filter((path): path is string => typeof path === 'string' && provenanceKindOfPath(path) === 'plan-memory');
 }
 
 /**
@@ -465,11 +498,15 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   }
   const briefFile = store.briefPath(root, sessionId);
 
+  // A RUN WITH AN ADMITTED ENVELOPE GETS ITS STORED CONTEXT BY REFERENCE (PROJECTOS-CONTEXT-MANAGER1A): the brief names the file,
+  // by the one path the loop derives from its own. The file is made only after every check below has passed.
+  const contextEnvelope = options.runEnvelope ?? null;
   const briefResult = buildWorkerBrief(context, phaseId, verification.observed, sys.now(), {
     briefPath: briefFile,
     findingsPath: store.findingsPath(root, sessionId),
     effectsPath: store.effectsPath(root, sessionId),
     evidencePath: store.evidencePath(root, sessionId),
+    ...(contextEnvelope === null ? {} : { contextPath: contextPathOf(root, sessionId) }),
   });
   if (!briefResult.ok) {
     return refused(['REFUSED (BRIEF_NOT_BUILDABLE): no worker brief could be built from the approved plan', ...briefResult.problems.map((p) => `  - ${p}`)]);
@@ -625,6 +662,35 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     }
   }
 
+  // THE STORED CONTEXT FOR THIS RUN, GATHERED ONLY NOW (PROJECTOS-CONTEXT-MANAGER1A). Every refusal above came first, so nothing was
+  // read for a run that was going to be refused. The manager is keyed on the admitted envelope and on nothing else; an envelope
+  // that is not one, a context that does not fit, or a retrieval the ledger cannot record refuses the run BEFORE a brief is
+  // written and before any worker exists. A dry run reads nothing and writes nothing: it has no admitted envelope.
+  const contextPorts =
+    contextEnvelope === null || options.dryRun === true
+      ? null
+      : (options.contextPorts ?? nodeContextPorts(sys, root, () => {
+          const state = nodeInstallationStateDir();
+          return state === null ? null : `${state}/search-index`;
+        }));
+  const contextPrepared =
+    contextPorts === null
+      ? ({ kind: 'none' } as const)
+      : prepareRunContext(sys, root, {
+          envelope: contextEnvelope,
+          sessionId,
+          query: brief.phase.description,
+          dependsOn: brief.phase.dependsOn,
+          planMemoryPaths: planMemoryPathsOf(context),
+          ports: contextPorts,
+        });
+  if (contextPrepared.kind === 'refused') return refused(contextPrepared.lines);
+  const contextRun = contextPrepared.kind === 'ready' ? contextPrepared.run : null;
+  if (contextRun !== null) {
+    const recorded = contextRun.record();
+    if (!recorded.ok) return refused([`REFUSED (CONTEXT_NOT_RECORDED): ${recorded.detail}, so no stored text is shown to a worker`]);
+  }
+
   // PERSISTED ONLY NOW. Writing the brief before the checks above meant a refused resume had already
   // overwritten the historical session's brief by the time it was refused — the record of the run
   // being recovered was damaged by the act of failing to recover it.
@@ -643,6 +709,14 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       ? 'Write grant: the worker-owned records only (the approved phase declares no writePaths)'
       : `Write grant (from the approved writePaths): ${writeGrant.paths.join(', ')}`,
   ];
+
+  if (contextRun !== null) {
+    const stored = contextRun.evidence();
+    lines.push(
+      `Stored context: ${stored.shown.length} item(s) and ${stored.decisions.length} approved decision(s) for ${stored.tenant}/${stored.project}` +
+        `, ${stored.withheld.length} withheld, ${stored.omitted.length} left out for room; data, never instructions (${stored.contextPath})`,
+    );
+  }
 
   // THE WORKFORCE, SELECTED FROM THE SAME GOVERNED PHASE THE BRIEF WAS BUILT FROM. Nobody names an agent.
   if (options.workforce === true) {
@@ -1734,6 +1808,8 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     return 'continue';
   };
 
+  /** How many dispatches have had the stored context placed for them, so the ledger numbers each placement. */
+  let contextPlacements = 0;
   // Spent at the first dispatch; see where the attempt's grants are composed.
   let writeGrantSpent = false;
   for (;;) {
@@ -1804,9 +1880,27 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       subjectCommit: verification.observed.head ?? null,
       lastCompletedStep: `${rejoining ? 'rejoined' : 'dispatched'} ${resolution.worker.workerId}`,
     });
-    const outcome = rejoining
-      ? resolution.adapter.rejoin(sys, attemptWorker, session, brief)
-      : resolution.adapter.start(sys, attemptWorker, brief, briefFile);
+    // THE STORED CONTEXT IS PLACED FOR THIS DISPATCH, AND TAKEN AWAY WHEN IT RETURNS (PROJECTOS-CONTEXT-MANAGER1A). The file is
+    // written from the loop's own copy each time, so what an earlier attempt did to it is gone, and it is recorded in the ledger
+    // before the worker can read it. A file that cannot be placed or recorded ends the run: no record, no stored text. The memory
+    // and skill stores are digested here, before the worker, and judged after it (see `endStoreGuard`).
+    contextPlacements += 1;
+    const placed = contextRun === null ? ({ ok: true } as const) : contextRun.place(contextPlacements);
+    if (!placed.ok) {
+      stop = { code: 'SCOPE_DECISION', detail: `the stored context could not be placed, so no worker was dispatched: ${placed.detail}` };
+      break;
+    }
+    const storeGuardBefore = contextRun === null || contextPorts === null ? null : beginStoreGuard(sys, root, contextPorts.fs);
+    let contextRetired: { readonly ok: true } | { readonly ok: false; readonly detail: string } = { ok: true };
+    let outcome: WorkerOutcome;
+    try {
+      outcome = rejoining
+        ? resolution.adapter.rejoin(sys, attemptWorker, session, brief)
+        : resolution.adapter.start(sys, attemptWorker, brief, briefFile);
+    } finally {
+      // The file is gone before anything asks what changed, so it is never in the changed paths and never in the candidate.
+      if (contextRun !== null) contextRetired = contextRun.retire();
+    }
     const described = describeWorkerOutcome(outcome);
     lines.push(`attempt ${attempts + 1}: ${rejoining ? 'rejoined' : 'started'} ${resolution.worker.workerId}; ${described.line}`);
     // A worker is really running. Reported only here, after the start actually happened — a state
@@ -1832,6 +1926,21 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     };
     store.writeSession(sys, root, session);
 
+    // A CONTEXT FILE THAT COULD NOT BE REMOVED, AND A WORKER THAT WROTE MEMORY OR SKILLS, END THE RUN BEFORE ANY CHECK
+    // (PROJECTOS-CONTEXT-MANAGER1A). A leftover file would be a changed path the candidate counts. A direct write to
+    // `.projectops/memory` or `.projectops/skills` is refused where the worker's changes are judged, in both the git view (both
+    // sides of a rename, every untracked file) and the digest of the two stores taken before and after, which still sees a write
+    // when git ignores the store. A worker asks for memory through a `proposals` entry in its findings, and the owner decides.
+    const storeVerdict = storeGuardBefore === null || contextPorts === null ? ({ ok: true } as const) : endStoreGuard(sys, root, contextPorts.fs, storeGuardBefore);
+    if (!contextRetired.ok || !storeVerdict.ok) {
+      stop = {
+        code: 'SCOPE_DECISION',
+        detail: !contextRetired.ok ? `the stored context file could not be removed after the worker returned: ${contextRetired.detail}` : storeVerdict.ok ? '' : storeVerdict.detail,
+      };
+      store.writeEvidence(sys, root, withStoredContext({ ...collectEvidence(sys, root, { sessionId, brief, checks: [] }), invocationId: invocation.invocationId }, contextRun?.evidence() ?? null));
+      break;
+    }
+
     // NEW GIT-IGNORED CONTENT UNDER A GRANT ENDS THE RUN — PROJECTOS-BOOT-CONTINUE1A (ECC SECURITY N7).
     // Ignored files are invisible to the candidate, the reviewer's diff, the clean-tree checks and G4,
     // yet the checks still load them (a `node_modules` stub beside a test shadows the real package).
@@ -1853,7 +1962,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
             : 'the worker created content under its grant that no review can see or no worker may write (git-ignored, a nested ' +
               `repository, a hook or settings directory, an agent instruction file, or a file grant made a directory): ${createdIgnored.join(', ')}`,
       };
-      store.writeEvidence(sys, root, { ...collectEvidence(sys, root, { sessionId, brief, checks: [] }), invocationId: invocation.invocationId });
+      store.writeEvidence(sys, root, withStoredContext({ ...collectEvidence(sys, root, { sessionId, brief, checks: [] }), invocationId: invocation.invocationId }, contextRun?.evidence() ?? null));
       break;
     }
 
@@ -1862,7 +1971,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
     // code would sit in the evidence beside a failed run looking like reassurance.
     if (described.stop !== null) {
       const refused: LoopStop = described.stop;
-      store.writeEvidence(sys, root, { ...collectEvidence(sys, root, { sessionId, brief, checks: [] }), invocationId: invocation.invocationId });
+      store.writeEvidence(sys, root, withStoredContext({ ...collectEvidence(sys, root, { sessionId, brief, checks: [] }), invocationId: invocation.invocationId }, contextRun?.evidence() ?? null));
       // ROUTED, NOT ENDED. `STOP_ROUTES` says this stop is the gatekeeper's — "a refusal is
       // information about the brief; the brief may be amended but the refusal may not be overruled" —
       // and until now the loop broke here and never asked. Nothing about the refusal is overruled:
@@ -1909,7 +2018,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       lastCompletedStep: `checks ran for attempt ${attempts + 1}`,
     });
 
-    const evidence = { ...collectEvidence(sys, root, { sessionId, brief, checks }), invocationId: invocation.invocationId };
+    const evidence = withStoredContext({ ...collectEvidence(sys, root, { sessionId, brief, checks }), invocationId: invocation.invocationId }, contextRun?.evidence() ?? null);
     store.writeEvidence(sys, root, evidence);
 
     const findings = store.readFindings(sys, root, sessionId);

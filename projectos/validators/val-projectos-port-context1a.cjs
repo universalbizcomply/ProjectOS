@@ -106,7 +106,32 @@ const PROVIDER_CALL = /\b(?:fetch|XMLHttpRequest|WebSocket|anthropic|openai)\b/i
  * it credits to OpenClaw. None is translated.
  */
 const SET_ASIDE = /finish_?reason|focus_?topic|historical_?media|strip_?images?|glpat|gloas|glcbt/i;
-const RUN_LOOP_NAMES = /\b(?:applyCompaction|planCompaction|renderContextPrompt|contextPressure|recordContextUsage)\b/;
+/** Every public name that RUNS a context rule. A product file naming one is a call site. */
+const CONTEXT_RULE_NAMES = /\b(?:applyCompaction|planCompaction|renderContextPrompt|contextPressure|recordContextUsage|noteContextCompaction|noteCompactionRefused|openContextAccount|openContextThread|appendContextTurn|withApprovedDecision|renderSummaryInput|checkContextThread|agentsToCompact)\b/g;
+/**
+ * PX-17, NARROWED BY PROJECTOS-CONTEXT-MANAGER1A (plan 3.4) from "nothing calls the context rules" to "nothing calls them but the
+ * ones this phase adds". The phase adds exactly one call site, the context manager's assembly. The run loop, the runner, the core
+ * barrel and every other product source still refuse: the manager is what the loop calls, and it is the manager that calls these.
+ */
+const CONTEXT_CALL_SITES = ["projectos/agent/src/context/contextManager.ts"];
+/** Every product source (a package's `src`), except the thirteen files that ARE the context rules. Read once, so a mutation can name any of them. */
+function productSourcePaths() {
+  const found = [];
+  const visit = (rel) => {
+    for (const entry of fs.readdirSync(path.join(ROOT, ...rel.split("/")), { withFileTypes: true })) {
+      const child = `${rel}/${entry.name}`;
+      if (entry.isDirectory() && !["node_modules", "dist", "target", ".next"].includes(entry.name)) visit(child);
+      else if (entry.isFile() && /\.(?:ts|tsx|cjs|mjs|js)$/.test(entry.name)) found.push(child);
+    }
+  };
+  for (const entry of fs.readdirSync(path.join(ROOT, "projectos"), { withFileTypes: true })) {
+    const src = `projectos/${entry.name}/src`;
+    if (entry.isDirectory() && fs.existsSync(path.join(ROOT, ...src.split("/")))) visit(src);
+  }
+  return found.filter((rel) => !CONTEXT_SOURCES.includes(rel)).sort();
+}
+const PRODUCT_SOURCES = productSourcePaths();
+const NAMES_CACHE = new Map();
 /** The file tool decodes escapes, so a raw character in a source is how an invisible one gets in. */
 const NOT_ASCII = /[^\x00-\x7f]/;
 
@@ -213,6 +238,15 @@ const RULE_NAMES = {
 
 const normalise = (text) => text.replace(/^\ufeff/, "").replace(/\r\n/g, "\n");
 const withoutComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
+/** The context rules a source names, outside its comments. Remembered by text, so only a changed file is read again. */
+function contextRuleNamesIn(text) {
+  let found = NAMES_CACHE.get(text);
+  if (found === undefined) {
+    found = [...new Set(withoutComments(text).match(CONTEXT_RULE_NAMES) ?? [])];
+    NAMES_CACHE.set(text, found);
+  }
+  return found;
+}
 
 const scratchPath = (rel) =>
   rel === TYPES ? "core/types.mts" : rel.startsWith(CORE) ? `core/context/${path.basename(rel, ".ts")}.mts` : `core/memory/${path.basename(rel, ".ts")}.mts`;
@@ -947,7 +981,15 @@ function textProblems(raw) {
     const end = code.indexOf("\n];", start);
     if (start < 0 || end < 0 || !code.slice(start, end).includes(`"${THIS_VALIDATOR}"`)) E("PX-17", `${THIS_VALIDATOR} is not registered in ${name}`);
   }
-  if (RUN_LOOP_NAMES.test(withoutComments(raw[RUN_LOOP]))) E("PX-17", "the run loop calls the context rules, and this phase wires nothing in");
+  // Narrowed to the call sites PROJECTOS-CONTEXT-MANAGER1A adds: the context manager's assembly, and no other product file.
+  for (const rel of PRODUCT_SOURCES) {
+    if (CONTEXT_CALL_SITES.includes(rel) || typeof raw[rel] !== "string") continue;
+    const named = contextRuleNamesIn(raw[rel]);
+    if (named.length > 0) E("PX-17", `${rel} calls the context rules (${named.join(", ")}); the only call site this phase adds is ${CONTEXT_CALL_SITES.join(", ")}`);
+  }
+  for (const rel of CONTEXT_CALL_SITES) {
+    if (typeof raw[rel] !== "string") E("PX-17", `${rel}, the one call site this phase adds, is missing`);
+  }
 
   // PX-18: the proofs are there, and they run.
   for (const [rel, titles] of Object.entries(TESTS)) {
@@ -1274,7 +1316,7 @@ const MUTATIONS = [
   T("proposal-built-from-here", "PX-15", THREAD, "isMemoryEntryProvenance, type MemoryEntryProvenance", "isMemoryEntryProvenance, buildMemoryProposal, type MemoryEntryProvenance"),
   T("memory-queue-imported", "PX-15", THREAD, "import { MEMORY_TARGETS,", "import { queue } from '../memory/queue.js';\nimport { MEMORY_TARGETS,"),
   T("authority-imported", "PX-15", THREAD, "import { createHash } from 'node:crypto';", "import { createHash } from 'node:crypto';\nimport { closureDecision } from '../closureDecision.js';"),
-  T("closure-reads-context", "PX-15", AUTHORITY_FILES[0], "import ", "import { renderContextPrompt } from './context/prompt.js';\nimport "),
+  T("closure-reads-context", "PX-15", AUTHORITY_FILES[0], "import ", "import { renderContextPrompt } from './context/prompt.js';\nimport ", ["PX-17"]),
   T("length-stop-guard-translated", "PX-15", COMPACTION, "export interface CompactionPlan {", "export const lengthStop = (finishReason: string) => finishReason === 'length';\nexport interface CompactionPlan {"),
   T("gitlab-tokens-translated", "PX-15", REDACT, "const REDACTED =", "const gitlab = 'glpat-';\nconst REDACTED ="),
   T("focus-topic-translated", "PX-15", COMPACTION, "export interface CompactionPlan {", "export const focusTopic = '';\nexport interface CompactionPlan {"),
@@ -1297,6 +1339,12 @@ const MUTATIONS = [
   T("cached-runner-omits-this-validator", "PX-17", CR, `"${THIS_VALIDATOR}"`, `"${THIS_VALIDATOR}-disabled"`),
   T("validate-all-comments-this-validator-out", "PX-17", VA, `  "${THIS_VALIDATOR}"`, `  // "${THIS_VALIDATOR}"`),
   T("run-loop-wired-in", "PX-17", RUN_LOOP, "import ", "import { applyCompaction } from '@projectos/core';\nexport const wired = applyCompaction;\nimport "),
+  T("the-runner-calls-the-context-rules", "PX-17", "projectos/agent/src/loop/runner.ts", "import type { System } from '../system.js';", "import type { System } from '../system.js';\nimport { applyCompaction } from '@projectos/core';\nexport const wired = applyCompaction;"),
+  T("another-agent-file-calls-the-context-rules", "PX-17", "projectos/agent/src/loop/observation.ts", "import type { System } from '../system.js';", "import type { System } from '../system.js';\nimport { planCompaction } from '@projectos/core';\nexport const wired = planCompaction;"),
+  T("the-core-barrel-calls-the-context-rules", "PX-17", CORE_INDEX, "export * from './context/index.js';\n", "export * from './context/index.js';\nexport const wired = renderContextPrompt;\n"),
+  T("the-context-ports-call-the-context-rules", "PX-17", "projectos/agent/src/context/contextPorts.ts", "export interface ContextDraftOffer {", "export const wired = contextPressure;\nexport interface ContextDraftOffer {"),
+  T("the-context-ledger-calls-the-context-rules", "PX-17", "projectos/agent/src/context/contextLedger.ts", "export const CONTEXT_LEDGER_TAIL_WINDOW = 64;", "export const wired = recordContextUsage;\nexport const CONTEXT_LEDGER_TAIL_WINDOW = 64;"),
+  T("a-manager-core-file-calls-the-context-rules", "PX-17", "projectos/core/src/context/managerKey.ts", "export const CONTEXT_MANAGER_RUN_ACTION = 'run-start';", "export const wired = noteContextCompaction;\nexport const CONTEXT_MANAGER_RUN_ACTION = 'run-start';"),
   // PX-18
   T("a-proof-skipped", "PX-18", TEST_FILES[1], "it('fires exactly at the trigger, before the limit'", "it.skip('fires exactly at the trigger, before the limit'"),
   T("a-proof-isolated", "PX-18", TEST_FILES[3], "it('keeps every approved decision and its source'", "it.only('keeps every approved decision and its source'"),
@@ -1344,7 +1392,7 @@ function selfTest(raw, dir) {
 
 function readAll() {
   const raw = {};
-  for (const rel of new Set([...LOADED, ...AUTHORITY_FILES, ...TEST_FILES, CORE_INDEX, RUN_LOOP, NOTICES, VA, CR])) {
+  for (const rel of new Set([...LOADED, ...AUTHORITY_FILES, ...TEST_FILES, CORE_INDEX, RUN_LOOP, NOTICES, VA, CR, ...PRODUCT_SOURCES, ...CONTEXT_CALL_SITES])) {
     const abs = path.join(ROOT, ...rel.split("/"));
     raw[rel] = fs.existsSync(abs) ? normalise(fs.readFileSync(abs, "utf8")) : null;
   }

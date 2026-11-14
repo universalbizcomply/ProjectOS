@@ -194,6 +194,43 @@ const RULE_NAMES = {
 const normalise = (text) => text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
 const withoutComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
 
+/**
+ * PM-16, NARROWED BY PROJECTOS-CONTEXT-MANAGER1A (plan 3.4): from "the store has one writer, and nothing outside this port reaches
+ * it" to "nothing outside this port CALLS its entry points but the call sites this phase adds". The phase adds one, and it reads: the
+ * context ports call `readMemoryStore` to learn who approved each entry. No product file outside the port may call a memory entry
+ * point, and the one site may call that one.
+ */
+const MEMORY_CALL_SITES = { "projectos/agent/src/context/contextPorts.ts": ["readMemoryStore"] };
+/** A CALL of a memory entry point: the name, then an argument list, and not a method of something else. */
+const MEMORY_CALL = /(?<![.\w])(?:loadMemoryBlock|readMemoryStore|proposeMemoryWrite|approveMemoryProposal|rejectMemoryProposal|listPendingMemoryProposals|loadMemoryProposal|writeMemoryEntries|writeMemoryProvenance|underMemoryLock)\(/g;
+/** Every product source (a package's `src`) except this port's own directories. Read once, so a mutation can name any of them. */
+function productSourcePaths() {
+  const found = [];
+  const visit = (rel) => {
+    for (const entry of fs.readdirSync(path.join(ROOT, ...rel.split("/")), { withFileTypes: true })) {
+      const child = `${rel}/${entry.name}`;
+      if (entry.isDirectory() && !["node_modules", "dist", "target", ".next"].includes(entry.name)) visit(child);
+      else if (entry.isFile() && /\.(?:ts|tsx|cjs|mjs|js)$/.test(entry.name)) found.push(child);
+    }
+  };
+  for (const entry of fs.readdirSync(path.join(ROOT, "projectos"), { withFileTypes: true })) {
+    const src = `projectos/${entry.name}/src`;
+    if (entry.isDirectory() && fs.existsSync(path.join(ROOT, ...src.split("/")))) visit(src);
+  }
+  return found.filter((rel) => !rel.startsWith(`${CORE}/`) && !rel.startsWith(`${AGENT}/`)).sort();
+}
+const PRODUCT_SOURCES = productSourcePaths();
+const MEMORY_CALLS_CACHE = new Map();
+/** The memory entry points a source calls, outside its comments. Remembered by text, so only a changed file is read again. */
+function memoryCallsIn(text) {
+  let found = MEMORY_CALLS_CACHE.get(text);
+  if (found === undefined) {
+    found = [...new Set((withoutComments(text).match(MEMORY_CALL) ?? []).map((call) => call.slice(0, -1)))];
+    MEMORY_CALLS_CACHE.set(text, found);
+  }
+  return found;
+}
+
 /** Where each source sits in the scratch copy. Imports are rewritten to those files and nothing else changes. */
 const scratchPath = (rel) =>
   rel === TYPES ? "core/types.mts"
@@ -819,6 +856,17 @@ function textProblems(raw) {
   if (/\b(?:writeMemoryEntries|writeMemoryProvenance|writeFileAtomically|underMemoryLock)\b/.test(raw[AGENT_BARREL])) {
     E("PM-16", "the agent's barrel exports a way to write around the queue");
   }
+  // Narrowed to the call sites PROJECTOS-CONTEXT-MANAGER1A adds: no memory entry point is called from outside this port but there.
+  for (const rel of PRODUCT_SOURCES) {
+    if (typeof raw[rel] !== "string") continue;
+    const called = memoryCallsIn(raw[rel]);
+    const allowed = MEMORY_CALL_SITES[rel];
+    const refused = allowed === undefined ? called : called.filter((name) => !allowed.includes(name));
+    if (refused.length > 0) E("PM-16", `${rel} calls ${refused.join(", ")}${allowed === undefined ? ", and this phase adds no call site there" : `, and the only entry point this phase lets it call is ${allowed.join(", ")}`}`);
+  }
+  for (const [rel, names] of Object.entries(MEMORY_CALL_SITES)) {
+    if (typeof raw[rel] !== "string" || !names.every((name) => memoryCallsIn(raw[rel]).includes(name))) E("PM-16", `${rel}, the call site this phase adds, no longer calls ${names.join(", ")}`);
+  }
 
   // PM-17: core stays pure.
   for (const rel of CORE_SOURCES) {
@@ -1037,6 +1085,13 @@ const MUTATIONS = [
   T("second-store-writer", "PM-16", QUEUE, "export function rejectMemoryProposal(", "export function forceWrite(sys: System, root: string): void {\n  writeMemoryEntries(sys, root, 'memory', []);\n}\n\nexport function rejectMemoryProposal("),
   T("store-written-from-another-module", "PM-16", ADMISSION, LOSSY_LINE, `${LOSSY_LINE}\nexport const leak = (s: never) => writeMemoryEntries(s);`),
   T("second-apply-route", "PM-16", QUEUE, "export function rejectMemoryProposal(", "export const again = applyMemoryProposal(null as never, null as never);\n\nexport function rejectMemoryProposal("),
+  T("the-runner-reads-the-store", "PM-16", "projectos/agent/src/loop/runner.ts", "import type { System } from '../system.js';", "import type { System } from '../system.js';\nexport const read = (sys: System) => readMemoryStore(sys, '/', 'memory');"),
+  T("another-product-file-loads-the-memory-block", "PM-16", "projectos/agent/src/loop/observation.ts", "import type { System } from '../system.js';", "import type { System } from '../system.js';\nexport const block = (sys: System) => loadMemoryBlock(sys, '/', 'memory');"),
+  T("another-product-file-proposes-a-write", "PM-16", "projectos/agent/src/closureGate.ts", "import type { System } from './system.js';", "import type { System } from './system.js';\nexport const write = (sys: System) => proposeMemoryWrite(sys, '/', {} as never);"),
+  T("the-one-call-site-writes-the-store", "PM-16", "projectos/agent/src/context/contextPorts.ts", "export interface ContextDraftOffer {", "export const write = (sys: never) => writeMemoryEntries(sys, '/', 'memory', []);\nexport interface ContextDraftOffer {"),
+  T("the-one-call-site-proposes", "PM-16", "projectos/agent/src/context/contextPorts.ts", "export interface ContextDraftOffer {", "export const write = (sys: never) => proposeMemoryWrite(sys, '/', {} as never);\nexport interface ContextDraftOffer {"),
+  T("the-retrieval-reads-the-store-around-the-port", "PM-16", "projectos/agent/src/context/contextRetrieval.ts", "export const MAX_DECISION_PHASES = 20;", "export const around = (sys: never) => readMemoryStore(sys, '/', 'memory');\nexport const MAX_DECISION_PHASES = 20;"),
+  T("the-one-call-site-no-longer-reads", "PM-16", "projectos/agent/src/context/contextPorts.ts", "readMemoryStore: (target) => readMemoryStore(sys, root, target),", "readMemoryStore: (target) => ({ ok: true, value: { entries: [], provenance: new Map() } }),"),
   // PM-17
   T("core-reads-a-file", "PM-17", STORE, "import { createHash } from 'node:crypto';", "import { createHash } from 'node:crypto';\nimport { readFileSync } from 'node:fs';"),
   T("core-imports-the-agent", "PM-17", PROPOSAL, "import { createHash } from 'node:crypto';", "import { createHash } from 'node:crypto';\nimport { join } from '../../../agent/src/context.js';"),
@@ -1101,7 +1156,7 @@ function selfTest(raw, dir) {
 
 function readAll() {
   const raw = {};
-  for (const rel of new Set([...LOADED, ...AUTHORITY_FILES, ...TEST_FILES, CORE_INDEX, NOTICES, VA, CR])) {
+  for (const rel of new Set([...LOADED, ...AUTHORITY_FILES, ...TEST_FILES, CORE_INDEX, NOTICES, VA, CR, ...PRODUCT_SOURCES, ...Object.keys(MEMORY_CALL_SITES)])) {
     const abs = path.join(ROOT, ...rel.split("/"));
     raw[rel] = fs.existsSync(abs) ? normalise(fs.readFileSync(abs, "utf8")) : null;
   }
