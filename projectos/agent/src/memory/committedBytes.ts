@@ -166,13 +166,13 @@ export function readCommittedDecisionTexts(git: GitRunner): readonly string[] | 
   return Object.freeze(texts);
 }
 
-/** The ranking item for a committed read: its path as the id, its kind, and the proof that the bytes came from a commit. */
+/** The ranking item for a committed read: its path as the id, its kind, and the proof the read minted (a copy of it is not a proof). */
 export function committedItemOf(read: CommittedRead, timeMs: number, contradicts?: readonly string[]): ProvenanceItem {
   return {
     id: read.path,
     kind: read.kind,
     timeMs,
-    committed: { commit: read.commit, blob: read.blob },
+    committed: read.proof,
     ...(contradicts === undefined ? {} : { contradicts }),
   };
 }

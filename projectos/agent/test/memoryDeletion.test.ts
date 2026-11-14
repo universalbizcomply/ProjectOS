@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as core from '@projectos/core';
 import { MEMORY_DELETION_LEDGER_DIR, searchIndexFileName, sha256Hex, type MemoryDeletionClaim } from '@projectos/core';
 import { deleteDerivedIndex, deleteMemoryItem, readDeletionLedger, type MemoryDeletionPorts } from '../src/memory/memoryDeletion.js';
 import type { DocumentFs, EntryStat, SearchClock } from '../src/search/ports.js';
@@ -68,7 +69,7 @@ function portsOver(state: Disk, overrides: Partial<MemoryDeletionPorts> = {}): M
     },
   });
   const clock: SearchClock = { nowMs: () => 1_700_000_000_000 };
-  return { files, fs, clock, committedDecisions: () => [], ownerVerifier: () => true, ...overrides };
+  return { files, fs, clock, owner: { tenant: TENANT, project: PROJECT }, committedDecisions: () => [], ownerVerifier: () => true, ...overrides };
 }
 
 const request = (overrides: Record<string, unknown> = {}) => ({ tenant: TENANT, project: PROJECT, path: PATH, itemHash: HASH, reason: 'the entry is wrong', ...overrides });
@@ -119,7 +120,9 @@ describe('deleting approved memory without the owner is refused, and recorded', 
       ROOT,
       request(),
     );
-    expect(asked).toEqual([{ action: 'memory-delete', actionClass: 'P5', tenant: TENANT, project: PROJECT, memoryClass: 'curated-memory', path: PATH, itemHash: HASH, reason: 'the entry is wrong' }]);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ action: 'memory-delete', actionClass: 'P5', tenant: TENANT, project: PROJECT, root: ROOT, memoryClass: 'curated-memory', path: PATH, itemHash: HASH, citedByDecision: false, reason: 'the entry is wrong' });
+    expect(asked[0]?.claimHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('with the owner, deletes the item and records an authorisation and then the deletion, in one chain', () => {
@@ -212,6 +215,16 @@ describe('every refused attempt is recorded, whatever the refusal', () => {
     expect(state.files.get(name as string)).toBe(before);
   });
 
+  it('shows the owner that a committed decision cites the item, and that the decisions could not be read', () => {
+    const claims: MemoryDeletionClaim[] = [];
+    const verifier = (claim: MemoryDeletionClaim) => (claims.push(claim), true);
+    deleteMemoryItem(portsOver(disk(), { ownerVerifier: verifier, committedDecisions: () => [`{"relies_on":"${PATH}"}`] }), ROOT, request());
+    deleteMemoryItem(portsOver(disk(), { ownerVerifier: verifier, committedDecisions: () => null }), ROOT, request());
+    deleteMemoryItem(portsOver(disk(), { ownerVerifier: verifier }), ROOT, request());
+    expect(claims.map((claim) => claim.citedByDecision)).toEqual([true, 'unknown', false]);
+    expect(new Set(claims.map((claim) => claim.claimHash)).size).toBe(3);
+  });
+
   it('a request that cannot be read has no tenant and project to record it under: refused, and says it was not recorded', () => {
     const state = disk();
     for (const bad of [null, { ...request(), extra: 1 }, request({ tenant: 'Not A Tenant' }), request({ reason: '' }), request({ itemHash: 'abc' })]) {
@@ -239,6 +252,45 @@ describe('every refused attempt is recorded, whatever the refusal', () => {
     for (const bad of [Number.NaN, -5, 1.5, Number.POSITIVE_INFINITY]) {
       expect(deleteMemoryItem(portsOver(state, { clock: { nowMs: () => bad } }), ROOT, request())).toMatchObject({ ok: false, code: 'DELETION_CLOCK_UNAVAILABLE' });
     }
+  });
+});
+
+describe('a deletion is bound to the checkout it is asked in', () => {
+  it.each([
+    ['another tenant and project', { tenant: 'agency-two', project: 'beta-project' }],
+    ['another tenant', { tenant: 'agency-two' }],
+    ['another project', { project: 'beta-project' }],
+  ])('refuses %s before the owner is asked, deletes nothing, and records the attempt under the checkout it was made in', (_name, other) => {
+    const state = disk();
+    let asked = 0;
+    const outcome = deleteMemoryItem(portsOver(state, { ownerVerifier: () => (asked++, true) }), ROOT, request(other));
+    expect(outcome).toEqual({ ok: false, code: 'DELETE_NOT_THIS_PROJECT', recorded: true });
+    expect(asked).toBe(0);
+    expect(state.removed).toEqual([]);
+    expect(state.files.has(`${ROOT}/${PATH}`)).toBe(true);
+    expect(entriesOf(state)).toMatchObject([{ outcome: 'refused', code: 'DELETE_NOT_THIS_PROJECT', tenant: TENANT, project: PROJECT }]);
+  });
+
+  it('a binding that is not a tenant and a project is refused unrecorded, and nothing happens', () => {
+    for (const owner of [{ tenant: 'Not A Tenant', project: PROJECT }, { tenant: TENANT, project: '../x' }, undefined, null, { tenant: TENANT }]) {
+      const state = disk();
+      expect(deleteMemoryItem(portsOver(state, { owner: owner as never }), ROOT, request())).toEqual({ ok: false, code: 'DELETE_BINDING_INVALID', recorded: false });
+      expect(state.removed).toEqual([]);
+    }
+  });
+
+  it('a derived index of another tenant or project is not removed from this checkout, and the attempt is recorded under this one', () => {
+    const state = disk({});
+    const mine = core.searchIndexFileName({ tenant: TENANT, project: PROJECT });
+    const theirs = core.searchIndexFileName({ tenant: 'agency-two', project: 'beta-project' });
+    if (!mine.ok || !theirs.ok) throw new Error('name');
+    state.files.set(`${INDEX_DIR}/${theirs.fileName}`, 'theirs');
+    const p = portsOver(state);
+    const outcome = deleteDerivedIndex({ files: p.files, clock: p.clock, owner: p.owner }, ROOT, INDEX_DIR, { tenant: 'agency-two', project: 'beta-project', reason: 'x' });
+    expect(outcome).toEqual({ ok: false, code: 'DELETE_NOT_THIS_PROJECT', recorded: true });
+    expect(state.files.has(`${INDEX_DIR}/${theirs.fileName}`)).toBe(true);
+    expect(state.removed).toEqual([]);
+    expect(entriesOf(state)).toMatchObject([{ code: 'DELETE_NOT_THIS_PROJECT', tenant: TENANT, project: PROJECT }]);
   });
 });
 
@@ -327,8 +379,8 @@ describe('deleting a derived index is memory-index-rebuild, needs no owner, and 
   };
   const withIndex = (o = owner) => disk({ [`${INDEX_DIR}/${named(o)}`]: 'sqlite bytes' });
   const call = (state: Disk, raw: unknown = { ...owner, reason: 'rebuild it' }, extra: Partial<MemoryDeletionPorts> = {}) => {
-    const { files, clock } = portsOver(state, extra);
-    return deleteDerivedIndex({ files, clock }, ROOT, INDEX_DIR, raw);
+    const { files, clock, owner } = portsOver(state, extra);
+    return deleteDerivedIndex({ files, clock, owner }, ROOT, INDEX_DIR, raw);
   };
 
   it('removes that owner\'s file and nothing else, asks nobody, and records the action', () => {

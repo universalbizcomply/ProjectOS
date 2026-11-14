@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { judgeCommittedRead } from '../src/memory/committedBytes.js';
+import { isCommittedProof } from '../src/memory/committedProof.js';
 import {
   MAX_PROVENANCE_ITEMS,
   PROVENANCE_KINDS,
@@ -11,20 +13,39 @@ import {
 
 const COMMIT = 'a'.repeat(40);
 const BLOB = 'b'.repeat(40);
-const proof = { commit: COMMIT, blob: BLOB };
 
-const item = (id: string, kind: ProvenanceItem['kind'], timeMs = 1000, extra: Partial<ProvenanceItem> = {}): ProvenanceItem => ({
-  id,
-  kind,
-  timeMs,
-  ...(kind === 'committed-decision' || kind === 'approved-memory' || kind === 'plan-memory' ? { committed: proof } : {}),
-  ...extra,
-});
+const D = (name: string): string => `.projectops/closure/decisions/${name}.json`;
+const MEMORY = '.projectops/memory/MEMORY.md';
+const USER = '.projectops/memory/USER.md';
+const PLAN = (name: string): string => `.projectops/plan-${name}.json`;
+
+/** A proof the only way one is made: by a committed read of this path. */
+const proofFor = (path: string) => {
+  const judged = judgeCommittedRead({
+    path,
+    head: COMMIT,
+    entry: { mode: '100644', type: 'blob', object: BLOB },
+    committedText: 'x\n',
+    workingTree: { state: 'file', text: 'x\n' },
+  });
+  if (!judged.ok) throw new Error(judged.code);
+  return judged.read.proof;
+};
+
+const PROVEN = ['committed-decision', 'approved-memory', 'plan-memory'];
+const item = (id: string, kind: ProvenanceItem['kind'], timeMs = 1000, extra: Record<string, unknown> = {}): ProvenanceItem =>
+  ({ id, kind, timeMs, ...(PROVEN.includes(kind) ? { committed: proofFor(id) } : {}), ...extra }) as ProvenanceItem;
 
 const idsOf = (items: unknown): readonly string[] => {
   const ranked = rankByProvenance(items);
   if (!ranked.ok) throw new Error(ranked.code);
   return ranked.ranked.map((entry) => entry.id);
+};
+
+const ranking = (items: unknown) => {
+  const ranked = rankByProvenance(items);
+  if (!ranked.ok) throw new Error(ranked.code);
+  return ranked;
 };
 
 describe('a committed decision outranks recollection', () => {
@@ -34,13 +55,13 @@ describe('a committed decision outranks recollection', () => {
       item('r', 'recollection'),
       item('f', 'finding'),
       item('e', 'execution-record'),
-      item('p', 'plan-memory'),
-      item('a', 'approved-memory'),
-      item('d', 'committed-decision'),
+      item(PLAN('x'), 'plan-memory'),
+      item(MEMORY, 'approved-memory'),
+      item(D('d1'), 'committed-decision'),
     ];
     const order = idsOf(shuffled);
-    expect(order[0]).toBe('d');
-    expect(new Set(order.slice(1, 3))).toEqual(new Set(['a', 'p']));
+    expect(order[0]).toBe(D('d1'));
+    expect(new Set(order.slice(1, 3))).toEqual(new Set([MEMORY, PLAN('x')]));
     expect(new Set(order.slice(3, 5))).toEqual(new Set(['e', 'f']));
     expect(new Set(order.slice(5))).toEqual(new Set(['s', 'r']));
     expect(PROVENANCE_KINDS).toHaveLength(7);
@@ -48,43 +69,85 @@ describe('a committed decision outranks recollection', () => {
   });
 
   it('a committed decision ranks above a newer memory or summary that contradicts it, which is marked as overruled', () => {
-    const ranked = rankByProvenance([
-      item('summary-1', 'summary', 9_000_000, { contradicts: ['decision-1'] }),
-      item('memory-1', 'approved-memory', 9_000_000, { contradicts: ['decision-1'] }),
-      item('decision-1', 'committed-decision', 1),
+    const ranked = ranking([
+      item('summary-1', 'summary', 9_000_000, { contradicts: [D('d1')] }),
+      item(MEMORY, 'approved-memory', 9_000_000, { contradicts: [D('d1')] }),
+      item(D('d1'), 'committed-decision', 1),
     ]);
-    if (!ranked.ok) throw new Error(ranked.code);
-    expect(ranked.ranked.map((entry) => entry.id)).toEqual(['decision-1', 'memory-1', 'summary-1']);
-    expect(ranked.ranked[1]?.overruledBy).toEqual(['decision-1']);
-    expect(ranked.ranked[2]?.overruledBy).toEqual(['decision-1']);
+    expect(ranked.ranked.map((entry) => entry.id)).toEqual([D('d1'), MEMORY, 'summary-1']);
+    expect(ranked.ranked[1]?.overruledBy).toEqual([D('d1')]);
+    expect(ranked.ranked[2]?.overruledBy).toEqual([D('d1')]);
     expect(ranked.ranked[0]?.overruledBy).toEqual([]);
   });
 
   it('an item that is overruled sorts after an item in its own tier that is not', () => {
-    const order = idsOf([
-      item('new-but-overruled', 'approved-memory', 9_000, { contradicts: ['d'] }),
-      item('old-but-fine', 'approved-memory', 1),
-      item('d', 'committed-decision'),
-    ]);
-    expect(order).toEqual(['d', 'old-but-fine', 'new-but-overruled']);
+    const order = idsOf([item(USER, 'approved-memory', 9_000, { contradicts: [D('d')] }), item(MEMORY, 'approved-memory', 1), item(D('d'), 'committed-decision')]);
+    expect(order).toEqual([D('d'), MEMORY, USER]);
   });
 
-  it('a decision claimed without proof of the committed bytes ranks as a recollection, and says so', () => {
-    const claimed = { id: 'forged', kind: 'committed-decision', timeMs: 1 };
-    const ranked = rankByProvenance([claimed, item('plain', 'summary', 5), item('real', 'committed-decision')]);
-    if (!ranked.ok) throw new Error(ranked.code);
-    expect(ranked.ranked[0]?.id).toBe('real');
-    const forged = ranked.ranked.find((entry) => entry.id === 'forged');
+  it('a decision claimed with no proof of the committed bytes ranks as a recollection, and says so', () => {
+    const claimed = { id: D('forged'), kind: 'committed-decision', timeMs: 1 };
+    const ranked = ranking([claimed, item('plain', 'summary', 5), item(D('real'), 'committed-decision')]);
+    expect(ranked.ranked[0]?.id).toBe(D('real'));
+    const forged = ranked.ranked.find((entry) => entry.id === D('forged'));
     expect(forged).toMatchObject({ effectiveKind: 'recollection', unverifiedClaim: true, tier: PROVENANCE_TIERS['recollection'] });
-    expect(ranked.ranked.map((entry) => entry.id)).toEqual(['real', 'plain', 'forged']);
+    expect(ranked.ranked.map((entry) => entry.id)).toEqual([D('real'), 'plain', D('forged')]);
   });
 
-  it('a proof that is not a commit and a blob name does not make a decision', () => {
-    for (const committed of [{ commit: 'HEAD', blob: BLOB }, { commit: COMMIT, blob: 'xyz' }, { commit: 'A'.repeat(40), blob: BLOB }, { commit: COMMIT }, null, 'yes']) {
-      const ranked = rankByProvenance([{ id: 'x', kind: 'approved-memory', timeMs: 1, committed }]);
-      if (!ranked.ok) throw new Error(ranked.code);
+  it('a proof is minted by a committed read and by nothing else: it is frozen and registered', () => {
+    const proof = proofFor(D('d1'));
+    expect(isCommittedProof(proof)).toBe(true);
+    expect(Object.isFrozen(proof)).toBe(true);
+    expect(proof).toEqual({ commit: COMMIT, blob: BLOB, path: D('d1'), kind: 'committed-decision' });
+  });
+
+  describe('a forged proof never makes a tier-0 decision', () => {
+    const real = (): ProvenanceItem => item(D('real'), 'committed-decision', 0);
+
+    it('refuses a plain object with two well-formed hex names, and the real decision stays first', () => {
+      const ranked = ranking([{ id: D('s1'), kind: 'committed-decision', timeMs: 1, committed: { commit: COMMIT, blob: BLOB } }, real()]);
+      expect(ranked.ranked.map((entry) => [entry.id, entry.tier])).toEqual([[D('real'), 0]]);
+      expect(ranked.refused).toMatchObject([{ id: D('s1'), code: 'PROVENANCE_PROOF_NOT_MINTED' }]);
+    });
+
+    it('refuses a copy of a real proof, a structuredClone of it and a JSON round-trip of it', () => {
+      const proof = proofFor(D('d9'));
+      for (const copy of [{ ...proof }, structuredClone(proof), JSON.parse(JSON.stringify(proof)), Object.freeze({ ...proof }), Object.create(proof)]) {
+        const ranked = ranking([{ id: D('d9'), kind: 'committed-decision', timeMs: 1, committed: copy }, real()]);
+        expect(ranked.ranked.map((entry) => entry.id)).toEqual([D('real')]);
+        expect(ranked.refused).toMatchObject([{ code: 'PROVENANCE_PROOF_NOT_MINTED' }]);
+      }
+    });
+
+    it('refuses a real proof of another path, because a proof names the one file it read', () => {
+      const ranked = ranking([{ id: D('d2'), kind: 'committed-decision', timeMs: 1, committed: proofFor(D('d1')) }, real()]);
+      expect(ranked.ranked.map((entry) => entry.id)).toEqual([D('real')]);
+      expect(ranked.refused).toMatchObject([{ id: D('d2'), code: 'PROVENANCE_PROOF_PATH_MISMATCH' }]);
+    });
+
+    it('refuses a proof from an approved-memory read attached to a decision claim, because the kind it established is not the claim', () => {
+      const ranked = ranking([{ id: MEMORY, kind: 'committed-decision', timeMs: 1, committed: proofFor(MEMORY) }, real()]);
+      expect(ranked.ranked.map((entry) => [entry.id, entry.tier])).toEqual([[D('real'), 0]]);
+      expect(ranked.refused).toMatchObject([{ id: MEMORY, code: 'PROVENANCE_PROOF_KIND_MISMATCH' }]);
+      const memoryAsPlan = ranking([{ id: MEMORY, kind: 'plan-memory', timeMs: 1, committed: proofFor(MEMORY) }]);
+      expect(memoryAsPlan.refused).toMatchObject([{ code: 'PROVENANCE_PROOF_KIND_MISMATCH' }]);
+    });
+
+    it.each([[{ commit: 'HEAD', blob: BLOB }], [{ commit: COMMIT }], ['yes'], [7], [[]]])('refuses %j as a proof', (committed) => {
+      const ranked = ranking([{ id: MEMORY, kind: 'approved-memory', timeMs: 1, committed }]);
+      expect(ranked.ranked).toEqual([]);
+      expect(ranked.refused).toMatchObject([{ code: 'PROVENANCE_PROOF_NOT_MINTED' }]);
+    });
+
+    it('an explicit null proof is no claim to a proof, and ranks as a recollection', () => {
+      const ranked = ranking([{ id: MEMORY, kind: 'approved-memory', timeMs: 1, committed: null }]);
       expect(ranked.ranked[0]).toMatchObject({ effectiveKind: 'recollection', unverifiedClaim: true });
-    }
+    });
+
+    it('a real proof on an item that needs none changes nothing', () => {
+      const ranked = ranking([{ id: 'plain', kind: 'summary', timeMs: 1, committed: proofFor(D('d1')) }, real()]);
+      expect(ranked.ranked.map((entry) => [entry.id, entry.tier])).toEqual([[D('real'), 0], ['plain', 3]]);
+    });
   });
 
   it('the rank comes from provenance fields and never from text: an item carrying text is refused', () => {
@@ -95,8 +158,8 @@ describe('a committed decision outranks recollection', () => {
   });
 
   it('an id that reads like a decision does not rank like one', () => {
-    const order = idsOf([item('committed-decision-001', 'summary', 5), item('zzz', 'approved-memory', 1)]);
-    expect(order).toEqual(['zzz', 'committed-decision-001']);
+    const order = idsOf([item('committed-decision-001', 'summary', 5), item(MEMORY, 'approved-memory', 1)]);
+    expect(order).toEqual([MEMORY, 'committed-decision-001']);
   });
 
   it('inside a tier the newer item ranks first, then the id decides, so the order is the same however the input is ordered', () => {
@@ -107,38 +170,51 @@ describe('a committed decision outranks recollection', () => {
 
   it('two items with one id keep the higher tier, whichever came first, and the other is refused', () => {
     for (const items of [
-      [item('same', 'summary', 9), item('same', 'approved-memory', 1)],
-      [item('same', 'approved-memory', 1), item('same', 'summary', 9)],
+      [item(MEMORY, 'summary', 9), item(MEMORY, 'approved-memory', 1)],
+      [item(MEMORY, 'approved-memory', 1), item(MEMORY, 'summary', 9)],
     ]) {
-      const ranked = rankByProvenance(items);
-      if (!ranked.ok) throw new Error(ranked.code);
-      expect(ranked.ranked.map((entry) => [entry.id, entry.effectiveKind])).toEqual([['same', 'approved-memory']]);
-      expect(ranked.refused).toMatchObject([{ code: 'PROVENANCE_DUPLICATE_ID' }]);
+      const ranked = ranking(items);
+      expect(ranked.ranked.map((entry) => [entry.id, entry.effectiveKind])).toEqual([[MEMORY, 'approved-memory']]);
+      expect(ranked.refused).toMatchObject([{ code: 'PROVENANCE_DUPLICATE_ID', ids: [MEMORY] }]);
     }
   });
 
-  it('ids are compared in one canonical form, so a case or width variant cannot shadow an item', () => {
-    const ranked = rankByProvenance([item('Decision-1', 'summary', 9), item('decision-1', 'committed-decision', 1), item('Ｄecision-1', 'recollection', 5)]);
-    if (!ranked.ok) throw new Error(ranked.code);
-    expect(ranked.ranked.map((entry) => entry.effectiveKind)).toEqual(['committed-decision']);
-    expect(ranked.refused).toHaveLength(2);
+  describe('items whose ids differ only by case or width', () => {
+    it('two real decisions are both ranked and the collision is named, so neither vanishes', () => {
+      const ranked = ranking([item(D('A'), 'committed-decision', 1), item(D('a'), 'committed-decision', 2)]);
+      expect(ranked.ranked.map((entry) => entry.id).sort()).toEqual([D('A'), D('a')]);
+      expect(ranked.refused).toEqual([]);
+      expect(ranked.collisions).toEqual([[D('A'), D('a')]]);
+    });
+
+    it('a lower item that collides with a decision is refused naming BOTH ids, and the decision stays', () => {
+      const ranked = ranking([item(D('a'), 'committed-decision', 1), item(D('A'), 'summary', 9)]);
+      expect(ranked.ranked.map((entry) => entry.id)).toEqual([D('a')]);
+      expect(ranked.refused).toMatchObject([{ id: D('A'), code: 'PROVENANCE_ID_COLLISION', ids: [D('A'), D('a')] }]);
+      expect(ranked.collisions).toEqual([[D('A'), D('a')]]);
+    });
+
+    it('two items below the committed tiers that collide are both refused, naming both, and a width variant collides too', () => {
+      const ranked = ranking([item('Note-1', 'summary', 1), item('Ｎote-1', 'recollection', 2), item('keep', 'finding', 3)]);
+      expect(ranked.ranked.map((entry) => entry.id)).toEqual(['keep']);
+      expect(ranked.refused.map((entry) => entry.code)).toEqual(['PROVENANCE_ID_COLLISION', 'PROVENANCE_ID_COLLISION']);
+      expect(ranked.refused.every((entry) => entry.ids?.length === 2)).toBe(true);
+    });
   });
 
   it('a contradiction names a decision that is there and proven, or it names nothing', () => {
-    const ranked = rankByProvenance([
+    const ranked = ranking([
       item('points-nowhere', 'summary', 1, { contradicts: ['missing'] }),
-      item('points-at-memory', 'summary', 1, { contradicts: ['m'] }),
-      item('m', 'approved-memory'),
-      { id: 'unproven', kind: 'committed-decision', timeMs: 1 },
-      item('points-at-unproven', 'summary', 1, { contradicts: ['unproven'] }),
+      item('points-at-memory', 'summary', 1, { contradicts: [MEMORY] }),
+      item(MEMORY, 'approved-memory'),
+      { id: D('unproven'), kind: 'committed-decision', timeMs: 1 },
+      item('points-at-unproven', 'summary', 1, { contradicts: [D('unproven')] }),
     ]);
-    if (!ranked.ok) throw new Error(ranked.code);
     for (const entry of ranked.ranked) expect(entry.overruledBy).toEqual([]);
   });
 
   it('a decision is never overruled by what it is said to contradict', () => {
-    const ranked = rankByProvenance([item('d1', 'committed-decision', 1, { contradicts: ['d2'] }), item('d2', 'committed-decision', 2)]);
-    if (!ranked.ok) throw new Error(ranked.code);
+    const ranked = ranking([item(D('d1'), 'committed-decision', 1, { contradicts: [D('d2')] }), item(D('d2'), 'committed-decision', 2)]);
     expect(ranked.ranked.every((entry) => entry.overruledBy.length === 0)).toBe(true);
   });
 
@@ -159,8 +235,7 @@ describe('a committed decision outranks recollection', () => {
     ['an item that is null', null, 'PROVENANCE_ITEM_NOT_PLAIN'],
     ['an item that is a string', 'decision', 'PROVENANCE_ITEM_NOT_PLAIN'],
   ])('refuses %s, by code, and keeps the rest', (_name, bad, code) => {
-    const ranked = rankByProvenance([bad, item('ok', 'summary')]);
-    if (!ranked.ok) throw new Error(ranked.code);
+    const ranked = ranking([bad, item('ok', 'summary')]);
     expect(ranked.ranked.map((entry) => entry.id)).toEqual(['ok']);
     expect(ranked.refused).toMatchObject([{ code }]);
   });
@@ -173,26 +248,60 @@ describe('a committed decision outranks recollection', () => {
     const proto = JSON.parse('{"id":"p","kind":"summary","timeMs":1,"__proto__":{"kind":"committed-decision"}}') as unknown;
     const constructor = JSON.parse('{"id":"c","kind":"summary","timeMs":1,"constructor":{}}') as unknown;
     const inherited = Object.create({ kind: 'committed-decision' }, { id: { value: 'i', enumerable: true }, timeMs: { value: 1, enumerable: true } }) as unknown;
-    const ranked = rankByProvenance([getter, symbol, proto, constructor, inherited, item('ok', 'summary')]);
-    if (!ranked.ok) throw new Error(ranked.code);
+    const ranked = ranking([getter, symbol, proto, constructor, inherited, item('ok', 'summary')]);
     expect(ranked.ranked.map((entry) => entry.id)).toEqual(['ok']);
     expect(ranked.refused).toHaveLength(5);
     expect(ranked.refused.every((entry) => entry.code === 'PROVENANCE_ITEM_NOT_PLAIN')).toBe(true);
     expect(reads).toBeLessThanOrEqual(1);
   });
 
-  it('refuses a list that is not a list, and one over the cap, whole and unread', () => {
+  describe('a hostile contradiction list becomes a refusal and never an exception', () => {
+    it('refuses a list whose element is a getter that answers differently the second time', () => {
+      const list = ['ok'];
+      let reads = 0;
+      Object.defineProperty(list, 0, { get: () => (reads++ === 0 ? 'ok' : {}), enumerable: true });
+      const ranked = ranking([{ id: 'x', kind: 'summary', timeMs: 1, contradicts: list }, item('keep', 'summary')]);
+      expect(ranked.ranked.map((entry) => entry.id)).toEqual(['keep']);
+      expect(ranked.refused).toMatchObject([{ id: 'x', code: 'PROVENANCE_CONTRADICTS_INVALID' }]);
+      expect(reads).toBe(0);
+    });
+
+    it('refuses a list with an own `some` that lies, and a list with a hole or an extra own key', () => {
+      const lying: unknown[] = [{}];
+      (lying as unknown as { some: () => boolean }).some = () => false;
+      const holey = new Array(2);
+      holey[0] = 'a';
+      const extra = ['a'] as unknown[] & { extra?: number };
+      extra.extra = 1;
+      for (const contradicts of [lying, holey, extra]) {
+        const ranked = ranking([{ id: 'x', kind: 'summary', timeMs: 1, contradicts }]);
+        expect(ranked.refused).toMatchObject([{ code: 'PROVENANCE_CONTRADICTS_INVALID' }]);
+      }
+    });
+
+    it('an item whose read throws is a refusal value, and the list still ranks', () => {
+      const trap = new Proxy({}, { ownKeys: () => { throw new Error('trap'); }, getPrototypeOf: () => { throw new Error('trap'); } });
+      const ranked = ranking([trap, item('ok', 'summary')]);
+      expect(ranked.ranked.map((entry) => entry.id)).toEqual(['ok']);
+      expect(ranked.refused).toMatchObject([{ code: 'PROVENANCE_ITEM_NOT_PLAIN' }]);
+    });
+  });
+
+  it('refuses a list that is not a list, one with a getter or a hole, and one over the cap, whole and unread', () => {
     expect(rankByProvenance('x')).toEqual({ ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' });
     expect(rankByProvenance({ length: 1, 0: item('a', 'summary') })).toEqual({ ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' });
+    const getter = [item('a', 'summary')];
+    Object.defineProperty(getter, 0, { get: () => item('a', 'summary'), enumerable: true });
+    expect(rankByProvenance(getter)).toEqual({ ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' });
+    expect(rankByProvenance(new Array(2))).toEqual({ ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' });
     const many = Array.from({ length: MAX_PROVENANCE_ITEMS + 1 }, (_, i) => item(`i${i}`, 'summary'));
     expect(rankByProvenance(many)).toEqual({ ok: false, code: 'PROVENANCE_TOO_MANY_ITEMS' });
   });
 
   it('returns frozen results, and changing the input afterwards changes nothing', () => {
-    const input = [item('a', 'summary', 1), item('d', 'committed-decision')];
-    const ranked = rankByProvenance(input);
-    if (!ranked.ok) throw new Error(ranked.code);
-    input[0] = item('a', 'committed-decision');
+    const input = [item('a', 'summary', 1), item(D('d'), 'committed-decision')];
+    const ranked = ranking(input);
+    input[0] = item(D('a'), 'committed-decision');
     expect(ranked.ranked.find((entry) => entry.id === 'a')?.effectiveKind).toBe('summary');
     expect(Object.isFrozen(ranked.ranked)).toBe(true);
     expect(Object.isFrozen(ranked.ranked[0])).toBe(true);
@@ -200,16 +309,15 @@ describe('a committed decision outranks recollection', () => {
 
   it('an id of 60,000 characters is refused at once, and hostile text in an id takes no time', () => {
     const started = Date.now();
-    const ranked = rankByProvenance([{ id: 'a'.repeat(60_000), kind: 'summary', timeMs: 1 }, { id: ' '.repeat(60_000), kind: 'summary', timeMs: 1 }]);
-    if (!ranked.ok) throw new Error(ranked.code);
+    const ranked = ranking([{ id: 'a'.repeat(60_000), kind: 'summary', timeMs: 1 }, { id: ' '.repeat(60_000), kind: 'summary', timeMs: 1 }]);
     expect(ranked.refused.map((entry) => entry.code)).toEqual(['PROVENANCE_ID_INVALID', 'PROVENANCE_ID_INVALID']);
     expect(Date.now() - started).toBeLessThan(2000);
   });
 });
 
 describe('a summary never replaces a decision', () => {
-  const decision = { kind: 'committed-decision', committed: proof };
-  const approved = { kind: 'approved-memory', committed: proof };
+  const decision = { kind: 'committed-decision', committed: proofFor(D('x')) };
+  const approved = { kind: 'approved-memory', committed: proofFor(MEMORY) };
 
   it.each(['summary', 'recollection'])('refuses a %s writing over a decision, with its own code', (kind) => {
     expect(provenanceReplacementProblem({ kind }, decision)).toBe('PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION');
@@ -217,6 +325,12 @@ describe('a summary never replaces a decision', () => {
 
   it('refuses an unproven decision claim writing over a decision, because it is a recollection', () => {
     expect(provenanceReplacementProblem({ kind: 'committed-decision' }, decision)).toBe('PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION');
+  });
+
+  it('refuses a forged proof, a copied proof and a proof of another kind as a writer, so none of them is a decision', () => {
+    for (const committed of [{ commit: COMMIT, blob: BLOB, path: D('x'), kind: 'committed-decision' }, { ...proofFor(D('x')) }, proofFor(MEMORY)]) {
+      expect(provenanceReplacementProblem({ kind: 'committed-decision', committed }, decision)).toBe('PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION');
+    }
   });
 
   it('a decision is not replaceable through this door by anything, a decision included', () => {
@@ -227,7 +341,7 @@ describe('a summary never replaces a decision', () => {
 
   it('a lower rank never replaces a higher one', () => {
     expect(provenanceReplacementProblem({ kind: 'finding' }, approved)).toBe('PROVENANCE_LOWER_RANK_CANNOT_REPLACE');
-    expect(provenanceReplacementProblem({ kind: 'summary' }, { kind: 'plan-memory', committed: proof })).toBe('PROVENANCE_LOWER_RANK_CANNOT_REPLACE');
+    expect(provenanceReplacementProblem({ kind: 'summary' }, { kind: 'plan-memory', committed: proofFor(PLAN('p')) })).toBe('PROVENANCE_LOWER_RANK_CANNOT_REPLACE');
     expect(provenanceReplacementProblem({ kind: 'summary' }, { kind: 'finding' })).toBe('PROVENANCE_LOWER_RANK_CANNOT_REPLACE');
   });
 

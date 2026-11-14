@@ -46,6 +46,7 @@ export {
   deleteDerivedIndex,
   deleteMemoryItem,
   readDeletionLedger,
+  type CheckoutOwner,
   type DeletionFiles,
   type DeletionLedgerRead,
   type IndexDeletionPorts,

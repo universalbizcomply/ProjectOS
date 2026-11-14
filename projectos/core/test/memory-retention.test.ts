@@ -20,7 +20,9 @@ const HASH = 'e'.repeat(64);
 const PATH = '.projectops/memory/MEMORY.md';
 
 const request = (overrides: Record<string, unknown> = {}) => ({ tenant: TENANT, project: PROJECT, path: PATH, itemHash: HASH, reason: 'the entry is wrong', ...overrides });
+const ROOT = '/work/project';
 const facts = (overrides: Partial<MemoryDeletionFacts> = {}): MemoryDeletionFacts => ({
+  root: ROOT,
   currentItemHash: HASH,
   citedByDecision: false,
   ownerVerifier: () => true,
@@ -117,8 +119,43 @@ describe('deleting approved memory, or what a decision cites, needs the owner', 
       return true;
     };
     expect(judgeMemoryDeletion(request(), facts({ ownerVerifier: verifier as never })).ok).toBe(true);
-    expect(seen).toEqual([{ action: 'memory-delete', actionClass: 'P5', tenant: TENANT, project: PROJECT, memoryClass: 'curated-memory', path: PATH, itemHash: HASH, reason: 'the entry is wrong' }, true]);
-    expect(deletionOwnerClaimOf(request(), 'curated-memory', 'memory-delete', 'P5')).toEqual(seen[0]);
+    const claim = seen[0] as Record<string, unknown>;
+    expect(claim).toMatchObject({ action: 'memory-delete', actionClass: 'P5', tenant: TENANT, project: PROJECT, root: ROOT, memoryClass: 'curated-memory', path: PATH, itemHash: HASH, citedByDecision: false, reason: 'the entry is wrong' });
+    expect(seen[1]).toBe(true);
+    expect(deletionOwnerClaimOf(request(), 'curated-memory', 'memory-delete', 'P5', { root: ROOT, citedByDecision: false })).toEqual(claim);
+  });
+
+  it('shows the owner what a decision cites, and binds it in the hash of the claim', () => {
+    const claims: Record<string, unknown>[] = [];
+    const verifier = (claim: Record<string, unknown>) => (claims.push(claim), true);
+    for (const citedByDecision of [false, true, 'unknown'] as const) judgeMemoryDeletion(request(), facts({ citedByDecision, ownerVerifier: verifier as never }));
+    expect(claims.map((claim) => claim['citedByDecision'])).toEqual([false, true, 'unknown']);
+    const hashes = claims.map((claim) => claim['claimHash']);
+    expect(new Set(hashes).size).toBe(3);
+    for (const hash of hashes) expect(hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('binds the root, the tenant, the project and the item hash in the hash of the claim', () => {
+    const hashOf = (rawRequest: Record<string, unknown>, root = ROOT) => {
+      let hash: unknown;
+      judgeMemoryDeletion(rawRequest, facts({ root, currentItemHash: String(rawRequest['itemHash']), ownerVerifier: ((claim: Record<string, unknown>) => ((hash = claim['claimHash']), true)) as never }));
+      return hash;
+    };
+    const base = hashOf(request());
+    expect(hashOf(request())).toBe(base);
+    expect(hashOf(request(), '/other/project')).not.toBe(base);
+    expect(hashOf(request({ tenant: 'agency-two' }))).not.toBe(base);
+    expect(hashOf(request({ project: 'beta-project' }))).not.toBe(base);
+    expect(hashOf(request({ itemHash: 'f'.repeat(64) }))).not.toBe(base);
+  });
+
+  it('refuses a binding it cannot use, before the owner is asked', () => {
+    let asked = 0;
+    const verifier = () => (asked++, true);
+    for (const root of ['', 'a'.repeat(513), 'a\nb', 7 as never, undefined as never]) {
+      expect(judgeMemoryDeletion(request(), facts({ root, ownerVerifier: verifier }))).toMatchObject({ ok: false, code: 'DELETE_BINDING_INVALID' });
+    }
+    expect(asked).toBe(0);
   });
 
   it('asks once, and a verifier that answers true the first time and false the second changes nothing', () => {

@@ -395,7 +395,7 @@ const PINS = [
 /** Text mutations that are not the removal of a pin. */
 const TEXT_MUTATIONS = [
   { rule: "MS-4", name: "a-request-can-name-the-time", rel: INDEX, from: "  readonly temporalDecay?: TemporalDecayConfig;\n}", to: "  readonly temporalDecay?: TemporalDecayConfig;\n  readonly nowMs?: number;\n}", also: [] },
-  { rule: "MS-4", name: "a-rebuild-can-be-handed-the-time", rel: INDEX, from: "options?: { readonly chunking?: SearchChunking },", to: "options?: { readonly chunking?: SearchChunking; readonly nowMs?: number },", also: [] },
+  { rule: "MS-4", name: "a-rebuild-can-be-handed-the-time", rel: INDEX, from: "      readonly builtAtCommit?: string | null;\n    },", to: "      readonly builtAtCommit?: string | null;\n      readonly nowMs?: number;\n    },", also: [] },
 
   // MS-11: no second route.
   { rule: "MS-11", name: "the-door-writes-a-file-of-its-own", rel: DOOR_AGENT, from: "const whole = (code", to: "const leak = (sys: System) => sys.writeText('x', 'y');\nconst whole = (code", also: [] },

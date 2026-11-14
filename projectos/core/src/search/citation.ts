@@ -192,7 +192,7 @@ export interface CitedAnswer {
   readonly citations: readonly SearchCitation[];
 }
 
-export type AnswerRefusalReason = 'empty-answer' | 'uncited-answer' | 'citation-not-retrieved';
+export type AnswerRefusalReason = 'empty-answer' | 'uncited-answer' | 'citation-not-retrieved' | 'citation-freshness-mismatch';
 
 export type AnswerAdmission = { readonly ok: true; readonly answer: CitedAnswer } | { readonly ok: false; readonly reason: AnswerRefusalReason };
 
@@ -203,6 +203,24 @@ const withinRetrieved = (citation: SearchCitation, hit: CitedSearchHit): boolean
   citation.startLine >= hit.citation.startLine &&
   citation.endLine <= hit.citation.endLine;
 
+const sameFreshness = (a: CitationFreshness | undefined, b: CitationFreshness | undefined): boolean =>
+  a === undefined || b === undefined ? a === b : a.state === b.state && (a.state === 'fresh' || (b.state === 'stale' && a.reason === b.reason));
+
+/**
+ * The freshness an answer's citation carries: that of the hits that cover it. A stale hit wins over a fresh one, and a hit nobody judged
+ * wins over a fresh one, so a mark is never lost by choosing a kinder hit. A citation that states a freshness must state exactly that
+ * one: a stale hit cannot be cited as fresh, and a hit with none cannot be given one. `'mismatch'` is a refusal.
+ */
+function answerFreshnessOf(citation: SearchCitation, covering: readonly CitedSearchHit[]): CitationFreshness | undefined | 'mismatch' {
+  const marks = covering.map((hit) => (hit.citation.freshness === undefined ? undefined : citationFreshnessOfValue(hit.citation.freshness)));
+  if (marks.some((mark) => mark === null)) return 'mismatch';
+  const known = marks as readonly (CitationFreshness | undefined)[];
+  const held = known.find((mark) => mark?.state === 'stale') ?? (known.some((mark) => mark === undefined) ? undefined : known[0]);
+  if (citation.freshness === undefined) return held;
+  const stated = citationFreshnessOfValue(citation.freshness);
+  return stated !== null && sameFreshness(stated, held) ? held : 'mismatch';
+}
+
 /** Every citation must sit inside something the search returned. An answer that cites nothing is not an answer. */
 export function admitCitedAnswer(answer: { readonly text?: string; readonly citations?: readonly SearchCitation[] }, hits: readonly CitedSearchHit[]): AnswerAdmission {
   const citations = answer.citations ?? [];
@@ -211,5 +229,11 @@ export function admitCitedAnswer(answer: { readonly text?: string; readonly cita
   if (!citations.every((citation) => hits.some((hit) => withinRetrieved(citation, hit)))) {
     return { ok: false, reason: 'citation-not-retrieved' };
   }
-  return { ok: true, answer: { text: answer.text, citations } };
+  const admitted: SearchCitation[] = [];
+  for (const citation of citations) {
+    const freshness = answerFreshnessOf(citation, hits.filter((hit) => withinRetrieved(citation, hit)));
+    if (freshness === 'mismatch') return { ok: false, reason: 'citation-freshness-mismatch' };
+    admitted.push({ project: citation.project, path: citation.path, startLine: citation.startLine, endLine: citation.endLine, ...(freshness === undefined ? {} : { freshness }) });
+  }
+  return { ok: true, answer: { text: answer.text, citations: admitted } };
 }

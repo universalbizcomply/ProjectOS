@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { admitSearchResult, citationFreshnessOf, type CitedSearchHit } from '../src/search/citation.js';
+import { admitCitedAnswer, admitSearchResult, citationFreshnessOf, type CitedSearchHit } from '../src/search/citation.js';
 import { rankCitedResults } from '../src/search/citedSearch.js';
 import { renderUntrustedExcerpt } from '../src/search/untrustedExcerpt.js';
 
@@ -107,5 +107,48 @@ describe('a stale citation is still rendered, with the mark', () => {
   it('changing the mark changes the fence, so a stale excerpt cannot be passed off as a fresh one with the same id', () => {
     const idOf = (text: string) => /<<<untrusted-excerpt ([0-9a-f]+) /.exec(text)?.[1];
     expect(idOf(renderUntrustedExcerpt(hitWith({ state: 'fresh' })))).not.toBe(idOf(renderUntrustedExcerpt(hitWith({ state: 'stale', reason: 'head-moved' }))));
+  });
+});
+
+describe('an answer keeps the freshness of the hit it cites', () => {
+  const hitWith = (freshness?: Parameters<typeof admitSearchResult>[2]): CitedSearchHit => {
+    const admitted = admitSearchResult(result(), PROJECT, freshness);
+    if (!admitted.ok) throw new Error(admitted.refusal.reason);
+    return admitted.hit;
+  };
+  const cite = (extra: Record<string, unknown> = {}) => ({ project: PROJECT, path: 'docs/guide.md', startLine: 4, endLine: 5, ...extra });
+  const STALE = { state: 'stale', reason: 'head-moved' } as const;
+
+  it('copies the stale mark of the covering hit onto the admitted citation, which the answer did not carry', () => {
+    const admitted = admitCitedAnswer({ text: 'It is final.', citations: [cite()] }, [hitWith(STALE)]);
+    if (!admitted.ok) throw new Error(admitted.reason);
+    expect(admitted.answer.citations).toEqual([cite({ freshness: STALE })]);
+  });
+
+  it('a hit with no freshness gives the admitted citation none', () => {
+    const admitted = admitCitedAnswer({ text: 'It is final.', citations: [cite()] }, [hitWith()]);
+    if (!admitted.ok) throw new Error(admitted.reason);
+    expect('freshness' in (admitted.answer.citations[0] ?? {})).toBe(false);
+  });
+
+  it('refuses a citation that claims fresh where the hit is stale, and one that claims a mark where the hit has none', () => {
+    expect(admitCitedAnswer({ text: 'x', citations: [cite({ freshness: { state: 'fresh' } })] }, [hitWith(STALE)])).toEqual({ ok: false, reason: 'citation-freshness-mismatch' });
+    expect(admitCitedAnswer({ text: 'x', citations: [cite({ freshness: { state: 'fresh' } })] }, [hitWith()])).toEqual({ ok: false, reason: 'citation-freshness-mismatch' });
+    expect(admitCitedAnswer({ text: 'x', citations: [cite({ freshness: { state: 'stale', reason: 'head-unknown' } })] }, [hitWith(STALE)])).toEqual({ ok: false, reason: 'citation-freshness-mismatch' });
+  });
+
+  it('accepts a citation that states the freshness of its hit, and refuses one with a freshness that is not a known shape', () => {
+    expect(admitCitedAnswer({ text: 'x', citations: [cite({ freshness: STALE })] }, [hitWith(STALE)]).ok).toBe(true);
+    expect(admitCitedAnswer({ text: 'x', citations: [cite({ freshness: { state: 'fresh', extra: 1 } })] }, [hitWith({ state: 'fresh' })])).toEqual({ ok: false, reason: 'citation-freshness-mismatch' });
+  });
+
+  it('when two hits cover the lines and one is stale, the stale mark is the one that stays', () => {
+    const admitted = admitCitedAnswer({ text: 'x', citations: [cite()] }, [hitWith({ state: 'fresh' }), hitWith(STALE)]);
+    if (!admitted.ok) throw new Error(admitted.reason);
+    expect(admitted.answer.citations[0]?.freshness).toEqual(STALE);
+  });
+
+  it('still refuses a citation no hit covers, before it looks at freshness', () => {
+    expect(admitCitedAnswer({ text: 'x', citations: [cite({ path: 'other.md', freshness: STALE })] }, [hitWith(STALE)])).toEqual({ ok: false, reason: 'citation-not-retrieved' });
   });
 });

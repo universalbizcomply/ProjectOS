@@ -46,6 +46,7 @@ export * from './execution/index.js';
 export * from './search/index.js';
 export * from './memory/index.js';
 export * from './memory/provenance.js';
+export { isCommittedProof, type CommittedProof, type CommittedProofKind } from './memory/committedProof.js';
 export * from './memory/committedBytes.js';
 export * from './memory/retention.js';
 export * from './memory/deletionLedger.js';

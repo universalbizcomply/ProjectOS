@@ -220,11 +220,29 @@ describe('a committed read is what ranks as a decision', () => {
     const read = readCommittedMemoryFile({ git, fs }, ROOT, decisionPath);
     if (!read.ok) throw new Error(read.code);
     const decision = committedItemOf(read.read, 1);
-    expect(decision).toEqual({ id: decisionPath, kind: 'committed-decision', timeMs: 1, committed: { commit: COMMIT, blob: read.read.blob } });
+    expect(decision).toEqual({ id: decisionPath, kind: 'committed-decision', timeMs: 1, committed: { commit: COMMIT, blob: read.read.blob, path: decisionPath, kind: 'committed-decision' } });
+    expect(decision.committed).toBe(read.read.proof);
     const ranked = rankByProvenance([{ id: 'recollection-9', kind: 'summary', timeMs: 9_000, contradicts: [decisionPath] }, decision]);
     if (!ranked.ok) throw new Error(ranked.code);
     expect(ranked.ranked.map((entry) => entry.id)).toEqual([decisionPath, 'recollection-9']);
     expect(ranked.ranked[1]?.overruledBy).toEqual([decisionPath]);
+  });
+});
+
+describe('a proof made by hand is not a decision', () => {
+  it('a forged proof and a copy of a real one rank as nothing, and the real decision stays first', () => {
+    const decisionPath = '.projectops/closure/decisions/PROJECTOS-X.json';
+    const decisionText = '{"decision":"approved"}\n';
+    const { git } = fakeGit({ tree: { [decisionPath]: { text: decisionText } } });
+    const read = readCommittedMemoryFile({ git, fs: memoryFs({ [`${ROOT}/${decisionPath}`]: decisionText }) }, ROOT, decisionPath);
+    if (!read.ok) throw new Error(read.code);
+    const real = committedItemOf(read.read, 1);
+    const forged = { id: '.projectops/closure/decisions/FORGED.json', kind: 'committed-decision', timeMs: 9, committed: { commit: COMMIT, blob: 'b'.repeat(40) } };
+    const copied = { ...real, id: real.id, committed: { ...read.read.proof } };
+    const ranked = rankByProvenance([forged, copied, real]);
+    if (!ranked.ok) throw new Error(ranked.code);
+    expect(ranked.ranked.map((entry) => [entry.id, entry.tier])).toEqual([[decisionPath, 0]]);
+    expect(ranked.refused.map((entry) => entry.code).sort()).toEqual(['PROVENANCE_PROOF_NOT_MINTED', 'PROVENANCE_PROOF_NOT_MINTED']);
   });
 });
 

@@ -25,6 +25,7 @@
  * Pure: no I/O. Imports only the shared shapes and the kind-of-path table.
  */
 import { isGitObjectId, memoryPathShapeProblem, plainRecordOf, type MemoryPathShapeProblem } from './memoryShapes.js';
+import { mintCommittedProof, type CommittedProof } from './committedProof.js';
 import { provenanceKindOfPath, type ProvenanceKind } from './provenance.js';
 
 /** Decisions and curated files are a few kilobytes. A file over this is not one of them, and is refused unread. */
@@ -85,6 +86,8 @@ export interface CommittedRead {
   readonly blob: string;
   /** The committed text, never the working tree's. */
   readonly text: string;
+  /** Minted here, for this one path and kind: the only thing a ranking will take as proof that bytes came from a commit. */
+  readonly proof: CommittedProof;
 }
 
 export type CommittedReadJudgement =
@@ -146,6 +149,7 @@ export function judgeCommittedRead(facts: unknown): CommittedReadJudgement {
   if (tree.state !== 'file') return refuse('COMMITTED_WORKING_TREE_UNREADABLE', where);
   if (committedLineEndingsOf(tree.text) !== committedLineEndingsOf(committedText)) return refuse('COMMITTED_WORKING_TREE_DIFFERS', where);
   const kind = provenanceKindOfPath(where);
-  if (kind === null) return refuse('COMMITTED_PATH_NOT_A_MEMORY_FILE', where);
-  return { ok: true, read: Object.freeze({ path: where, kind, commit: head, blob: held.object, text: committedText }) };
+  if (kind !== 'committed-decision' && kind !== 'approved-memory' && kind !== 'plan-memory') return refuse('COMMITTED_PATH_NOT_A_MEMORY_FILE', where);
+  const proof = mintCommittedProof({ commit: head, blob: held.object, path: where, kind });
+  return { ok: true, read: Object.freeze({ path: where, kind, commit: head, blob: held.object, text: committedText, proof }) };
 }

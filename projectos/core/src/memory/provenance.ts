@@ -10,26 +10,34 @@
  *   tier 3  a summary, a recollection
  *
  * THE RANK IS COMPUTED FROM FIELDS THE KERNEL SETS. An item is `{ id, kind, timeMs, committed?, contradicts? }` and nothing
- * else: an item that carries text, or any other field, is refused, so stored text has no way to choose its own tier. A
- * claim to tier 0 or 1 is believed only with `committed: { commit, blob }`, the proof a committed-bytes read returns
- * (`committedBytes.ts`). A claim with no proof is ranked as a recollection and marked `unverifiedClaim`: it is neither hidden
- * nor believed.
+ * else: an item that carries text, or any other field, is refused, so stored text has no way to choose its own tier.
  *
- * A DECISION OUTRANKS ANYTHING THAT CONTRADICTS IT. An item names the decisions it contradicts in `contradicts` (ids, set by
- * the kernel, never found by reading text). A lower-tier item that contradicts a proven decision in the set is marked
- * `overruledBy` it and sorts after every item of its tier that is not overruled. A summary is tier 3, so it sorts below
- * every decision whether or not it is marked.
+ * A CLAIM TO TIER 0 OR 1 IS BELIEVED ONLY WITH A MINTED PROOF (fix round 1, H1). A proof is the object a committed read made
+ * (`committedProof.ts`), registered where only that file can reach. A plain object holding two hex names, a copy of a real
+ * proof, a `structuredClone` and a JSON round-trip are not proofs, and an item that offers one is REFUSED by its own code
+ * (`PROVENANCE_PROOF_NOT_MINTED`). A proof also names the one file it read and the kind that file is: it must equal the item's id
+ * and kind (`..._PATH_MISMATCH`, `..._KIND_MISMATCH`), so a proof for the memory file cannot make a decision. An item that
+ * claims a committed kind and offers NO proof is not refused: it ranks as a recollection and says `unverifiedClaim`.
+ *
+ * A DECISION OUTRANKS ANYTHING THAT CONTRADICTS IT. An item names the decisions it contradicts in `contradicts` (exact ids, set
+ * by the kernel, never found by reading text). A lower-tier item that contradicts a proven decision in the set is marked
+ * `overruledBy` it and sorts after every item of its tier that is not overruled.
  *
  * A SUMMARY NEVER REPLACES A DECISION. `provenanceReplacementProblem` is the question to ask before anything lets one stored
- * item stand in for another. It returns a machine-readable code, or null. Null is NOT an approval: it means this rule has no
- * objection, and the proposal door and the owner's approval still decide.
+ * item stand in for another. It returns a machine-readable code, or null. Null is NOT an approval.
  *
- * ORDER DOES NOT DECIDE. Two items with one id (compared in NFKC and lower case, so a width or case variant cannot shadow a
- * decision) keep the higher tier whichever came first. Inside a tier the newer item ranks first, then the id.
+ * ORDER DOES NOT DECIDE, AND NOTHING VANISHES UNSAID. Two items with one id keep the higher tier and the other is refused. Items
+ * whose ids differ only by case or width (NFKC, lower case) are a COLLISION: every item with a proof stays ranked (a proof is
+ * bound to its path, so it cannot shadow another), the collision is listed in `collisions`, and an item without a proof that
+ * collides is refused naming every id in the group. Inside a tier the newer item ranks first, then the id.
  *
- * Pure: no I/O, no clock. Every item is read once, into a frozen copy.
+ * HOSTILE INPUT IS A REFUSAL, NOT AN EXCEPTION. Every item and every list is read once into a frozen copy from its data
+ * properties; a getter, a hole, an extra own key, a method a list carries and a trap that throws all become a refusal value.
+ *
+ * Pure: no I/O, no clock.
  */
-import { isGitObjectId, hasInvisibleCharacter, plainRecordOf } from './memoryShapes.js';
+import { isCommittedProof, type CommittedProof } from './committedProof.js';
+import { hasInvisibleCharacter, plainListOf, plainRecordOf } from './memoryShapes.js';
 
 export const PROVENANCE_KINDS = [
   'committed-decision',
@@ -57,16 +65,11 @@ export const MAX_PROVENANCE_ITEMS = 500;
 export const MAX_PROVENANCE_ID_CHARS = 256;
 const MAX_CONTRADICTS = 20;
 
-/** The proof that an item's bytes were read from a commit. Made by the committed-bytes read, not by a caller's say-so. */
-export interface CommittedProof {
-  readonly commit: string;
-  readonly blob: string;
-}
-
 export interface ProvenanceItem {
   readonly id: string;
   readonly kind: ProvenanceKind;
   readonly timeMs: number;
+  /** The proof a committed read minted (`CommittedRead.proof`). Anything else offered here is refused. */
   readonly committed?: CommittedProof | null;
   readonly contradicts?: readonly string[];
 }
@@ -78,14 +81,18 @@ export type ProvenanceRefusalCode =
   | 'PROVENANCE_KIND_UNKNOWN'
   | 'PROVENANCE_TIME_INVALID'
   | 'PROVENANCE_CONTRADICTS_INVALID'
-  | 'PROVENANCE_DUPLICATE_ID';
+  | 'PROVENANCE_PROOF_NOT_MINTED'
+  | 'PROVENANCE_PROOF_PATH_MISMATCH'
+  | 'PROVENANCE_PROOF_KIND_MISMATCH'
+  | 'PROVENANCE_DUPLICATE_ID'
+  | 'PROVENANCE_ID_COLLISION';
 
 export interface RankedProvenanceItem {
   readonly rank: number;
   readonly id: string;
   /** What the item claimed. */
   readonly kind: ProvenanceKind;
-  /** What it is ranked as: a claim to tier 0 or 1 without proof is a recollection. */
+  /** What it is ranked as: a claim to tier 0 or 1 without a proof is a recollection. */
   readonly effectiveKind: ProvenanceKind;
   readonly tier: number;
   readonly timeMs: number;
@@ -98,10 +105,18 @@ export interface ProvenanceRefusal {
   readonly index: number;
   readonly id: string | null;
   readonly code: ProvenanceRefusalCode;
+  /** For a duplicate or a collision: every id involved, so none disappears unnamed. */
+  readonly ids?: readonly string[];
 }
 
 export type ProvenanceRanking =
-  | { readonly ok: true; readonly ranked: readonly RankedProvenanceItem[]; readonly refused: readonly ProvenanceRefusal[] }
+  | {
+      readonly ok: true;
+      readonly ranked: readonly RankedProvenanceItem[];
+      readonly refused: readonly ProvenanceRefusal[];
+      /** Groups of ids that differ only by case or width. Every item with a proof in a group is still in `ranked`. */
+      readonly collisions: readonly (readonly string[])[];
+    }
   | { readonly ok: false; readonly code: 'PROVENANCE_ITEMS_NOT_A_LIST' | 'PROVENANCE_TOO_MANY_ITEMS' };
 
 const isKind = (value: unknown): value is ProvenanceKind => typeof value === 'string' && (PROVENANCE_KINDS as readonly string[]).includes(value);
@@ -111,14 +126,6 @@ const needsProof = (kind: ProvenanceKind): boolean => PROVENANCE_TIERS[kind] <= 
 
 function idProblem(id: unknown): boolean {
   return typeof id !== 'string' || id.length === 0 || id.length > MAX_PROVENANCE_ID_CHARS || id !== id.trim() || hasInvisibleCharacter(id);
-}
-
-/** The proof, copied, or null when it is not exactly a commit name and a blob name. */
-function proofOf(value: unknown): CommittedProof | null {
-  const read = plainRecordOf(value, ['commit', 'blob']);
-  if (!read.ok) return null;
-  const { commit, blob } = read.value;
-  return isGitObjectId(commit) && isGitObjectId(blob) ? Object.freeze({ commit, blob }) : null;
 }
 
 const canonicalId = (id: string): string => id.normalize('NFKC').toLowerCase();
@@ -138,6 +145,15 @@ interface Snapshot {
 
 type Read = { readonly ok: true; readonly item: Snapshot } | { readonly ok: false; readonly code: ProvenanceRefusalCode; readonly id: string | null };
 
+/** The proof an item may rank on: none offered, one minted for this very file and kind, or a refusal by code. */
+function proofOfItem(offered: unknown, id: string, kind: ProvenanceKind): { readonly proof: CommittedProof | null } | { readonly code: ProvenanceRefusalCode } {
+  if (!needsProof(kind) || offered === undefined || offered === null) return { proof: null };
+  if (!isCommittedProof(offered)) return { code: 'PROVENANCE_PROOF_NOT_MINTED' };
+  if (offered.path !== id) return { code: 'PROVENANCE_PROOF_PATH_MISMATCH' };
+  if (offered.kind !== kind) return { code: 'PROVENANCE_PROOF_KIND_MISMATCH' };
+  return { proof: offered };
+}
+
 function snapshotOf(raw: unknown): Read {
   const read = plainRecordOf(raw, ['id', 'kind', 'timeMs', 'committed', 'contradicts']);
   if (!read.ok) return { ok: false, code: read.reason === 'unknown-field' ? 'PROVENANCE_ITEM_FIELD_UNKNOWN' : 'PROVENANCE_ITEM_NOT_PLAIN', id: null };
@@ -146,10 +162,20 @@ function snapshotOf(raw: unknown): Read {
   const name = id as string;
   if (!isKind(kind)) return { ok: false, code: 'PROVENANCE_KIND_UNKNOWN', id: name };
   if (typeof timeMs !== 'number' || !Number.isFinite(timeMs) || timeMs < 0) return { ok: false, code: 'PROVENANCE_TIME_INVALID', id: name };
-  if (contradicts !== undefined && (!Array.isArray(contradicts) || contradicts.length > MAX_CONTRADICTS || contradicts.some(idProblem))) {
-    return { ok: false, code: 'PROVENANCE_CONTRADICTS_INVALID', id: name };
+  const names = contradicts === undefined ? [] : plainListOf(contradicts, MAX_CONTRADICTS);
+  if (names === null || names.some(idProblem)) return { ok: false, code: 'PROVENANCE_CONTRADICTS_INVALID', id: name };
+  const proved = proofOfItem(committed, name, kind);
+  if ('code' in proved) return { ok: false, code: proved.code, id: name };
+  return { ok: true, item: { id: name, kind, timeMs, committed: proved.proof, contradicts: names as readonly string[] } };
+}
+
+/** An item read for the ranking. A read that throws is a refusal value, never an exception. */
+function safeSnapshotOf(raw: unknown): Read {
+  try {
+    return snapshotOf(raw);
+  } catch {
+    return { ok: false, code: 'PROVENANCE_ITEM_NOT_PLAIN', id: null };
   }
-  return { ok: true, item: { id: name, kind, timeMs, committed: proofOf(committed), contradicts: Object.freeze([...((contradicts as readonly string[] | undefined) ?? [])]) } };
 }
 
 const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -166,11 +192,12 @@ const compareRanked = (a: Placed, b: Placed): number =>
 export function rankByProvenance(items: unknown): ProvenanceRanking {
   if (!Array.isArray(items)) return { ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' };
   if (items.length > MAX_PROVENANCE_ITEMS) return { ok: false, code: 'PROVENANCE_TOO_MANY_ITEMS' };
-  const list: readonly unknown[] = Array.from(items);
+  const list = plainListOf(items, MAX_PROVENANCE_ITEMS);
+  if (list === null) return { ok: false, code: 'PROVENANCE_ITEMS_NOT_A_LIST' };
   const refused: ProvenanceRefusal[] = [];
   const read: { readonly index: number; readonly item: Snapshot }[] = [];
   list.forEach((raw, index) => {
-    const snap = snapshotOf(raw);
+    const snap = safeSnapshotOf(raw);
     if (snap.ok) read.push({ index, item: snap.item });
     else refused.push({ index, id: snap.id, code: snap.code });
   });
@@ -193,28 +220,51 @@ export function rankByProvenance(items: unknown): ProvenanceRanking {
   // One id, one item: the higher tier stays, whichever came first. Duplicates are refused by code, not dropped silently.
   const best = new Map<string, (typeof placed)[number]>();
   for (const candidate of placed) {
-    const key = canonicalId(candidate.entry.id);
-    const held = best.get(key);
-    if (held === undefined || compareRanked(candidate.entry, held.entry) < 0) best.set(key, candidate);
+    const held = best.get(candidate.entry.id);
+    if (held === undefined || compareRanked(candidate.entry, held.entry) < 0) best.set(candidate.entry.id, candidate);
   }
-  const kept = new Set(best.values());
+  const unique = new Set(best.values());
   for (const candidate of placed) {
-    if (!kept.has(candidate)) refused.push({ index: candidate.index, id: candidate.entry.id, code: 'PROVENANCE_DUPLICATE_ID' });
+    if (!unique.has(candidate)) refused.push({ index: candidate.index, id: candidate.entry.id, code: 'PROVENANCE_DUPLICATE_ID', ids: [candidate.entry.id] });
   }
 
-  // A proven decision overrules a lower-tier item that names it. A decision is never overruled.
-  const decisions = new Map<string, string>();
-  for (const candidate of kept) if (candidate.entry.effectiveKind === 'committed-decision') decisions.set(canonicalId(candidate.entry.id), candidate.entry.id);
+  // Ids that differ only by case or width: a proven item stays (its proof names its path), the rest are refused, and the group is named.
+  const groups = new Map<string, (typeof placed)[number][]>();
+  for (const candidate of unique) {
+    const key = canonicalId(candidate.entry.id);
+    groups.set(key, [...(groups.get(key) ?? []), candidate]);
+  }
+  const collisions: (readonly string[])[] = [];
+  const kept = new Set<(typeof placed)[number]>();
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      kept.add(group[0] as (typeof placed)[number]);
+      continue;
+    }
+    const names = Object.freeze(group.map((candidate) => candidate.entry.id).sort(compareText));
+    collisions.push(names);
+    for (const candidate of group) {
+      if (candidate.entry.committed !== null) kept.add(candidate);
+      else refused.push({ index: candidate.index, id: candidate.entry.id, code: 'PROVENANCE_ID_COLLISION', ids: names });
+    }
+  }
+
+  // A proven decision overrules a lower-tier item that names it by id. A decision is never overruled.
+  const decisions = new Set<string>();
+  for (const candidate of kept) if (candidate.entry.effectiveKind === 'committed-decision') decisions.add(candidate.entry.id);
   const finished = [...kept].map(({ entry, contradicts }) => {
     if (entry.tier === 0) return entry;
-    const names = new Set(contradicts.flatMap((name) => decisions.get(canonicalId(name)) ?? []));
+    const names = new Set(contradicts.filter((name) => decisions.has(name)));
     return { ...entry, overruledBy: Object.freeze([...names].sort(compareText)) };
   });
 
-  const ranked = finished
-    .sort(compareRanked)
-    .map((entry, position) => Object.freeze({ ...entry, rank: position + 1 }));
-  return { ok: true, ranked: Object.freeze(ranked), refused: Object.freeze(refused.sort((a, b) => a.index - b.index).map((entry) => Object.freeze(entry))) };
+  const ranked = finished.sort(compareRanked).map((entry, position) => Object.freeze({ ...entry, rank: position + 1 }));
+  return {
+    ok: true,
+    ranked: Object.freeze(ranked),
+    refused: Object.freeze(refused.sort((a, b) => a.index - b.index).map((entry) => Object.freeze(entry))),
+    collisions: Object.freeze(collisions.sort((a, b) => compareText(a.join('\n'), b.join('\n')))),
+  };
 }
 
 export type ProvenanceReplacementCode =
@@ -231,7 +281,11 @@ interface Party {
 function partyOf(value: unknown): Party | null {
   const read = plainRecordOf(value, ['kind', 'committed']);
   if (!read.ok || !isKind(read.value.kind)) return null;
-  return { kind: read.value.kind, effectiveKind: effectiveKindOf(read.value.kind, proofOf(read.value.committed)) };
+  const kind = read.value.kind;
+  const offered = read.value.committed;
+  // The proof must be a minted one, and it must be a proof of this kind: a proof from a memory read does not make a decision.
+  const proof = isCommittedProof(offered) && offered.kind === kind ? offered : null;
+  return { kind, effectiveKind: effectiveKindOf(kind, proof) };
 }
 
 /**

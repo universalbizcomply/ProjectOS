@@ -50,11 +50,14 @@ const hitsOf = (outcome: SearchOutcome): readonly CitedSearchHit[] => {
 
 const search = (index: SearchIndex) => hitsOf(index.search({ project: PROJECT, query: 'walnut' }));
 
+/** The way a caller builds: HEAD first, then the sources, then the build with the commit it took first. */
+const rebuilt = (index: SearchIndex) => index.rebuildProject(PROJECT, sources, { builtAtCommit: index.currentHead() });
+
 describe('a citation from an index built before HEAD is marked stale', () => {
   it('records the commit the index was built at, and a citation from it is fresh while HEAD has not moved', () => {
     const { head } = headOf(A);
     const index = open(head);
-    expect(index.rebuildProject(PROJECT, sources).ok).toBe(true);
+    expect(rebuilt(index).ok).toBe(true);
     const hits = search(index);
     expect(hits).toHaveLength(1);
     expect(hits[0]?.citation.freshness).toEqual({ state: 'fresh' });
@@ -63,7 +66,7 @@ describe('a citation from an index built before HEAD is marked stale', () => {
   it('marks the citation stale when HEAD has moved, and still returns it with its text', () => {
     const { head, state } = headOf(A);
     const index = open(head);
-    index.rebuildProject(PROJECT, sources);
+    rebuilt(index);
     state.value = B;
     const hits = search(index);
     expect(hits).toHaveLength(1);
@@ -74,16 +77,16 @@ describe('a citation from an index built before HEAD is marked stale', () => {
   it('a rebuild at the new HEAD makes it fresh again', () => {
     const { head, state } = headOf(A);
     const index = open(head);
-    index.rebuildProject(PROJECT, sources);
+    rebuilt(index);
     state.value = B;
-    index.rebuildProject(PROJECT, sources);
+    rebuilt(index);
     expect(search(index)[0]?.citation.freshness).toEqual({ state: 'fresh' });
   });
 
   it('asks for HEAD at each search, so a commit made after the first search is seen by the second', () => {
     const { head, state } = headOf(A);
     const index = open(head);
-    index.rebuildProject(PROJECT, sources);
+    rebuilt(index);
     expect(search(index)[0]?.citation.freshness?.state).toBe('fresh');
     state.value = B;
     expect(search(index)[0]?.citation.freshness?.state).toBe('stale');
@@ -91,7 +94,7 @@ describe('a citation from an index built before HEAD is marked stale', () => {
 
   it('an index opened with no head port marks every citation stale, never fresh', () => {
     const index = open();
-    index.rebuildProject(PROJECT, sources);
+    rebuilt(index);
     expect(search(index)[0]?.citation.freshness).toEqual({ state: 'stale', reason: 'head-unknown' });
   });
 
@@ -103,7 +106,7 @@ describe('a citation from an index built before HEAD is marked stale', () => {
   ])('an index built when HEAD answered %s is stale, even when HEAD is readable later', (_name, answered) => {
     const { head, state } = headOf(answered);
     const index = open(head);
-    index.rebuildProject(PROJECT, sources);
+    rebuilt(index);
     state.value = A;
     expect(search(index)[0]?.citation.freshness).toEqual({ state: 'stale', reason: 'built-commit-unknown' });
   });
@@ -111,7 +114,7 @@ describe('a citation from an index built before HEAD is marked stale', () => {
   it('a head that throws, or answers something that is not a commit, marks the citation stale and does not break the search', () => {
     let answer: () => string | null = () => A;
     const index = open({ headCommit: () => answer() });
-    index.rebuildProject(PROJECT, sources);
+    rebuilt(index);
     answer = () => {
       throw new Error('git is gone');
     };
@@ -147,10 +150,52 @@ describe('a citation from an index built before HEAD is marked stale', () => {
   it('a stale hit is rendered with its mark, and the mark is not in the indexed text', () => {
     const { head, state } = headOf(A);
     const index = open(head);
-    index.rebuildProject(PROJECT, sources);
+    rebuilt(index);
     state.value = B;
     const rendered = renderUntrustedExcerpt(search(index)[0] as CitedSearchHit);
     expect(rendered).toContain('freshness=stale:head-moved');
+  });
+});
+
+describe('the commit recorded is the one taken BEFORE the sources were collected', () => {
+  it('a commit made while the sources were being collected leaves the index stale, not fresh', () => {
+    const { head, state } = headOf(A);
+    const index = open(head);
+    const before = index.currentHead();
+    expect(before).toBe(A);
+    state.value = B;
+    index.rebuildProject(PROJECT, sources, { builtAtCommit: before });
+    expect(search(index)[0]?.citation.freshness).toEqual({ state: 'stale', reason: 'head-moved' });
+  });
+
+  it('does not ask HEAD again at build time: the value it is given is the one recorded', () => {
+    const { head, state } = headOf(A);
+    const index = open(head);
+    const before = index.currentHead();
+    const asked = state.asked;
+    index.rebuildProject(PROJECT, sources, { builtAtCommit: before });
+    expect(state.asked).toBe(asked);
+  });
+
+  it('a build given no commit records none, so every citation reads built-commit-unknown, never fresh', () => {
+    const { head } = headOf(A);
+    const index = open(head);
+    index.rebuildProject(PROJECT, sources);
+    expect(search(index)[0]?.citation.freshness).toEqual({ state: 'stale', reason: 'built-commit-unknown' });
+  });
+
+  it.each([['HEAD'], [A.toUpperCase()], [`${A}\n`], [7], [{}]])('a commit that is %j is recorded as none', (given) => {
+    const { head } = headOf(A);
+    const index = open(head);
+    index.rebuildProject(PROJECT, sources, { builtAtCommit: given as never });
+    expect(search(index)[0]?.citation.freshness).toEqual({ state: 'stale', reason: 'built-commit-unknown' });
+  });
+
+  it('currentHead says what the head port says, and null when it has none, throws or answers something else', () => {
+    expect(open(headOf(A).head).currentHead()).toBe(A);
+    expect(open().currentHead()).toBeNull();
+    expect(open({ headCommit: () => { throw new Error('gone'); } }).currentHead()).toBeNull();
+    expect(open(headOf('HEAD').head).currentHead()).toBeNull();
   });
 });
 
@@ -160,7 +205,7 @@ describe('the index file records the commit, and a file from before this phase g
     const location = join(dir, 'idx.sqlite');
     const { head } = headOf(A);
     const index = open(head, location);
-    index.rebuildProject(PROJECT, sources);
+    rebuilt(index);
     index.close();
     const { DatabaseSync: Database } = process.getBuiltinModule('node:sqlite');
     const db: DatabaseSync = new Database(location);
@@ -176,7 +221,7 @@ describe('the index file records the commit, and a file from before this phase g
     const location = join(dir, 'old.sqlite');
     const { head } = headOf(A);
     const first = open(head, location);
-    first.rebuildProject(PROJECT, sources);
+    rebuilt(first);
     first.close();
     const { DatabaseSync: Database } = process.getBuiltinModule('node:sqlite');
     const old: DatabaseSync = new Database(location);
@@ -186,7 +231,7 @@ describe('the index file records the commit, and a file from before this phase g
     expect(reopened.statusOf(PROJECT)).toBe('current');
     expect(search(reopened)).toHaveLength(1);
     expect(search(reopened)[0]?.citation.freshness).toEqual({ state: 'stale', reason: 'built-commit-unknown' });
-    reopened.rebuildProject(PROJECT, sources);
+    rebuilt(reopened);
     expect(search(reopened)[0]?.citation.freshness).toEqual({ state: 'fresh' });
   });
 
@@ -194,7 +239,7 @@ describe('the index file records the commit, and a file from before this phase g
     const location = join(dir, 'half.sqlite');
     const { head } = headOf(A);
     const index = open(head, location);
-    index.rebuildProject(PROJECT, sources);
+    rebuilt(index);
     index.close();
     const { DatabaseSync: Database } = process.getBuiltinModule('node:sqlite');
     const db: DatabaseSync = new Database(location);

@@ -134,8 +134,18 @@ export interface SearchIndex {
   readonly rebuildProject: (
     project: string,
     sources: readonly SearchSourceText[],
-    options?: { readonly chunking?: SearchChunking },
+    options?: {
+      readonly chunking?: SearchChunking;
+      /**
+       * The commit HEAD was at BEFORE the sources were collected: take it with `currentHead()`, collect, then build with it. It is the
+       * one recorded as built-at, so a commit made while the sources were being read leaves the index stale and not fresh. Absent, or not
+       * a commit name, none is recorded and every citation reads `built-commit-unknown`.
+       */
+      readonly builtAtCommit?: string | null;
+    },
   ) => RebuildResult;
+  /** The commit HEAD is at now, by the head port, or null. Take it before collecting the sources of a rebuild. */
+  readonly currentHead: () => string | null;
   readonly statusOf: (project: string) => ProjectIndexStatus;
   readonly search: (request: SearchRequest) => SearchOutcome;
   readonly close: () => void;
@@ -345,7 +355,7 @@ function indexOver(db: DatabaseSync, statements: Statements, deps: SearchIndexDe
       if (now === null) return { ok: false, problem: 'the clock did not give a time, so nothing was built' };
       const built = recordsOf(project, sources, options?.chunking ?? DEFAULT_SEARCH_CHUNKING);
       if (!built.ok) return built;
-      const builtAt = headCommitOf(deps.head);
+      const builtAt = isCommitName(options?.builtAtCommit) ? options.builtAtCommit : null;
       const indexed = new Set(built.records.map((record) => record.path)).size;
       writeProject(db, statements, project, indexed, built.records, now);
       // The commit is recorded AFTER the rows. The rebuilt row starts with none, so a rebuild that stops between the two reads as
@@ -355,6 +365,8 @@ function indexOver(db: DatabaseSync, statements: Statements, deps: SearchIndexDe
     },
 
     statusOf,
+
+    currentHead: () => headCommitOf(deps.head),
 
     search(request) {
       if (!isProjectId(request.project)) return { ok: false, reason: 'invalid-project' };

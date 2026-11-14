@@ -59,6 +59,7 @@ const RET = cm("retention.ts");
 const LEDGER = cm("deletionLedger.ts");
 const SHAPES = cm("memoryShapes.ts");
 const CORE_BARREL = "projectos/core/src/index.ts";
+const CPROOF = cm("committedProof.ts");
 const CITATION = cs("citation.ts");
 const CITED = cs("citedSearch.ts");
 const EXCERPT = cs("untrustedExcerpt.ts");
@@ -82,7 +83,7 @@ const ALLOWLIST = "projectos/agent/src/installation/projectAllowlist.ts";
 const TRACKED = "@tracked";
 
 /** Files this phase added. Each is tracked, opens with the origin mark, and is judged by the credit rule. */
-const NEW_FILES = [PROV, CBYTES, RET, LEDGER, SHAPES, A_COMMITTED, A_DELETE];
+const NEW_FILES = [PROV, CBYTES, RET, LEDGER, SHAPES, CPROOF, A_COMMITTED, A_DELETE];
 /** Files this phase changed that are not its own. */
 const CHANGED_FILES = [CITATION, CITED, EXCERPT, CORE_SEARCH_BARREL, AGENT_MEMORY_BARREL, INDEX, PROJECT_INDEX, PORTS, AGENT_SEARCH_BARREL];
 const NEW_CORE = NEW_FILES.filter((rel) => rel.startsWith("projectos/core/"));
@@ -118,7 +119,13 @@ const CORE_NODE_CRYPTO = [cm("prompt.ts"), cm("proposal.ts"), cm("store.ts")];
 const TESTS = {
   "projectos/core/test/memory-provenance.test.ts": [
     "a committed decision ranks above a newer memory or summary that contradicts it, which is marked as overruled",
-    "a decision claimed without proof of the committed bytes ranks as a recollection, and says so",
+    "a decision claimed with no proof of the committed bytes ranks as a recollection, and says so",
+    "refuses a plain object with two well-formed hex names, and the real decision stays first",
+    "refuses a copy of a real proof, a structuredClone of it and a JSON round-trip of it",
+    "refuses a proof from an approved-memory read attached to a decision claim, because the kind it established is not the claim",
+    "a lower item that collides with a decision is refused naming BOTH ids, and the decision stays",
+    "two real decisions are both ranked and the collision is named, so neither vanishes",
+    "refuses a list whose element is a getter that answers differently the second time",
     "the rank comes from provenance fields and never from text: an item carrying text is refused",
     "two items with one id keep the higher tier, whichever came first, and the other is refused",
     "refuses a getter, a symbol key, a prototype key and a non-plain prototype, so a second read cannot differ",
@@ -130,6 +137,7 @@ const TESTS = {
     "a file whose working-tree bytes differ from HEAD is refused",
     "refuses a working copy with %s, and returns no text",
     "the bytes it returns are the committed bytes, not the working tree, and the result is frozen",
+    "carries a minted proof of what it read: the commit, the blob, the one path and the kind that path is",
     "refuses bytes that could not be read, and bytes over the cap counted in UTF-8 and not in characters",
     "refuses what is not a string, and a 60,000 character path at once",
   ],
@@ -137,6 +145,9 @@ const TESTS = {
     "has the six classes, in order, under the names the classes file gives them",
     "deleting in the four stores of record is memory-delete, P5, owner only; the derived index is memory-index-rebuild, P2, no owner",
     "is refused with no verifier, and with a verifier that does not answer exactly true",
+    "shows the owner what a decision cites, and binds it in the hash of the claim",
+    "binds the root, the tenant, the project and the item hash in the hash of the claim",
+    "refuses a binding it cannot use, before the owner is asked",
     "asks once, and a verifier that answers true the first time and false the second changes nothing",
     "a reason of 60,000 characters is refused at once",
   ],
@@ -149,6 +160,8 @@ const TESTS = {
     "is stale when HEAD has moved, and says so",
     "shows the stale mark and the reason in the header, and still shows the text",
     "judges the mark again, so a hand-made hit cannot show a mark it was not given or hide a stale one inside the text",
+    "copies the stale mark of the covering hit onto the admitted citation, which the answer did not carry",
+    "refuses a citation that claims fresh where the hit is stale, and one that claims a mark where the hit has none",
   ],
   "projectos/agent/test/searchFreshness.test.ts": [
     "marks the citation stale when HEAD has moved, and still returns it with its text",
@@ -156,6 +169,8 @@ const TESTS = {
     "keeps schema version 2, with the build commit beside the build time",
     "a file made before the column existed gets it on open, keeps its rows, and reads stale until it is rebuilt",
     "runs git with replacement objects off and the root named, with no shell, through the system port only",
+    "a commit made while the sources were being collected leaves the index stale, not fresh",
+    "a build given no commit records none, so every citation reads built-commit-unknown, never fresh",
   ],
   "projectos/agent/test/memoryCommittedBytes.test.ts": [
     "refuses a working copy that was edited, and does not fall back to HEAD: no text comes back",
@@ -163,6 +178,7 @@ const TESTS = {
     "refuses an edited working copy, a deleted one, and an uncommitted new one",
     "refuses a symlink that HEAD holds, committed without needing a link on disk",
     "turns into a ranking item that outranks a newer summary that contradicts it",
+    "a forged proof and a copy of a real one rank as nothing, and the real decision stays first",
   ],
   "projectos/agent/test/memoryDeletion.test.ts": [
     "refuses with no verifier at all, keeps the item, and records the refusal with the item hash and the reason",
@@ -170,6 +186,9 @@ const TESTS = {
     "a ledger that cannot take an entry stops the deletion before it starts",
     "an item that changes between the owner saying yes and the removal is not removed: the approval was for other bytes",
     "cannot be aimed at anything else: the file name comes from the owner by hash, so a path in a request is refused",
+    "shows the owner that a committed decision cites the item, and that the decisions could not be read",
+    "a derived index of another tenant or project is not removed from this checkout, and the attempt is recorded under this one",
+    "a binding that is not a tenant and a project is refused unrecorded, and nothing happens",
   ],
 };
 
@@ -244,8 +263,25 @@ const PINS = [
   P("MP-2", "a-lower-rank-may-replace", PROV, "provenanceReplacementProblem", "PROVENANCE_TIERS[by.effectiveKind] > PROVENANCE_TIERS[over.kind] ?", "PROVENANCE_TIERS[by.effectiveKind] < PROVENANCE_TIERS[over.kind] ?"),
   P("MP-2", "the-list-is-unbounded", PROV, "rankByProvenance", "items.length > MAX_PROVENANCE_ITEMS", "false"),
   P("MP-2", "an-id-has-no-bound", PROV, "idProblem", "id.length > MAX_PROVENANCE_ID_CHARS ||", ""),
-  P("MP-2", "the-ranking-is-mutable", PROV, "rankByProvenance", "ok: true, ranked: Object.freeze(ranked)", "ok: true, ranked"),
+  P("MP-2", "the-ranking-is-mutable", PROV, "rankByProvenance", "ranked: Object.freeze(ranked),", "ranked,"),
   P("MP-2", "kind-of-path-has-no-bound", PROV, "provenanceKindOfPath", "if (typeof path !== 'string' || path.length > 512) return null;", "if (typeof path !== 'string') return null;"),
+
+  // MP-2 (fix round 1): a proof is minted by a committed read, bound to its path and kind, and a hostile list is a refusal.
+  P("MP-2", "a-copied-proof-is-trusted", PROV, "proofOfItem", "if (!isCommittedProof(offered)) return { code: 'PROVENANCE_PROOF_NOT_MINTED' };", ""),
+  P("MP-2", "a-proof-of-another-path-is-trusted", PROV, "proofOfItem", "if (offered.path !== id) return { code: 'PROVENANCE_PROOF_PATH_MISMATCH' };", ""),
+  P("MP-2", "a-proof-of-another-kind-is-trusted", PROV, "proofOfItem", "if (offered.kind !== kind) return { code: 'PROVENANCE_PROOF_KIND_MISMATCH' };", ""),
+  P("MP-2", "a-writer-proof-of-another-kind-is-trusted", PROV, "partyOf", "isCommittedProof(offered) && offered.kind === kind ? offered : null", "isCommittedProof(offered) ? offered : null"),
+  P("MP-2", "a-minted-proof-is-not-registered", CPROOF, "mintCommittedProof", "MINTED.add(proof);", ""),
+  P("MP-2", "any-object-is-a-proof", CPROOF, "isCommittedProof", "return typeof value === 'object' && value !== null && MINTED.has(value);", "return typeof value === 'object' && value !== null;"),
+  P("MP-2", "a-read-mints-a-plain-object", CBYTES, "judgeCommittedRead", "const proof = mintCommittedProof({ commit: head, blob: held.object, path: where, kind });", "const proof = { commit: head, blob: held.object, path: where, kind };"),
+  P("MP-2", "contradicts-is-not-copied", PROV, "snapshotOf", "const names = contradicts === undefined ? [] : plainListOf(contradicts, MAX_CONTRADICTS);", "const names = (contradicts as readonly string[] | undefined) ?? [];"),
+  P("MP-2", "a-throwing-item-throws", PROV, "rankByProvenance", "const snap = safeSnapshotOf(raw);", "const snap = snapshotOf(raw);"),
+  P("MP-2", "the-items-are-not-copied", PROV, "rankByProvenance", "const list = plainListOf(items, MAX_PROVENANCE_ITEMS);", "const list: readonly unknown[] | null = items;"),
+  P("MP-2", "a-getter-element-is-read", SHAPES, "plainListOf", "if (descriptor === undefined || !('value' in descriptor) || descriptor.enumerable !== true) return null;", "if (descriptor === undefined) return null;"),
+  P("MP-2", "an-extra-key-on-a-list-is-read", SHAPES, "plainListOf", "if (keys.length !== length + 1) return null;", ""),
+  P("MP-2", "a-colliding-item-keeps-its-place", PROV, "rankByProvenance", "if (candidate.entry.committed !== null) kept.add(candidate);", "if (true) kept.add(candidate);"),
+  P("MP-2", "a-colliding-item-vanishes-unsaid", PROV, "rankByProvenance", "else refused.push({ index: candidate.index, id: candidate.entry.id, code: 'PROVENANCE_ID_COLLISION', ids: names });", ""),
+  P("MP-2", "a-collision-is-not-named", PROV, "rankByProvenance", "collisions.push(names);", ""),
 
   // MP-3: committed bytes only.
   P("MP-3", "a-differing-working-copy-is-read", CBYTES, "judgeCommittedRead", "if (committedLineEndingsOf(tree.text) !== committedLineEndingsOf(committedText)) return refuse('COMMITTED_WORKING_TREE_DIFFERS', where);", ""),
@@ -255,7 +291,7 @@ const PINS = [
   P("MP-3", "the-cap-counts-characters", CBYTES, "judgeCommittedRead", "if (utf8BytesOf(committedText) > MAX_COMMITTED_FILE_BYTES)", "if (committedText.length > MAX_COMMITTED_FILE_BYTES)"),
   P("MP-3", "a-missing-head-is-read", CBYTES, "judgeCommittedRead", "if (!isGitObjectId(head)) return refuse('COMMITTED_NO_HEAD', where);", ""),
   P("MP-3", "the-path-is-not-judged-first", CBYTES, "judgeCommittedRead", "const pathProblem = committedPathProblem(path);\n  if (pathProblem !== null) return refuse(pathProblem, null);\n", ""),
-  P("MP-3", "the-working-copy-is-returned", CBYTES, "judgeCommittedRead", "text: committedText })", "text: tree.text })"),
+  P("MP-3", "the-working-copy-is-returned", CBYTES, "judgeCommittedRead", "text: committedText, proof })", "text: tree.text, proof })"),
   P("MP-3", "an-absent-working-copy-is-read", CBYTES, "judgeCommittedRead", "if (tree.state === 'absent') return refuse('COMMITTED_WORKING_TREE_ABSENT', where);", ""),
   P("MP-3", "an-alternate-stream-is-a-path", SHAPES, "memoryPathShapeProblem", "|| path.includes(':')", ""),
   P("MP-3", "a-dot-segment-is-a-path", SHAPES, "memoryPathShapeProblem", "segments.some((segment) => segment === '' || segment === '.' || segment === '..')", "false"),
@@ -295,13 +331,21 @@ const PINS = [
   P("MP-4", "an-old-file-is-not-migrated", INDEX, "addBuildCommitColumn", "if (!columns.some((column) => column.name === 'built_at_commit')) db.exec('ALTER TABLE search_projects ADD COLUMN built_at_commit TEXT');", ""),
   P("MP-4", "the-migration-is-not-run", INDEX, "openSearchIndex", "addBuildCommitColumn(db);", ""),
   P("MP-4", "the-commit-statement-is-not-prepared", INDEX, "prepareStatements", "recordCommit: db.prepare('UPDATE search_projects SET built_at_commit = ? WHERE project = ?'),", "recordCommit: db.prepare('UPDATE search_projects SET built_at_commit = built_at_commit WHERE project = ?'),"),
-  P("MP-4", "the-build-reads-no-head", INDEX, "indexOver", "const builtAt = headCommitOf(deps.head);", "const builtAt = null;"),
+  P("MP-4", "the-build-reads-no-head", INDEX, "indexOver", "const builtAt = isCommitName(options?.builtAtCommit) ? options.builtAtCommit : null;", "const builtAt = null;"),
   P("MP-4", "a-head-that-is-not-a-commit-is-taken", INDEX, "headCommitOf", "return isCommitName(commit) ? commit : null;", "return commit as string;"),
   P("MP-4", "the-schema-has-no-build-commit", INDEX, null, "chunks INTEGER NOT NULL,\n    built_at_commit TEXT\n  ) STRICT;", "chunks INTEGER NOT NULL\n  ) STRICT;"),
   P("MP-4", "the-head-port-takes-any-text", PORTS, "searchHeadOver", "return isCommitName(name) ? name : null;", "return name;"),
   P("MP-4", "a-replaced-object-is-followed", PORTS, "gitRunnerOver", "'--no-replace-objects', '-C', root,", "'-C', root,"),
   P("MP-4", "head-is-not-verified", PORTS, "searchHeadOver", "['rev-parse', '--verify', 'HEAD']", "['rev-parse', 'HEAD']"),
   P("MP-4", "the-project-index-drops-the-head", PROJECT_INDEX, "openProjectSearchIndex", "...(deps.head === undefined ? {} : { head: deps.head })", ""),
+
+  // MP-4 (fix round 1): an answer keeps the freshness of the hit it cites, and the build commit is the one taken before the sources.
+  P("MP-4", "a-forged-answer-freshness-is-admitted", CITATION, "admitCitedAnswer", "if (freshness === 'mismatch') return { ok: false, reason: 'citation-freshness-mismatch' };", ""),
+  P("MP-4", "the-admitted-citation-drops-freshness", CITATION, "admitCitedAnswer", "...(freshness === undefined ? {} : { freshness }) });", "});"),
+  P("MP-4", "a-kinder-hit-is-chosen", CITATION, "answerFreshnessOf", "known.find((mark) => mark?.state === 'stale') ??", ""),
+  P("MP-4", "a-stated-freshness-is-not-compared", CITATION, "answerFreshnessOf", "return stated !== null && sameFreshness(stated, held) ? held : 'mismatch';", "return held;"),
+  P("MP-4", "the-build-reads-head-after-the-sources", INDEX, "indexOver", "const builtAt = isCommitName(options?.builtAtCommit) ? options.builtAtCommit : null;", "const builtAt = headCommitOf(deps.head);"),
+  P("MP-4", "the-index-cannot-say-its-head", INDEX, "indexOver", "currentHead: () => headCommitOf(deps.head),", ""),
 
   // MP-5: retention and the action for each class.
   P("MP-5", "a-programme-delete-needs-no-owner", RET, null, "ownerRequired: true,", "ownerRequired: false,", { once: true }),
@@ -320,12 +364,20 @@ const PINS = [
   P("MP-6", "the-owner-answer-is-not-exactly-true", RET, "ownerAnswered", "return (verifier(claim) as unknown) === true;", "return (verifier(claim) as unknown) !== false;"),
   P("MP-6", "a-throwing-verifier-is-the-owner", RET, "ownerAnswered", "} catch {\n    return false;\n  }", "} catch {\n    return true;\n  }"),
   P("MP-6", "an-approval-is-spent-on-other-bytes", RET, "judgeMemoryDeletion", "if (currentItemHash !== request.itemHash) return { ok: false, code: 'DELETE_HASH_MISMATCH' };", ""),
-  P("MP-6", "the-claim-is-mutable", RET, "deletionOwnerClaimOf", "return Object.freeze({ action, actionClass,", "return ({ action, actionClass,"),
+  P("MP-6", "the-claim-is-mutable", RET, "deletionOwnerClaimOf", "return Object.freeze({ ...fields, claimHash", "return ({ ...fields, claimHash"),
   P("MP-6", "the-owner-is-not-asked", RET, "judgeMemoryDeletion", "if (claim === null || !ownerAnswered(ownerVerifier, claim)) return", "if (claim === null) return"),
   P("MP-6", "a-cited-path-is-not-found", RET, "decisionCitesItem", "(item.path !== '' && decisionText.includes(item.path))", "false"),
   P("MP-6", "a-cited-hash-is-not-found", RET, "decisionCitesItem", "(item.hash !== '' && decisionText.includes(item.hash))", "false"),
   P("MP-6", "the-reason-has-no-bound", RET, "deletionReasonProblem", "reason.length > MAX_DELETION_REASON_CHARS ||", ""),
   P("MP-6", "a-hash-need-not-be-a-hash", RET, "memoryDeletionRequestOf", "|| !isSha256Hex(itemHash)", ""),
+  P("MP-6", "a-deletion-needs-no-checkout", RET, "judgeMemoryDeletion", "if (rootProblem(root)) return { ok: false, code: 'DELETE_BINDING_INVALID' };", ""),
+  P("MP-6", "the-claim-names-no-checkout", RET, "deletionOwnerClaimOf", "root: binding.root,", "root: '',"),
+  P("MP-6", "the-claim-hides-a-citing-decision", RET, "deletionOwnerClaimOf", "citedByDecision: binding.citedByDecision,", "citedByDecision: false,"),
+  P("MP-6", "the-claim-hash-binds-nothing", RET, "deletionOwnerClaimOf", "claimHash: sha256Hex(canonicalStringify(fields))", "claimHash: sha256Hex('')"),
+  P("MP-6", "the-checkout-is-not-passed-to-the-judge", A_DELETE, "deleteMemoryItem", "root,\n    currentItemHash:", "currentItemHash:"),
+  P("MP-6", "a-request-for-another-project-is-deleted", A_DELETE, "deleteMemoryItem", "if (request.tenant !== owner.tenant || request.project !== owner.project) return refused('DELETE_NOT_THIS_PROJECT', null);", ""),
+  P("MP-6", "an-unbound-checkout-is-deleted", A_DELETE, "deleteMemoryItem", "if (owner === null) return { ok: false, code: 'DELETE_BINDING_INVALID', recorded: false };", ""),
+  P("MP-6", "an-index-of-another-project-is-deleted", A_DELETE, "deleteDerivedIndex", "if (judged.tenant !== owner.tenant || judged.project !== owner.project) return { ok: false, code: 'DELETE_NOT_THIS_PROJECT', recorded: step('refused', 'DELETE_NOT_THIS_PROJECT') };", ""),
   P("MP-6", "the-hash-is-not-read-again", A_DELETE, "deleteMemoryItem", "again.state !== 'file' || again.hash !== request.itemHash", "again.state !== 'file'"),
   P("MP-6", "a-deletion-brings-its-own-owner", A_DELETE, "deleteMemoryItem", "...(ports.ownerVerifier === undefined ? {} : { ownerVerifier: ports.ownerVerifier }),", "ownerVerifier: () => true,"),
 
@@ -354,8 +406,14 @@ const T = (rule, name, rel, from, to, also = []) => ({ rule, name, rel, from, to
 const TRACKED_LINE = (rel) => `${rel}\n`;
 
 const TEXT_MUTATIONS = [
+  // MP-2: nothing outside a committed read mints a proof, and the barrel offers the question, not the minting.
+  T("MP-2", "the-agent-mints-a-proof", A_COMMITTED, "    committed: read.proof,", "    committed: mintCommittedProof({ commit: read.commit, blob: read.blob, path: read.path, kind: read.kind }),"),
+  T("MP-2", "the-barrel-exports-the-minting", CORE_BARREL, "export { isCommittedProof, type CommittedProof, type CommittedProofKind } from './memory/committedProof.js';", "export * from './memory/committedProof.js';"),
+  T("MP-2", "the-barrel-forgets-the-proof-question", CORE_BARREL, "export { isCommittedProof, type CommittedProof, type CommittedProofKind } from './memory/committedProof.js';", ""),
+  T("MP-2", "the-ranking-mints-a-proof", PROV, "const MAX_CONTRADICTS = 20;", "const MAX_CONTRADICTS = 20;\nconst minted = (p: string) => mintCommittedProof({ commit: p, blob: p, path: p, kind: 'plan-memory' });"),
+
   // MP-8: core is pure, and loads in a browser (where `node:crypto` is aliased and nothing else under `node:` exists).
-  T("MP-8", "provenance-reads-a-file", PROV, "import { isGitObjectId, hasInvisibleCharacter, plainRecordOf }", `${SYNC_NODE}import { isGitObjectId, hasInvisibleCharacter, plainRecordOf }`),
+  T("MP-8", "provenance-reads-a-file", PROV, "import { isCommittedProof, type CommittedProof } from './committedProof.js';", `${SYNC_NODE}import { isCommittedProof, type CommittedProof } from './committedProof.js';`),
   T("MP-8", "committed-read-imports-node-util", CBYTES, "import { isGitObjectId, memoryPathShapeProblem,", "import { types } from 'node:util';\nimport { isGitObjectId, memoryPathShapeProblem,"),
   T("MP-8", "retention-imports-crypto", RET, "import { isProjectId, isTenantId } from '../tenant.js';", "import { createHash } from 'node:crypto';\nimport { isProjectId, isTenantId } from '../tenant.js';"),
   T("MP-8", "the-ledger-reads-the-clock", LEDGER, "const MAX_ENTRY_TEXT_CHARS = 4096;", "const stamp = Date.now();\nconst MAX_ENTRY_TEXT_CHARS = 4096;"),
@@ -363,7 +421,8 @@ const TEXT_MUTATIONS = [
   T("MP-8", "the-citation-imports-node-os", CITATION, "import { isProjectId } from '../tenant.js';", "import { platform } from 'node:os';\nimport { isProjectId } from '../tenant.js';"),
   T("MP-8", "the-excerpt-imports-node-buffer", EXCERPT, "import { sha256Hex } from '../execution/evidence.js';", "import { Buffer } from 'node:buffer';\nimport { sha256Hex } from '../execution/evidence.js';"),
   T("MP-8", "the-search-barrel-imports-node-fs", CORE_SEARCH_BARREL, "export { MARKDOWN_CHUNKING_VERSION,", `${SYNC_NODE}export { MARKDOWN_CHUNKING_VERSION,`),
-  T("MP-8", "provenance-imports-the-agent", PROV, "import { isGitObjectId, hasInvisibleCharacter, plainRecordOf }", "import { join } from '../../../agent/src/context.js';\nimport { isGitObjectId, hasInvisibleCharacter, plainRecordOf }"),
+  T("MP-8", "the-proof-reads-a-file", CPROOF, "export type CommittedProofKind", `${SYNC_NODE}export type CommittedProofKind`),
+  T("MP-8", "provenance-imports-the-agent", PROV, "import { isCommittedProof, type CommittedProof } from './committedProof.js';", "import { join } from '../../../agent/src/context.js';\nimport { isCommittedProof, type CommittedProof } from './committedProof.js';"),
 
   // MP-9: the agent reaches git, the clock and the file system only through its ports.
   T("MP-9", "committed-read-spawns-git", A_COMMITTED, "import { blobNameOf }", "import { spawnSync } from 'node:child_process';\nimport { blobNameOf }"),
@@ -522,9 +581,10 @@ function check(raw) {
 
   // MP-8: core stays pure, and every file that is new imports only what it needs.
   const CORE_ALLOWED = {
-    [PROV]: ["./memoryShapes.js"],
-    [CBYTES]: ["./memoryShapes.js", "./provenance.js"],
-    [RET]: ["../tenant.js", "./memoryShapes.js"],
+    [PROV]: ["./memoryShapes.js", "./committedProof.js"],
+    [CBYTES]: ["./memoryShapes.js", "./provenance.js", "./committedProof.js"],
+    [RET]: ["../tenant.js", "./memoryShapes.js", "../execution/evidence.js"],
+    [CPROOF]: [],
     [LEDGER]: ["../execution/evidence.js", "../tenant.js", "./memoryShapes.js", "./retention.js"],
     [SHAPES]: [],
   };
@@ -540,6 +600,13 @@ function check(raw) {
       if (spec.startsWith("node:") && !(spec === "node:crypto" && CORE_NODE_CRYPTO.includes(rel))) E("MP-8", `${rel} imports ${spec}, which a browser does not have and this phase may not add`);
     }
   }
+
+  // MP-2: only a committed read mints a proof, and no barrel exports the minting.
+  for (const rel of Object.keys(raw).filter((name) => /^projectos\/(?:core|agent)\/src\//.test(name) && name.endsWith(".ts"))) {
+    if (rel !== CPROOF && rel !== CBYTES && /\bmintCommittedProof\b/.test(code[rel])) E("MP-2", `${rel} reaches mintCommittedProof, and only a committed read may`);
+  }
+  if (/\bmintCommittedProof\b|export\s*\*\s*from\s*'\.\/memory\/committedProof\.js'/.test(code[CORE_BARREL])) E("MP-2", `${CORE_BARREL} exports the minting of proofs`);
+  if (!/export \{ isCommittedProof, type CommittedProof, type CommittedProofKind \} from '\.\/memory\/committedProof\.js'/.test(code[CORE_BARREL])) E("MP-2", `${CORE_BARREL} does not offer the proof question`);
 
   // MP-9: the agent's two files reach git, the clock and the file system only through their ports.
   const AGENT_ALLOWED = {
@@ -630,6 +697,7 @@ const SHIM = [
   "export * from './memory/retention.ts';",
   "export * from './memory/deletionLedger.ts';",
   "export { isGitObjectId } from './memory/memoryShapes.ts';",
+  "export { isCommittedProof } from './memory/committedProof.ts';",
   "export { isProjectId, isTenantId } from './tenant.ts';",
   "export { sha256Hex } from './execution/evidence.ts';",
   "",
@@ -663,7 +731,6 @@ const B = 'b'.repeat(40);
 const MEM = '.projectops/memory/MEMORY.md';
 const TEXT = '# Memory\n\n- The build uses Node 24.\n';
 const NUL = String.fromCharCode(0);
-const proof = { commit: COMMIT, blob: A };
 
 function fakeGit(o = {}) {
   const calls = [];
@@ -713,29 +780,44 @@ const W = '/w';
 const wtree = (text = TEXT) => memoryFs({ [W + '/' + MEM]: text });
 const readIt = (git, fs, p = MEM) => committed.readCommittedMemoryFile({ git, fs }, W, p);
 
-// ---- MP-2: committed decisions outrank recollection ------------------------------------------------------------------
-const item = (id, kind, timeMs = 1, extra = {}) => ({ id, kind, timeMs, ...(['committed-decision', 'approved-memory', 'plan-memory'].includes(kind) ? { committed: proof } : {}), ...extra });
+// ---- MP-2: committed decisions outrank recollection, on a proof only a committed read mints -----------------------------
+const D = (n) => '.projectops/closure/decisions/' + n + '.json';
+const PLANP = (n) => '.projectops/plan-' + n + '.json';
+const USERP = '.projectops/memory/USER.md';
+const proofFor = (p) => core.judgeCommittedRead({ path: p, head: COMMIT, entry: { mode: '100644', type: 'blob', object: A }, committedText: 'x\n', workingTree: { state: 'file', text: 'x\n' } }).read.proof;
+const item = (id, kind, timeMs = 1, extra = {}) => ({ id, kind, timeMs, ...(['committed-decision', 'approved-memory', 'plan-memory'].includes(kind) ? { committed: proofFor(id) } : {}), ...extra });
 const order = (items) => { const r = core.rankByProvenance(items); return r.ok ? r.ranked.map((e) => e.id).join(',') : 'refused'; };
 expectIt('MP-2', () => {
-  const r = core.rankByProvenance([item('s', 'summary', 9e6, { contradicts: ['d'] }), item('m', 'approved-memory', 9e6, { contradicts: ['d'] }), item('d', 'committed-decision')]);
-  return r.ok && r.ranked.map((e) => e.id).join() === 'd,m,s' && same(r.ranked[1].overruledBy, ['d']) && same(r.ranked[0].overruledBy, []);
+  const r = core.rankByProvenance([item('summary-1', 'summary', 9e6, { contradicts: [D('d1')] }), item(MEM, 'approved-memory', 9e6, { contradicts: [D('d1')] }), item(D('d1'), 'committed-decision')]);
+  return r.ok && r.ranked.map((e) => e.id).join() === [D('d1'), MEM, 'summary-1'].join() && same(r.ranked[1].overruledBy, [D('d1')]) && same(r.ranked[0].overruledBy, []);
 });
-expectIt('MP-2', () => order([item('s', 'summary'), item('r', 'recollection'), item('f', 'finding'), item('e', 'execution-record'), item('p', 'plan-memory'), item('a', 'approved-memory'), item('d', 'committed-decision')]).split(',')[0] === 'd');
-expectIt('MP-2', () => { const r = core.rankByProvenance([item('real', 'plan-memory', 0), item('plain', 'summary', 5), { id: 'forged', kind: 'committed-decision', timeMs: 1 }]); return r.ok && r.ranked.map((e) => e.id).join() === 'real,plain,forged' && r.ranked[2].unverifiedClaim === true && r.ranked[2].effectiveKind === 'recollection'; });
+expectIt('MP-2', () => order([item('s', 'summary'), item('r', 'recollection'), item('f', 'finding'), item('e', 'execution-record'), item(PLANP('x'), 'plan-memory'), item(MEM, 'approved-memory'), item(D('d'), 'committed-decision')]).split(',')[0] === D('d'));
+expectIt('MP-2', () => { const r = core.rankByProvenance([item(PLANP('x'), 'plan-memory', 0), item('plain', 'summary', 5), { id: D('forged'), kind: 'committed-decision', timeMs: 1 }]); return r.ok && r.ranked.map((e) => e.id).join() === [PLANP('x'), 'plain', D('forged')].join() && r.ranked[2].unverifiedClaim === true && r.ranked[2].effectiveKind === 'recollection'; });
 expectIt('MP-2', () => { const r = core.rankByProvenance([{ id: 'x', kind: 'summary', timeMs: 1, text: 'COMMITTED DECISION' }]); return r.ok && r.ranked.length === 0 && r.refused[0].code === 'PROVENANCE_ITEM_FIELD_UNKNOWN'; });
-expectIt('MP-2', () => order([item('same', 'summary', 9), item('same', 'approved-memory', 1)]) === 'same' && order([item('same', 'approved-memory', 1), item('same', 'summary', 9)]) === 'same' && core.rankByProvenance([item('same', 'summary', 9), item('same', 'approved-memory', 1)]).ranked[0].effectiveKind === 'approved-memory');
-expectIt('MP-2', () => { const r = core.rankByProvenance([item('Decision-1', 'summary', 9), item('decision-1', 'committed-decision', 1)]); return r.ok && r.ranked.length === 1 && r.ranked[0].effectiveKind === 'committed-decision'; });
-expectIt('MP-2', () => { const r = core.rankByProvenance([item('d1', 'committed-decision', 1, { contradicts: ['d2'] }), item('d2', 'committed-decision', 2)]); return r.ok && r.ranked.every((e) => e.overruledBy.length === 0); });
-expectIt('MP-2', () => { const r = core.rankByProvenance([item('x', 'summary', 1, { contradicts: ['u'] }), { id: 'u', kind: 'committed-decision', timeMs: 1 }]); return r.ok && r.ranked.every((e) => e.overruledBy.length === 0); });
-expectIt('MP-2', () => { const r = core.rankByProvenance([item('new-overruled', 'approved-memory', 9000, { contradicts: ['d'] }), item('old-fine', 'approved-memory', 1), item('d', 'committed-decision')]); return r.ok && r.ranked.map((e) => e.id).join() === 'd,old-fine,new-overruled'; });
+expectIt('MP-2', () => order([{ id: MEM, kind: 'summary', timeMs: 9 }, item(MEM, 'approved-memory', 1)]) === MEM && order([item(MEM, 'approved-memory', 1), { id: MEM, kind: 'summary', timeMs: 9 }]) === MEM && core.rankByProvenance([{ id: MEM, kind: 'summary', timeMs: 9 }, item(MEM, 'approved-memory', 1)]).ranked[0].effectiveKind === 'approved-memory');
+expectIt('MP-2', () => { const r = core.rankByProvenance([{ id: D('s1'), kind: 'committed-decision', timeMs: 1, committed: { commit: COMMIT, blob: A } }, item(D('real'), 'committed-decision', 0)]); return r.ok && r.ranked.map((e) => e.id + ':' + e.tier).join() === D('real') + ':0' && r.refused[0].code === 'PROVENANCE_PROOF_NOT_MINTED'; });
+expectIt('MP-2', () => { const p = proofFor(D('d9')); return [{ ...p }, structuredClone(p), JSON.parse(JSON.stringify(p)), Object.create(p)].every((copy) => { const r = core.rankByProvenance([{ id: D('d9'), kind: 'committed-decision', timeMs: 1, committed: copy }]); return r.ok && r.ranked.length === 0 && r.refused[0].code === 'PROVENANCE_PROOF_NOT_MINTED'; }); });
+expectIt('MP-2', () => { const r = core.rankByProvenance([{ id: D('d2'), kind: 'committed-decision', timeMs: 1, committed: proofFor(D('d1')) }]); return r.ok && r.ranked.length === 0 && r.refused[0].code === 'PROVENANCE_PROOF_PATH_MISMATCH'; });
+expectIt('MP-2', () => { const r = core.rankByProvenance([{ id: MEM, kind: 'committed-decision', timeMs: 1, committed: proofFor(MEM) }]); return r.ok && r.ranked.length === 0 && r.refused[0].code === 'PROVENANCE_PROOF_KIND_MISMATCH'; });
+expectIt('MP-2', () => { const r = core.rankByProvenance([item(D('A'), 'committed-decision', 1), item(D('a'), 'committed-decision', 2)]); return r.ok && r.ranked.length === 2 && r.refused.length === 0 && same(r.collisions, [[D('A'), D('a')]]); });
+expectIt('MP-2', () => { const r = core.rankByProvenance([item(D('a'), 'committed-decision', 1), item(D('A'), 'summary', 9)]); return r.ok && r.ranked.map((e) => e.id).join() === D('a') && r.refused.length === 1 && r.refused[0].code === 'PROVENANCE_ID_COLLISION' && same(r.refused[0].ids, [D('A'), D('a')]) && same(r.collisions, [[D('A'), D('a')]]); });
+expectIt('MP-2', () => { const r = core.rankByProvenance([item(D('d1'), 'committed-decision', 1, { contradicts: [D('d2')] }), item(D('d2'), 'committed-decision', 2)]); return r.ok && r.ranked.every((e) => e.overruledBy.length === 0); });
+expectIt('MP-2', () => { const r = core.rankByProvenance([item('x', 'summary', 1, { contradicts: [D('u')] }), { id: D('u'), kind: 'committed-decision', timeMs: 1 }]); return r.ok && r.ranked.every((e) => e.overruledBy.length === 0); });
+expectIt('MP-2', () => { const r = core.rankByProvenance([item(USERP, 'approved-memory', 9000, { contradicts: [D('d')] }), item(MEM, 'approved-memory', 1), item(D('d'), 'committed-decision')]); return r.ok && r.ranked.map((e) => e.id).join() === [D('d'), MEM, USERP].join(); });
 expectIt('MP-2', () => { const r = core.rankByProvenance([item('a', 'summary')]); return r.ok && Object.isFrozen(r.ranked) && Object.isFrozen(r.ranked[0]); });
 expectIt('MP-2', () => { const r = core.rankByProvenance([{ id: 'a'.repeat(60000), kind: 'summary', timeMs: 1 }]); return r.ok && r.refused[0].code === 'PROVENANCE_ID_INVALID'; });
 expectIt('MP-2', () => { const many = Array.from({ length: 501 }, (_, i) => item('i' + i, 'summary')); return core.rankByProvenance(many).code === 'PROVENANCE_TOO_MANY_ITEMS' && core.rankByProvenance('x').code === 'PROVENANCE_ITEMS_NOT_A_LIST'; });
-expectIt('MP-2', () => core.provenanceReplacementProblem({ kind: 'summary' }, { kind: 'committed-decision', committed: proof }) === 'PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION' && core.provenanceReplacementProblem({ kind: 'committed-decision' }, { kind: 'committed-decision', committed: proof }) === 'PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION');
+expectIt('MP-2', () => { const list = ['ok']; let n = 0; Object.defineProperty(list, 0, { get() { return n++ === 0 ? 'ok' : {}; }, enumerable: true }); const r = core.rankByProvenance([{ id: 'x', kind: 'summary', timeMs: 1, contradicts: list }]); return r.ok && r.refused[0].code === 'PROVENANCE_CONTRADICTS_INVALID' && n === 0; });
+expectIt('MP-2', () => { const extra = ['a']; extra.extra = 1; const r = core.rankByProvenance([{ id: 'x', kind: 'summary', timeMs: 1, contradicts: extra }]); return r.ok && r.refused[0].code === 'PROVENANCE_CONTRADICTS_INVALID'; });
+expectIt('MP-2', () => { const list = [item('a', 'summary')]; Object.defineProperty(list, 0, { get() { return item('a', 'summary'); }, enumerable: true }); return core.rankByProvenance(list).code === 'PROVENANCE_ITEMS_NOT_A_LIST' && core.rankByProvenance(new Array(2)).code === 'PROVENANCE_ITEMS_NOT_A_LIST'; });
+expectIt('MP-2', () => { const dec = { kind: 'committed-decision', committed: proofFor(D('x')) }; return core.provenanceReplacementProblem({ kind: 'summary' }, dec) === 'PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION' && core.provenanceReplacementProblem({ kind: 'committed-decision' }, dec) === 'PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION'; });
+expectIt('MP-2', () => { const dec = { kind: 'committed-decision', committed: proofFor(D('x')) }; return core.provenanceReplacementProblem({ kind: 'committed-decision', committed: { commit: COMMIT, blob: A, path: D('x'), kind: 'committed-decision' } }, dec) === 'PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION' && core.provenanceReplacementProblem({ kind: 'committed-decision', committed: { ...proofFor(D('x')) } }, dec) === 'PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION'; });
+expectIt('MP-2', () => core.provenanceReplacementProblem({ kind: 'committed-decision', committed: proofFor(MEM) }, { kind: 'committed-decision', committed: proofFor(D('x')) }) === 'PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION');
 expectIt('MP-2', () => core.provenanceReplacementProblem({ kind: 'summary' }, { kind: 'committed-decision' }) === 'PROVENANCE_SUMMARY_CANNOT_REPLACE_DECISION');
-expectIt('MP-2', () => core.provenanceReplacementProblem({ kind: 'committed-decision', committed: proof }, { kind: 'committed-decision', committed: proof }) === 'PROVENANCE_DECISION_NOT_REPLACEABLE' && core.provenanceReplacementProblem({ kind: 'finding' }, { kind: 'committed-decision', committed: proof }) === 'PROVENANCE_DECISION_NOT_REPLACEABLE');
-expectIt('MP-2', () => core.provenanceReplacementProblem({ kind: 'finding' }, { kind: 'approved-memory', committed: proof }) === 'PROVENANCE_LOWER_RANK_CANNOT_REPLACE' && core.provenanceReplacementProblem({ kind: 'approved-memory', committed: proof }, { kind: 'approved-memory', committed: proof }) === null);
+expectIt('MP-2', () => { const dec = { kind: 'committed-decision', committed: proofFor(D('x')) }; return core.provenanceReplacementProblem(dec, dec) === 'PROVENANCE_DECISION_NOT_REPLACEABLE' && core.provenanceReplacementProblem({ kind: 'finding' }, dec) === 'PROVENANCE_DECISION_NOT_REPLACEABLE'; });
+expectIt('MP-2', () => core.provenanceReplacementProblem({ kind: 'finding' }, { kind: 'approved-memory', committed: proofFor(MEM) }) === 'PROVENANCE_LOWER_RANK_CANNOT_REPLACE' && core.provenanceReplacementProblem({ kind: 'approved-memory', committed: proofFor(MEM) }, { kind: 'approved-memory', committed: proofFor(MEM) }) === null);
 expectIt('MP-2', () => core.provenanceKindOfPath('.projectops/closure/decisions/X.json') === 'committed-decision' && core.provenanceKindOfPath('.projectops/memory/MEMORY.md') === 'approved-memory' && core.provenanceKindOfPath('.projectops/execution/s1.findings.json') === 'finding' && core.provenanceKindOfPath('docs/x.md') === null);
+expectIt('MP-2', () => { const p = proofFor(D('x')); return core.isCommittedProof(p) && Object.isFrozen(p) && same(p, { commit: COMMIT, blob: A, path: D('x'), kind: 'committed-decision' }) && !core.isCommittedProof({ ...p }); });
 
 // ---- MP-3: committed bytes only ---------------------------------------------------------------------------------------
 expectIt('MP-3', () => { const r = readIt(fakeGit().git, wtree()); return r.ok && r.read.text === TEXT && r.read.commit === COMMIT && r.read.blob === blobName(TEXT) && r.read.kind === 'approved-memory'; });
@@ -760,7 +842,7 @@ expectIt('MP-3', () => { const D = '.projectops/closure/decisions/'; return same
 expectIt('MP-3', () => { const D = '.projectops/closure/decisions/'; return committed.readCommittedDecisionTexts(fakeGit({ tree: { [D + 'A.json']: { mode: '120000', text: 'x' } } }).git) === null && committed.readCommittedDecisionTexts(fakeGit({ tree: { [D + 'A.json']: { text: '{"a":1}' } }, lie: true }).git) === null && committed.readCommittedDecisionTexts(fakeGit({ head: null }).git) === null; });
 expectIt('MP-3', () => { const many = Object.fromEntries(Array.from({ length: 501 }, (_, i) => ['.projectops/closure/decisions/D' + i + '.json', { text: '{"i":' + i + '}' }])); return committed.readCommittedDecisionTexts(fakeGit({ tree: many }).git) === null; });
 expectIt('MP-3', () => { const git = (args) => args[0] === 'rev-parse' ? { code: 0, stdout: COMMIT + '\n' } : { code: 0, stdout: '100644 blob ' + 'd'.repeat(40) + '\t.projectops/memory/USER.md' + NUL }; return readIt(git, wtree()).code === 'COMMITTED_NOT_IN_HEAD'; });
-expectIt('MP-3', () => { const r = readIt(fakeGit().git, wtree()); const item = committed.committedItemOf(r.read, 7); return same(item, { id: MEM, kind: 'approved-memory', timeMs: 7, committed: { commit: COMMIT, blob: blobName(TEXT) } }); });
+expectIt('MP-3', () => { const r = readIt(fakeGit().git, wtree()); const made = committed.committedItemOf(r.read, 7); return made.id === MEM && made.kind === 'approved-memory' && made.timeMs === 7 && made.committed === r.read.proof && same(made.committed, { commit: COMMIT, blob: blobName(TEXT), path: MEM, kind: 'approved-memory' }); });
 
 // ---- MP-4: a citation says how fresh it is ----------------------------------------------------------------------------
 expectIt('MP-4', () => same(core.citationFreshnessOf(A, A), { state: 'fresh' }) && same(core.citationFreshnessOf(A, B), { state: 'stale', reason: 'head-moved' }));
@@ -769,7 +851,7 @@ expectIt('MP-4', () => core.citationFreshnessOf('HEAD', 'HEAD').state === 'stale
 const OWNER = { tenant: 'agency-one', project: 'alpha-project' };
 const clock = { nowMs: () => 1000 };
 const SOURCES = [{ project: 'alpha-project', source: 'documents', path: 'docs/guide.md', content: '# Guide\n\nThe walnut plan is final.\n' }];
-const indexWith = (head) => { const index = search.openSearchIndex(':memory:', { owner: OWNER, clock, ...(head === undefined ? {} : { head }) }); index.rebuildProject('alpha-project', SOURCES); return index; };
+const indexWith = (head) => { const index = search.openSearchIndex(':memory:', { owner: OWNER, clock, ...(head === undefined ? {} : { head }) }); index.rebuildProject('alpha-project', SOURCES, { builtAtCommit: index.currentHead() }); return index; };
 const hitOf = (index) => { const o = index.search({ project: 'alpha-project', query: 'walnut' }); return o.ok ? o.hits[0] : undefined; };
 expectIt('MP-4', () => { const s = { v: A }; const index = indexWith({ headCommit: () => s.v }); const fresh = hitOf(index).citation.freshness; s.v = B; const moved = hitOf(index); index.close(); return same(fresh, { state: 'fresh' }) && same(moved.citation.freshness, { state: 'stale', reason: 'head-moved' }) && moved.untrustedText.includes('walnut'); });
 expectIt('MP-4', () => { const index = indexWith(); const h = hitOf(index); index.close(); return same(h.citation.freshness, { state: 'stale', reason: 'head-unknown' }); });
@@ -784,9 +866,14 @@ expectIt('MP-4', () => { const o = core.rankCitedResults({ project: 'alpha-proje
 expectIt('MP-4', () => { const ok = search.searchHeadOver(() => ({ code: 0, stdout: A + '\n' })).headCommit() === A; const no = ['HEAD\n', A + '\n' + B + '\n', ''].every((stdout) => search.searchHeadOver(() => ({ code: 0, stdout })).headCommit() === null); return ok && no && search.searchHeadOver(() => ({ code: 128, stdout: A })).headCommit() === null; });
 expectIt('MP-4', () => { const seen = []; const git = search.gitRunnerOver({ exec: (cmd, args) => { seen.push([cmd, ...args]); return { code: 0, stdout: A }; } }, '/w'); git(['rev-parse', '--verify', 'HEAD']); return same(seen[0], ['git', '--no-replace-objects', '-C', '/w', 'rev-parse', '--verify', 'HEAD']); });
 expectIt('MP-4', () => { const seen = []; search.searchHeadOver((args) => { seen.push(args); return { code: 0, stdout: A }; }).headCommit(); return same(seen[0], ['rev-parse', '--verify', 'HEAD']); });
-expectIt('MP-4', () => { const { DatabaseSync } = process.getBuiltinModule('node:sqlite'); const f = join(process.cwd(), 'idx.sqlite'); const index = search.openSearchIndex(f, { owner: OWNER, clock, head: { headCommit: () => A } }); index.rebuildProject('alpha-project', SOURCES); index.close(); const db = new DatabaseSync(f); try { return db.prepare('SELECT built_at_commit AS built FROM search_projects').get().built === A; } finally { db.close(); } });
-expectIt('MP-4', () => { const { DatabaseSync } = process.getBuiltinModule('node:sqlite'); const f = join(process.cwd(), 'old.sqlite'); const first = search.openSearchIndex(f, { owner: OWNER, clock, head: { headCommit: () => A } }); first.rebuildProject('alpha-project', SOURCES); first.close(); const old = new DatabaseSync(f); old.exec('ALTER TABLE search_projects DROP COLUMN built_at_commit'); old.close(); const again = search.openSearchIndex(f, { owner: OWNER, clock, head: { headCommit: () => A } }); const h = hitOf(again); again.close(); return same(h.citation.freshness, { state: 'stale', reason: 'built-commit-unknown' }); });
-expectIt('MP-4', () => { const opened = search.openProjectSearchIndex(join(process.cwd(), 'idxdir'), OWNER, { clock, ensureDirectory: (d) => { process.getBuiltinModule('node:fs').mkdirSync(d, { recursive: true }); }, head: { headCommit: () => A } }); opened.index.rebuildProject('alpha-project', SOURCES); const h = hitOf(opened.index); opened.index.close(); return h.citation.freshness.state === 'fresh'; });
+expectIt('MP-4', () => { const s = { v: A }; const index = search.openSearchIndex(':memory:', { owner: OWNER, clock, head: { headCommit: () => s.v } }); const before = index.currentHead(); s.v = B; index.rebuildProject('alpha-project', SOURCES, { builtAtCommit: before }); const h = hitOf(index); index.close(); return before === A && same(h.citation.freshness, { state: 'stale', reason: 'head-moved' }); });
+expectIt('MP-4', () => { const index = search.openSearchIndex(':memory:', { owner: OWNER, clock, head: { headCommit: () => A } }); index.rebuildProject('alpha-project', SOURCES); const h = hitOf(index); index.close(); return same(h.citation.freshness, { state: 'stale', reason: 'built-commit-unknown' }); });
+expectIt('MP-4', () => { const index = search.openSearchIndex(':memory:', { owner: OWNER, clock }); const none = index.currentHead(); index.close(); const throwing = search.openSearchIndex(':memory:', { owner: OWNER, clock, head: { headCommit: () => { throw new Error('gone'); } } }); const t2 = throwing.currentHead(); throwing.close(); return none === null && t2 === null; });
+expectIt('MP-4', () => { const s = { v: A }; const index = indexWith({ headCommit: () => s.v }); s.v = B; const h = hitOf(index); index.close(); const cite = { project: 'alpha-project', path: 'docs/guide.md', startLine: h.citation.startLine, endLine: h.citation.endLine }; const ok = core.admitCitedAnswer({ text: 't', citations: [cite] }, [h]); const lie = core.admitCitedAnswer({ text: 't', citations: [{ ...cite, freshness: { state: 'fresh' } }] }, [h]); const same2 = core.admitCitedAnswer({ text: 't', citations: [{ ...cite, freshness: { state: 'stale', reason: 'head-moved' } }] }, [h]); return ok.ok && same(ok.answer.citations[0].freshness, { state: 'stale', reason: 'head-moved' }) && lie.ok === false && lie.reason === 'citation-freshness-mismatch' && same2.ok === true; });
+expectIt('MP-4', () => { const mk = (fr) => core.admitSearchResult({ project: 'alpha-project', path: 'a.md', startLine: 1, endLine: 10, source: 'documents' }, 'alpha-project', fr).hit; const cite = { project: 'alpha-project', path: 'a.md', startLine: 2, endLine: 3 }; const worst = core.admitCitedAnswer({ text: 't', citations: [cite] }, [mk({ state: 'fresh' }), mk({ state: 'stale', reason: 'head-moved' })]); const none = core.admitCitedAnswer({ text: 't', citations: [{ ...cite, freshness: { state: 'fresh' } }] }, [mk()]); const plain = core.admitCitedAnswer({ text: 't', citations: [cite] }, [mk()]); return worst.ok && worst.answer.citations[0].freshness.state === 'stale' && none.ok === false && none.reason === 'citation-freshness-mismatch' && plain.ok && !('freshness' in plain.answer.citations[0]); });
+expectIt('MP-4', () => { const { DatabaseSync } = process.getBuiltinModule('node:sqlite'); const f = join(process.cwd(), 'idx.sqlite'); const index = search.openSearchIndex(f, { owner: OWNER, clock, head: { headCommit: () => A } }); index.rebuildProject('alpha-project', SOURCES, { builtAtCommit: index.currentHead() }); index.close(); const db = new DatabaseSync(f); try { return db.prepare('SELECT built_at_commit AS built FROM search_projects').get().built === A; } finally { db.close(); } });
+expectIt('MP-4', () => { const { DatabaseSync } = process.getBuiltinModule('node:sqlite'); const f = join(process.cwd(), 'old.sqlite'); const first = search.openSearchIndex(f, { owner: OWNER, clock, head: { headCommit: () => A } }); first.rebuildProject('alpha-project', SOURCES, { builtAtCommit: first.currentHead() }); first.close(); const old = new DatabaseSync(f); old.exec('ALTER TABLE search_projects DROP COLUMN built_at_commit'); old.close(); const again = search.openSearchIndex(f, { owner: OWNER, clock, head: { headCommit: () => A } }); const h = hitOf(again); again.close(); return same(h.citation.freshness, { state: 'stale', reason: 'built-commit-unknown' }); });
+expectIt('MP-4', () => { const opened = search.openProjectSearchIndex(join(process.cwd(), 'idxdir'), OWNER, { clock, ensureDirectory: (d) => { process.getBuiltinModule('node:fs').mkdirSync(d, { recursive: true }); }, head: { headCommit: () => A } }); opened.index.rebuildProject('alpha-project', SOURCES, { builtAtCommit: opened.index.currentHead() }); const h = hitOf(opened.index); opened.index.close(); return h.citation.freshness.state === 'fresh'; });
 
 // ---- MP-5: retention per class ----------------------------------------------------------------------------------------
 expectIt('MP-5', () => same(core.MEMORY_RETENTION.map((e) => e.name), ['Programme and project memory', 'Execution memory', 'Curated memory', 'Skills', 'Retrieval index', 'Code-intelligence memory']) && same(core.MEMORY_RETENTION.map((e) => e.id), [...core.MEMORY_CLASS_IDS]));
@@ -800,7 +887,7 @@ expectIt('MP-5', () => { const j = core.judgeIndexDeletion({ tenant: 'agency-one
 // ---- MP-6: the owner, exactly ------------------------------------------------------------------------------------------
 const HASH = core.sha256Hex(TEXT);
 const dreq = (o = {}) => ({ tenant: 'agency-one', project: 'alpha-project', path: MEM, itemHash: HASH, reason: 'the entry is wrong', ...o });
-const dfacts = (o = {}) => ({ currentItemHash: HASH, citedByDecision: false, ownerVerifier: () => true, ...o });
+const dfacts = (o = {}) => ({ root: W, currentItemHash: HASH, citedByDecision: false, ownerVerifier: () => true, ...o });
 expectIt('MP-6', () => core.judgeMemoryDeletion(dreq(), dfacts({ ownerVerifier: undefined })).code === 'DELETE_OWNER_VERIFIER_MISSING' && core.judgeMemoryDeletion(dreq(), dfacts({ ownerVerifier: 'yes' })).code === 'DELETE_OWNER_VERIFIER_MISSING');
 expectIt('MP-6', () => [false, 'true', 1, {}, null, undefined, Promise.resolve(true)].every((answer) => core.judgeMemoryDeletion(dreq(), dfacts({ ownerVerifier: () => answer })).code === 'DELETE_OWNER_NOT_VERIFIED'));
 expectIt('MP-6', () => core.judgeMemoryDeletion(dreq(), dfacts({ ownerVerifier: () => { throw new Error('closed'); } })).code === 'DELETE_OWNER_NOT_VERIFIED');
@@ -824,7 +911,7 @@ function portsOf(state, over = {}) {
     createExclusive: (p, c) => { state.creations += 1; if (state.creations > state.failCreateAfter || state.files.has(p)) return false; state.files.set(p, c); return true; },
     removeFile: (p) => { state.removed.push(p); if (state.failRemove) return false; state.files.delete(p); return true; },
   });
-  return { files, fs, clock: { nowMs: () => 1700000000000 }, committedDecisions: () => [], ownerVerifier: () => true, ...over };
+  return { files, fs, clock: { nowMs: () => 1700000000000 }, owner: { tenant: T, project: PRJ }, committedDecisions: () => [], ownerVerifier: () => true, ...over };
 }
 const dr = (o = {}) => ({ tenant: T, project: PRJ, path: MEM, itemHash: HASH, reason: 'the entry is wrong', ...o });
 const entriesOf = (state) => [...state.files.keys()].filter((p) => p.startsWith(LEDGER_DIR + '/')).sort().map((p) => JSON.parse(state.files.get(p)));
@@ -834,6 +921,14 @@ expectIt('MP-6', () => { const s = disk(); const o = deletion.deleteMemoryItem(p
 expectIt('MP-6', () => { const s = disk(); const o = deletion.deleteMemoryItem(portsOf(s), W, dr()); return o.ok === true && !s.files.has(W + '/' + MEM); });
 expectIt('MP-6', () => { const s = disk(); const o = deletion.deleteMemoryItem(portsOf(s, { ownerVerifier: () => { s.files.set(W + '/' + MEM, TEXT + '- added after the owner looked\n'); return true; } }), W, dr()); return o.ok === false && o.code === 'DELETE_HASH_MISMATCH' && s.files.has(W + '/' + MEM) && s.removed.length === 0; });
 expectIt('MP-6', () => ['.projectops/closure/decisions/P1.json', '.projectops/plan-main.json', '.projectops/execution/s1.evidence.json', '.projectops/memory/proposals/p1.json', '.projectops/skills/promoted/r.json'].every((p) => { const s = disk({ [W + '/' + p]: TEXT }); const refused = deletion.deleteMemoryItem(portsOf(s, { ownerVerifier: () => false }), W, dr({ path: p })); const allowed = deletion.deleteMemoryItem(portsOf(s), W, dr({ path: p })); return refused.ok === false && allowed.ok === true; }));
+
+expectIt('MP-6', () => { let claim = null; const j = core.judgeMemoryDeletion(dreq(), dfacts({ citedByDecision: true, ownerVerifier: (c) => { claim = c; return true; } })); const other = []; core.judgeMemoryDeletion(dreq(), dfacts({ root: '/elsewhere', ownerVerifier: (c) => { other.push(c.claimHash); return true; } })); core.judgeMemoryDeletion(dreq(), dfacts({ citedByDecision: false, ownerVerifier: (c) => { other.push(c.claimHash); return true; } })); return j.ok && claim.root === W && claim.citedByDecision === true && /^[0-9a-f]{64}$/.test(claim.claimHash) && new Set([claim.claimHash, ...other]).size === 3; });
+expectIt('MP-6', () => { let asked = 0; const ok = ['', 'a'.repeat(513), 7, undefined].every((root) => core.judgeMemoryDeletion(dreq(), dfacts({ root, ownerVerifier: () => { asked += 1; return true; } })).code === 'DELETE_BINDING_INVALID'); return ok && asked === 0; });
+const T0 = 'agency-one';
+expectIt('MP-6', () => [{ tenant: 'agency-two', project: 'alpha-project' }, { tenant: 'agency-one', project: 'beta-project' }].every((other) => { const s = disk(); let asked = 0; const o = deletion.deleteMemoryItem(portsOf(s, { ownerVerifier: () => { asked += 1; return true; } }), W, { tenant: other.tenant, project: other.project, path: MEM, itemHash: HASH, reason: 'x' }); return o.ok === false && o.code === 'DELETE_NOT_THIS_PROJECT' && asked === 0 && s.files.has(W + '/' + MEM) && s.removed.length === 0; }));
+expectIt('MP-6', () => [undefined, null, { tenant: 'Not A Tenant', project: 'alpha-project' }, { tenant: 'agency-one' }].every((owner) => { const s = disk(); const o = deletion.deleteMemoryItem(portsOf(s, { owner }), W, dr()); return o.ok === false && o.code === 'DELETE_BINDING_INVALID' && s.files.has(W + '/' + MEM); }));
+expectIt('MP-6', () => { const s = disk({}); const p = portsOf(s); const o = deletion.deleteDerivedIndex({ files: p.files, clock: p.clock, owner: p.owner }, W, '/state/indexes', { tenant: 'agency-two', project: 'beta-project', reason: 'x' }); return o.ok === false && o.code === 'DELETE_NOT_THIS_PROJECT' && s.removed.length === 0; });
+expectIt('MP-6', () => { let seen = null; const s = disk(); const o = deletion.deleteMemoryItem(portsOf(s, { committedDecisions: () => ['relies on ' + MEM], ownerVerifier: (c) => { seen = c; return true; } }), W, dr()); return o.ok === true && seen.citedByDecision === true && seen.root === W && seen.tenant === T0 && /^[0-9a-f]{64}$/.test(seen.claimHash); });
 
 // ---- MP-7: every deletion and every refused attempt is recorded ---------------------------------------------------------
 expectIt('MP-7', () => { const s = disk(); const other = 'f'.repeat(64); deletion.deleteMemoryItem(portsOf(s), W, dr({ itemHash: other })); const e = entriesOf(s); return e.length === 1 && e[0].outcome === 'refused' && e[0].code === 'DELETE_HASH_MISMATCH' && e[0].itemHash === other && e[0].reason === 'the entry is wrong' && e[0].action === 'memory-delete' && e[0].actionClass === 'P5' && e[0].memoryClass === 'curated-memory' && e[0].tenant === T && e[0].project === PRJ && s.files.has(W + '/' + MEM); });
@@ -849,7 +944,7 @@ expectIt('MP-7', () => { const s = disk(); const wrong = 'f'.repeat(64); deletio
 const named = core.searchIndexFileName({ tenant: T, project: PRJ }).fileName;
 const other = core.searchIndexFileName({ tenant: T, project: 'beta-project' }).fileName;
 const IDX = '/state/indexes';
-const idxCall = (state, raw = { tenant: T, project: PRJ, reason: 'rebuild it' }, over = {}) => { const p = portsOf(state, over); return deletion.deleteDerivedIndex({ files: p.files, clock: p.clock }, W, IDX, raw); };
+const idxCall = (state, raw = { tenant: T, project: PRJ, reason: 'rebuild it' }, over = {}) => { const p = portsOf(state, over); return deletion.deleteDerivedIndex({ files: p.files, clock: p.clock, owner: p.owner }, W, IDX, raw); };
 expectIt('MP-7', () => { const s = disk({ [IDX + '/' + named]: 'sqlite', [IDX + '/' + other]: 'other' }); const o = idxCall(s); const e = entriesOf(s); return o.ok === true && o.action === 'memory-index-rebuild' && same(s.removed, [IDX + '/' + named]) && s.files.has(IDX + '/' + other) && same(e.map((x) => x.outcome), ['authorised', 'deleted']) && e[0].action === 'memory-index-rebuild' && e[0].actionClass === 'P2' && e[0].itemHash === null; });
 expectIt('MP-7', () => { const s = disk({}); const o = idxCall(s); return o.ok === false && o.code === 'DELETE_ITEM_ABSENT' && entriesOf(s)[0].outcome === 'refused' && s.removed.length === 0; });
 expectIt('MP-7', () => { const s = disk({ [IDX + '/' + named]: 'sqlite' }); s.failCreateAfter = 0; const o = idxCall(s); return o.ok === false && o.code === 'DELETION_LEDGER_UNAVAILABLE' && s.removed.length === 0; });
@@ -915,7 +1010,7 @@ const BEHAVIOURAL = [
   ["a-case-variant-is-read"], ["a-link-is-followed"], ["a-linked-decision-is-read"], ["a-decision-that-does-not-hash-is-read"], ["the-decisions-are-unbounded"],
   ["a-moved-head-is-fresh"], ["an-unknown-head-is-fresh"], ["an-unknown-build-is-fresh"], ["the-citation-drops-its-freshness"], ["the-mark-is-not-rendered"], ["the-mark-is-not-in-the-fence"],
   ["the-ranked-hits-lose-the-mark"], ["the-search-sets-no-mark"], ["the-build-commit-is-not-recorded"], ["a-head-that-is-not-a-commit-is-taken"],
-  ["the-head-port-takes-any-text"], ["the-migration-is-not-run"], ["the-commit-statement-is-not-prepared"], ["a-replaced-object-is-followed"], ["the-project-index-drops-the-head"], ["a-bad-freshness-is-admitted"],
+  ["the-head-port-takes-any-text"], ["a-copied-proof-is-trusted"], ["a-proof-of-another-path-is-trusted"], ["a-proof-of-another-kind-is-trusted"], ["a-writer-proof-of-another-kind-is-trusted"], ["a-minted-proof-is-not-registered"], ["any-object-is-a-proof"], ["a-read-mints-a-plain-object"], ["contradicts-is-not-copied"], ["the-items-are-not-copied"], ["a-getter-element-is-read"], ["an-extra-key-on-a-list-is-read"], ["a-colliding-item-keeps-its-place"], ["a-colliding-item-vanishes-unsaid"], ["a-collision-is-not-named"], ["a-forged-answer-freshness-is-admitted"], ["the-admitted-citation-drops-freshness"], ["a-kinder-hit-is-chosen"], ["a-stated-freshness-is-not-compared"], ["the-build-reads-head-after-the-sources"], ["the-index-cannot-say-its-head"], ["a-deletion-needs-no-checkout"], ["the-claim-names-no-checkout"], ["the-claim-hides-a-citing-decision"], ["the-claim-hash-binds-nothing"], ["the-checkout-is-not-passed-to-the-judge"], ["a-request-for-another-project-is-deleted"], ["an-index-of-another-project-is-deleted"], ["an-unbound-checkout-is-deleted"], ["the-migration-is-not-run"], ["the-commit-statement-is-not-prepared"], ["a-replaced-object-is-followed"], ["the-project-index-drops-the-head"], ["a-bad-freshness-is-admitted"],
   ["a-programme-delete-needs-no-owner"], ["a-delete-is-not-p5"], ["a-delete-is-an-index-rebuild"], ["a-class-deletes-by-itself"], ["curated-memory-has-no-paths"], ["decisions-are-not-memory"], ["the-index-needs-the-owner"],
   ["a-deletion-needs-no-verifier"], ["the-owner-answer-is-not-exactly-true"], ["a-throwing-verifier-is-the-owner"], ["an-approval-is-spent-on-other-bytes"], ["the-claim-is-mutable"], ["the-owner-is-not-asked"],
   ["a-cited-path-is-not-found"], ["the-reason-has-no-bound"], ["the-hash-is-not-read-again"], ["a-deletion-brings-its-own-owner"],
@@ -932,6 +1027,7 @@ const ALSO_WHEN_RUN = {
   "the-index-needs-the-owner": ["MP-7"],
   "an-approval-is-spent-on-other-bytes": ["MP-7"],
   "the-chain-is-not-in-the-hash": ["MP-6"],
+  "the-checkout-is-not-passed-to-the-judge": ["MP-7"],
 };
 
 const behaviouralMutations = () =>

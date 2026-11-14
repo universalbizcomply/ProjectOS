@@ -47,6 +47,30 @@ export function plainRecordOf(value: unknown, allowed: readonly string[]): Plain
   }
 }
 
+/**
+ * A list read ONCE into a frozen copy, from its own data properties. An element that is an accessor, a hole, an own key that is not an
+ * index, a length over `max` and anything that is not an array yield null, so a second read cannot differ and no method the list
+ * carries (an own `some`, say) is ever called. A Proxy that throws is null; a transparent one needs a port core does not have.
+ */
+export function plainListOf(value: unknown, max: number): readonly unknown[] | null {
+  try {
+    if (!Array.isArray(value)) return null;
+    const length: number = value.length;
+    if (!Number.isSafeInteger(length) || length < 0 || length > max) return null;
+    const copy: unknown[] = [];
+    for (let index = 0; index < length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (descriptor === undefined || !('value' in descriptor) || descriptor.enumerable !== true) return null;
+      copy.push(descriptor.value);
+    }
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== length + 1) return null;
+    return Object.freeze(copy);
+  } catch {
+    return null;
+  }
+}
+
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 export const isGitObjectId = (value: unknown): value is string => typeof value === 'string' && GIT_OBJECT_ID.test(value);

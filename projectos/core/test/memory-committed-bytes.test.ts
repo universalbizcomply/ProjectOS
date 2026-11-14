@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_COMMITTED_FILE_BYTES, committedPathProblem, judgeCommittedRead, type CommittedReadFacts } from '../src/memory/committedBytes.js';
+import { isCommittedProof } from '../src/memory/committedProof.js';
 
 const COMMIT = 'c'.repeat(40);
 const BLOB = 'd'.repeat(40);
@@ -67,10 +68,28 @@ describe('the path of a committed read', () => {
 
 describe('a file whose working-tree bytes differ from HEAD is refused', () => {
   it('reads the committed bytes when the working tree is the same: the positive control', () => {
-    expect(judgeCommittedRead(facts())).toEqual({
+    expect(judgeCommittedRead(facts())).toMatchObject({
       ok: true,
       read: { path: PATH, kind: 'approved-memory', commit: COMMIT, blob: BLOB, text: 'one decision\n' },
     });
+  });
+
+  it('carries a minted proof of what it read: the commit, the blob, the one path and the kind that path is', () => {
+    const judged = judgeCommittedRead(facts());
+    if (!judged.ok) throw new Error(judged.code);
+    expect(judged.read.proof).toEqual({ commit: COMMIT, blob: BLOB, path: PATH, kind: 'approved-memory' });
+    expect(isCommittedProof(judged.read.proof)).toBe(true);
+    expect(Object.isFrozen(judged.read.proof)).toBe(true);
+    expect(isCommittedProof({ ...judged.read.proof })).toBe(false);
+    expect(isCommittedProof(structuredClone(judged.read.proof))).toBe(false);
+  });
+
+  it('each read mints its own proof, and a refused read mints none', () => {
+    const one = judgeCommittedRead(facts());
+    const two = judgeCommittedRead(facts());
+    if (!one.ok || !two.ok) throw new Error('read');
+    expect(one.read.proof).not.toBe(two.read.proof);
+    expect(judgeCommittedRead(facts({ workingTree: { state: 'file', text: 'changed' } }))).not.toHaveProperty('read');
   });
 
   it('the bytes it returns are the committed bytes, not the working tree, and the result is frozen', () => {

@@ -29,6 +29,8 @@
  */
 import {
   MEMORY_DELETION_LEDGER_DIR,
+  isProjectId,
+  isTenantId,
   decisionCitesItem,
   deletionEntryFileName,
   deletionEntryOf,
@@ -60,7 +62,15 @@ export interface DeletionFiles extends LedgerFiles {
   removeFile(path: string): boolean;
 }
 
+/** The tenant and project this checkout belongs to. A request for another is refused before anyone is asked. */
+export interface CheckoutOwner {
+  readonly tenant: string;
+  readonly project: string;
+}
+
 export interface MemoryDeletionPorts {
+  /** The pair `root` belongs to: the binding that stops an approval for one project being spent on another's checkout. */
+  readonly owner: CheckoutOwner;
   readonly files: DeletionFiles;
   /** An `lstat` and a read, to see what an item is without following a link. */
   readonly fs: DocumentFs;
@@ -72,6 +82,7 @@ export interface MemoryDeletionPorts {
 }
 
 export interface IndexDeletionPorts {
+  readonly owner: CheckoutOwner;
   readonly files: DeletionFiles;
   readonly clock: SearchClock;
 }
@@ -79,6 +90,7 @@ export interface IndexDeletionPorts {
 export type MemoryDeletionRefusal =
   | MemoryDeletionCode
   | 'DELETE_ITEM_NOT_REGULAR'
+  | 'DELETE_NOT_THIS_PROJECT'
   | 'DELETE_REMOVE_FAILED'
   | 'DELETION_LEDGER_UNAVAILABLE'
   | 'DELETION_CLOCK_UNAVAILABLE';
@@ -117,6 +129,16 @@ export function readDeletionLedger(files: Pick<LedgerFiles, 'readText' | 'listDi
   const verified = verifyDeletionLedger(read);
   if (!verified.ok) return { ok: false, code: verified.code };
   return { ok: true, entries: read.map((entry) => JSON.parse(entry.text) as Record<string, unknown>), count: verified.count, lastHash: verified.lastHash };
+}
+
+/** The checkout's owner, copied once, or null when it is not a tenant id and a project id. */
+function ownerOf(owner: unknown): CheckoutOwner | null {
+  try {
+    const { tenant, project } = (owner ?? {}) as { tenant?: unknown; project?: unknown };
+    return isTenantId(tenant) && isProjectId(project) ? { tenant, project } : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The time as a whole number of milliseconds, or null: an entry without a real time is not made. */
@@ -180,15 +202,18 @@ function citedByDecisionOf(source: () => readonly string[] | null, item: { reado
 export function deleteMemoryItem(ports: MemoryDeletionPorts, root: string, rawRequest: unknown): MemoryDeletionOutcome {
   const request = memoryDeletionRequestOf(rawRequest);
   if (request === null) return { ok: false, code: 'DELETE_REQUEST_INVALID', recorded: false };
+  const owner = ownerOf(ports.owner);
+  if (owner === null) return { ok: false, code: 'DELETE_BINDING_INVALID', recorded: false };
   if (timeOf(ports.clock) === null) return { ok: false, code: 'DELETION_CLOCK_UNAVAILABLE', recorded: false };
   const ledger = readDeletionLedger(ports.files, root);
   if (!ledger.ok) return { ok: false, code: 'DELETION_LEDGER_UNAVAILABLE', recorded: false };
   const append = appenderOver(ports.files, root, ports.clock, ledger);
 
   const memoryClass = memoryClassOfPath(request.path);
+  // Recorded under the checkout's own owner: an attempt for another project is an attempt made HERE, not a deletion for them.
   const fixed = {
-    tenant: request.tenant,
-    project: request.project,
+    tenant: owner.tenant,
+    project: owner.project,
     action: 'memory-delete' as const,
     actionClass: 'P5' as const,
     memoryClass,
@@ -202,10 +227,13 @@ export function deleteMemoryItem(ports: MemoryDeletionPorts, root: string, rawRe
     recorded: append({ ...fixed, outcome: 'refused', code, citedByDecision }),
   });
 
+  if (request.tenant !== owner.tenant || request.project !== owner.project) return refused('DELETE_NOT_THIS_PROJECT', null);
+
   const found: Item = memoryClass === null ? { state: 'absent' } : itemAt(ports.fs, root, request.path);
   if (found.state === 'not-regular') return refused('DELETE_ITEM_NOT_REGULAR', null);
   const citedByDecision = found.state === 'file' ? citedByDecisionOf(ports.committedDecisions, { path: request.path, hash: found.hash }) : null;
   const judged = judgeMemoryDeletion(request, {
+    root,
     currentItemHash: found.state === 'file' ? found.hash : null,
     citedByDecision: citedByDecision ?? false,
     ...(ports.ownerVerifier === undefined ? {} : { ownerVerifier: ports.ownerVerifier }),
@@ -227,16 +255,18 @@ export function deleteMemoryItem(ports: MemoryDeletionPorts, root: string, rawRe
 export function deleteDerivedIndex(ports: IndexDeletionPorts, root: string, directory: string, rawRequest: unknown): MemoryDeletionOutcome {
   const judged = judgeIndexDeletion(rawRequest);
   if (!judged.ok) return { ok: false, code: 'DELETE_REQUEST_INVALID', recorded: false };
-  const named = searchIndexFileName({ tenant: judged.tenant, project: judged.project });
-  if (!named.ok) return { ok: false, code: 'DELETE_REQUEST_INVALID', recorded: false };
+  const owner = ownerOf(ports.owner);
+  if (owner === null) return { ok: false, code: 'DELETE_BINDING_INVALID', recorded: false };
+  const named = searchIndexFileName({ tenant: owner.tenant, project: owner.project });
+  if (!named.ok) return { ok: false, code: 'DELETE_BINDING_INVALID', recorded: false };
   if (timeOf(ports.clock) === null) return { ok: false, code: 'DELETION_CLOCK_UNAVAILABLE', recorded: false };
   const ledger = readDeletionLedger(ports.files, root);
   if (!ledger.ok) return { ok: false, code: 'DELETION_LEDGER_UNAVAILABLE', recorded: false };
   const append = appenderOver(ports.files, root, ports.clock, ledger);
 
   const fixed = {
-    tenant: judged.tenant,
-    project: judged.project,
+    tenant: owner.tenant,
+    project: owner.project,
     action: judged.action,
     actionClass: judged.actionClass,
     memoryClass: judged.memoryClass,
@@ -247,6 +277,7 @@ export function deleteDerivedIndex(ports: IndexDeletionPorts, root: string, dire
   };
   const target = `${directory.replace(/\/+$/, '')}/${named.fileName}`;
   const step = (outcome: DeletionOutcome, code: string | null): boolean => append({ ...fixed, outcome, code });
+  if (judged.tenant !== owner.tenant || judged.project !== owner.project) return { ok: false, code: 'DELETE_NOT_THIS_PROJECT', recorded: step('refused', 'DELETE_NOT_THIS_PROJECT') };
   if (!ports.files.exists(target)) return { ok: false, code: 'DELETE_ITEM_ABSENT', recorded: step('refused', 'DELETE_ITEM_ABSENT') };
   if (!step('authorised', null)) return { ok: false, code: 'DELETION_LEDGER_UNAVAILABLE', recorded: false };
   if (!ports.files.removeFile(target)) return { ok: false, code: 'DELETE_REMOVE_FAILED', recorded: step('delete-failed', 'DELETE_REMOVE_FAILED') };
