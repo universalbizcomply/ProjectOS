@@ -76,9 +76,14 @@ const PORT_DIRS = [
   "projectos/core/src/skills",
   "projectos/core/src/context",
   "projectos/core/src/approvals",
+  "projectos/core/src/routines",
+  "projectos/core/src/modelBroker",
+  "projectos/core/src/mcpConnectors",
   "projectos/agent/src/search",
   "projectos/agent/src/memory",
   "projectos/agent/src/skills",
+  "projectos/agent/src/modelBroker",
+  "projectos/agent/src/mcpConnectors",
 ];
 /** Test trees the port phases hold. Most files there are ours, so one is judged only once it shows upstream marks. */
 const TEST_DIRS = ["projectos/core/test", "projectos/agent/test"];
@@ -710,7 +715,7 @@ function recordProblems(raw) {
 
   // PC-17: the directories the ADR names are exactly the directories this file judges.
   const judged = [...PORT_DIRS, ...TEST_DIRS].sort();
-  const listed = [...visibleText(raw[ADR_P_REL]).matchAll(/^- `(projectos\/[a-z]+\/(?:src\/[a-z]+|test))\/`/gm)].map((m) => m[1]).sort();
+  const listed = [...visibleText(raw[ADR_P_REL]).matchAll(/^- `(projectos\/[a-z]+\/(?:src\/[A-Za-z]+|test))\/`/gm)].map((m) => m[1]).sort();
   if (JSON.stringify(listed) !== JSON.stringify(judged)) {
     E("PC-17", `ADR-P1 §7 lists ${listed.length} directories, and they are not the ${judged.length} this validator judges`);
   }
