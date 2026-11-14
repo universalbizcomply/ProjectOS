@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-MEMORY-PROVENANCE1A",
+  "project": "ProjectOS",
+  "objective": "Plan 3.3. Ranks retrieved items by provenance and freshness. Decisions, plan memory and approved memory are read from committed bytes; a differing working-tree copy is refused. A summary never overwrites a decision. A citation from an index older than HEAD is marked stale. Retention and deletion apply per class, and deleting approved memory or anything a decision cites is the P5 action memory-delete.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-14T20:44:25.258Z",
+      "note": "Owner-approved plan v1.36 and delta rev 2 (row 8). Built by an agent under the lead (Claude) in a parallel worktree after MEMORY-STORES1A; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-14T20:44:25.938Z",
+      "note": "provenance ranking with minted proofs, committed-bytes-only reads through a git port, stale-citation marks, per-class retention and owner-gated recorded deletion"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-14T20:44:26.715Z",
+      "note": "core 4642/4642 (108 files), agent 3793/3793 (120 files), control-center 952/952 (69 files) on the merged stack 278f9b71 after a rebuild of core then agent. val-projectos-memory-provenance1a (204 text and 125 behavioural named mutations killed), val-projectos-memory-stores1a (three pins updated by the lead in de9e7b01, none loosened), val-projectos-port-search1a, val-projectos-port-memory1a, val-projectos-port-credit1a, val-projectos-port-skills1a, val-projectos-port-context1a and validate-no-secrets PASS. validate-all on the stack head 278f9b71: 174 PASS, 1 FAIL, 2 retired (175 registered). The one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-14T20:44:27.494Z",
+      "note": "Evidence: docs/finish/PROJECTOS-MEMORY-PROVENANCE1A.md (branch head dc5b3d12, stacked at 278f9b71)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-14T20:44:28.381Z",
+      "note": "closure tail only - no implementation. Reviews: ECC security-reviewer, fix round 1, one recheck and a final round, re-verified by the lead."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-14T20:44:29.157Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
