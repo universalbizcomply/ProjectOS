@@ -128,7 +128,7 @@ the Braille cell were added, and three mutation texts follow the changed lines.
 | `val-projectos-port-memory1a` | PASS: 20 rules; 199 named mutations killed |
 | `val-projectos-port-credit1a` | PASS: 177 real files; 157 fixture and 59 record mutations killed |
 | `validate-no-secrets` | PASS |
-| Validators that read a touched file (grep of `validate-all`, `cached-runner`, the core barrel and the four directories found 31) | See "Other validators" |
+| Validators that read a touched file (a grep for the touched paths, `validate-all`, `cached-runner` and the core barrel) | See "Other validators" |
 
 **The one agent failure is the alias, not the code.** `test/tenantSidecar.test.ts` builds the agent with its own `tsconfig.json`
 in `beforeAll`, and the agent's `@projectos/core` junction points at the plan worktree, whose `core/dist` does not have the new
@@ -142,8 +142,8 @@ before the new files were committed and failed `PC-24 not tracked`, then passed 
 `val-projectos-connector-contract1a` (293 mutations), `val-projectos-kernel-followup1a` (88), `val-projectos-port-agents1a`,
 `-approvals1a`, `-computer1a`, `-context1a` (320), `-mcp1a`, `-providers1a`, `-research1a`, `-routines1a`, `-skills1a` (440),
 `val-projectos-tenant-contract1a` (346), `-credentials1a`, `-csp1a`, `-principal1a`, `-rls1a`, `val-projectos-validator-scratch-lifecycle1a`,
-`validate-speed-validation-cache`, `validate-v2-closure-evidence`, `val-projectos-v3-validation-evidence1a`. That is the 31 the
-grep found minus the three that are this phase's own (run above) and the two plan-engine files that are libraries, not validators.
+`validate-speed-validation-cache`, `validate-v2-closure-evidence`, `val-projectos-v3-validation-evidence1a`. That is every validator the grep found except `validate-all` (the lead's) and the files that are libraries, not validators
+(`plan-discovery-engine`, `plan-governance-engine`, `speed/benchmark`, `speed/cached-runner`, `speed/validation-cache`).
 `validate-all` itself was not run.
 
 ## Converge (B9)
