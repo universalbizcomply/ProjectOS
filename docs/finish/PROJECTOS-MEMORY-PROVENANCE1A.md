@@ -155,14 +155,14 @@ closed import list for the five new core files. The mutation that adds `node:fs`
 | core `src` and the new core tests type-checked (temporary tsconfig) | exit 0, no output. (`test/search-citation.test.ts`, which this phase did not touch, already had one type error at line 317 under a strict test config: not mine, not changed) |
 | agent typecheck, **alias**: `tsc` over `agent/src` with `@projectos/core` mapped to this worktree's `core/dist` | exit 0, no output |
 | agent `src` and the five new or changed tests type-checked through the alias (`tsconfig.test.json` extended) | exit 0, no output |
-| agent tests, **alias**: vitest with `@projectos/core` aliased to this worktree's `core/dist` | @@AGENT@@ |
+| agent tests, **alias**: vitest with `@projectos/core` aliased to this worktree's `core/dist` | 120 files; 119 pass, 3,761 tests pass, 10 skipped. The one failing file is `tenantSidecar.test.ts`, the alias artefact described below |
 | esbuild browser bundle of this worktree's `core/src/index.ts` (control-center's esbuild, `platform: 'browser'`, `node:crypto` and `node:buffer` aliased as `coreBrowserLoad.test.ts` does), evaluated in a bare context | exit 0, 851,516 bytes; a top-level `Buffer` beside the barrel fails as the positive control; `grep "from 'node:" core/src/memory core/src/search` lists only `prompt.ts`, `proposal.ts` and `store.ts`, all `node:crypto` and all there before this phase |
-| `val-projectos-memory-provenance1a` | @@OWN@@ |
+| `val-projectos-memory-provenance1a` | PASS, exit 0, about 32 s: 7 new and 9 changed files judged; 156 text and 83 behavioural mutations killed. Also run as validate-all runs it: `Array.isArray(run())` is `true` |
 | `val-projectos-memory-stores1a` | **3 errors, none a defect of the code**: see "Out-of-path edits" |
 | `val-projectos-port-search1a` | PASS: 22 real files; 113 text and 26 behavioural mutations killed |
 | `val-projectos-port-memory1a` | PASS: 20 rules; 199 named mutations killed |
-| `val-projectos-port-credit1a` | @@CREDIT@@ |
-| `val-projectos-port-skills1a`, `val-projectos-port-context1a` (they read the scan and the memory barrel) | @@LONG@@ |
+| `val-projectos-port-credit1a` | PASS: 185 real files judged; 157 fixture and 59 record mutations killed, exit 0 |
+| `val-projectos-port-skills1a`, `val-projectos-port-context1a` (they read the scan and the memory barrel) | `port-skills1a` PASS (21 rules; 440 mutations, exit 0, 49 s); `port-context1a` PASS (18 rules; 320 mutations, exit 0, 248 s) |
 | `validate-no-secrets` | PASS, exit 0 |
 
 **The one agent failure under the alias is the alias, not the code.** `test/tenantSidecar.test.ts` builds the agent with its own `tsconfig.json`
@@ -245,7 +245,7 @@ recorded and `memory-delete` P5 (done).
 
 ## Commits
 
-- The commit that adds the core rules, the agent files, their tests, the validator, the registration and this file (`feat(memory): ...`).
+- `feat(memory): provenance ranking, committed bytes only, stale citations, retention and recorded deletion`: the core rules, the agent files, their tests, the validator, the registration and this file. One commit on the branch, not pushed.
 
 ## Appendix: the failing run, test names (against the stub, before the implementation)
 
