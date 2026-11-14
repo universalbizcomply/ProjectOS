@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PORT-ROUTINES1A",
   "project": "ProjectOS",
   "objective": "Port delta phase 7 (C13). Port the CopilotKit OpenBot (MIT) routine schedule validator and fatigue logic, and translate the Hermes (MIT) cron prompt scan and occurrence ids. A routine is a plan-approved record, never created by an agent. Floors are never-lowered constants. Pure rules plus a record reader; no scheduler runs.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-14T04:47:45.893Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-14T04:48:44.377Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PORT-ROUTINES1A:owner-closure:e77c4acf"
     }
   ]
 }
