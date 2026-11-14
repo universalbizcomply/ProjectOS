@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-MEMORY-STORES1A",
   "project": "ProjectOS",
   "objective": "Plan 3.1. Runs after owner act O1 has committed the Stage 3 action entries. Maps the six memory classes onto existing stores, makes the search index per project and rebuildable, and lands the binding carry-forwards from PORT-SEARCH1A and PORT-MEMORY1A before any prompt reads a store. A worker asks for a memory or skill write only through a proposals entry in its findings record.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-14T17:56:19.316Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-14T17:56:20.810Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-MEMORY-STORES1A:owner-closure:c4994542"
     }
   ]
 }
