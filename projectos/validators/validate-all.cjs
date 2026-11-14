@@ -156,6 +156,8 @@ const MODULES = [
   "val-projectos-tenant-credentials1a",
   // PROJECTOS-PORT-PROVIDERS1A — the model broker: a budget on every call, a backoff floor, committed prices, a closed registry, loopback only.
   "val-projectos-port-providers1a",
+  // PROJECTOS-PORT-RESEARCH1A — cited research: an SSRF guard on every fetch, a budget on every paid search, a step cap, no uncited answer.
+  "val-projectos-port-research1a",
   // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
   "val-projectos-connector-contract1a"
 ];
