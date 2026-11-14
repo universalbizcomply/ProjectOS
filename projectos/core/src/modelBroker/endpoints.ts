@@ -17,7 +17,7 @@ const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a
 const AUTHORITY = /^(\[[0-9a-fA-F:.]+\]|[^:/?#@\s[\]]+)(?::(\d{1,5}))?$/;
 const PATH = /^(?:\/[^?#\s]*)?$/;
 /** Names that resolve to this machine or its network by convention, and wildcard-DNS services that map any name to an address. */
-const INTERNAL_SUFFIX = /(?:^|\.)(?:localhost|internal|local|nip\.io|sslip\.io|xip\.io)$/i;
+const INTERNAL_SUFFIX = /(?:^|\.)(?:localhost|internal|local|nip\.io|sslip\.io|xip\.io|lvh\.me|localtest\.me|vcap\.me|lacolhost\.com|traefik\.me)$/i;
 
 /** Four decimal octets exactly, each 0-255, with no leading zero ambiguity beyond a lone zero. */
 function ipv4Octets(host: string): readonly number[] | null {

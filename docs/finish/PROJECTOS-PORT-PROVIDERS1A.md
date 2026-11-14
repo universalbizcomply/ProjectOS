@@ -54,13 +54,13 @@ added, and no xAI or Grok path exists. Vendor text was read as data.
 | Endpoint rules, loopback rule | `.../endpoints.ts` | Original |
 | Route choice | `.../fallback.ts` | Original |
 | The call | `.../callModel.ts` | Original |
-| The idempotency key | `.../requestKey.ts` | Original (review round 1) |
+| The idempotency key and request fingerprint | `.../requestKey.ts` | Original (review rounds 1 and 2) |
 | Route types, barrel | `.../routeTypes.ts`, `.../index.ts` | Original |
 | Committed config loader, local model detection | `agent/src/modelBroker/{committedConfig,localModels,index}.ts` | Original |
 | Barrel line | `core/src/index.ts` | One line |
 | Notices | `THIRD_PARTY_NOTICES` | 8 entries, one per upstream file, each OpenClaw one with `Also-Credits: pi-mono` |
 | Tests | `core/test/modelBroker-{retry,pricing,routing,endpoints,call}.test.ts`, `agent/test/modelBroker.test.ts` | Written first; the core ones failed on the missing module before any source |
-| Validator | `projectos/validators/val-projectos-port-providers1a.cjs` | 35 rules, registered in `validate-all.cjs` and `speed/cached-runner.cjs`, same position in both |
+| Validator | `projectos/validators/val-projectos-port-providers1a.cjs` | 40 rules, registered in `validate-all.cjs` and `speed/cached-runner.cjs`, same position in both |
 
 **Read and not ported, by choice.** Hermes `route_binding.py` (it swaps a live agent's client in place: wiring, not a
 rule), Hermes `usage_pricing.py` (its price snapshots are vendor-claimed numbers, include xAI, and would be
@@ -97,7 +97,12 @@ and `provider-id` (normalisation the closed registry does not need), the streami
 | A stop reason of `error` or `aborted` returned as an ok answer; `length` hidden from the caller | PP-31 |
 | A failed attempt left off the audit record; a possibly billed one counted as free; a free one holding its reservation | PP-32 |
 | A Retry-After above the cap waited out, or ignored by the cooldown | PP-33 |
-| A bad clock after the spend, an answer over one million characters, or an unbounded attempt store | PP-34 |
+| A bad clock after the spend, or an answer over one million characters | PP-34 |
+| Two simultaneous calls with one key both reaching the transport, or a waiter not held to the grant | PP-35 |
+| An unknown outcome overwritten by a later safe failure, or masked by `OVER_BUDGET` or `ATTEMPTS_EXHAUSTED` | PP-36 |
+| An attempt store that forgets a key (and so resets an exhausted cap), or that is not bounded per tenant and project | PP-37 |
+| The same key served with another chain, output cap, phase or budget ceiling; a replay served before the grant | PP-38 |
+| A clock that gives no time skipping every cooldown instead of refusing the call | PP-39 |
 
 ## Acceptance criteria to tests
 
@@ -117,7 +122,7 @@ and `provider-id` (normalisation the closed registry does not need), the streami
 Taken from the validator's own output, not from this document:
 
 ```text
-val-projectos-port-providers1a: PASS (16 real files judged; 195 text and 73 behavioural mutations killed)
+val-projectos-port-providers1a: PASS (16 real files judged; 221 text and 89 behavioural mutations killed)
 ```
 
 Every mutation is applied in memory (text) or to a copy of the code that Node runs by stripping types (behavioural),
@@ -152,18 +157,18 @@ looped for ever instead of failing, and was removed; its text twin stays.
 
 ## Checks
 
-Every line below was read from an exit code or an output on this tree after the review-round changes.
+Every line below was read from an exit code or an output on this tree after the round 2 changes.
 
 | Check | Result |
 |---|---|
 | core `npm run -s build` | exit 0 |
-| core `npx vitest run` | 64 files, 2976 tests, all pass (94 of them in the five `modelBroker-*` files) |
+| core `npx vitest run` | 64 files, 2993 tests, all pass (111 of them in the five `modelBroker-*` files) |
 | agent `npm run -s build` (plain, in this worktree) | **exit 2**, TS2305: `agent/node_modules/@projectos/core` is a junction to the `host-review-path1b` worktree, so it does not see this core whatever core's build says |
 | agent `tsc` over all of `src`, **alias config** (`@projectos/core` mapped to this worktree's `core/src/index.ts`) | exit 0 |
 | agent `tsc` over `src/modelBroker` and its test, alias config | exit 0 |
 | agent `vitest`, whole suite, **alias config** | 110 files, 3435 tests: 3425 pass, 0 fail, 10 skipped (not ours). One file fails to load, `tenantSidecar.test.ts`, which runs the plain `tsc` and so meets the junction (see the first section; it passes on base) |
 | `modelBroker.test.ts` (agent) | 11 of 11 |
-| `val-projectos-port-providers1a` | PASS (16 real files judged; 195 text and 73 behavioural mutations killed) |
+| `val-projectos-port-providers1a` | PASS (16 real files judged; 221 text and 89 behavioural mutations killed) |
 | `val-projectos-port-credit1a` | PASS (76 real file(s) judged; 152 fixture and 59 record mutations killed) |
 | `validate-no-secrets` | PASS |
 | The 36 other validators that read a touched file, one process each (`val-projectos-{agent-workforce,boot-continue,closure-transport,connector-contract,gate-decision-evidence,gatekeeper-contract,host-review-path1a,host-review-path1b,kernel-*,live-gate-owner-floor,port-{approvals,context,memory,search,skills},provider-key-shapes,technical-continuation,tenant-*,trust-boundary,v3-validation-evidence,validator-scratch-lifecycle,work-record-not-authority,worker-lifecycle-bounded}1a`, `val-watchdog-core1a`, `validate-speed-validation-cache`, `validate-v2-closure-evidence`, `validate-zero-relay-continuity`) | all 36 exit 0 |
@@ -175,7 +180,7 @@ for every agent test; the plain agent build was run and fails for the stated rea
 
 ## Converge (B9)
 
-Compared with the phase entry in `docs/projectos-finish-phases.json`, delta row 2 and the review round:
+Compared with the phase entry in `docs/projectos-finish-phases.json`, delta row 2 and both review rounds:
 
 | Requirement | State |
 |---|---|
@@ -184,10 +189,10 @@ Compared with the phase entry in `docs/projectos-finish-phases.json`, delta row 
 | Pricing from committed bytes only | The module accepts only text stamped with a 40-hex commit, and the agent loader reads only through a committed reader. **No price table or provider list is committed**, so the broker refuses every model until the owner commits both (fail closed, intended) |
 | Credit headers, notices, credit validator passes | Built; passes with the shared dirs commit and the `PORT_VALIDATORS` line |
 | The validator refuses an importer outside the module and its tests | Built (PP-24), by import path and by exported name, with one exception: the core barrel's single export line, as in `PORT-SEARCH1A` |
-| Validator pin and named mutations, each killed by its own rule | 195 text, 73 behavioural |
+| Validator pin and named mutations, each killed by its own rule | 221 text, 89 behavioural |
 | Backoff floor owed by CONNECTOR-CONTRACT1A | Closed in the broker and, in the review round, in the raw runner (PP-11). `connectorContract.ts` is unchanged, so `decideConnectorRetry` still has no floor for connector calls |
 
-**Unbuilt, on purpose or by scope:** a durable attempt store and outcome memory (the in-memory ones are the double); a
+**Unbuilt, on purpose or by scope:** a durable attempt store, outcome memory and in-flight claim (the in-memory ones are the double); a
 live transport; the `agent/src/index.ts` barrel (outside the write paths); Hermes `route_binding.py` (wiring); the vendor
 price snapshots; and the items under Deferred below.
 
@@ -202,7 +207,9 @@ line), `val-projectos-port-credit1a.cjs` (the `PORT_VALIDATORS` line, approved b
 edits) and ADR-P1 (the shared commit's). No other PROTECTED file is in the diff; `gatekeeperConfig.ts`, `run.ts`, the
 broker, `credentialResolver.ts`, `gatekeeperCostLedger.ts` and `connectorContract.ts` are untouched.
 
-## Review round 1
+## Review rounds 1 and 2
+
+### Round 1
 
 ECC security-reviewer and Agency api-platform-engineer reviewed head `e87f9aae`. Their findings overlapped. Each was
 fixed test-first (the new tests failed on the missing code before any source changed) and has a named mutation killed
@@ -223,6 +230,25 @@ transport failure is classed, never rethrown as a refusal.
 | M6 bad clock after the spend, text size, unbounded store | Fixed. The ledger date falls back to the call's start when the clock goes bad; an answer over 1,000,000 characters is refused after its spend is recorded; the memory store is bounded (4096 keys, oldest forgotten) | `modelBroker-call`, `modelBroker-retry` | `a-bad-clock-after-the-spend-throws`, `an-answer-has-no-size-cap`, `the-attempt-store-grows-without-end` (PP-34) |
 | Doc claim that the credit-validator change is one line | Corrected in the first section: it is the `PORT_VALIDATORS` line only; the directories came from the shared commit | | |
 
+### Round 2 (recheck of `e87f9aae..23161119`)
+
+Fixed test-first, each with a named mutation killed by its own rule. H1 and H4 were confirmed fixed by the recheck.
+
+| Finding | Disposition | Tests | Mutations (rule) |
+|---|---|---|---|
+| N1 [HIGH] no in-flight guard | Fixed. `callModel` keeps one map of calls in flight per attempt store, keyed by tenant, project and key, set synchronously before the first await. A second simultaneous call waits for the first and takes its outcome as a replay (`replayed: true`): one transport call, one ledger record. The place is cleared in `finally`. A waiter is still asked for the grant and held to the same terms | `modelBroker-call` "one request at a time" (3) | `a-second-call-with-the-same-key-starts-its-own`, `the-flight-is-never-cleared`, `the-flights-are-per-call`, `a-flight-is-not-recorded`, `a-waiter-skips-the-grant` (PP-35) |
+| N2 [HIGH] `routeRun.reason` overwritten by the last attempt | Fixed. `mayHaveActed` is sticky on the route run: once any attempt may have acted, the run ends as `OUTCOME_UNKNOWN` and never falls back, whatever a later attempt or the exhaustion says. Tested with may_have_acted, rate_limit, rate_limit, exhausted | `modelBroker-call` "a call that may have acted is never masked" | `the-last-failure-overwrites-the-unknown`, `the-reason-ignores-the-sticky-flag` (PP-36) |
+| N3 [MEDIUM] unknown outcome masked by `OVER_BUDGET` or `ATTEMPTS_EXHAUSTED` | Fixed. The sticky flag is checked first in the failure path, and the order is pinned. The earlier test that expected `OVER_BUDGET` after billed retries now expects `OUTCOME_UNKNOWN` | same block, and the budget test | `the-unknown-is-checked-after-the-refusals` (PP-36) |
+| N4 [MEDIUM] store global across tenants; eviction resets an exhausted cap | Fixed by refusing new keys, not by evicting: the store is bounded per tenant and project (4096), a new key past that is refused (`STORE_FULL`, `AttemptStoreFull`), and no key is ever forgotten, so an exhausted key stays exhausted. Another tenant is not held back. **A changed `requestId` mints a fresh attempt count by design**: it is a new logical request. What bounds the spend of such requests is each call's own budget and, later, the kernel caps (deferred below) | `modelBroker-retry` store tests, `modelBroker-call` "the attempt store is bounded without forgetting", "a changed id is a new request" | `the-store-takes-new-keys-without-end`, `the-store-bound-is-huge`, `a-full-store-is-a-plain-failure`, `the-store-bound-is-global`, `the-store-does-not-count-its-keys` (PP-37) |
+| N5 [MEDIUM] key omits chain, output cap, phase, budget; replay before the grant | Fixed. `fingerprintOf(chain, maxOutputTokens, phaseId, budget ceiling)` is kept with the key by the store, from the first attempt. The same key with another fingerprint is refused (`IDEMPOTENCY_MISMATCH`), in the store and against a call in flight. The grant is asked before a replay is served. A replay returns `replayed: true`, `attempts: 0`, `costMicroUsd: 0` and an `original` object carrying the original call's attempts, cost, overBudget and recorded | `modelBroker-call` "the key is bound to the request...", `modelBroker-retry` fingerprint tests, replay labels | `a-different-chain-is-served-the-old-answer`, `a-waiter-with-other-terms-is-served`, four `the-fingerprint-ignores-*`, `a-replay-is-served-before-the-grant`, `a-replay-is-billed-again-in-its-labels`, `a-replay-hides-the-original` (PP-38) |
+| N6 [LOW] `/xai/` matches `relaxai-7b`; wildcard names; oversize answer re-billed | Fixed. The xAI and Grok screen matches whole tokens (`xai`, `x-ai`, `x.ai` as a token, `grok` at a token start). `lvh.me`, `localtest.me`, `vcap.me`, `lacolhost.com` and `traefik.me` join the wildcard-DNS refusal. An answer refused for its size, an unreadable usage and an invalid response are remembered as billed, so a repeat replays the refusal and is not billed again | `modelBroker-routing`, `modelBroker-endpoints`, `modelBroker-call` "an oversize answer is billed once" | `the-xai-pattern-matches-inside-words`, `a-wildcard-dns-name-is-public` (PP-8, PP-27), `an-oversize-answer-is-not-remembered` (PP-38) |
+| N7 [carry] a non-finite time skips cooldowns | Fixed. The call refuses (`REQUEST_INVALID`) before choosing a route when the clock gives no time, and `chooseRoute` itself fails closed on a non-finite `nowMs` | `modelBroker-call` "a bad clock fails closed", `modelBroker-routing` | `a-bad-clock-skips-the-cooldowns`, `the-route-choice-trusts-a-bad-clock` (PP-39) |
+
+**Mutations the code defends twice.** Some round 2 text mutations have no behavioural twin because a second guard hides
+them (for example, the waiter's grant check and the in-flight fingerprint check both sit before the answer); they stay as
+text mutations pinned in the body that decides. Behavioural mutations whose effect reached a neighbouring rule list it in
+their own declaration.
+
 **Deferred, with their owner:**
 
 - **Per-provider and per-egress grant on fallback (F9).** The grant is asked once per call. A fallback to another provider
@@ -234,12 +260,12 @@ transport failure is classed, never rethrown as a refusal.
 - **Month, phase and day caps (ECC M4).** The call's own budget is enforced here. The kernel's `BudgetPolicy` caps
   (`phaseHardStopAtMicroUsd`, `dayHardStopAtMicroUsd`, the monthly stop) are owned by the Stage 4 phase that first calls the
   broker (4.1, headless workers and role broker), through the existing `authoriseRequestSpend`.
-- **Concurrent duplicates.** Two simultaneous calls with the same key both pass the replay check and share an attempt count.
-  A durable store with a compare-and-set claim closes it; the in-memory double does not.
-- **Eviction resets a count.** A key evicted from the bounded in-memory store starts again. A durable store does not evict.
+- **A full in-memory store stays full.** Because no key is ever forgotten, a tenant and project that reaches 4096 request
+  keys is refused new ones until the process restarts. The durable store, with an expiry for completed and aged entries,
+  owns that. Single-flight is per process: two processes sharing one store need the durable store's compare-and-set claim.
 
 ## Final state
 
-Ready for the recheck: ECC SECURITY and Agency `api-platform-engineer`, then `validate-all` run by the lead. Open for the
+Round 2 is the last fix round. Next: the lead verifies each failing input and runs `validate-all`. Open for the
 owner: the committed price table and provider list, the action-registry entry for a model call, and a durable attempt
 store with outcome memory when this is wired.

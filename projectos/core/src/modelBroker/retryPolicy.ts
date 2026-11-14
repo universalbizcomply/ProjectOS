@@ -12,7 +12,8 @@
  * held by an `AttemptStore` under that scope, and the caller hands in no history at all, so a caller passing an empty
  * one has nothing to reset. The store also remembers a completed outcome per key, so a repeat of a finished request
  * is answered from memory and does not reach the transport again. A later phase backs the store with the connector
- * contract's attempt history; the in-memory one here is the test double, and it is bounded.
+ * contract's attempt history; the in-memory one here is the test double. It is bounded per tenant and project by
+ * refusing NEW keys, never by forgetting one: an exhausted or unknown-outcome key keeps its count.
  */
 
 import { CONNECTOR_MAX_ATTEMPTS } from '../connectorContract.js';
@@ -66,46 +67,60 @@ export interface AttemptScope {
   readonly project: string;
 }
 
-export interface AttemptStore {
-  /** Count one more attempt under this scope and key, and answer the new count. */
-  begin(scope: AttemptScope, key: string): Promise<number>;
-  count(scope: AttemptScope, key: string): Promise<number>;
-  /** The outcome this key completed with, or null. A repeat of a finished request is answered from it. */
-  recall(scope: AttemptScope, key: string): Promise<unknown | null>;
-  remember(scope: AttemptScope, key: string, outcome: unknown): Promise<void>;
+/** What the store holds for one key. */
+export interface StoredRequest {
+  /** The terms of the first attempt (`fingerprintOf`): the chain, output cap, phase and budget ceiling. */
+  readonly fingerprint: string;
+  readonly count: number;
+  /** The outcome this key completed with, or null while it has none. */
+  readonly outcome: unknown | null;
 }
 
-/** Past this many keys the oldest is forgotten: a bounded double for a durable store. */
+export interface AttemptStore {
+  /** Count one more attempt under this scope and key, and answer the new count. The first call fixes the fingerprint. */
+  begin(scope: AttemptScope, key: string, fingerprint: string): Promise<number>;
+  count(scope: AttemptScope, key: string): Promise<number>;
+  recall(scope: AttemptScope, key: string): Promise<StoredRequest | null>;
+  remember(scope: AttemptScope, key: string, fingerprint: string, outcome: unknown): Promise<void>;
+}
+
+/** The store will not take a new key: this tenant and project already hold as many as it keeps. */
+export class AttemptStoreFull extends Error {}
+
+/** Per tenant and project. Past it a NEW key is refused: no key is ever forgotten, so an exhausted one stays exhausted. */
 export const DEFAULT_ATTEMPT_STORE_KEYS = 4096;
 
-export function createMemoryAttemptStore(options: { readonly maxKeys?: number } = {}): AttemptStore {
-  const maxKeys = Number.isSafeInteger(options.maxKeys) && (options.maxKeys as number) >= 1 ? (options.maxKeys as number) : DEFAULT_ATTEMPT_STORE_KEYS;
-  const entries = new Map<string, { count: number; outcome: unknown | null }>();
+export function createMemoryAttemptStore(options: { readonly maxKeysPerScope?: number } = {}): AttemptStore {
+  const maxKeys = Number.isSafeInteger(options.maxKeysPerScope) && (options.maxKeysPerScope as number) >= 1 ? (options.maxKeysPerScope as number) : DEFAULT_ATTEMPT_STORE_KEYS;
+  const entries = new Map<string, StoredRequest>();
+  const perScope = new Map<string, number>();
+  const scopeOf = (scope: AttemptScope): string => `${scope.tenant}/${scope.project}`;
   const slot = (scope: AttemptScope, key: string): string => {
     if (!isModelIdempotencyKey(key)) throw new Error('that is not an idempotency key');
-    return `${scope.tenant}/${scope.project}/${key}`;
+    return `${scopeOf(scope)}/${key}`;
   };
-  /** Insertion order is age: touching an entry moves it to the young end, and the oldest go first. */
-  const touch = (at: string, next: { count: number; outcome: unknown | null }): void => {
-    entries.delete(at);
-    entries.set(at, next);
-    for (const oldest of entries.keys()) {
-      if (entries.size <= maxKeys) return;
-      entries.delete(oldest);
-    }
+  /** A new key is counted against its tenant and project, and refused past the bound. */
+  const admit = (scope: AttemptScope, at: string): void => {
+    if (entries.has(at)) return;
+    const held = perScope.get(scopeOf(scope)) ?? 0;
+    if (held >= maxKeys) throw new AttemptStoreFull('this tenant and project hold as many request keys as the store keeps');
+    perScope.set(scopeOf(scope), held + 1);
   };
   return {
-    begin: async (scope, key) => {
+    begin: async (scope, key, fingerprint) => {
       const at = slot(scope, key);
-      const held = entries.get(at) ?? { count: 0, outcome: null };
-      touch(at, { count: held.count + 1, outcome: held.outcome });
-      return held.count + 1;
+      admit(scope, at);
+      const held = entries.get(at);
+      entries.set(at, { fingerprint: held?.fingerprint ?? fingerprint, count: (held?.count ?? 0) + 1, outcome: held?.outcome ?? null });
+      return (held?.count ?? 0) + 1;
     },
     count: async (scope, key) => entries.get(slot(scope, key))?.count ?? 0,
-    recall: async (scope, key) => entries.get(slot(scope, key))?.outcome ?? null,
-    remember: async (scope, key, outcome) => {
+    recall: async (scope, key) => entries.get(slot(scope, key)) ?? null,
+    remember: async (scope, key, fingerprint, outcome) => {
       const at = slot(scope, key);
-      touch(at, { count: entries.get(at)?.count ?? 0, outcome });
+      admit(scope, at);
+      const held = entries.get(at);
+      entries.set(at, { fingerprint: held?.fingerprint ?? fingerprint, count: held?.count ?? 0, outcome });
     },
   };
 }

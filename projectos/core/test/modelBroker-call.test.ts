@@ -237,6 +237,10 @@ describe('the key is bound, the count is scoped, and an answer is replayed', () 
     const second = await callModel(request(), r.deps);
     expect(first.ok && first.replayed).toBe(false);
     expect(second.ok && second.replayed).toBe(true);
+    // a replay made no attempt and cost nothing now: what the original call did is labelled as the original's
+    expect(second.ok && second.attempts).toBe(0);
+    expect(second.ok && second.costMicroUsd).toBe(0);
+    expect(second.ok && second.original).toMatchObject({ attempts: 1, costMicroUsd: 200, overBudget: false, recorded: true });
     expect(second.ok && second.text).toBe('hello');
     expect(r.calls).toHaveLength(1);
     expect(r.records).toHaveLength(1);
@@ -261,6 +265,140 @@ describe('the key is bound, the count is scoped, and an answer is replayed', () 
     expect(mine.ok && mine.route.provider).toBe('backup');
     expect(theirs.ok).toBe(true);
     expect(r.calls.map((c) => c.provider)).toEqual(['primary', 'backup', 'backup', 'primary', 'backup']);
+  });
+});
+
+describe('one request at a time: concurrent calls with the same key share one call', () => {
+  it('two simultaneous calls reach the transport once and the ledger once, and both get the answer', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const r = rig(async () => { await gate; return OK; });
+    const req = request();
+    const first = callModel(req, r.deps);
+    const second = callModel(req, r.deps);
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(r.calls).toHaveLength(1);
+    expect(r.records).toHaveLength(1);
+    expect(a.ok && a.text).toBe('hello');
+    expect(b.ok && b.text).toBe('hello');
+    expect([a, b].filter((o) => o.ok && o.replayed)).toHaveLength(1);
+  });
+
+  it('a waiting call is still held to the grant, and to the same terms', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let asked = 0;
+    const r = rig(async () => { await gate; return OK; }, { grant: () => ++asked === 1 });
+    const first = callModel(request(), r.deps);
+    const second = callModel(request(), r.deps);
+    const third = callModel(request({ budget: { maxMicroUsd: 900_000 } }), r.deps);
+    release();
+    const [a, b, c] = await Promise.all([first, second, third]);
+    expect(a.ok).toBe(true);
+    expect(b).toMatchObject({ ok: false, refusal: { code: 'NO_GRANT' } });
+    expect(c).toMatchObject({ ok: false, refusal: { code: 'IDEMPOTENCY_MISMATCH' } });
+    expect(r.calls).toHaveLength(1);
+  });
+
+  it('clears its place when the call fails, so a later call is not held behind it', async () => {
+    const r = rig(async () => { throw new ModelCallError('invalid_request', 'bad'); });
+    await callModel(request(), r.deps);
+    await callModel(request(), r.deps);
+    expect(r.calls).toHaveLength(2);
+  });
+});
+
+describe('a call that may have acted is never masked', () => {
+  it('stays unknown after a later attempt fails safely: may_have_acted, then a rate limit, then exhaustion never falls back', async () => {
+    const r = rig(async (_provider, _model, n) => { throw n === 1 ? new ModelCallError('may_have_acted', 'timeout') : rateLimited(); });
+    const out = await callModel(request(), r.deps);
+    expect(out).toMatchObject({ ok: false, refusal: { code: 'OUTCOME_UNKNOWN' } });
+    expect(r.calls.every((c) => c.provider === 'primary')).toBe(true);
+    expect(r.calls.length).toBe(3);
+    expect(r.deps.cooldowns.get(SCOPE).until.has('backup')).toBe(false);
+  });
+
+  it('reports the unknown outcome even when the attempt cap runs out next', async () => {
+    const r = rig(async () => { throw new ModelCallError('may_have_acted', 'timeout'); });
+    await callModel(request(LONE), r.deps);
+    const second = await callModel(request(LONE), r.deps);
+    expect(second).toMatchObject({ ok: false, refusal: { code: 'OUTCOME_UNKNOWN' } });
+    expect(r.calls).toHaveLength(MAX_MODEL_ATTEMPTS);
+  });
+});
+
+describe('the key is bound to the request, and a replay is held to the same terms', () => {
+  it('refuses the same key with a different chain, output cap, phase or budget ceiling, and serves nothing', async () => {
+    const r = rig(async () => OK);
+    await callModel(request(), r.deps);
+    for (const change of [{ chain: [{ provider: 'backup', model: 'small' }] }, { maxOutputTokens: 400 }, { phaseId: 'PHASE-2' }, { budget: { maxMicroUsd: 900_000 } }]) {
+      const out = await callModel(request({ ...change, idempotencyKey: request().idempotencyKey }), r.deps);
+      expect(out, JSON.stringify(change)).toMatchObject({ ok: false, refusal: { code: 'IDEMPOTENCY_MISMATCH' } });
+    }
+    expect(r.calls).toHaveLength(1);
+  });
+
+  it('asks for the grant before serving a replay', async () => {
+    const r = rig(async () => OK);
+    await callModel(request(), r.deps);
+    const denied = rig(async () => OK, { attempts: r.deps.attempts, grant: () => false });
+    expect(await callModel(request(), denied.deps)).toMatchObject({ ok: false, refusal: { code: 'NO_GRANT' } });
+  });
+
+  it('a request with a changed id is a new request with its own attempts, by design: the budget per call is what bounds it', async () => {
+    const r = rig(async () => { throw new ModelCallError('may_have_acted', 'timeout'); });
+    for (let i = 0; i < 3; i += 1) await callModel(request({ ...LONE, requestId: `req-${i}` }), r.deps);
+    expect(r.calls.length).toBe(9);
+  });
+});
+
+describe('the attempt store is bounded without forgetting', () => {
+  it('refuses a new key when the tenant and project have too many, and an exhausted key stays exhausted', async () => {
+    const r = rig(async () => { throw new ModelCallError('may_have_acted', 'timeout'); }, { attempts: createMemoryAttemptStore({ maxKeysPerScope: 2 }) });
+    await callModel(request({ ...LONE, requestId: 'a' }), r.deps);
+    await callModel(request({ ...LONE, requestId: 'a' }), r.deps);
+    await callModel(request({ ...LONE, requestId: 'b' }), r.deps);
+    const full = await callModel(request({ ...LONE, requestId: 'c' }), r.deps);
+    expect(full).toMatchObject({ ok: false, refusal: { code: 'STORE_FULL' } });
+    const used = r.calls.length;
+    expect(await callModel(request({ ...LONE, requestId: 'a' }), r.deps)).toMatchObject({ ok: false, refusal: { code: 'ATTEMPTS_EXHAUSTED' } });
+    expect(r.calls).toHaveLength(used);
+  });
+
+  it('another tenant is not held back by it', async () => {
+    const r = rig(async () => OK, { attempts: createMemoryAttemptStore({ maxKeysPerScope: 1 }) });
+    await callModel(request({ requestId: 'a' }), r.deps);
+    expect(await callModel(request({ requestId: 'b' }), r.deps)).toMatchObject({ ok: false, refusal: { code: 'STORE_FULL' } });
+    expect((await callModel(request({ requestId: 'b', tenant: 'other-co' }), r.deps)).ok).toBe(true);
+  });
+});
+
+describe('a bad clock fails closed', () => {
+  it('refuses before the transport when the clock stops giving a time, rather than skipping cooldowns', async () => {
+    let reads = 0;
+    const r = rig(async () => OK, { clock: () => (++reads > 1 ? Number.NaN : 10_000) });
+    const out = await callModel(request(), r.deps);
+    expect(out).toMatchObject({ ok: false, refusal: { code: 'REQUEST_INVALID' } });
+    expect(r.calls).toHaveLength(0);
+  });
+});
+
+describe('an oversize answer is billed once', () => {
+  it('a repeat of a request whose answer was too long is answered from memory: one transport call, one ledger record', async () => {
+    const r = rig(async () => ({ ...OK, text: 'x'.repeat(1_000_001) }));
+    const first = await callModel(request(), r.deps);
+    const again = await callModel(request(), r.deps);
+    expect(first).toMatchObject({ ok: false, refusal: { code: 'RESPONSE_INVALID' } });
+    expect(again).toMatchObject({ ok: false, refusal: { code: 'RESPONSE_INVALID', replayed: true } });
+    expect(r.calls).toHaveLength(1);
+    expect(r.records).toHaveLength(1);
+  });
+
+  it('an xAI-looking letter run inside another word is not refused', async () => {
+    const r = rig(async () => OK);
+    const out = await callModel(request({ chain: [{ provider: 'primary', model: 'big' }, { provider: 'backup', model: 'relaxai-7b' }] }), r.deps);
+    expect(out.ok).toBe(true);
   });
 });
 
@@ -342,7 +480,8 @@ describe('retries inside a call', () => {
     // one attempt's worst case is 1000 * 1 + 500 * 2 = 2000 micro-USD; 5000 fits two of them
     const r = rig(async () => { throw new ModelCallError('may_have_acted', 'timeout'); });
     const out = await callModel(request({ ...LONE, budget: { maxMicroUsd: 5000 } }), r.deps);
-    expect(out).toMatchObject({ ok: false, refusal: { code: 'OVER_BUDGET' } });
+    // the budget ran out after a call that may have acted: the unknown outcome is what the caller is told, not a safe-looking refusal
+    expect(out).toMatchObject({ ok: false, refusal: { code: 'OUTCOME_UNKNOWN' } });
     expect(r.calls).toHaveLength(2);
   });
 

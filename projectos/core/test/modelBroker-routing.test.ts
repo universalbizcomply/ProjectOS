@@ -9,6 +9,7 @@ import {
   cooldownEndsAt,
   clearCooldown,
   createProviderRegistry,
+  isNotPortedName,
   isCoolingDown,
   parseCommittedPricing,
   type PricingTable,
@@ -71,6 +72,16 @@ describe('the provider registry is committed and closed', () => {
   it('refuses an xAI or Grok model in the price table, as it refuses the provider', () => {
     expect(parseCommittedPricing({ text: JSON.stringify({ schema: 1, models: [priced('a', 'grok-4')] }), commit: COMMIT }).ok).toBe(false);
     expect(parseCommittedPricing({ text: JSON.stringify({ schema: 1, models: [priced('a', 'x-ai/some-model')] }), commit: COMMIT }).ok).toBe(false);
+    expect(parseCommittedPricing({ text: JSON.stringify({ schema: 1, models: [priced('a', 'xai-4')] }), commit: COMMIT }).ok).toBe(false);
+  });
+
+  it('matches xAI and Grok as whole tokens: an unrelated name that contains the letters is fine', () => {
+    for (const model of ['relaxai-7b', 'maxaimodel', 'ungroked']) {
+      expect(parseCommittedPricing({ text: JSON.stringify({ schema: 1, models: [priced('a', model)] }), commit: COMMIT }).ok, model).toBe(true);
+    }
+    expect(isNotPortedName('grok-4')).toBe(true);
+    expect(isNotPortedName('x-ai/anything')).toBe(true);
+    expect(isNotPortedName('relaxai-7b')).toBe(false);
   });
 
   it('refuses an xAI or Grok provider, which this plan does not port', () => {
@@ -154,6 +165,14 @@ describe('a fallback never leaves the committed registry', () => {
     const route = chooseRoute({ ...base, chain: [{ provider: 'c', model: 'm3' }, { provider: 'b', model: 'm2' }] });
     expect(route.ok && route.route.provider).toBe('b');
     expect(route.skipped).toEqual([{ provider: 'c', model: 'm3', reason: 'not-registered' }]);
+  });
+
+  it('fails closed when the clock gives no time: no route is chosen, so no cooldown is skipped by accident', () => {
+    for (const nowMs of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      const route = chooseRoute({ ...base, nowMs, chain: [{ provider: 'a', model: 'm1' }] });
+      expect(route.ok).toBe(false);
+      expect(route.skipped[0]?.reason).toBe('no-clock');
+    }
   });
 
   it('refuses when only unregistered providers remain', () => {

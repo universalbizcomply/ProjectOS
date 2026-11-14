@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AttemptStoreFull,
   BACKOFF_FLOOR_MS,
   MAX_MODEL_ATTEMPTS,
   RETRY_ATTEMPT_CEILING,
@@ -8,6 +9,7 @@ import {
   brokerRetryConfig,
   createMemoryAttemptStore,
   createRetryRunner,
+  fingerprintOf,
   retryModelCall,
 } from '../src/modelBroker/index.js';
 
@@ -120,44 +122,66 @@ describe('the raw runner holds the floor and the ceiling itself', () => {
 describe('the attempt count belongs to the store, not to the caller', () => {
   const scope = { tenant: 'acme-co', project: 'alpha-project' };
   const keyOf = (requestId: string) => bindingKeyOf({ ...scope, requestId, prompt: 'p' });
+  const FP = 'fingerprint-1';
 
   it('counts per key, and a second key starts from one', async () => {
     const store = createMemoryAttemptStore();
-    expect(await store.begin(scope, keyOf('a'))).toBe(1);
-    expect(await store.begin(scope, keyOf('a'))).toBe(2);
-    expect(await store.begin(scope, keyOf('b'))).toBe(1);
+    expect(await store.begin(scope, keyOf('a'), FP)).toBe(1);
+    expect(await store.begin(scope, keyOf('a'), FP)).toBe(2);
+    expect(await store.begin(scope, keyOf('b'), FP)).toBe(1);
     expect(await store.count(scope, keyOf('a'))).toBe(2);
   });
 
   it('counts per tenant and project: the same key under another scope is a fresh count', async () => {
     const store = createMemoryAttemptStore();
-    await store.begin(scope, keyOf('a'));
-    expect(await store.begin({ tenant: 'other-co', project: 'alpha-project' }, keyOf('a'))).toBe(1);
-    expect(await store.begin({ tenant: 'acme-co', project: 'beta-project' }, keyOf('a'))).toBe(1);
+    await store.begin(scope, keyOf('a'), FP);
+    expect(await store.begin({ tenant: 'other-co', project: 'alpha-project' }, keyOf('a'), FP)).toBe(1);
+    expect(await store.begin({ tenant: 'acme-co', project: 'beta-project' }, keyOf('a'), FP)).toBe(1);
   });
 
   it('refuses a key that is not a key, so an odd spelling cannot open a fresh count', async () => {
     const store = createMemoryAttemptStore();
-    await expect(store.begin(scope, '')).rejects.toThrow('idempotency key');
-    await expect(store.begin(scope, `SHA256:${'a'.repeat(64)}`)).rejects.toThrow('idempotency key');
+    await expect(store.begin(scope, '', FP)).rejects.toThrow('idempotency key');
+    await expect(store.begin(scope, `SHA256:${'a'.repeat(64)}`, FP)).rejects.toThrow('idempotency key');
   });
 
-  it('is bounded: past its limit the oldest key is forgotten rather than the memory growing', async () => {
-    const store = createMemoryAttemptStore({ maxKeys: 2 });
-    await store.begin(scope, keyOf('a'));
-    await store.begin(scope, keyOf('b'));
-    await store.begin(scope, keyOf('c'));
-    expect(await store.count(scope, keyOf('a'))).toBe(0);
-    expect(await store.count(scope, keyOf('c'))).toBe(1);
+  it('is bounded per tenant and project by refusing new keys, never by forgetting one: an exhausted key keeps its count', async () => {
+    const store = createMemoryAttemptStore({ maxKeysPerScope: 2 });
+    for (let i = 0; i < 5; i += 1) await store.begin(scope, keyOf('a'), FP);
+    await store.begin(scope, keyOf('b'), FP);
+    await expect(store.begin(scope, keyOf('c'), FP)).rejects.toBeInstanceOf(AttemptStoreFull);
+    expect(await store.count(scope, keyOf('a'))).toBe(5);
+    expect(await store.begin(scope, keyOf('a'), FP)).toBe(6);
+    expect(await store.begin({ tenant: 'other-co', project: 'alpha-project' }, keyOf('c'), FP)).toBe(1);
   });
 
-  it('remembers a completed outcome per scope and key, and answers nothing for another', async () => {
+  it('remembers a completed outcome with its fingerprint per scope and key, and answers nothing for another', async () => {
     const store = createMemoryAttemptStore();
     const done = { text: 'hi' } as never;
-    await store.remember(scope, keyOf('a'), done);
-    expect(await store.recall(scope, keyOf('a'))).toBe(done);
+    await store.begin(scope, keyOf('a'), FP);
+    await store.remember(scope, keyOf('a'), FP, done);
+    expect(await store.recall(scope, keyOf('a'))).toEqual({ fingerprint: FP, count: 1, outcome: done });
     expect(await store.recall({ tenant: 'other-co', project: 'alpha-project' }, keyOf('a'))).toBeNull();
     expect(await store.recall(scope, keyOf('b'))).toBeNull();
+  });
+
+  it('keeps the fingerprint of the first attempt, so a later request with other terms can be told apart', async () => {
+    const store = createMemoryAttemptStore();
+    await store.begin(scope, keyOf('a'), FP);
+    await store.begin(scope, keyOf('a'), 'another');
+    expect((await store.recall(scope, keyOf('a')))?.fingerprint).toBe(FP);
+  });
+});
+
+describe('the request fingerprint covers what the key does not', () => {
+  const base = { chain: [{ provider: 'a', model: 'm' }], maxOutputTokens: 10, phaseId: 'P', budget: { maxMicroUsd: 100 } };
+
+  it('moves with the chain, the output cap, the phase and the budget ceiling, and not otherwise', () => {
+    const fp = fingerprintOf(base);
+    expect(fingerprintOf({ ...base })).toBe(fp);
+    for (const change of [{ chain: [{ provider: 'b', model: 'm' }] }, { chain: [{ provider: 'a', model: 'n' }] }, { maxOutputTokens: 11 }, { phaseId: 'Q' }, { budget: { maxMicroUsd: 101 } }]) {
+      expect(fingerprintOf({ ...base, ...change })).not.toBe(fp);
+    }
   });
 });
 

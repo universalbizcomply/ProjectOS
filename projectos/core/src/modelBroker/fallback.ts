@@ -14,7 +14,7 @@ import { rateCardFor, type PricingTable } from './committedPricing.js';
 import type { ProviderRecord, ProviderRegistry } from './providerRegistry.js';
 import { routeKeyOf, type RouteEntry } from './routeTypes.js';
 
-export type RouteSkipReason = 'not-registered' | 'cooling-down' | 'unpriced' | 'already-tried';
+export type RouteSkipReason = 'not-registered' | 'cooling-down' | 'unpriced' | 'already-tried' | 'no-clock';
 
 export interface RouteSkip extends RouteEntry {
   readonly reason: RouteSkipReason;
@@ -55,6 +55,10 @@ function skipOf(entry: RouteEntry, params: ChooseRouteParams): { reason: RouteSk
 
 /** The first usable entry in the chain's order, and what was skipped on the way and why. */
 export function chooseRoute(params: ChooseRouteParams): RouteChoice {
+  // A clock that gives no time cannot tell who is resting: choose nothing rather than skip every cooldown.
+  if (typeof params.nowMs !== 'number' || !Number.isFinite(params.nowMs)) {
+    return { ok: false, skipped: params.chain.map((entry) => ({ provider: entry.provider, model: entry.model, reason: 'no-clock' as const })) };
+  }
   const skipped: RouteSkip[] = [];
   for (const entry of params.chain) {
     const judged = skipOf(entry, params);

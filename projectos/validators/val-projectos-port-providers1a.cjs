@@ -40,6 +40,11 @@
  *   PP-32 "a failure costs nothing"              — and failed attempts are unaccounted, or the refusal says nothing
  *   PP-33 "honour the hint"                      — and a long Retry-After is waited out, or ignored by the cooldown
  *   PP-34 "the clock was fine a moment ago"      — and a spent call is lost to a date, a huge answer, or a store that grows
+ *   PP-35 "two at once is fine"                  — and two simultaneous calls with one key both reach the transport
+ *   PP-36 "the last failure is the story"        — and an unknown outcome is overwritten, or masked by a safe-looking refusal
+ *   PP-37 "make room, forget the oldest"         — and an exhausted key is evicted and its cap is reset
+ *   PP-38 "the key is enough"                    — and the same key with other terms is served, or a replay skips the grant
+ *   PP-39 "the clock is only a clock"            — and a bad time skips every cooldown
  *   PP-T  "the tests exist"                      — and `.skip` keeps the proof while dropping the run
  *
  * THE MUTATIONS ARE IN THE BODIES. A pin on a call site survives a gutted function, so pins are taken from inside
@@ -146,9 +151,11 @@ const TESTS = {
     "a decision not to retry stops at once",
     "counts per key, and a second key starts from one",
     "refuses a key that is not a key, so an odd spelling cannot open a fresh count",
+    "is bounded per tenant and project by refusing new keys, never by forgetting one: an exhausted key keeps its count",
+    "remembers a completed outcome with its fingerprint per scope and key, and answers nothing for another",
+    "moves with the chain, the output cap, the phase and the budget ceiling, and not otherwise",
     "the exported runner, given no minimum, a zero maximum and 99 attempts, still waits the floor and stops at the ceiling",
     "a random source that answers NaN never skips the sleep: the wait is finite and at least the floor",
-    "is bounded: past its limit the oldest key is forgotten rather than the memory growing",
     "is deterministic, shaped sha256:<64 hex>, and moves with each part",
     "counts per tenant and project: the same key under another scope is a fresh count",
   ],
@@ -169,6 +176,8 @@ const TESTS = {
     "a record that carries a key is refused: no credential is read or held here",
     "refuses an xAI or Grok provider, which this plan does not port",
     "refuses an xAI or Grok model in the price table, as it refuses the provider",
+    "matches xAI and Grok as whole tokens: an unrelated name that contains the letters is fine",
+    "fails closed when the clock gives no time: no route is chosen, so no cooldown is skipped by accident",
     "arms 60 s, then 120 s, doubling to a 4 h ceiling",
     "is skipped until the injected clock reaches the end, and not a moment longer",
     "follows a provider-declared reset when it is in the future, capped at the ceiling",
@@ -213,6 +222,16 @@ const TESTS = {
     "a clock that goes bad after the spend still returns the answer, dated from the start of the call",
     "an answer over the text cap is refused and its spend is still recorded",
     "never calls a provider that is not in the registry, even if it is named first",
+    "two simultaneous calls reach the transport once and the ledger once, and both get the answer",
+    "a waiting call is still held to the grant, and to the same terms",
+    "clears its place when the call fails, so a later call is not held behind it",
+    "stays unknown after a later attempt fails safely: may_have_acted, then a rate limit, then exhaustion never falls back",
+    "reports the unknown outcome even when the attempt cap runs out next",
+    "refuses the same key with a different chain, output cap, phase or budget ceiling, and serves nothing",
+    "asks for the grant before serving a replay",
+    "refuses a new key when the tenant and project have too many, and an exhausted key stays exhausted",
+    "refuses before the transport when the clock stops giving a time, rather than skipping cooldowns",
+    "a repeat of a request whose answer was too long is answered from memory: one transport call, one ledger record",
   ],
   "projectos/agent/test/modelBroker.test.ts": [
     "loads a registry and a price table through the committed reader: the positive control",
@@ -260,6 +279,11 @@ const RULE_NAMES = {
   "PP-32": "a failed attempt is unaccounted",
   "PP-33": "a retry hint is not honoured",
   "PP-34": "a spent call is lost",
+  "PP-35": "concurrent calls are not single-flight",
+  "PP-36": "an unknown outcome is lost",
+  "PP-37": "the attempt store forgets",
+  "PP-38": "the same key is served with other terms",
+  "PP-39": "a bad clock is not refused",
   "PP-T": "the proof does not run",
 };
 
@@ -267,7 +291,7 @@ const RULE_NAMES = {
 const P = (rel, fn, pin) => ({ rel, fn, pin });
 const PIN_RULES = [
   { rule: "PP-8", says: "the xAI refusal is gone", pins: [
-    P(REGISTRY, null, "const NOT_PORTED = /xai|x-ai|x\\.ai|grok/i;"),
+    P(REGISTRY, null, "const NOT_PORTED = /(?:^|[^a-z0-9])(?:xai|x-ai|x\\.ai)(?![a-z0-9])|(?:^|[^a-z0-9])grok/i;"),
     P(REGISTRY, "recordProblems", "NOT_PORTED.test(value)"),
     P(REGISTRY, "recordProblems", "names an xAI or Grok provider, which is not ported"),
     P(REGISTRY, null, "export const isNotPortedName = (value: unknown): boolean => typeof value === 'string' && NOT_PORTED.test(value);"),
@@ -284,7 +308,7 @@ const PIN_RULES = [
     P(CALL, null, "export const MODEL_CALL_CLASS = 'P3' as const;"),
     P(CALL, "granted", "return (await deps.grant(request)) === true;"),
     P(CALL, "granted", "  } catch {\n    return false;"),
-    P(CALL, "callModel", "if (!(await granted(request, deps))) return refuse('NO_GRANT'"),
+    P(CALL, "runCall", "if (!(await granted(request, deps))) return refuse('NO_GRANT'"),
     P(CALL, null, "readonly grant: (request: ModelCallRequest) => boolean | Promise<boolean>;"),
   ] },
   { rule: "PP-11", says: "the backoff floor is gone", pins: [
@@ -310,9 +334,9 @@ const PIN_RULES = [
     P(RETRY, "createRetryRunner", "if (attempt >= maxAttempts || runtime.shouldRetry?.(err) === false || !shouldRetry(err, attempt)) {"),
   ] },
   { rule: "PP-13", says: "the attempt count is no longer the store's", pins: [
-    P(CALL, "attemptRoute", "const attempt = await deps.attempts.begin(run.scope, request.idempotencyKey);"),
+    P(CALL, "attemptRoute", "const attempt = await deps.attempts.begin(run.scope, request.idempotencyKey, run.fingerprint);"),
     P(CALL, null, "readonly attempts: AttemptStore;"),
-    P(POLICY, "createMemoryAttemptStore", "touch(at, { count: held.count + 1, outcome: held.outcome });"),
+    P(POLICY, "createMemoryAttemptStore", "entries.set(at, { fingerprint: held?.fingerprint ?? fingerprint, count: (held?.count ?? 0) + 1, outcome: held?.outcome ?? null });"),
     P(POLICY, "createMemoryAttemptStore", "if (!isModelIdempotencyKey(key)) throw new Error('that is not an idempotency key');"),
     P(CALL, "requestProblem", "if (!isModelIdempotencyKey(request.idempotencyKey)) return"),
   ] },
@@ -402,7 +426,7 @@ const PIN_RULES = [
   ] },
   { rule: "PP-28", says: "the budget is no longer a bound", pins: [
     P(CALL, null, "import { estimateCostMicroUsd, estimateInputTokensFromText, recordCall, type LedgerEntry, type RateCard } from '../gatekeeperCostLedger.js';"),
-    P(CALL, "callModel", "const inputTokens = Math.max(request.estimatedInputTokens, estimateInputTokensFromText(request.prompt));"),
+    P(CALL, "runCall", "const inputTokens = Math.max(request.estimatedInputTokens, estimateInputTokensFromText(request.prompt));"),
     P(CALL, "walkRoutes", "promptTokens: run.inputTokens, tried"),
   ] },
   { rule: "PP-29", says: "the key is no longer the request's, or no longer scoped", pins: [
@@ -410,17 +434,18 @@ const PIN_RULES = [
     P(KEYFILE, null, "const part = (value: string): string => `${value.length}:${value}`;"),
     P(CALL, "requestProblem", "if (request.idempotencyKey !== bindingKeyOf(request)) return"),
     P(CALL, "requestProblem", "if (!isTenantId(request.tenant)) return"),
-    P(CALL, "callModel", "const prior = await remembered(request, deps, scope);"),
-    P(CALL, "callModel", "if (prior !== null) return { ...prior, replayed: true };"),
-    P(CALL, "settle", "await deps.attempts.remember(run.scope, request.idempotencyKey, done);"),
+    P(CALL, "runCall", "const held = await recalled(request, deps, scope);"),
+    P(CALL, "runCall", "if (held !== null && isOutcome(held.outcome)) return replayOf(held.outcome);"),
+    P(CALL, "keep", "await run.deps.attempts.remember(run.scope, run.request.idempotencyKey, run.fingerprint, outcome);"),
     P(CALL, "createCooldownBook", "const at = (scope: AttemptScope): string => `${scope.tenant}/${scope.project}`;"),
-    P(POLICY, "createMemoryAttemptStore", "return `${scope.tenant}/${scope.project}/${key}`;"),
+    P(POLICY, "createMemoryAttemptStore", "return `${scopeOf(scope)}/${key}`;"),
+    P(POLICY, "createMemoryAttemptStore", "const scopeOf = (scope: AttemptScope): string => `${scope.tenant}/${scope.project}`;"),
     P(CALL, "callModel", "const scope: AttemptScope = { tenant: request.tenant, project: request.project };"),
   ] },
   { rule: "PP-30", says: "the key no longer travels, or a call that may have acted is repeated elsewhere", pins: [
     P(CALL, "attemptRoute", "idempotencyKey: request.idempotencyKey,"),
     P(CALL, "isRetryable", "if (!isModelIdempotencyKey(sent.idempotencyKey)) return false;"),
-    P(CALL, "walkRoutes", "if (reason === 'may_have_acted') return refuse('OUTCOME_UNKNOWN'"),
+    
     P(TRANSPORT, null, "readonly idempotencyKey: string;"),
   ] },
   { rule: "PP-31", says: "a stop reason is no longer part of the answer", pins: [
@@ -447,9 +472,45 @@ const PIN_RULES = [
   ] },
   { rule: "PP-34", says: "a spent call can be lost", pins: [
     P(CALL, "isoNow", "return new Date(clockIsUsable(now) ? now : run.startedAtMs).toISOString();"),
-    P(CALL, "settle", "if (result.text.length > MAX_RESULT_TEXT) return refuse('RESPONSE_INVALID'"),
-    P(POLICY, "createMemoryAttemptStore", "if (entries.size <= maxKeys) return;"),
+    P(CALL, "settle", "if (result.text.length > MAX_RESULT_TEXT) return keep(run, refuse('RESPONSE_INVALID'"),
     P(POLICY, null, "export const DEFAULT_ATTEMPT_STORE_KEYS = 4096;"),
+  ] },
+  { rule: "PP-35", says: "concurrent calls with one key no longer share one call", pins: [
+    P(CALL, null, "const FLIGHTS = new WeakMap<object, Map<string, Flight>>();"),
+    P(CALL, "callModel", "const flights = FLIGHTS.get(deps.attempts) ?? new Map<string, Flight>();"),
+    P(CALL, "callModel", "if (flying !== undefined) return joined(flying, request, deps, fingerprint);"),
+    P(CALL, "callModel", "flights.set(place, flight);"),
+    P(CALL, "callModel", "if (flights.get(place) === flight) flights.delete(place);"),
+    P(CALL, "joined", "return replayOf(await flight.outcome);"),
+    P(CALL, "joined", "if (!(await granted(request, deps))) return refuse('NO_GRANT'"),
+  ] },
+  { rule: "PP-36", says: "an unknown outcome is no longer sticky and first", pins: [
+    P(CALL, "failedAttempt", "if (reason === 'may_have_acted') routeRun.mayHaveActed = true;"),
+    P(CALL, "walkRoutes", "const reason = routeRun.mayHaveActed ? 'may_have_acted' : (routeRun.reason ?? reasonOf(err));"),
+    P(CALL, "walkRoutes", "if (routeRun.mayHaveActed) return refuse('OUTCOME_UNKNOWN'"),
+  ] },
+  { rule: "PP-37", says: "the attempt store forgets a key, or is not bounded per scope", pins: [
+    P(POLICY, null, "export class AttemptStoreFull extends Error {}"),
+    P(POLICY, null, "export const DEFAULT_ATTEMPT_STORE_KEYS = 4096;"),
+    P(POLICY, "createMemoryAttemptStore", "const held = perScope.get(scopeOf(scope)) ?? 0;"),
+    P(POLICY, "createMemoryAttemptStore", "if (held >= maxKeys) throw new AttemptStoreFull("),
+    P(POLICY, "createMemoryAttemptStore", "perScope.set(scopeOf(scope), held + 1);"),
+    P(CALL, "walkRoutes", "if (err instanceof AttemptStoreFull) return refuse('STORE_FULL'"),
+  ] },
+  { rule: "PP-38", says: "a key is served with other terms, or a replay skips the grant or hides its original", pins: [
+    P(KEYFILE, "fingerprintOf", "return sha256Hex(`${part(routes)}${part(String(fields.maxOutputTokens))}${part(fields.phaseId)}${part(String(fields.budget.maxMicroUsd))}`);"),
+    P(KEYFILE, "fingerprintOf", "const routes = fields.chain.map((entry) => `${part(entry.provider)}${part(entry.model)}`).join('|');"),
+    P(CALL, "callModel", "const fingerprint = fingerprintOf(request);"),
+    P(CALL, "runCall", "if (held !== null && held.fingerprint !== fingerprint) return mismatch();"),
+    P(CALL, "joined", "if (flight.fingerprint !== fingerprint) return mismatch();"),
+    P(CALL, "replayOf", "costMicroUsd: 0,"),
+    P(CALL, "replayOf", "original: { attempts: outcome.attempts, costMicroUsd: outcome.costMicroUsd, overBudget: outcome.overBudget, recorded: outcome.recorded },"),
+    P(CALL, "replayOf", "if (!outcome.ok) return { ok: false, refusal: { ...outcome.refusal, replayed: true } };"),
+    P(CALL, "settle", "{ recorded: wasRecorded }));"),
+  ] },
+  { rule: "PP-39", says: "a bad clock no longer refuses the call", pins: [
+    P(CALL, "walkRoutes", "if (!clockIsUsable(nowMs)) return refuse('REQUEST_INVALID', 'the clock did not give a time', { failures });"),
+    P(FALLBACK, "chooseRoute", "if (typeof params.nowMs !== 'number' || !Number.isFinite(params.nowMs)) {"),
   ] },
   { rule: "PP-22", says: "the broker is not exported", pins: [
     P(CORE_BARREL_REL, null, "export * from './modelBroker/index.js';"),
@@ -459,7 +520,7 @@ const PIN_RULES = [
     P(BARREL, null, "export { PROVIDER_KINDS, endpointProblem, isLoopbackHost, localEndpointProblem } from './endpoints.js';"),
     P(BARREL, null, "export { chooseRoute } from './fallback.js';"),
     P(BARREL, null, "export { COOLDOWN_BASE_SECONDS, COOLDOWN_MAX_SECONDS, COOLDOWN_OUTAGE_SECONDS, FAILOVER_REASONS, NO_COOLDOWNS, armCooldown, clearCooldown, cooldownEndsAt, isCoolingDown } from './cooldown.js';"),
-    P(BARREL, null, "export { bindingKeyOf } from './requestKey.js';"),
+    P(BARREL, null, "export { bindingKeyOf, fingerprintOf } from './requestKey.js';"),
     P(BARREL, null, "export { RETRY_ATTEMPT_CEILING, RETRY_FLOOR_MS, createRetryRunner,"),
     P(BARREL, null, "  BACKOFF_FLOOR_MS,\n"),
     P(BARREL, null, "  MAX_MODEL_ATTEMPTS,\n"),
@@ -487,7 +548,7 @@ const PIN_RULES = [
     P(ENDPOINTS, "customEndpointProblem", "if (isLoopbackHost(host) || isNonPublicLiteral(host)) return"),
     P(ENDPOINTS, "customEndpointProblem", "if (!DNS_NAME.test(host)) return"),
     P(ENDPOINTS, "customEndpointProblem", "if (INTERNAL_SUFFIX.test(host)) return"),
-    P(ENDPOINTS, null, String.raw`const INTERNAL_SUFFIX = /(?:^|\.)(?:localhost|internal|local|nip\.io|sslip\.io|xip\.io)$/i;`),
+    P(ENDPOINTS, null, String.raw`const INTERNAL_SUFFIX = /(?:^|\.)(?:localhost|internal|local|nip\.io|sslip\.io|xip\.io|lvh\.me|localtest\.me|vcap\.me|lacolhost\.com|traefik\.me)$/i;`),
     P(ENDPOINTS, "isNonPublicLiteral", "a === 10 || a === 127"),
     P(ENDPOINTS, "endpointProblem", "return record.baseUrl === undefined ? null :"),
   ] },
@@ -602,8 +663,14 @@ function check(raw) {
 
   // PP-9 and PP-10: the budget and the grant are asked before anything else, and the transport is reached once, last.
   const body = bodyOf(code[CALL], "callModel") ?? "";
-  const order = ["BUDGET_REQUIRED", "REQUEST_INVALID", "remembered(", "granted(request", "walkRoutes("].map((needle) => body.indexOf(needle));
+  const order = ["BUDGET_REQUIRED", "REQUEST_INVALID", "runCall("].map((needle) => body.indexOf(needle));
   if (order.some((at) => at < 0) || order.some((at, i) => i > 0 && at < order[i - 1])) E("PP-9", "a check moved after the step it guards");
+  const run = bodyOf(code[CALL], "runCall") ?? "";
+  const runOrder = ["granted(request", "recalled(", "walkRoutes("].map((needle) => run.indexOf(needle));
+  if (runOrder.some((at) => at < 0) || runOrder.some((at, i) => i > 0 && at < runOrder[i - 1])) E("PP-38", "a replay is served before the grant is asked, or the call starts before the replay is judged");
+  const walk = bodyOf(code[CALL], "walkRoutes") ?? "";
+  const catchOrder = ["if (routeRun.mayHaveActed) return refuse(", "if (err instanceof AttemptStoreFull)", "if (err instanceof AttemptsExhausted)", "if (err instanceof BudgetExhausted)"].map((needle) => walk.indexOf(needle));
+  if (catchOrder.some((at) => at < 0) || catchOrder.some((at, i) => i > 0 && at < catchOrder[i - 1])) E("PP-36", "an unknown outcome is checked after a refusal that could mask it");
   if (code[CALL].split("deps.transport(").length - 1 !== 1) E("PP-9", "the transport is reached from somewhere other than the one dispatch");
   const attempt = bodyOf(code[CALL], "attemptRoute") ?? "";
   const gate = ["throw new BudgetExhausted()", "deps.attempts.begin(", "run.reserved += worst", "dispatch("].map((needle) => attempt.indexOf(needle));
@@ -789,15 +856,15 @@ await expectIt('PP-13', async () => {
 await expectIt('PP-13', async () => {
   const store = core.createMemoryAttemptStore();
   let refused = 0;
-  for (const key of ['', 'SHA256:' + 'a'.repeat(64), 'sha256:abc']) await store.begin(SCOPE, key).catch(() => void (refused += 1));
-  return refused === 3 && (await store.begin(SCOPE, KEY('a'))) === 1 && (await store.begin(SCOPE, KEY('a'))) === 2 && (await store.begin(SCOPE, KEY('b'))) === 1;
+  for (const key of ['', 'SHA256:' + 'a'.repeat(64), 'sha256:abc']) await store.begin(SCOPE, key, 'f').catch(() => void (refused += 1));
+  return refused === 3 && (await store.begin(SCOPE, KEY('a'), 'f')) === 1 && (await store.begin(SCOPE, KEY('a'), 'f')) === 2 && (await store.begin(SCOPE, KEY('b'), 'f')) === 1;
 });
 
 // PP-14: each attempt reserves its worst case, so retries that may have been billed cannot spend past the budget. One attempt is 2000.
 await expectIt('PP-14', async () => {
   const r = rig(async () => { throw unsure(); });
   const out = await core.callModel(request({ ...lone, budget: { maxMicroUsd: 5000 } }), r.deps);
-  return out.ok === false && out.refusal.code === 'OVER_BUDGET' && r.calls.length === 2;
+  return out.ok === false && out.refusal.code === 'OUTCOME_UNKNOWN' && r.calls.length === 2;
 });
 await expectIt('PP-14', async () => {
   const r = rig(async () => OK);
@@ -956,13 +1023,14 @@ await expectIt('PP-21', async () => {
   return keyed && refs;
 });
 
-// PP-8: no xAI or Grok provider or model is accepted.
+// PP-8: no xAI or Grok provider or model is accepted, and an unrelated name that holds the letters is.
 await expectIt('PP-8', async () => ['xai', 'grok', 'x-ai', 'grok-4'].every((name) => core.createProviderRegistry([{ name, kind: 'hosted', api: 'openai-completions' }]).ok === false));
 await expectIt('PP-8', async () => {
   const table = core.parseCommittedPricing({ text: JSON.stringify({ schema: 1, models: [price('p', 'grok-4')] }), commit: COMMIT }).ok === false;
+  const whole = core.parseCommittedPricing({ text: JSON.stringify({ schema: 1, models: [price('p', 'relaxai-7b')] }), commit: COMMIT }).ok === true;
   const r = rig(async () => OK);
   const out = await core.callModel(request({ chain: [{ provider: 'primary', model: 'x-ai/some-model' }, { provider: 'backup', model: 'small' }] }), r.deps);
-  return table && out.ok === false && out.refusal.code === 'REQUEST_INVALID' && r.calls.length === 0;
+  return table && whole && out.ok === false && out.refusal.code === 'REQUEST_INVALID' && r.calls.length === 0;
 });
 
 // PP-25: an answer with unreadable usage keeps its worst case counted, and is never a free call.
@@ -990,7 +1058,7 @@ await expectIt('PP-26', async () => {
 await expectIt('PP-27', async () => {
   const custom = (baseUrl) => core.createProviderRegistry([{ name: 'mine', kind: 'custom-openai-compatible', api: 'openai-completions', baseUrl }]).ok;
   const yes = custom('https://llm.example.com/v1') === true && custom('https://notnip.io/v1') === true;
-  const no = ['http://llm.example.com/v1', undefined, 'https://user:pw@llm.example.com', 'https://llm.example.com/v1?key=1', 'https://127.0.0.1/v1', 'https://localhost/v1', 'https://[::1]/v1', 'https://10.0.0.1/v1', 'https://192.168.0.1/v1', 'https://172.20.0.1/v1', 'https://169.254.169.254/latest', 'https://0.0.0.0/', 'https://[2001:db8::1]/v1', 'https://0x7f.1/', 'https://intranet/', 'https://api.localhost/v1', 'https://svc.internal/v1', 'https://printer.local/v1', 'https://127.0.0.1.nip.io/v1', 'https://a.sslip.io/v1', 'https://b.xip.io/v1'].every((url) => custom(url) === false);
+  const no = ['http://llm.example.com/v1', undefined, 'https://user:pw@llm.example.com', 'https://llm.example.com/v1?key=1', 'https://127.0.0.1/v1', 'https://localhost/v1', 'https://[::1]/v1', 'https://10.0.0.1/v1', 'https://192.168.0.1/v1', 'https://172.20.0.1/v1', 'https://169.254.169.254/latest', 'https://0.0.0.0/', 'https://[2001:db8::1]/v1', 'https://0x7f.1/', 'https://intranet/', 'https://api.localhost/v1', 'https://svc.internal/v1', 'https://printer.local/v1', 'https://127.0.0.1.nip.io/v1', 'https://a.sslip.io/v1', 'https://b.xip.io/v1', 'https://c.lvh.me/v1', 'https://d.localtest.me/v1', 'https://e.vcap.me/v1', 'https://f.lacolhost.com/v1', 'https://g.traefik.me/v1'].every((url) => custom(url) === false);
   return yes && no && core.endpointProblem({ kind: 'custom-openai-compatible', baseUrl: 'https://llm.example.com' }) === null;
 });
 
@@ -1020,9 +1088,9 @@ await expectIt('PP-29', async () => {
 });
 await expectIt('PP-29', async () => {
   const store = core.createMemoryAttemptStore();
-  await store.begin(SCOPE, KEY('a'));
-  const otherTenant = await store.begin({ tenant: 'other-co', project: 'alpha-project' }, KEY('a'));
-  const otherProject = await store.begin({ tenant: 'acme-co', project: 'beta-project' }, KEY('a'));
+  await store.begin(SCOPE, KEY('a'), 'f');
+  const otherTenant = await store.begin({ tenant: 'other-co', project: 'alpha-project' }, KEY('a'), 'f');
+  const otherProject = await store.begin({ tenant: 'acme-co', project: 'beta-project' }, KEY('a'), 'f');
   const book = core.createCooldownBook();
   book.set(SCOPE, core.armCooldown(core.NO_COOLDOWNS, 'p', 'rate_limit', 0).state);
   return otherTenant === 1 && otherProject === 1 && book.get({ tenant: 'other-co', project: 'alpha-project' }) === core.NO_COOLDOWNS && book.get(SCOPE) !== core.NO_COOLDOWNS;
@@ -1084,11 +1152,105 @@ await expectIt('PP-34', async () => {
   const out = await core.callModel(request(), r.deps);
   const big = rig(async () => ({ ...OK, text: 'x'.repeat(1000001) }));
   const bigOut = await core.callModel(request(), big.deps);
-  const store = core.createMemoryAttemptStore({ maxKeys: 2 });
-  await store.begin(SCOPE, KEY('a'));
-  await store.begin(SCOPE, KEY('b'));
-  await store.begin(SCOPE, KEY('c'));
-  return out.ok === true && r.records[0].at === new Date(10000).toISOString() && bigOut.ok === false && bigOut.refusal.code === 'RESPONSE_INVALID' && big.records.length === 1 && (await store.count(SCOPE, KEY('a'))) === 0 && (await store.count(SCOPE, KEY('c'))) === 1;
+  return out.ok === true && r.records[0].at === new Date(10000).toISOString() && bigOut.ok === false && bigOut.refusal.code === 'RESPONSE_INVALID' && big.records.length === 1;
+});
+
+// PP-35: simultaneous calls with one key share one call, and a waiter is held to the grant and the terms.
+await expectIt('PP-35', async () => {
+  let release = () => undefined;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const r = rig(async () => { await gate; return OK; });
+  const req = request();
+  const a = core.callModel(req, r.deps);
+  const b = core.callModel(req, r.deps);
+  release();
+  const [x, y] = await Promise.all([a, b]);
+  const later = rig(async () => { throw new core.ModelCallError('invalid_request', 'bad'); });
+  await core.callModel(request(), later.deps);
+  await core.callModel(request(), later.deps);
+  return r.calls.length === 1 && r.records.length === 1 && x.ok === true && y.ok === true && [x, y].filter((o) => o.replayed).length === 1 && later.calls.length === 2;
+});
+await expectIt('PP-35', async () => {
+  let release = () => undefined;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let asked = 0;
+  const r = rig(async () => { await gate; return OK; }, { grant: () => ++asked === 1 });
+  const a = core.callModel(request(), r.deps);
+  const b = core.callModel(request(), r.deps);
+  const c = core.callModel(request({ budget: { maxMicroUsd: 900000 } }), r.deps);
+  release();
+  const [x, y, z] = await Promise.all([a, b, c]);
+  return x.ok === true && y.ok === false && y.refusal.code === 'NO_GRANT' && z.ok === false && z.refusal.code === 'IDEMPOTENCY_MISMATCH' && r.calls.length === 1;
+});
+
+// PP-36: an unknown outcome stays unknown, and is reported before any refusal that could hide it.
+await expectIt('PP-36', async () => {
+  const r = rig(async (provider, n) => { throw n === 1 ? unsure() : limited(); });
+  const out = await core.callModel(request(), r.deps);
+  const b = rig(async () => { throw unsure(); });
+  await core.callModel(request(lone), b.deps);
+  const exhausted = await core.callModel(request(lone), b.deps);
+  const budget = rig(async () => { throw unsure(); });
+  const spent = await core.callModel(request({ ...lone, budget: { maxMicroUsd: 5000 } }), budget.deps);
+  return out.ok === false && out.refusal.code === 'OUTCOME_UNKNOWN' && r.calls.length === 3 && r.calls.every((p) => p === 'primary') && exhausted.ok === false && exhausted.refusal.code === 'OUTCOME_UNKNOWN' && spent.ok === false && spent.refusal.code === 'OUTCOME_UNKNOWN' && budget.calls.length === 2;
+});
+
+// PP-37: the store refuses a new key past its bound per tenant and project, and never forgets one.
+await expectIt('PP-37', async () => {
+  const store = core.createMemoryAttemptStore({ maxKeysPerScope: 2 });
+  for (let i = 0; i < 5; i += 1) await store.begin(SCOPE, KEY('a'), 'f');
+  await store.begin(SCOPE, KEY('b'), 'f');
+  let full = false;
+  try {
+    await store.begin(SCOPE, KEY('c'), 'f');
+  } catch (error) {
+    full = error instanceof core.AttemptStoreFull;
+  }
+  const other = await store.begin({ tenant: 'other-co', project: 'alpha-project' }, KEY('c'), 'f');
+  return full && (await store.count(SCOPE, KEY('a'))) === 5 && (await store.begin(SCOPE, KEY('a'), 'f')) === 6 && other === 1;
+});
+await expectIt('PP-37', async () => {
+  const r = rig(async () => OK, { attempts: core.createMemoryAttemptStore({ maxKeysPerScope: 1 }) });
+  await core.callModel(request({ requestId: 'a' }), r.deps);
+  const full = await core.callModel(request({ requestId: 'b' }), r.deps);
+  const other = await core.callModel(request({ requestId: 'b', tenant: 'other-co' }), r.deps);
+  return full.ok === false && full.refusal.code === 'STORE_FULL' && other.ok === true;
+});
+
+// PP-38: the same key with other terms is refused, a replay is held to the grant and labelled as the original's, and a billed refusal is replayed too.
+await expectIt('PP-38', async () => {
+  const r = rig(async () => OK);
+  await core.callModel(request(), r.deps);
+  const key = request().idempotencyKey;
+  let all = true;
+  for (const change of [{ chain: [{ provider: 'backup', model: 'small' }] }, { maxOutputTokens: 400 }, { phaseId: 'PHASE-2' }, { budget: { maxMicroUsd: 900000 } }]) {
+    const out = await core.callModel(request({ ...change, idempotencyKey: key }), r.deps);
+    all = all && out.ok === false && out.refusal.code === 'IDEMPOTENCY_MISMATCH';
+  }
+  const replay = await core.callModel(request(), r.deps);
+  const denied = rig(async () => OK, { attempts: r.deps.attempts, grant: () => false });
+  const d = await core.callModel(request(), denied.deps);
+  return all && r.calls.length === 1 && replay.ok === true && replay.replayed === true && replay.costMicroUsd === 0 && replay.attempts === 0 && replay.original.costMicroUsd === 200 && replay.original.attempts === 1 && d.ok === false && d.refusal.code === 'NO_GRANT';
+});
+await expectIt('PP-38', async () => {
+  const r = rig(async () => ({ ...OK, text: 'x'.repeat(1000001) }));
+  const first = await core.callModel(request(), r.deps);
+  const again = await core.callModel(request(), r.deps);
+  return first.ok === false && again.ok === false && again.refusal.replayed === true && r.calls.length === 1 && r.records.length === 1;
+});
+await expectIt('PP-38', async () => {
+  const base = { chain: [{ provider: 'a', model: 'm' }], maxOutputTokens: 10, phaseId: 'P', budget: { maxMicroUsd: 100 } };
+  const fp = core.fingerprintOf(base);
+  return [{ chain: [{ provider: 'b', model: 'm' }] }, { maxOutputTokens: 11 }, { phaseId: 'Q' }, { budget: { maxMicroUsd: 101 } }].every((change) => core.fingerprintOf({ ...base, ...change }) !== fp);
+});
+
+// PP-39: a bad clock refuses the call before any spend, and the route choice fails closed on it.
+await expectIt('PP-39', async () => {
+  let reads = 0;
+  const r = rig(async () => OK, { clock: () => (++reads > 1 ? Number.NaN : 10000) });
+  const out = await core.callModel(request(), r.deps);
+  const choice = core.chooseRoute({ registry: registryOf({ name: 'a', kind: 'hosted', api: 'openai-completions' }), cooldowns: core.NO_COOLDOWNS, pricing: tableOf(price('a', 'm1')), nowMs: Number.NaN, promptTokens: 1, tried: new Set(), chain: [{ provider: 'a', model: 'm1' }] });
+  return out.ok === false && out.refusal.code === 'REQUEST_INVALID' && r.calls.length === 0 && choice.ok === false;
 });
 
 console.log(JSON.stringify({ count, failed: [...failed].sort() }));
@@ -1127,15 +1289,16 @@ const MUTATIONS = [
   M("an-xai-adapter-arrives", "PP-8", CALL, "export const MODEL_CALL_CLASS", "export const XAI_BASE_URL = 'https://api.x.ai/v1';\nexport const MODEL_CALL_CLASS"),
   M("a-grok-model-is-named", "PP-8", ROUTES, "export const routeKeyOf", "export const GROK_DEFAULT = 'grok-4';\nexport const routeKeyOf"),
   M("the-xai-refusal-goes", "PP-8", REGISTRY, "NOT_PORTED.test(value)", "false"),
+  M("the-xai-pattern-matches-inside-words", "PP-8", REGISTRY, "const NOT_PORTED = /(?:^|[^a-z0-9])(?:xai|x-ai|x\\.ai)(?![a-z0-9])|(?:^|[^a-z0-9])grok/i;", "const NOT_PORTED = /xai|x-ai|x\\.ai|grok/i;"),
   M("a-missing-budget-is-allowed", "PP-9", CALL, "return isCount(maxMicroUsd, 1) ? maxMicroUsd : null;", "return typeof maxMicroUsd === 'number' ? maxMicroUsd : 1;"),
   M("a-zero-budget-is-allowed", "PP-9", CALL, "return isCount(maxMicroUsd, 1) ? maxMicroUsd : null;", "return isCount(maxMicroUsd, 0) ? maxMicroUsd : null;"),
   M("a-fractional-budget-is-allowed", "PP-9", CALL, "Number.isSafeInteger(value) && value >= min;", "Number.isFinite(value) && value >= min;"),
   M("the-budget-check-is-dropped", "PP-9", CALL, "  if (cap === null) return refuse('BUDGET_REQUIRED', 'a model call needs a budget: whole micro-USD, above zero');\n", ""),
-  M("the-budget-check-moves-after-the-grant", "PP-9", CALL, "  if (cap === null) return refuse('BUDGET_REQUIRED', 'a model call needs a budget: whole micro-USD, above zero');\n  const problem = requestProblem(request);\n  if (problem !== null) return refuse('REQUEST_INVALID', problem);\n  const startedAtMs = deps.clock();\n  if (!clockIsUsable(startedAtMs)) return refuse('REQUEST_INVALID', 'the clock did not give a time');\n  const scope: AttemptScope = { tenant: request.tenant, project: request.project };\n  const prior = await remembered(request, deps, scope);\n  if (prior !== null) return { ...prior, replayed: true };\n  if (!(await granted(request, deps))) return refuse('NO_GRANT', `no provider-spend grant confirms this ${MODEL_CALL_CLASS} call`);\n", "  const problem = requestProblem(request);\n  if (problem !== null) return refuse('REQUEST_INVALID', problem);\n  const startedAtMs = deps.clock();\n  if (!clockIsUsable(startedAtMs)) return refuse('REQUEST_INVALID', 'the clock did not give a time');\n  const scope: AttemptScope = { tenant: request.tenant, project: request.project };\n  const prior = await remembered(request, deps, scope);\n  if (prior !== null) return { ...prior, replayed: true };\n  if (!(await granted(request, deps))) return refuse('NO_GRANT', `no provider-spend grant confirms this ${MODEL_CALL_CLASS} call`);\n  if (cap === null) return refuse('BUDGET_REQUIRED', 'a model call needs a budget: whole micro-USD, above zero');\n"),
+
   M("the-transport-is-reached-from-a-second-place", "PP-9", CALL, "async function granted(", "const sneak = (deps: ModelBrokerDeps) => deps.transport({} as never);\nasync function granted("),
   M("any-grant-answer-passes", "PP-10", CALL, "return (await deps.grant(request)) === true;", "return Boolean(await deps.grant(request));"),
   M("a-throwing-grant-passes", "PP-10", CALL, "  } catch {\n    return false;", "  } catch {\n    return true;"),
-  M("the-grant-is-not-asked", "PP-10", CALL, "if (!(await granted(request, deps))) return refuse('NO_GRANT'", "if (!(await granted(request, deps)) && false) return refuse('NO_GRANT'"),
+  M("the-grant-is-not-asked", "PP-10", CALL, "if (!(await granted(request, deps))) return refuse('NO_GRANT'", "if (!(await granted(request, deps)) && false) return refuse('NO_GRANT'", ["PP-35"]),
   M("the-class-is-not-p3", "PP-10", CALL, "export const MODEL_CALL_CLASS = 'P3' as const;", "export const MODEL_CALL_CLASS = 'P2' as const;"),
   M("the-floor-drops-to-zero", "PP-11", POLICY, "export const BACKOFF_FLOOR_MS = RETRY_FLOOR_MS;", "export const BACKOFF_FLOOR_MS = 0;"),
   M("the-request-may-go-below-the-floor", "PP-11", POLICY, "Math.max(merged.minDelayMs, BACKOFF_FLOOR_MS)", "merged.minDelayMs"),
@@ -1148,19 +1311,19 @@ const MUTATIONS = [
   M("the-cap-is-not-applied", "PP-12", POLICY, "attempts: Math.min(merged.attempts, MAX_MODEL_ATTEMPTS, RETRY_ATTEMPT_CEILING),", "attempts: merged.attempts,"),
   M("the-cap-is-ours-and-higher", "PP-12", POLICY, "export const MAX_MODEL_ATTEMPTS = CONNECTOR_MAX_ATTEMPTS;", "export const MAX_MODEL_ATTEMPTS = 50;"),
   M("an-exhausted-key-still-calls", "PP-12", CALL, "if (attempt > MAX_MODEL_ATTEMPTS) throw new AttemptsExhausted();", ""),
-  M("an-exhausted-key-is-a-plain-failure", "PP-12", CALL, "if (err instanceof AttemptsExhausted) return refuse('ATTEMPTS_EXHAUSTED'", "if (false) return refuse('ATTEMPTS_EXHAUSTED'"),
+  M("an-exhausted-key-is-a-plain-failure", "PP-12", CALL, "if (err instanceof AttemptsExhausted) return refuse('ATTEMPTS_EXHAUSTED'", "if (false) return refuse('ATTEMPTS_EXHAUSTED'", ["PP-36"]),
   M("the-runner-ignores-the-attempt-limit", "PP-12", RETRY, "if (attempt >= maxAttempts || runtime.shouldRetry?.(err) === false || !shouldRetry(err, attempt)) {", "if (runtime.shouldRetry?.(err) === false || !shouldRetry(err, attempt)) {"),
   M("the-request-carries-a-history", "PP-13", CALL, "  readonly requestId: string;\n  readonly project: string;", "  readonly requestId: string;\n  readonly attemptHistory?: readonly number[];\n  readonly project: string;"),
-  M("the-call-reads-a-count-from-the-request", "PP-13", CALL, "const attempt = await deps.attempts.begin(run.scope, request.idempotencyKey);", "const attempt = (request as unknown as { attempts: number }).attempts ?? await deps.attempts.begin(run.scope, request.idempotencyKey);", ["PP-12"]),
+  M("the-call-reads-a-count-from-the-request", "PP-13", CALL, "const attempt = await deps.attempts.begin(run.scope, request.idempotencyKey, run.fingerprint);", "const attempt = (request as unknown as { attempts: number }).attempts ?? await deps.attempts.begin(run.scope, request.idempotencyKey, run.fingerprint);", ["PP-12"]),
   M("the-store-is-bypassed", "PP-13", CALL, "readonly attempts: AttemptStore;", "readonly attempts: { begin(scope: AttemptScope, key: string): Promise<number> };"),
   M("a-fresh-spelling-starts-a-fresh-count", "PP-13", POLICY, "if (!isModelIdempotencyKey(key)) throw new Error('that is not an idempotency key');", "if (typeof key !== 'string') throw new Error('that is not an idempotency key');"),
-  M("the-count-restarts-each-call", "PP-13", POLICY, "touch(at, { count: held.count + 1, outcome: held.outcome });", "touch(at, { count: 1, outcome: held.outcome });"),
+  M("the-count-restarts-each-call", "PP-13", POLICY, "count: (held?.count ?? 0) + 1, outcome: held?.outcome ?? null });", "count: 1, outcome: held?.outcome ?? null });"),
   M("the-key-is-not-checked-at-the-door", "PP-13", CALL, "if (!isModelIdempotencyKey(request.idempotencyKey)) return", "if (false) return"),
   M("an-attempt-is-not-checked-against-the-budget", "PP-14", CALL, "      if (run.reserved + worst > run.cap) throw new BudgetExhausted();\n", ""),
   M("an-attempt-reserves-nothing", "PP-14", CALL, "      run.reserved += worst;\n", ""),
   M("the-first-attempt-is-not-checked", "PP-14", CALL, "    if (run.reserved + worst > run.cap) {", "    if (false) {"),
-  M("budget-exhaustion-is-a-plain-failure", "PP-14", CALL, "if (err instanceof BudgetExhausted) return refuse('OVER_BUDGET'", "if (false) return refuse('OVER_BUDGET'"),
-  M("the-budget-check-moves-after-the-store", "PP-14", CALL, "      if (run.reserved + worst > run.cap) throw new BudgetExhausted();\n      const attempt = await deps.attempts.begin(run.scope, request.idempotencyKey);\n", "      const attempt = await deps.attempts.begin(run.scope, request.idempotencyKey);\n      if (run.reserved + worst > run.cap) throw new BudgetExhausted();\n"),
+  M("budget-exhaustion-is-a-plain-failure", "PP-14", CALL, "if (err instanceof BudgetExhausted) return refuse('OVER_BUDGET'", "if (false) return refuse('OVER_BUDGET'", ["PP-36"]),
+  M("the-budget-check-moves-after-the-store", "PP-14", CALL, "      if (run.reserved + worst > run.cap) throw new BudgetExhausted();\n      const attempt = await deps.attempts.begin(run.scope, request.idempotencyKey, run.fingerprint);\n", "      const attempt = await deps.attempts.begin(run.scope, request.idempotencyKey, run.fingerprint);\n      if (run.reserved + worst > run.cap) throw new BudgetExhausted();\n"),
   M("a-price-needs-no-commit", "PP-15", PRICING, "!COMMIT_SHA.test(committed.commit)", "false"),
   M("any-text-is-a-commit", "PP-15", PRICING, "export const COMMIT_SHA = /^[0-9a-f]{40}$/;", "export const COMMIT_SHA = /^.*$/;"),
   M("a-bad-row-is-skipped-not-refused", "PP-15", PRICING, "  if (problems.length > 0) return { ok: false, problems };\n  if (entries.size === 0)", "  if (entries.size === 0)"),
@@ -1262,14 +1425,14 @@ const MUTATIONS = [
   M("the-key-ignores-the-prompt", "PP-29", KEYFILE, "${part(fields.requestId)}${part(sha256Hex(fields.prompt))}", "${part(fields.requestId)}"),
   M("the-key-has-no-length-prefix", "PP-29", KEYFILE, "const part = (value: string): string => `${value.length}:${value}`;", "const part = (value: string): string => `${value}`;"),
   M("the-tenant-is-not-checked", "PP-29", CALL, "if (!isTenantId(request.tenant)) return", "if (false) return"),
-  M("a-finished-request-calls-again", "PP-29", CALL, "if (prior !== null) return { ...prior, replayed: true };", ""),
-  M("an-answer-is-not-remembered", "PP-29", CALL, "await deps.attempts.remember(run.scope, request.idempotencyKey, done);", ""),
-  M("the-count-ignores-the-tenant-and-project", "PP-29", POLICY, "return `${scope.tenant}/${scope.project}/${key}`;", "return key;"),
+  M("a-finished-request-calls-again", "PP-29", CALL, "if (held !== null && isOutcome(held.outcome)) return replayOf(held.outcome);", ""),
+  M("an-answer-is-not-remembered", "PP-29", CALL, "await run.deps.attempts.remember(run.scope, run.request.idempotencyKey, run.fingerprint, outcome);", ""),
+  M("the-count-ignores-the-tenant-and-project", "PP-29", POLICY, "return `${scopeOf(scope)}/${key}`;", "return key;"),
   M("the-cooldown-book-is-global", "PP-29", CALL, "const at = (scope: AttemptScope): string => `${scope.tenant}/${scope.project}`;", "const at = (scope: AttemptScope): string => 'all';"),
   M("the-scope-is-not-the-requests", "PP-29", CALL, "const scope: AttemptScope = { tenant: request.tenant, project: request.project };", "const scope: AttemptScope = { tenant: 'shared', project: 'shared' };"),
   M("the-key-is-not-sent", "PP-30", CALL, "    idempotencyKey: request.idempotencyKey,\n    provider: route.provider,", "    provider: route.provider,"),
   M("a-retry-needs-no-key", "PP-30", CALL, "  if (!isModelIdempotencyKey(sent.idempotencyKey)) return false;\n", ""),
-  M("a-call-that-may-have-acted-falls-back", "PP-30", CALL, "if (reason === 'may_have_acted') return refuse('OUTCOME_UNKNOWN'", "if (false) return refuse('OUTCOME_UNKNOWN'"),
+  M("a-call-that-may-have-acted-falls-back", "PP-36", CALL, "if (routeRun.mayHaveActed) return refuse('OUTCOME_UNKNOWN'", "if (false) return refuse('OUTCOME_UNKNOWN'"),
   M("the-transport-request-has-no-key-field", "PP-30", TRANSPORT, "  readonly idempotencyKey: string;\n", ""),
   M("an-error-stop-is-an-ok-answer", "PP-31", CALL, "if (result?.stopReason === 'error' || result?.stopReason === 'aborted') {", "if (false) {"),
   M("the-provider-error-is-not-classed", "PP-31", CALL, "const failure = new ModelCallError('provider_error'", "const failure = new ModelCallError('unknown'"),
@@ -1287,21 +1450,47 @@ const MUTATIONS = [
   M("the-retry-after-is-not-the-cooldown", "PP-33", CALL, "err.resetAtMs ?? (typeof err.retryAfterMs === 'number' && clockIsUsable(now) ? now + err.retryAfterMs : undefined)", "err.resetAtMs"),
   M("the-longest-wait-is-not-the-brokers", "PP-33", CALL, "const longestWaitMs = brokerRetryConfig(deps.retry).maxDelayMs;", "const longestWaitMs = Number.POSITIVE_INFINITY;"),
   M("a-bad-clock-after-the-spend-throws", "PP-34", CALL, "return new Date(clockIsUsable(now) ? now : run.startedAtMs).toISOString();", "return new Date(now).toISOString();"),
-  M("an-answer-has-no-size-cap", "PP-34", CALL, "if (result.text.length > MAX_RESULT_TEXT) return refuse('RESPONSE_INVALID'", "if (false) return refuse('RESPONSE_INVALID'"),
-  M("the-attempt-store-grows-without-end", "PP-34", POLICY, "if (entries.size <= maxKeys) return;", "return;"),
-  M("the-store-bound-is-huge", "PP-34", POLICY, "export const DEFAULT_ATTEMPT_STORE_KEYS = 4096;", "export const DEFAULT_ATTEMPT_STORE_KEYS = 1e12;"),
+  M("an-answer-has-no-size-cap", "PP-34", CALL, "if (result.text.length > MAX_RESULT_TEXT) return keep(run, refuse('RESPONSE_INVALID'", "if (false) return keep(run, refuse('RESPONSE_INVALID'"),
   M("a-custom-endpoint-may-be-an-internal-name", "PP-27", ENDPOINTS, "if (INTERNAL_SUFFIX.test(host)) return", "if (false) return"),
-  M("a-wildcard-dns-name-is-public", "PP-27", ENDPOINTS, "localhost|internal|local|nip\\.io|sslip\\.io|xip\\.io", "localhost|internal|local"),
+  M("a-wildcard-dns-name-is-public", "PP-27", ENDPOINTS, "|xip\\.io|lvh\\.me|localtest\\.me|vcap\\.me|lacolhost\\.com|traefik\\.me)", "|xip\\.io)"),
   M("a-grok-model-is-priced", "PP-8", PRICING, "if (isNotPortedName(model) || isNotPortedName(provider))", "if (false)"),
   M("a-grok-model-is-called", "PP-8", CALL, "isNotPortedName(entry.provider) || isNotPortedName(entry.model)", "false"),
   M("the-pattern-is-not-exported", "PP-8", REGISTRY, "export const isNotPortedName = (value: unknown): boolean => typeof value === 'string' && NOT_PORTED.test(value);", "export const isNotPortedName = (value: unknown): boolean => false;"),
+  M("the-budget-check-moves-after-the-checks", "PP-9", CALL, "  if (cap === null) return refuse('BUDGET_REQUIRED', 'a model call needs a budget: whole micro-USD, above zero');\n  const problem = requestProblem(request);\n  if (problem !== null) return refuse('REQUEST_INVALID', problem);\n  const startedAtMs = deps.clock();\n  if (!clockIsUsable(startedAtMs)) return refuse('REQUEST_INVALID', 'the clock did not give a time');\n", "  const problem = requestProblem(request);\n  if (problem !== null) return refuse('REQUEST_INVALID', problem);\n  const startedAtMs = deps.clock();\n  if (!clockIsUsable(startedAtMs)) return refuse('REQUEST_INVALID', 'the clock did not give a time');\n  if (cap === null) return refuse('BUDGET_REQUIRED', 'a model call needs a budget: whole micro-USD, above zero');\n"),
+  M("a-second-call-with-the-same-key-starts-its-own", "PP-35", CALL, "if (flying !== undefined) return joined(flying, request, deps, fingerprint);", ""),
+  M("the-flight-is-never-cleared", "PP-35", CALL, "if (flights.get(place) === flight) flights.delete(place);", ""),
+  M("the-flights-are-per-call", "PP-35", CALL, "const flights = FLIGHTS.get(deps.attempts) ?? new Map<string, Flight>();", "const flights = new Map<string, Flight>();"),
+  M("a-flight-is-not-recorded", "PP-35", CALL, "flights.set(place, flight);", ""),
+  M("a-waiter-skips-the-grant", "PP-35", CALL, "return mismatch();\n  if (!(await granted(request, deps))) return refuse('NO_GRANT', `no provider-spend grant confirms this ${MODEL_CALL_CLASS} call`);\n  return replayOf(await flight.outcome);", "return mismatch();\n  return replayOf(await flight.outcome);"),
+  M("a-waiter-with-other-terms-is-served", "PP-38", CALL, "if (flight.fingerprint !== fingerprint) return mismatch();", ""),
+  M("the-last-failure-overwrites-the-unknown", "PP-36", CALL, "if (reason === 'may_have_acted') routeRun.mayHaveActed = true;", ""),
+  M("the-reason-ignores-the-sticky-flag", "PP-36", CALL, "const reason = routeRun.mayHaveActed ? 'may_have_acted' : (routeRun.reason ?? reasonOf(err));", "const reason = routeRun.reason ?? reasonOf(err);"),
+  M("the-unknown-is-checked-after-the-refusals", "PP-36", CALL, "      if (routeRun.mayHaveActed) return refuse('OUTCOME_UNKNOWN', 'the call may have been acted on and is not repeated on another provider', { failures });\n      if (err instanceof AttemptStoreFull) return refuse('STORE_FULL', 'this tenant and project hold as many request keys as the store keeps', { failures });\n      if (err instanceof AttemptsExhausted) return refuse('ATTEMPTS_EXHAUSTED', `this key has used its ${MAX_MODEL_ATTEMPTS} attempts`, { failures });\n      if (err instanceof BudgetExhausted) return refuse('OVER_BUDGET', 'the next attempt does not fit inside the budget', { failures });\n", "      if (err instanceof AttemptStoreFull) return refuse('STORE_FULL', 'this tenant and project hold as many request keys as the store keeps', { failures });\n      if (err instanceof AttemptsExhausted) return refuse('ATTEMPTS_EXHAUSTED', `this key has used its ${MAX_MODEL_ATTEMPTS} attempts`, { failures });\n      if (err instanceof BudgetExhausted) return refuse('OVER_BUDGET', 'the next attempt does not fit inside the budget', { failures });\n      if (routeRun.mayHaveActed) return refuse('OUTCOME_UNKNOWN', 'the call may have been acted on and is not repeated on another provider', { failures });\n"),
+  M("the-store-takes-new-keys-without-end", "PP-37", POLICY, "if (held >= maxKeys) throw new AttemptStoreFull(", "if (false) throw new AttemptStoreFull("),
+  M("the-store-bound-is-huge", "PP-37", POLICY, "export const DEFAULT_ATTEMPT_STORE_KEYS = 4096;", "export const DEFAULT_ATTEMPT_STORE_KEYS = 1e12;", ["PP-34"]),
+  M("a-full-store-is-a-plain-failure", "PP-37", CALL, "if (err instanceof AttemptStoreFull) return refuse('STORE_FULL'", "if (false) return refuse('STORE_FULL'", ["PP-36"]),
+  M("the-store-bound-is-global", "PP-37", POLICY, "const held = perScope.get(scopeOf(scope)) ?? 0;", "const held = entries.size;"),
+  M("the-store-does-not-count-its-keys", "PP-37", POLICY, "perScope.set(scopeOf(scope), held + 1);", ""),
+  M("the-fingerprint-ignores-the-budget", "PP-38", KEYFILE, "${part(fields.phaseId)}${part(String(fields.budget.maxMicroUsd))}", "${part(fields.phaseId)}"),
+  M("the-fingerprint-ignores-the-phase", "PP-38", KEYFILE, "${part(String(fields.maxOutputTokens))}${part(fields.phaseId)}", "${part(String(fields.maxOutputTokens))}"),
+  M("the-fingerprint-ignores-the-output-cap", "PP-38", KEYFILE, "${part(routes)}${part(String(fields.maxOutputTokens))}", "${part(routes)}"),
+  M("the-fingerprint-ignores-the-chain", "PP-38", KEYFILE, "const routes = fields.chain.map((entry) => `${part(entry.provider)}${part(entry.model)}`).join('|');", "const routes = '';"),
+  M("a-different-chain-is-served-the-old-answer", "PP-38", CALL, "if (held !== null && held.fingerprint !== fingerprint) return mismatch();", ""),
+  M("the-call-has-no-fingerprint", "PP-38", CALL, "const fingerprint = fingerprintOf(request);", "const fingerprint = 'same';"),
+  M("a-replay-is-billed-again-in-its-labels", "PP-38", CALL, "    costMicroUsd: 0,\n    overBudget: false,", "    costMicroUsd: outcome.costMicroUsd,\n    overBudget: false,"),
+  M("a-replay-hides-the-original", "PP-38", CALL, "    original: { attempts: outcome.attempts, costMicroUsd: outcome.costMicroUsd, overBudget: outcome.overBudget, recorded: outcome.recorded },\n", ""),
+  M("a-replayed-refusal-is-not-marked", "PP-38", CALL, "refusal: { ...outcome.refusal, replayed: true } };", "refusal: { ...outcome.refusal } };"),
+  M("a-replay-is-served-before-the-grant", "PP-38", CALL, "  // The grant is asked before anything is served, a replay included.\n  if (!(await granted(request, deps))) return refuse('NO_GRANT', `no provider-spend grant confirms this ${MODEL_CALL_CLASS} call`);\n  const held = await recalled(request, deps, scope);\n  if (held !== null && held.fingerprint !== fingerprint) return mismatch();\n  if (held !== null && isOutcome(held.outcome)) return replayOf(held.outcome);\n", "  // The grant is asked before anything is served, a replay included.\n  const held = await recalled(request, deps, scope);\n  if (held !== null && held.fingerprint !== fingerprint) return mismatch();\n  if (held !== null && isOutcome(held.outcome)) return replayOf(held.outcome);\n  if (!(await granted(request, deps))) return refuse('NO_GRANT', `no provider-spend grant confirms this ${MODEL_CALL_CLASS} call`);\n"),
+  M("an-oversize-answer-is-not-remembered", "PP-38", CALL, "return keep(run, refuse('RESPONSE_INVALID', `the answer is longer than ${MAX_RESULT_TEXT} characters`, { recorded: wasRecorded }));", "return refuse('RESPONSE_INVALID', `the answer is longer than ${MAX_RESULT_TEXT} characters`, { recorded: wasRecorded });", ["PP-34"]),
+  M("a-bad-clock-skips-the-cooldowns", "PP-39", CALL, "    if (!clockIsUsable(nowMs)) return refuse('REQUEST_INVALID', 'the clock did not give a time', { failures });\n", ""),
+  M("the-route-choice-trusts-a-bad-clock", "PP-39", FALLBACK, "if (typeof params.nowMs !== 'number' || !Number.isFinite(params.nowMs)) {", "if (false) {"),
   M("a-pin-moved-into-a-comment-does-not-count", "PP-19", COOLDOWN, "return until !== undefined && until > nowMs;", "// return until !== undefined && until > nowMs;\n  return true;"),
 ];
 
 const BEHAVIOUR_MUTATIONS = [
   B("a-call-with-no-budget-is-sent", "PP-9", CALL, "return isCount(maxMicroUsd, 1) ? maxMicroUsd : null;", "return isCount(maxMicroUsd, 1) ? maxMicroUsd : 1;"),
   B("a-zero-budget-is-sent", "PP-9", CALL, "return isCount(maxMicroUsd, 1) ? maxMicroUsd : null;", "return isCount(maxMicroUsd, 0) ? maxMicroUsd : null;"),
-  B("a-call-goes-out-with-no-grant", "PP-10", CALL, "return (await deps.grant(request)) === true;", "return true;"),
+  B("a-call-goes-out-with-no-grant", "PP-10", CALL, "return (await deps.grant(request)) === true;", "return true;", ["PP-35", "PP-38"]),
   B("a-truthy-grant-is-a-grant", "PP-10", CALL, "return (await deps.grant(request)) === true;", "return Boolean(await deps.grant(request));"),
   B("a-retry-waits-no-time-at-all", "PP-11", POLICY, "Math.max(merged.minDelayMs, BACKOFF_FLOOR_MS)", "merged.minDelayMs", [], [[RETRY, "const minDelayMs = Math.max(resolved.minDelayMs, RETRY_FLOOR_MS);", "const minDelayMs = resolved.minDelayMs;"]]),
   B("the-raw-runner-has-no-floor", "PP-11", RETRY, "const minDelayMs = Math.max(resolved.minDelayMs, RETRY_FLOOR_MS);", "const minDelayMs = resolved.minDelayMs;"),
@@ -1309,15 +1498,15 @@ const BEHAVIOUR_MUTATIONS = [
   B("a-key-is-retried-without-end", "PP-12", POLICY, "attempts: Math.min(merged.attempts, MAX_MODEL_ATTEMPTS, RETRY_ATTEMPT_CEILING),", "attempts: merged.attempts,", [], [[RETRY, "const maxAttempts = Math.min(resolved.attempts, RETRY_ATTEMPT_CEILING);", "const maxAttempts = resolved.attempts;"]]),
   B("the-raw-runner-has-no-ceiling", "PP-12", RETRY, "const maxAttempts = Math.min(resolved.attempts, RETRY_ATTEMPT_CEILING);", "const maxAttempts = resolved.attempts;"),
   B("an-exhausted-key-keeps-calling", "PP-13", CALL, "      if (attempt > MAX_MODEL_ATTEMPTS) throw new AttemptsExhausted();\n", "", ["PP-12"]),
-  B("the-store-count-restarts", "PP-13", POLICY, "touch(at, { count: held.count + 1, outcome: held.outcome });", "touch(at, { count: 1, outcome: held.outcome });", ["PP-12"]),
-  B("a-retry-is-not-charged-to-the-budget", "PP-14", CALL, "      run.reserved += worst;\n", ""),
-  B("an-attempt-ignores-the-budget", "PP-14", CALL, "      if (run.reserved + worst > run.cap) throw new BudgetExhausted();\n", ""),
+  B("the-store-count-restarts", "PP-13", POLICY, "count: (held?.count ?? 0) + 1, outcome: held?.outcome ?? null });", "count: 1, outcome: held?.outcome ?? null });", ["PP-12", "PP-37"]),
+  B("a-retry-is-not-charged-to-the-budget", "PP-14", CALL, "      run.reserved += worst;\n", "", ["PP-36"]),
+  B("an-attempt-ignores-the-budget", "PP-14", CALL, "      if (run.reserved + worst > run.cap) throw new BudgetExhausted();\n", "", ["PP-36"]),
   B("a-price-needs-no-commit", "PP-15", PRICING, "!COMMIT_SHA.test(committed.commit)", "false"),
   B("a-zero-price-is-accepted", "PP-15", PRICING, "if (!(rates.input > 0) || !(rates.output > 0))", "if (false)"),
   B("an-unpriced-model-is-chosen", "PP-15", FALLBACK, "if (!priced.ok) return { reason: 'unpriced' };", "", ["PP-18"]),
   B("a-working-tree-read-passes-for-committed", "PP-15", CONFIG, "typeof found.commit === 'string' && COMMIT_SHA.test(found.commit)", "typeof found.commit === 'string'"),
   B("a-path-leaves-the-repository", "PP-15", CONFIG, "!path.split('/').some((segment) => segment === '.' || segment === '..')", "true"),
-  B("the-ledger-record-costs-nothing", "PP-16", CALL, "const entry = recordCall({ requestId: request.requestId, projectId: request.project, phaseId: request.phaseId, usage, rate, at: isoNow(run) });", "const entry = { requestId: request.requestId, projectId: request.project, phaseId: request.phaseId, at: isoNow(run), model: rate.model, usage, costMicroUsd: 0 };", ["PP-17"]),
+  B("the-ledger-record-costs-nothing", "PP-16", CALL, "const entry = recordCall({ requestId: request.requestId, projectId: request.project, phaseId: request.phaseId, usage, rate, at: isoNow(run) });", "const entry = { requestId: request.requestId, projectId: request.project, phaseId: request.phaseId, at: isoNow(run), model: rate.model, usage, costMicroUsd: 0 };", ["PP-17", "PP-38"]),
   B("cache-writes-are-priced-as-input", "PP-17", PRICING, "const input = microOf(Math.max(rates.input, rates.cacheWrite));", "const input = microOf(rates.input);", ["PP-16"]),
   B("the-tier-is-never-selected", "PP-17", TIERS, "  if (!sorted) {", "  if (true) {"),
   B("two-tiers-at-one-threshold-pass", "PP-17", TIERS, "if (next === tier.size) {", "if (false) {"),
@@ -1336,30 +1525,31 @@ const BEHAVIOUR_MUTATIONS = [
   B("a-record-may-carry-a-key", "PP-21", REGISTRY, ".filter((key) => !RECORD_KEYS.has(key))", ".filter(() => false)"),
   B("a-secret-is-a-reference", "PP-21", REGISTRY, "LONG_ALNUM_RUN.test(credentialRef)", "false"),
   B("grok-is-a-provider", "PP-8", REGISTRY, "NOT_PORTED.test(value)", "false"),
+  B("the-xai-pattern-matches-inside-words", "PP-8", REGISTRY, "const NOT_PORTED = /(?:^|[^a-z0-9])(?:xai|x-ai|x\\.ai)(?![a-z0-9])|(?:^|[^a-z0-9])grok/i;", "const NOT_PORTED = /xai|x-ai|x\\.ai|grok/i;"),
   B("unreadable-usage-costs-nothing", "PP-25", CALL, "    costMicroUsd: worst,\n    at: isoNow(run),", "    costMicroUsd: 0,\n    at: isoNow(run),"),
   B("an-unreadable-answer-is-accepted", "PP-25", TRANSPORT, "if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) return", "if (typeof value !== 'number') return", ["PP-32"]),
-  B("an-unknown-failure-is-retried", "PP-26", CALL, "shouldRetry: (err) => isRetryable(err, sent, longestWaitMs),", "shouldRetry: () => true,", ["PP-31", "PP-33"]),
-  B("a-refused-request-falls-back", "PP-26", CALL, "if (!FALLBACK_REASONS.includes(reason)) return refuse('CALL_FAILED'", "if (false) return refuse('CALL_FAILED'"),
+  B("an-unknown-failure-is-retried", "PP-26", CALL, "shouldRetry: (err) => isRetryable(err, sent, longestWaitMs),", "shouldRetry: () => true,", ["PP-31", "PP-33", "PP-35"]),
+  B("a-refused-request-falls-back", "PP-26", CALL, "if (!FALLBACK_REASONS.includes(reason)) return refuse('CALL_FAILED'", "if (false) return refuse('CALL_FAILED'", ["PP-35"]),
   B("a-custom-endpoint-may-be-http", "PP-27", ENDPOINTS, "if (scheme !== 'https') return 'a custom endpoint must be https';", ""),
   B("a-custom-endpoint-may-be-a-bare-name", "PP-27", ENDPOINTS, "if (!DNS_NAME.test(host)) return", "if (false) return"),
   B("the-estimate-is-the-callers", "PP-28", CALL, "const inputTokens = Math.max(request.estimatedInputTokens, estimateInputTokensFromText(request.prompt));", "const inputTokens = request.estimatedInputTokens;"),
-  B("the-floor-is-a-ceiling", "PP-28", CALL, "const inputTokens = Math.max(request.estimatedInputTokens, estimateInputTokensFromText(request.prompt));", "const inputTokens = Math.min(request.estimatedInputTokens, estimateInputTokensFromText(request.prompt));", ["PP-14", "PP-25", "PP-32"]),
+  B("the-floor-is-a-ceiling", "PP-28", CALL, "const inputTokens = Math.max(request.estimatedInputTokens, estimateInputTokensFromText(request.prompt));", "const inputTokens = Math.min(request.estimatedInputTokens, estimateInputTokensFromText(request.prompt));", ["PP-14", "PP-25", "PP-32", "PP-36"]),
   B("a-made-up-key-is-accepted", "PP-29", CALL, "if (request.idempotencyKey !== bindingKeyOf(request)) return", "if (false) return"),
   B("the-key-ignores-the-tenant", "PP-29", KEYFILE, "${part(fields.tenant)}${part(fields.project)}", "${part(fields.project)}"),
   B("the-key-ignores-the-prompt", "PP-29", KEYFILE, "${part(fields.requestId)}${part(sha256Hex(fields.prompt))}", "${part(fields.requestId)}"),
   B("the-key-has-no-length-prefix", "PP-29", KEYFILE, "const part = (value: string): string => `${value.length}:${value}`;", "const part = (value: string): string => `${value}`;"),
-  B("a-finished-request-calls-again", "PP-29", CALL, "if (prior !== null) return { ...prior, replayed: true };", ""),
-  B("an-answer-is-not-remembered", "PP-29", CALL, "await deps.attempts.remember(run.scope, request.idempotencyKey, done);", ""),
-  B("the-count-ignores-the-tenant-and-project", "PP-29", POLICY, "return `${scope.tenant}/${scope.project}/${key}`;", "return key;"),
+  B("a-finished-request-calls-again", "PP-29", CALL, "if (held !== null && isOutcome(held.outcome)) return replayOf(held.outcome);", "", ["PP-38"]),
+  B("an-answer-is-not-remembered", "PP-29", CALL, "await run.deps.attempts.remember(run.scope, run.request.idempotencyKey, run.fingerprint, outcome);", "", ["PP-38"]),
+  B("the-count-ignores-the-tenant-and-project", "PP-29", POLICY, "return `${scopeOf(scope)}/${key}`;", "return key;"),
   B("the-cooldown-book-is-global", "PP-29", CALL, "const at = (scope: AttemptScope): string => `${scope.tenant}/${scope.project}`;", "const at = (scope: AttemptScope): string => 'all';"),
-  B("the-key-is-not-sent", "PP-30", CALL, "    idempotencyKey: request.idempotencyKey,\n    provider: route.provider,", "    provider: route.provider,", ["PP-12", "PP-13", "PP-14"]),
-  B("a-call-that-may-have-acted-falls-back", "PP-30", CALL, "if (reason === 'may_have_acted') return refuse('OUTCOME_UNKNOWN'", "if (false) return refuse('OUTCOME_UNKNOWN'"),
+  B("the-key-is-not-sent", "PP-30", CALL, "    idempotencyKey: request.idempotencyKey,\n    provider: route.provider,", "    provider: route.provider,", ["PP-12", "PP-13", "PP-14", "PP-36"]),
+  B("a-call-that-may-have-acted-falls-back", "PP-36", CALL, "if (routeRun.mayHaveActed) return refuse('OUTCOME_UNKNOWN'", "if (false) return refuse('OUTCOME_UNKNOWN'", ["PP-14", "PP-30"]),
   B("an-error-stop-is-an-ok-answer", "PP-31", CALL, "if (result?.stopReason === 'error' || result?.stopReason === 'aborted') {", "if (false) {"),
   B("an-aborted-stop-is-an-ok-answer", "PP-31", CALL, " || result?.stopReason === 'aborted') {", ") {"),
   B("the-stop-reason-is-dropped", "PP-31", CALL, "stopReason: result.stopReason,", "stopReason: 'stop',"),
   B("a-provider-error-does-not-fall-back", "PP-31", CALL, "'upstream_unavailable', 'provider_error'];", "'upstream_unavailable'];"),
   B("a-free-failure-keeps-its-reservation", "PP-32", CALL, "if (spent === 0) run.reserved -= worst;", "if (spent === 0) run.reserved -= 0;"),
-  B("a-possibly-billed-failure-is-free", "PP-32", CALL, "const spent = KNOWN_FREE_REASONS.includes(reason) ? 0 : worst;", "const spent = 0;", ["PP-14"]),
+  B("a-possibly-billed-failure-is-free", "PP-32", CALL, "const spent = KNOWN_FREE_REASONS.includes(reason) ? 0 : worst;", "const spent = 0;", ["PP-14", "PP-36"]),
   B("a-failed-attempt-is-not-noted", "PP-32", CALL, "await noteAttempt(run, {", "void ({"),
   B("the-refusal-forgets-when-to-return", "PP-32", CALL, "...(retryAtMs === undefined ? {} : { retryAtMs })", ""),
   B("the-refusal-forgets-its-routes", "PP-32", CALL, "if (routeRun.attempts > 0) failures.push({", "if (false) failures.push({"),
@@ -1367,11 +1557,26 @@ const BEHAVIOUR_MUTATIONS = [
   B("a-long-retry-after-is-waited-out", "PP-33", CALL, "return !(typeof err.retryAfterMs === 'number' && err.retryAfterMs > longestWaitMs);", "return true;"),
   B("the-retry-after-is-not-the-cooldown", "PP-33", CALL, "err.resetAtMs ?? (typeof err.retryAfterMs === 'number' && clockIsUsable(now) ? now + err.retryAfterMs : undefined)", "err.resetAtMs"),
   B("a-bad-clock-after-the-spend-throws", "PP-34", CALL, "return new Date(clockIsUsable(now) ? now : run.startedAtMs).toISOString();", "return new Date(now).toISOString();"),
-  B("an-answer-has-no-size-cap", "PP-34", CALL, "if (result.text.length > MAX_RESULT_TEXT) return refuse('RESPONSE_INVALID'", "if (false) return refuse('RESPONSE_INVALID'"),
-  B("the-attempt-store-grows-without-end", "PP-34", POLICY, "if (entries.size <= maxKeys) return;", "return;"),
+  B("an-answer-has-no-size-cap", "PP-34", CALL, "if (result.text.length > MAX_RESULT_TEXT) return keep(run, refuse('RESPONSE_INVALID'", "if (false) return keep(run, refuse('RESPONSE_INVALID'", ["PP-38"]),
   B("a-custom-endpoint-may-be-an-internal-name", "PP-27", ENDPOINTS, "if (INTERNAL_SUFFIX.test(host)) return", "if (false) return"),
   B("a-grok-model-is-priced", "PP-8", PRICING, "if (isNotPortedName(model) || isNotPortedName(provider))", "if (false)"),
   B("a-grok-model-is-called", "PP-8", CALL, "isNotPortedName(entry.provider) || isNotPortedName(entry.model)", "false"),
+  B("a-second-call-with-the-same-key-starts-its-own", "PP-35", CALL, "if (flying !== undefined) return joined(flying, request, deps, fingerprint);", "", []),
+  B("the-flight-is-never-cleared", "PP-35", CALL, "if (flights.get(place) === flight) flights.delete(place);", "", ["PP-12", "PP-13"]),
+  B("a-waiter-skips-the-grant", "PP-35", CALL, "return mismatch();\n  if (!(await granted(request, deps))) return refuse('NO_GRANT', `no provider-spend grant confirms this ${MODEL_CALL_CLASS} call`);\n  return replayOf(await flight.outcome);", "return mismatch();\n  return replayOf(await flight.outcome);"),
+  B("the-last-failure-overwrites-the-unknown", "PP-36", CALL, "if (reason === 'may_have_acted') routeRun.mayHaveActed = true;", "", ["PP-14", "PP-30"]),
+  B("the-unknown-is-checked-after-the-refusals", "PP-36", CALL, "      if (routeRun.mayHaveActed) return refuse('OUTCOME_UNKNOWN', 'the call may have been acted on and is not repeated on another provider', { failures });\n      if (err instanceof AttemptStoreFull) return refuse('STORE_FULL', 'this tenant and project hold as many request keys as the store keeps', { failures });\n      if (err instanceof AttemptsExhausted) return refuse('ATTEMPTS_EXHAUSTED', `this key has used its ${MAX_MODEL_ATTEMPTS} attempts`, { failures });\n      if (err instanceof BudgetExhausted) return refuse('OVER_BUDGET', 'the next attempt does not fit inside the budget', { failures });\n", "      if (err instanceof AttemptStoreFull) return refuse('STORE_FULL', 'this tenant and project hold as many request keys as the store keeps', { failures });\n      if (err instanceof AttemptsExhausted) return refuse('ATTEMPTS_EXHAUSTED', `this key has used its ${MAX_MODEL_ATTEMPTS} attempts`, { failures });\n      if (err instanceof BudgetExhausted) return refuse('OVER_BUDGET', 'the next attempt does not fit inside the budget', { failures });\n      if (routeRun.mayHaveActed) return refuse('OUTCOME_UNKNOWN', 'the call may have been acted on and is not repeated on another provider', { failures });\n", ["PP-14"]),
+  B("the-store-takes-new-keys-without-end", "PP-37", POLICY, "if (held >= maxKeys) throw new AttemptStoreFull(", "if (false) throw new AttemptStoreFull("),
+  B("the-store-bound-is-global", "PP-37", POLICY, "const held = perScope.get(scopeOf(scope)) ?? 0;", "const held = entries.size;"),
+  B("a-full-store-is-a-plain-failure", "PP-37", CALL, "if (err instanceof AttemptStoreFull) return refuse('STORE_FULL'", "if (false) return refuse('STORE_FULL'"),
+  B("a-different-chain-is-served-the-old-answer", "PP-38", CALL, "if (held !== null && held.fingerprint !== fingerprint) return mismatch();", ""),
+  B("the-fingerprint-ignores-the-budget", "PP-38", KEYFILE, "${part(fields.phaseId)}${part(String(fields.budget.maxMicroUsd))}", "${part(fields.phaseId)}", ["PP-35"]),
+  B("the-fingerprint-ignores-the-chain", "PP-38", KEYFILE, "const routes = fields.chain.map((entry) => `${part(entry.provider)}${part(entry.model)}`).join('|');", "const routes = '';"),
+  B("a-replay-is-billed-again-in-its-labels", "PP-38", CALL, "    costMicroUsd: 0,\n    overBudget: false,", "    costMicroUsd: outcome.costMicroUsd,\n    overBudget: false,"),
+  B("a-replay-hides-the-original", "PP-38", CALL, "    original: { attempts: outcome.attempts, costMicroUsd: outcome.costMicroUsd, overBudget: outcome.overBudget, recorded: outcome.recorded },\n", ""),
+  B("a-replay-is-served-before-the-grant", "PP-38", CALL, "  // The grant is asked before anything is served, a replay included.\n  if (!(await granted(request, deps))) return refuse('NO_GRANT', `no provider-spend grant confirms this ${MODEL_CALL_CLASS} call`);\n  const held = await recalled(request, deps, scope);\n  if (held !== null && held.fingerprint !== fingerprint) return mismatch();\n  if (held !== null && isOutcome(held.outcome)) return replayOf(held.outcome);\n", "  // The grant is asked before anything is served, a replay included.\n  const held = await recalled(request, deps, scope);\n  if (held !== null && held.fingerprint !== fingerprint) return mismatch();\n  if (held !== null && isOutcome(held.outcome)) return replayOf(held.outcome);\n  if (!(await granted(request, deps))) return refuse('NO_GRANT', `no provider-spend grant confirms this ${MODEL_CALL_CLASS} call`);\n", ["PP-35"]),
+  B("an-oversize-answer-is-not-remembered", "PP-38", CALL, "return keep(run, refuse('RESPONSE_INVALID', `the answer is longer than ${MAX_RESULT_TEXT} characters`, { recorded: wasRecorded }));", "return refuse('RESPONSE_INVALID', `the answer is longer than ${MAX_RESULT_TEXT} characters`, { recorded: wasRecorded });"),
+  B("a-bad-clock-skips-the-cooldowns", "PP-39", CALL, "    if (!clockIsUsable(nowMs)) return refuse('REQUEST_INVALID', 'the clock did not give a time', { failures });\n", ""),
 ];
 
 /** The change a copy needs to run: each relative import at its `.ts` path, and the package at the local shim. */

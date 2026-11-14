@@ -14,15 +14,16 @@ export type { RetryConfig, RetryInfo, RetryOptions, RetryRuntime } from './retry
 export {
   BACKOFF_CEILING_MS,
   BACKOFF_FLOOR_MS,
+  AttemptStoreFull,
   MAX_MODEL_ATTEMPTS,
   brokerRetryConfig,
   createMemoryAttemptStore,
   isModelIdempotencyKey,
   retryModelCall,
 } from './retryPolicy.js';
-export type { AttemptScope, AttemptStore, ModelRetryOptions } from './retryPolicy.js';
-export { bindingKeyOf } from './requestKey.js';
-export type { KeyedRequestFields } from './requestKey.js';
+export type { AttemptScope, AttemptStore, ModelRetryOptions, StoredRequest } from './retryPolicy.js';
+export { bindingKeyOf, fingerprintOf } from './requestKey.js';
+export type { FingerprintedFields, KeyedRequestFields } from './requestKey.js';
 export { normalizeUpstreamModelPricing, selectPricingRates } from './pricingTiers.js';
 export type { ModelPricing, PricingRates, PricingTier } from './pricingTiers.js';
 export { COMMIT_SHA, parseCommittedPricing, rateCardFor } from './committedPricing.js';

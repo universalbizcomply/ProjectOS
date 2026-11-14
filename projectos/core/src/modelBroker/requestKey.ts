@@ -23,3 +23,19 @@ const part = (value: string): string => `${value.length}:${value}`;
 export function bindingKeyOf(fields: KeyedRequestFields): string {
   return `sha256:${sha256Hex(`${part(fields.tenant)}${part(fields.project)}${part(fields.requestId)}${part(sha256Hex(fields.prompt))}`)}`;
 }
+
+export interface FingerprintedFields {
+  readonly chain: readonly { readonly provider: string; readonly model: string }[];
+  readonly maxOutputTokens: number;
+  readonly phaseId: string;
+  readonly budget: { readonly maxMicroUsd: number };
+}
+
+/**
+ * What the key leaves out: the chain, the output cap, the phase and the budget ceiling. The store keeps it with the
+ * key, and a request that arrives with the same key and a different fingerprint is refused, not served.
+ */
+export function fingerprintOf(fields: FingerprintedFields): string {
+  const routes = fields.chain.map((entry) => `${part(entry.provider)}${part(entry.model)}`).join('|');
+  return sha256Hex(`${part(routes)}${part(String(fields.maxOutputTokens))}${part(fields.phaseId)}${part(String(fields.budget.maxMicroUsd))}`);
+}

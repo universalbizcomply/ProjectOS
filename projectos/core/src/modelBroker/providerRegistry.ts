@@ -35,7 +35,7 @@ const PROVIDER_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const CREDENTIAL_REF = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const LONG_ALNUM_RUN = /[A-Za-z0-9]{24}/;
 const KEY_PREFIX = /^(?:sk-|ghp_|gho_|xox[abp]-|AKIA)/;
-const NOT_PORTED = /xai|x-ai|x\.ai|grok/i;
+const NOT_PORTED = /(?:^|[^a-z0-9])(?:xai|x-ai|x\.ai)(?![a-z0-9])|(?:^|[^a-z0-9])grok/i;
 
 /** Whether a provider or model name is an xAI or Grok one, which this plan does not port. */
 export const isNotPortedName = (value: unknown): boolean => typeof value === 'string' && NOT_PORTED.test(value);

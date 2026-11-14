@@ -37,14 +37,16 @@ import {
 import { chooseRoute, type ChosenRoute, type RouteSkip } from './fallback.js';
 import { isNotPortedName, type ProviderRegistry } from './providerRegistry.js';
 import type { RetryConfig } from './retry.js';
-import { bindingKeyOf } from './requestKey.js';
+import { bindingKeyOf, fingerprintOf } from './requestKey.js';
 import {
+  AttemptStoreFull,
   MAX_MODEL_ATTEMPTS,
   brokerRetryConfig,
   isModelIdempotencyKey,
   retryModelCall,
   type AttemptScope,
   type AttemptStore,
+  type StoredRequest,
 } from './retryPolicy.js';
 import { routeKeyOf, type RouteEntry } from './routeTypes.js';
 import {
@@ -144,7 +146,8 @@ export interface ModelBrokerDeps {
 
 export type ModelCallRefusalCode =
   | 'BUDGET_REQUIRED' | 'REQUEST_INVALID' | 'NO_GRANT' | 'NO_ROUTE' | 'OVER_BUDGET'
-  | 'ATTEMPTS_EXHAUSTED' | 'CALL_FAILED' | 'OUTCOME_UNKNOWN' | 'USAGE_UNREADABLE' | 'RESPONSE_INVALID';
+  | 'ATTEMPTS_EXHAUSTED' | 'CALL_FAILED' | 'OUTCOME_UNKNOWN' | 'USAGE_UNREADABLE' | 'RESPONSE_INVALID'
+  | 'IDEMPOTENCY_MISMATCH' | 'STORE_FULL';
 
 /** What happened on one route, for a caller that has to decide what to do next. */
 export interface RouteFailure extends RouteEntry {
@@ -164,6 +167,8 @@ export interface ModelCallRefusal {
   readonly skipped?: readonly RouteSkip[];
   /** For a refusal after a spend: whether the ledger took the record. */
   readonly recorded?: boolean;
+  /** True when this is the remembered refusal of an earlier identical request: nothing was spent again. */
+  readonly replayed?: boolean;
 }
 
 export interface ModelCallSuccess {
@@ -181,6 +186,8 @@ export interface ModelCallSuccess {
   readonly recorded: boolean;
   /** True when this is the remembered answer of an earlier identical request, and no call was made. */
   readonly replayed: boolean;
+  /** On a replay only: what the ORIGINAL call did. This replay made no attempt and cost nothing now. */
+  readonly original?: { readonly attempts: number; readonly costMicroUsd: number; readonly overBudget: boolean; readonly recorded: boolean };
 }
 
 export type ModelCallOutcome = ModelCallSuccess | { readonly ok: false; readonly refusal: ModelCallRefusal };
@@ -240,6 +247,7 @@ interface CallRun {
   readonly cap: number;
   readonly inputTokens: number;
   readonly startedAtMs: number;
+  readonly fingerprint: string;
   reserved: number;
   attempts: number;
 }
@@ -248,6 +256,8 @@ interface RouteRun {
   attempts: number;
   spent: number;
   reason: FailoverReason | null;
+  /** Sticky: once any attempt on this route may have acted, the run can never fall back to another provider. */
+  mayHaveActed: boolean;
 }
 
 const reasonOf = (err: unknown): FailoverReason => (err instanceof ModelCallError ? err.reason : 'unknown');
@@ -305,6 +315,7 @@ async function failedAttempt(run: CallRun, route: ChosenRoute, worst: number, ro
   else await recorded(run.deps, unresolvedEntry(run, route, worst));
   routeRun.spent += spent;
   routeRun.reason = reason;
+  if (reason === 'may_have_acted') routeRun.mayHaveActed = true;
   await noteAttempt(run, { tenant: run.scope.tenant, project: run.scope.project, requestId: run.request.requestId, provider: route.provider, model: route.model, attempt: run.attempts, reason, possiblySpentMicroUsd: spent });
 }
 
@@ -341,7 +352,7 @@ function attemptRoute(run: CallRun, route: ChosenRoute, worst: number, routeRun:
   return retryModelCall(
     async () => {
       if (run.reserved + worst > run.cap) throw new BudgetExhausted();
-      const attempt = await deps.attempts.begin(run.scope, request.idempotencyKey);
+      const attempt = await deps.attempts.begin(run.scope, request.idempotencyKey, run.fingerprint);
       if (attempt > MAX_MODEL_ATTEMPTS) throw new AttemptsExhausted();
       run.reserved += worst;
       run.attempts = attempt;
@@ -358,6 +369,16 @@ function attemptRoute(run: CallRun, route: ChosenRoute, worst: number, routeRun:
   );
 }
 
+/** Remember what a spent call came to, so a repeat of the same request is answered from memory and not billed again. */
+async function keep(run: CallRun, outcome: ModelCallOutcome): Promise<ModelCallOutcome> {
+  try {
+    await run.deps.attempts.remember(run.scope, run.request.idempotencyKey, run.fingerprint, outcome);
+  } catch {
+    // an outcome that cannot be remembered is still an outcome: a repeat will call again, inside the attempt cap
+  }
+  return outcome;
+}
+
 /** What an answered call costs and records. An answer whose usage cannot be read keeps its reserved worst case. */
 async function settle(run: CallRun, route: ChosenRoute, result: ModelTransportResult, worst: number): Promise<ModelCallOutcome> {
   const { request, deps } = run;
@@ -365,16 +386,16 @@ async function settle(run: CallRun, route: ChosenRoute, result: ModelTransportRe
   if (unreadable !== null) {
     // The provider answered, so the spend may have happened: keep the worst case counted, never a free call.
     const taken = await recorded(deps, unresolvedEntry(run, route, worst));
-    return unreadable === 'RESPONSE'
+    return keep(run, unreadable === 'RESPONSE'
       ? refuse('RESPONSE_INVALID', 'the provider answer is not text with a stop reason', { recorded: taken })
-      : refuse('USAGE_UNREADABLE', unreadable, { recorded: taken });
+      : refuse('USAGE_UNREADABLE', unreadable, { recorded: taken }));
   }
   const actual = rateCardFor(deps.pricing, route.provider, route.model, promptTokensOf(result.usage));
   const rate: RateCard = actual.ok ? actual.rate : route.rate;
   const usage = { inputTokens: result.usage.input + result.usage.cacheWrite, cachedInputTokens: result.usage.cacheRead, outputTokens: result.usage.output };
   const entry = recordCall({ requestId: request.requestId, projectId: request.project, phaseId: request.phaseId, usage, rate, at: isoNow(run) });
   const wasRecorded = await recorded(deps, entry);
-  if (result.text.length > MAX_RESULT_TEXT) return refuse('RESPONSE_INVALID', `the answer is longer than ${MAX_RESULT_TEXT} characters`, { recorded: wasRecorded });
+  if (result.text.length > MAX_RESULT_TEXT) return keep(run, refuse('RESPONSE_INVALID', `the answer is longer than ${MAX_RESULT_TEXT} characters`, { recorded: wasRecorded }));
   deps.cooldowns.set(run.scope, clearCooldown(deps.cooldowns.get(run.scope), route.provider));
   const done: ModelCallSuccess = {
     ok: true,
@@ -388,24 +409,33 @@ async function settle(run: CallRun, route: ChosenRoute, result: ModelTransportRe
     recorded: wasRecorded,
     replayed: false,
   };
-  try {
-    await deps.attempts.remember(run.scope, request.idempotencyKey, done);
-  } catch {
-    // an answer that cannot be remembered is still an answer: a repeat will call again, inside the attempt cap
-  }
-  return done;
+  return keep(run, done);
 }
 
-const isRemembered = (value: unknown): value is ModelCallSuccess => typeof value === 'object' && value !== null && (value as { ok?: unknown }).ok === true;
+const isOutcome = (value: unknown): value is ModelCallOutcome => typeof value === 'object' && value !== null && typeof (value as { ok?: unknown }).ok === 'boolean';
 
-async function remembered(request: ModelCallRequest, deps: ModelBrokerDeps, scope: AttemptScope): Promise<ModelCallSuccess | null> {
+async function recalled(request: ModelCallRequest, deps: ModelBrokerDeps, scope: AttemptScope): Promise<StoredRequest | null> {
   try {
-    const prior = await deps.attempts.recall(scope, request.idempotencyKey);
-    return isRemembered(prior) ? prior : null;
+    return await deps.attempts.recall(scope, request.idempotencyKey);
   } catch {
     return null;
   }
 }
+
+/** A remembered outcome served again. It made no attempt and costs nothing now; what the original did is labelled as the original's. */
+function replayOf(outcome: ModelCallOutcome): ModelCallOutcome {
+  if (!outcome.ok) return { ok: false, refusal: { ...outcome.refusal, replayed: true } };
+  return {
+    ...outcome,
+    replayed: true,
+    attempts: 0,
+    costMicroUsd: 0,
+    overBudget: false,
+    original: { attempts: outcome.attempts, costMicroUsd: outcome.costMicroUsd, overBudget: outcome.overBudget, recorded: outcome.recorded },
+  };
+}
+
+const mismatch = (): ModelCallOutcome => refuse('IDEMPOTENCY_MISMATCH', 'this key was used with a different chain, output cap, phase or budget ceiling');
 
 function retryAtOf(skipped: readonly RouteSkip[], state: CooldownState): number | undefined {
   const ends = skipped.filter((s) => s.reason === 'cooling-down').map((s) => cooldownEndsAt(state, s.provider)).filter((end): end is number => end !== null);
@@ -430,7 +460,9 @@ async function walkRoutes(run: CallRun): Promise<ModelCallOutcome> {
   let lastFailure = 'no route in the chain can be used';
   for (;;) {
     const state = deps.cooldowns.get(run.scope);
-    const choice = chooseRoute({ chain: request.chain, registry: deps.registry, cooldowns: state, pricing: deps.pricing, nowMs: deps.clock(), promptTokens: run.inputTokens, tried });
+    const nowMs = deps.clock();
+    if (!clockIsUsable(nowMs)) return refuse('REQUEST_INVALID', 'the clock did not give a time', { failures });
+    const choice = chooseRoute({ chain: request.chain, registry: deps.registry, cooldowns: state, pricing: deps.pricing, nowMs, promptTokens: run.inputTokens, tried });
     if (!choice.ok) {
       const retryAtMs = retryAtOf(choice.skipped, state);
       const extra = { failures, skipped: choice.skipped, ...(retryAtMs === undefined ? {} : { retryAtMs }) };
@@ -443,16 +475,18 @@ async function walkRoutes(run: CallRun): Promise<ModelCallOutcome> {
       overBudget = true;
       continue;
     }
-    const routeRun: RouteRun = { attempts: 0, spent: 0, reason: null };
+    const routeRun: RouteRun = { attempts: 0, spent: 0, reason: null, mayHaveActed: false };
     let answer: ModelTransportResult;
     try {
       answer = await attemptRoute(run, route, worst, routeRun);
     } catch (err) {
-      const reason = routeRun.reason ?? reasonOf(err);
+      const reason = routeRun.mayHaveActed ? 'may_have_acted' : (routeRun.reason ?? reasonOf(err));
       if (routeRun.attempts > 0) failures.push({ provider: route.provider, model: route.model, reason, attempts: routeRun.attempts, possiblySpentMicroUsd: routeRun.spent });
+      // An unknown outcome is checked first and never masked: a later safe-looking failure or a spent budget cannot hide it.
+      if (routeRun.mayHaveActed) return refuse('OUTCOME_UNKNOWN', 'the call may have been acted on and is not repeated on another provider', { failures });
+      if (err instanceof AttemptStoreFull) return refuse('STORE_FULL', 'this tenant and project hold as many request keys as the store keeps', { failures });
       if (err instanceof AttemptsExhausted) return refuse('ATTEMPTS_EXHAUSTED', `this key has used its ${MAX_MODEL_ATTEMPTS} attempts`, { failures });
       if (err instanceof BudgetExhausted) return refuse('OVER_BUDGET', 'the next attempt does not fit inside the budget', { failures });
-      if (reason === 'may_have_acted') return refuse('OUTCOME_UNKNOWN', 'the call may have been acted on and is not repeated on another provider', { failures });
       if (!FALLBACK_REASONS.includes(reason)) return refuse('CALL_FAILED', `the call failed: ${reason}`, { failures });
       armFailure(run, route, err);
       lastFailure = `every usable route failed, the last with ${reason}`;
@@ -460,6 +494,31 @@ async function walkRoutes(run: CallRun): Promise<ModelCallOutcome> {
     }
     return settle(run, route, answer, worst);
   }
+}
+
+interface Flight {
+  readonly fingerprint: string;
+  readonly outcome: Promise<ModelCallOutcome>;
+}
+
+/** The calls in flight, one map per attempt store, so two calls sharing a store share their place. */
+const FLIGHTS = new WeakMap<object, Map<string, Flight>>();
+
+async function runCall(request: ModelCallRequest, deps: ModelBrokerDeps, scope: AttemptScope, cap: number, fingerprint: string, startedAtMs: number): Promise<ModelCallOutcome> {
+  // The grant is asked before anything is served, a replay included.
+  if (!(await granted(request, deps))) return refuse('NO_GRANT', `no provider-spend grant confirms this ${MODEL_CALL_CLASS} call`);
+  const held = await recalled(request, deps, scope);
+  if (held !== null && held.fingerprint !== fingerprint) return mismatch();
+  if (held !== null && isOutcome(held.outcome)) return replayOf(held.outcome);
+  const inputTokens = Math.max(request.estimatedInputTokens, estimateInputTokensFromText(request.prompt));
+  return walkRoutes({ request, deps, scope, cap, inputTokens, startedAtMs, fingerprint, reserved: 0, attempts: 0 });
+}
+
+/** A second call with the same key waits for the first and takes its outcome: no second transport call, no second record. */
+async function joined(flight: Flight, request: ModelCallRequest, deps: ModelBrokerDeps, fingerprint: string): Promise<ModelCallOutcome> {
+  if (flight.fingerprint !== fingerprint) return mismatch();
+  if (!(await granted(request, deps))) return refuse('NO_GRANT', `no provider-spend grant confirms this ${MODEL_CALL_CLASS} call`);
+  return replayOf(await flight.outcome);
 }
 
 /** Carry out one request. Always answers: a refusal is a value with a code, and the transport is reached only after every check. */
@@ -471,9 +530,17 @@ export async function callModel(request: ModelCallRequest, deps: ModelBrokerDeps
   const startedAtMs = deps.clock();
   if (!clockIsUsable(startedAtMs)) return refuse('REQUEST_INVALID', 'the clock did not give a time');
   const scope: AttemptScope = { tenant: request.tenant, project: request.project };
-  const prior = await remembered(request, deps, scope);
-  if (prior !== null) return { ...prior, replayed: true };
-  if (!(await granted(request, deps))) return refuse('NO_GRANT', `no provider-spend grant confirms this ${MODEL_CALL_CLASS} call`);
-  const inputTokens = Math.max(request.estimatedInputTokens, estimateInputTokensFromText(request.prompt));
-  return walkRoutes({ request, deps, scope, cap, inputTokens, startedAtMs, reserved: 0, attempts: 0 });
+  const fingerprint = fingerprintOf(request);
+  const flights = FLIGHTS.get(deps.attempts) ?? new Map<string, Flight>();
+  FLIGHTS.set(deps.attempts, flights);
+  const place = `${scope.tenant}/${scope.project}/${request.idempotencyKey}`;
+  const flying = flights.get(place);
+  if (flying !== undefined) return joined(flying, request, deps, fingerprint);
+  const flight: Flight = { fingerprint, outcome: runCall(request, deps, scope, cap, fingerprint, startedAtMs) };
+  flights.set(place, flight);
+  try {
+    return await flight.outcome;
+  } finally {
+    if (flights.get(place) === flight) flights.delete(place);
+  }
 }
