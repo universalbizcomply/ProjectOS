@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   COOLDOWN_BASE_SECONDS,
   COOLDOWN_MAX_SECONDS,
+  COOLDOWN_OUTAGE_SECONDS,
   NO_COOLDOWNS,
   armCooldown,
   chooseRoute,
+  cooldownEndsAt,
   clearCooldown,
   createProviderRegistry,
   isCoolingDown,
@@ -66,6 +68,11 @@ describe('the provider registry is committed and closed', () => {
     expect(createProviderRegistry([{ name: 'x', kind: 'hosted', api: 'openai-completions', credentialRef: 'sk-abcdefghijklmnopqrstuvwxyz0123456789 ' }]).ok).toBe(false);
   });
 
+  it('refuses an xAI or Grok model in the price table, as it refuses the provider', () => {
+    expect(parseCommittedPricing({ text: JSON.stringify({ schema: 1, models: [priced('a', 'grok-4')] }), commit: COMMIT }).ok).toBe(false);
+    expect(parseCommittedPricing({ text: JSON.stringify({ schema: 1, models: [priced('a', 'x-ai/some-model')] }), commit: COMMIT }).ok).toBe(false);
+  });
+
   it('refuses an xAI or Grok provider, which this plan does not port', () => {
     for (const name of ['xai', 'grok', 'x-ai', 'grok-4']) {
       expect(createProviderRegistry([{ name, kind: 'hosted', api: 'openai-completions' }]).ok).toBe(false);
@@ -107,11 +114,18 @@ describe('cooldown: a provider that was limited rests until its time is up', () 
     expect(armCooldown(NO_COOLDOWNS, 'p', 'rate_limit', T0, T0 + 90_000).cooldownSeconds).toBe(90);
     expect(armCooldown(NO_COOLDOWNS, 'p', 'rate_limit', T0, T0 + 10 * 365 * 86_400_000).cooldownSeconds).toBe(COOLDOWN_MAX_SECONDS);
     expect(armCooldown(NO_COOLDOWNS, 'p', 'rate_limit', T0, T0 - 5).cooldownSeconds).toBe(COOLDOWN_BASE_SECONDS);
+    // a provider's own reset never shortens the cooldown below the base
+    expect(armCooldown(NO_COOLDOWNS, 'p', 'rate_limit', T0, T0 + 5_000).cooldownSeconds).toBe(COOLDOWN_BASE_SECONDS);
     expect(armCooldown(NO_COOLDOWNS, 'p', 'rate_limit', T0, Number.NaN).cooldownSeconds).toBe(COOLDOWN_BASE_SECONDS);
   });
 
   it('arms only for the rate-limit family, and a success clears the level', () => {
     expect(armCooldown(NO_COOLDOWNS, 'p', 'authentication', T0).cooldownSeconds).toBeNull();
+    expect(armCooldown(NO_COOLDOWNS, 'p', 'may_have_acted', T0).cooldownSeconds).toBeNull();
+    expect(armCooldown(NO_COOLDOWNS, 'p', 'provider_error', T0).cooldownSeconds).toBeNull();
+    expect(armCooldown(NO_COOLDOWNS, 'p', 'upstream_unavailable', T0).cooldownSeconds).toBe(COOLDOWN_OUTAGE_SECONDS);
+    expect(cooldownEndsAt(armCooldown(NO_COOLDOWNS, 'p', 'rate_limit', T0).state, 'p')).toBe(T0 + 60_000);
+    expect(cooldownEndsAt(NO_COOLDOWNS, 'p')).toBeNull();
     expect(armCooldown(NO_COOLDOWNS, 'p', 'invalid_request', T0).state).toBe(NO_COOLDOWNS);
     let state = armCooldown(NO_COOLDOWNS, 'p', 'billing', T0).state;
     state = armCooldown(state, 'p', 'upstream_rate_limit', T0).state;

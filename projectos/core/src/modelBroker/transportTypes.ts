@@ -43,6 +43,8 @@ export function promptTokensOf(usage: TokenCounts): number {
 }
 
 export interface ModelTransportRequest {
+  /** The request's idempotency key. A transport that can resend must pass it on, so a repeat is not a second action. */
+  readonly idempotencyKey: string;
   readonly api: ModelApi;
   readonly baseUrl?: string;
   readonly prompt: string;

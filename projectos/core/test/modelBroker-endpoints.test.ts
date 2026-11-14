@@ -57,4 +57,12 @@ describe('a custom OpenAI-compatible endpoint is a record, not a free address', 
       expect(createProviderRegistry([record(url)]).ok, url).toBe(false);
     }
   });
+
+  it('refuses internal-looking and wildcard-DNS names, which can resolve to this machine or its network', () => {
+    for (const url of ['https://api.localhost/v1', 'https://svc.internal/v1', 'https://printer.local/v1', 'https://corp.svc.internal/v1', 'https://127.0.0.1.nip.io/v1', 'https://a.b.sslip.io/v1', 'https://x.xip.io/v1']) {
+      expect(createProviderRegistry([record(url)]).ok, url).toBe(false);
+    }
+    expect(createProviderRegistry([record('https://llm.example.com/v1')]).ok).toBe(true);
+    expect(createProviderRegistry([record('https://notnip.io/v1')]).ok).toBe(true);
+  });
 });

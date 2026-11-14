@@ -5,10 +5,11 @@
 // Source-Copyright: Copyright (c) 2025 Nous Research
 // Port-Strategy: TRANSLATE
 // Modified-By: ProjectOS 2026-11-13: modified for ProjectOS. CHANGED: translated from Python to TypeScript; state kept on a mutable agent became an immutable value per provider; the clock is passed in; a provider-declared reset is capped at the ceiling so one provider cannot rest for ever; the opt-in switch deferral and the entitlement-rejection marker are not ported
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: a provider-declared reset never shortens a cooldown below the base, an outage arms a short cooldown of its own, and the end of a cooldown can be read back
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 /** Why a call failed, as far as routing is concerned. */
-export const FAILOVER_REASONS = ['rate_limit', 'billing', 'upstream_rate_limit', 'upstream_unavailable', 'authentication', 'invalid_request', 'unknown'] as const;
+export const FAILOVER_REASONS = ['rate_limit', 'billing', 'upstream_rate_limit', 'upstream_unavailable', 'may_have_acted', 'provider_error', 'authentication', 'invalid_request', 'unknown'] as const;
 export type FailoverReason = (typeof FAILOVER_REASONS)[number];
 
 const RATE_LIMIT_FAILOVER_REASONS: readonly FailoverReason[] = ['rate_limit', 'billing', 'upstream_rate_limit'];
@@ -16,6 +17,8 @@ const RATE_LIMIT_FAILOVER_REASONS: readonly FailoverReason[] = ['rate_limit', 'b
 /** 60 s, then 2 m, doubling to 4 h. */
 export const COOLDOWN_BASE_SECONDS = 60;
 export const COOLDOWN_MAX_SECONDS = 14_400;
+/** An outage is short and does not escalate: the provider is tried again soon. */
+export const COOLDOWN_OUTAGE_SECONDS = 30;
 const MAX_LEVEL = 12;
 
 export interface CooldownState {
@@ -45,11 +48,15 @@ export interface ArmedCooldown {
  * Only the rate-limit family arms one. The state given is not changed.
  */
 export function armCooldown(state: CooldownState, provider: string, reason: FailoverReason, nowMs: number, resetAtMs?: number): ArmedCooldown {
+  if (reason === 'upstream_unavailable') {
+    const until = new Map(state.until).set(provider, nowMs + COOLDOWN_OUTAGE_SECONDS * 1000);
+    return { state: Object.freeze({ until, levels: state.levels }), cooldownSeconds: COOLDOWN_OUTAGE_SECONDS };
+  }
   if (!RATE_LIMIT_FAILOVER_REASONS.includes(reason)) return { state, cooldownSeconds: null };
   const level = state.levels.get(provider) ?? 0;
   const declared = providerResetDelay(resetAtMs, nowMs);
   const cooldownSeconds =
-    declared === null ? Math.min(COOLDOWN_BASE_SECONDS * 2 ** level, COOLDOWN_MAX_SECONDS) : Math.min(Math.ceil(declared), COOLDOWN_MAX_SECONDS);
+    declared === null ? Math.min(COOLDOWN_BASE_SECONDS * 2 ** level, COOLDOWN_MAX_SECONDS) : Math.min(Math.max(Math.ceil(declared), COOLDOWN_BASE_SECONDS), COOLDOWN_MAX_SECONDS);
   const until = new Map(state.until).set(provider, nowMs + cooldownSeconds * 1000);
   const levels = new Map(state.levels).set(provider, Math.min(level + 1, MAX_LEVEL));
   return { state: Object.freeze({ until, levels }), cooldownSeconds };
@@ -69,4 +76,9 @@ export function clearCooldown(state: CooldownState, provider: string): CooldownS
 export function isCoolingDown(state: CooldownState, provider: string, nowMs: number): boolean {
   const until = state.until.get(provider);
   return until !== undefined && until > nowMs;
+}
+
+/** The instant the provider rests until, or null when it is not resting. */
+export function cooldownEndsAt(state: CooldownState, provider: string): number | null {
+  return state.until.get(provider) ?? null;
 }

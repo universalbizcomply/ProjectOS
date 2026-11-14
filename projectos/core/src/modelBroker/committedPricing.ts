@@ -10,6 +10,7 @@
 
 import { rateCardProblems, type RateCard } from '../gatekeeperCostLedger.js';
 import { normalizeUpstreamModelPricing, selectPricingRates, type ModelPricing } from './pricingTiers.js';
+import { isNotPortedName } from './providerRegistry.js';
 import { routeKeyOf } from './routeTypes.js';
 
 export interface CommittedText {
@@ -56,6 +57,7 @@ function entryProblems(row: unknown, at: string): { entry: PricingEntry | null; 
   const { provider, model, source, pricedAt } = row;
   if (typeof provider !== 'string' || !NAME.test(provider)) problems.push(`${at} has no usable provider name`);
   if (typeof model !== 'string' || !MODEL_NAME.test(model)) problems.push(`${at} has no usable model name`);
+  if (isNotPortedName(model) || isNotPortedName(provider)) problems.push(`${at} names an xAI or Grok model, which is not ported`);
   if (typeof source !== 'string' || source.trim() === '') problems.push(`${at} does not say where the price came from`);
   if (typeof pricedAt !== 'string' || !PRICED_ON.test(pricedAt)) problems.push(`${at} does not say when it was priced`);
   const pricing = normalizeUpstreamModelPricing(row);

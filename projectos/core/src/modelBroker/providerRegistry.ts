@@ -37,6 +37,9 @@ const LONG_ALNUM_RUN = /[A-Za-z0-9]{24}/;
 const KEY_PREFIX = /^(?:sk-|ghp_|gho_|xox[abp]-|AKIA)/;
 const NOT_PORTED = /xai|x-ai|x\.ai|grok/i;
 
+/** Whether a provider or model name is an xAI or Grok one, which this plan does not port. */
+export const isNotPortedName = (value: unknown): boolean => typeof value === 'string' && NOT_PORTED.test(value);
+
 /** The upstream registry's key rule: names are compared stripped and lower-cased. */
 export const providerKeyOf = (name: string): string => name.trim().toLowerCase();
 

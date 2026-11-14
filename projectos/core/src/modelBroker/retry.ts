@@ -6,9 +6,15 @@
 // Also-Credits: pi-mono (Copyright (c) 2025 Mario Zechner, MIT)
 // Port-Strategy: DIRECT
 // Modified-By: ProjectOS 2026-11-13: modified for ProjectOS. CHANGED: only the retry runner and its config are taken; the abort, timeout and supervisor helpers are cut, the numeric-attempts form is cut because it had no minimum delay, and sleep and random are injected with no default timer
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: the runner itself now holds a one-second delay floor and a five-attempt ceiling that no option can lower or raise, and a delay that is not a finite number falls back to the floor instead of skipping the sleep
 // Notice: full licence text in THIRD_PARTY_NOTICES
 
 const MAX_TIMER_TIMEOUT_MS = 2_147_000_000;
+
+/** The shortest wait between two attempts, whatever an option, a provider hint or a random source says. */
+export const RETRY_FLOOR_MS = 1_000;
+/** The most attempts one run may make, whatever an option asks for. */
+export const RETRY_ATTEMPT_CEILING = 5;
 
 export type RetryConfig = {
   attempts?: number;
@@ -51,7 +57,7 @@ export type RetryRuntime = {
 
 const DEFAULT_RETRY_CONFIG: Required<RetryConfig> = {
   attempts: 3,
-  minDelayMs: 300,
+  minDelayMs: RETRY_FLOOR_MS,
   maxDelayMs: 30_000,
   jitter: 0,
 };
@@ -135,9 +141,9 @@ export function createRetryRunner(runtime: RetryRuntime) {
   return async function retryAsync<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
     const attemptErrors: unknown[] = [];
     const resolved = resolveRetryConfig(DEFAULT_RETRY_CONFIG, options);
-    const maxAttempts = resolved.attempts;
-    const minDelayMs = resolved.minDelayMs;
-    const maxDelayMs = resolved.maxDelayMs > 0 ? resolved.maxDelayMs : Number.POSITIVE_INFINITY;
+    const maxAttempts = Math.min(resolved.attempts, RETRY_ATTEMPT_CEILING);
+    const minDelayMs = Math.max(resolved.minDelayMs, RETRY_FLOOR_MS);
+    const maxDelayMs = Math.max(resolved.maxDelayMs, minDelayMs);
     const retryAfterMaxDelayMs =
       options.retryAfterMaxDelayMs === undefined
         ? maxDelayMs
@@ -178,12 +184,12 @@ export function createRetryRunner(runtime: RetryRuntime) {
         const canHonorRetryAfter = hasRetryAfter && (retryAfterMs ?? 0) <= delayCap;
         const wantsPositiveDraw = resolved.jitter === 'full' ? !hasRetryAfter || canHonorRetryAfter : canHonorRetryAfter;
         delay = applyJitter(delay, resolved.jitter, wantsPositiveDraw ? 'positive' : 'symmetric', random);
+        // A delay that is not a number must not skip the sleep: it falls back to the floor.
+        if (!Number.isFinite(delay)) delay = minDelayMs;
         delay = Math.min(Math.max(delay, minDelayMs), delayCap);
 
         await options.onRetry?.({ ...context, delayMs: delay });
-        if (delay > 0) {
-          await sleep(delay);
-        }
+        await sleep(delay);
       }
     }
 

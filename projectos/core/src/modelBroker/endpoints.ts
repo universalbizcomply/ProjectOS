@@ -16,6 +16,8 @@ const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/i;
 const AUTHORITY = /^(\[[0-9a-fA-F:.]+\]|[^:/?#@\s[\]]+)(?::(\d{1,5}))?$/;
 const PATH = /^(?:\/[^?#\s]*)?$/;
+/** Names that resolve to this machine or its network by convention, and wildcard-DNS services that map any name to an address. */
+const INTERNAL_SUFFIX = /(?:^|\.)(?:localhost|internal|local|nip\.io|sslip\.io|xip\.io)$/i;
 
 /** Four decimal octets exactly, each 0-255, with no leading zero ambiguity beyond a lone zero. */
 function ipv4Octets(host: string): readonly number[] | null {
@@ -80,6 +82,7 @@ function customEndpointProblem(address: unknown): string | null {
   if (host.startsWith('[')) return 'a custom endpoint may not be an IPv6 literal';
   if (isLoopbackHost(host) || isNonPublicLiteral(host)) return 'a custom endpoint may not be this machine or a private address';
   if (!DNS_NAME.test(host)) return 'a custom endpoint must be a public DNS name';
+  if (INTERNAL_SUFFIX.test(host)) return 'a custom endpoint may not be an internal or wildcard-DNS name';
   return null;
 }
 

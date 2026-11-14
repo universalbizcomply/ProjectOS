@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { callModel, createCooldownBook, createMemoryAttemptStore } from '@projectos/core';
+import { bindingKeyOf, callModel, createCooldownBook, createMemoryAttemptStore } from '@projectos/core';
 import { detectLocalModels, loadCommittedBrokerConfig, type CommittedRead } from '../src/modelBroker/index.js';
 
 const COMMIT = '1'.repeat(40);
@@ -58,14 +58,13 @@ describe('the broker config is read from committed bytes only', () => {
     const { read } = reader({ [PRICING_PATH]: pricingText, [REGISTRY_PATH]: registryText });
     const loaded = loadCommittedBrokerConfig({ read, pricingPath: PRICING_PATH, registryPath: REGISTRY_PATH });
     if (!loaded.ok) throw new Error(loaded.problems.join('; '));
+    const fields = { tenant: 'acme-co', project: 'alpha-project', requestId: 'r', prompt: 'hi' };
     const out = await callModel(
       {
-        idempotencyKey: `sha256:${'2'.repeat(64)}`,
-        requestId: 'r',
-        project: 'alpha-project',
+        ...fields,
+        idempotencyKey: bindingKeyOf(fields),
         phaseId: 'P',
         chain: [{ provider: 'primary', model: 'big' }],
-        prompt: 'hi',
         estimatedInputTokens: 10,
         maxOutputTokens: 10,
         budget: { maxMicroUsd: 1000 },
@@ -81,6 +80,7 @@ describe('the broker config is read from committed bytes only', () => {
         sleep: async () => undefined,
         random: () => 0,
         record: () => undefined,
+        recordAttempt: () => undefined,
       },
     );
     expect(out.ok).toBe(true);
