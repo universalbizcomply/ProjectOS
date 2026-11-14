@@ -38,13 +38,13 @@ function encode(value: unknown, depth: number): string | null {
 }
 
 /** The canonical text of `value`, or `null` when it is not plain JSON. */
-export function canonicalJsonOf(value: unknown): string | null {
+export function computerCanonicalJsonOf(value: unknown): string | null {
   return encode(value, 0);
 }
 
 /** `sha256:` and the hex digest of the canonical text, or `null` when the value cannot be encoded. */
 export function digestOfCanonical(value: unknown): string | null {
-  const text = canonicalJsonOf(value);
+  const text = computerCanonicalJsonOf(value);
   return text === null ? null : `sha256:${createHash('sha256').update(text, 'utf8').digest('hex')}`;
 }
 

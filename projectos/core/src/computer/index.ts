@@ -5,7 +5,7 @@
  * first caller. Each name is exported by name, so a new function is not public by default.
  */
 export { readComputerClock, type ComputerClock } from './clock.js';
-export { canonicalJsonOf as computerCanonicalJson, digestOfCanonical as computerDigest, digestOfText as computerDigestOfText } from './canonicalJson.js';
+export { computerCanonicalJsonOf as computerCanonicalJson, digestOfCanonical as computerDigest, digestOfText as computerDigestOfText } from './canonicalJson.js';
 export { MAX_PATH_CHARS as MAX_EXEC_PATH_CHARS, canonicalPathOf as execCanonicalPath, type CanonicalPath as ExecCanonicalPath, type CanonicalPathResult as ExecCanonicalPathResult, type PathRefusal as ExecPathRefusal, type PathStyle as ExecPathStyle } from './pathCanon.js';
 export { compileExecAllowlistPattern, type ExecAllowlistPattern, type ExecAllowlistPatternResult, type PatternRefusal as ExecPatternRefusal } from './allowlistPattern.js';
 export { ALLOWABLE_SYNTAX, MAX_LINE_CHARS as MAX_COMMAND_LINE_CHARS, analyzeCommandLine, type CommandLineAnalysis, type SyntaxFeature as CommandSyntaxFeature } from './commandLine.js';

@@ -2409,7 +2409,7 @@ async function selfTest(raw, wired, jsons) {
   return errors;
 }
 
-async function run() {
+async function runAsync() {
   const raw = readAll();
   const wired = productSources();
   const errors = textProblems(raw, wired).map(([, message]) => message);
@@ -2420,8 +2420,21 @@ async function run() {
   return behaviour.length > 0 ? behaviour : selfTest(raw, wired, jsons);
 }
 
+/**
+ * validate-all calls `run()` and needs an array of errors back, synchronously: a Promise is a CRASH there. The checks here are
+ * async (they run the rules in a sandbox), so `run()` runs this file's own standalone path in a child process and reads its
+ * FAIL lines. `runAsync()` is the in-process form.
+ */
+function run() {
+  const done = require("child_process").spawnSync(process.execPath, [__filename], { encoding: "utf8", maxBuffer: 1 << 28 });
+  if (done.error) return [`${THIS_VALIDATOR}: could not run: ${done.error.message}`];
+  if (done.status === 0) return [];
+  const lines = String(done.stderr || "").split(/\r?\n/).filter((line) => line.startsWith("FAIL: ")).map((line) => line.slice(6));
+  return lines.length > 0 ? lines : [`${THIS_VALIDATOR}: exited ${done.status} with no FAIL line`];
+}
+
 if (require.main === module) {
-  run().then((errors) => {
+  runAsync().then((errors) => {
     if (errors.length > 0) {
       errors.forEach((error) => console.error(`FAIL: ${error}`));
       console.error(`${THIS_VALIDATOR}: ${errors.length} error(s)`);
@@ -2431,4 +2444,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { run, textProblems, selfTest, SCENARIOS, BEHAVIOUR_MUTATIONS, TEXT_MUTATIONS, RULE_NAMES };
+module.exports = { run, runAsync, textProblems, selfTest, SCENARIOS, BEHAVIOUR_MUTATIONS, TEXT_MUTATIONS, RULE_NAMES };
