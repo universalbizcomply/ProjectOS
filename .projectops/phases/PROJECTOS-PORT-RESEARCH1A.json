@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PORT-RESEARCH1A",
   "project": "ProjectOS",
   "objective": "Port delta phase 11 (C16). Port the OpenClaw (MIT) web-search runtime, web-fetch, readability extraction and external-content guidance, and translate the Hermes (MIT) url_safety and website_policy. SearXNG and Brave adapters sit behind an injected fetch with fakes only. Cited answers reuse the search port's admitCitedAnswer; fetched text is untrusted and threat-scanned with the memory port's scan. Lives in research/ because core/src/search/ exists.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-14T12:38:01.623Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-14T12:38:02.924Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PORT-RESEARCH1A:owner-closure:ba1f7644"
     }
   ]
 }
