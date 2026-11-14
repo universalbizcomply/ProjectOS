@@ -2,29 +2,36 @@
 /**
  * The routine record, and the reader that admits it.
  *
- * A ROUTINE IS A PLAN-APPROVED RECORD, NEVER CREATED BY AN AGENT. The reader asks for the plan decision that
- * approved it: a `PLANDEC-` id, `decidedBy: 'owner'`, and the digest of the plan it was decided against.
- * Upstream lets the agent create a cron job itself; here the agent can only propose, and the owner's decision
- * is what makes a record.
+ * A RECORD NAMES A PLAN DECISION; THIS READER CHECKS ITS FORM, NOT THE DECISION. It asks the record to carry an
+ * `approval` that names a `PLANDEC-` id, says `decidedBy: 'owner'` and carries a plan digest. Those are claims the
+ * record makes about itself. Nothing here looks up the decision, so "admitted" means well-formed and within the
+ * floors, and does not mean approved. Upstream lets the agent create a cron job itself; here a record without a named
+ * decision is refused, and whether the named decision exists and is the owner's is the host wiring's check against the
+ * committed plan-decision records (see WHAT THIS MODULE CANNOT PROVE).
  *
- * ADMISSION IS APPROVAL. The schedule is held to the floor and the prompt is scanned here, so a routine that
- * fails either never becomes a record. The result is frozen and remembered by the module, so a copy built by
- * hand, with every field right, is not an admitted record and enables nothing.
+ * ADMISSION IS THE FLOORS AND THE SCAN. The schedule is held to the floor and the prompt is scanned here, so a routine
+ * that fails either never becomes a record. The result is frozen and remembered by the module, so a copy built by hand,
+ * with every field right, is not an admitted record and enables nothing.
+ *
+ * EACH FIELD IS READ ONCE. The record is copied field by field before anything is judged, and a field that is a getter
+ * is refused, so a value cannot be clean when it is checked and something else when it is stored.
  *
  * THERE IS NO FIELD FOR A FLOOR. A record with a field this reader does not know is refused as a whole, so
- * `minimumIntervalMs` or `enabledLimit` cannot ride along in a file.
+ * `minimumIntervalMs` or `enabledLimit` cannot ride along in a file. The per-run budget is held to a named maximum.
  *
- * WHAT THIS MODULE CANNOT PROVE. It reads the shape of an approval, not the approval: that `decisionId` names
- * a committed owner decision with this plan digest is for the wiring to check against the committed bytes, as
- * the plan-decision reader does for the rest of the kernel. Pure: no I/O.
+ * WHAT THIS MODULE CANNOT PROVE. It reads the shape of an approval, not the approval: that `decisionId` names a
+ * committed owner decision with this plan digest is for the wiring to check against the committed bytes, as the
+ * plan-decision reader does for the rest of the kernel. Until that wiring exists, a record that names a decision is
+ * only as trustworthy as the file it was read from. Pure: no I/O.
  */
 import { createHash } from 'node:crypto';
 import { checkScheduleFloor } from './cronSchedule.js';
-import { scanRoutinePrompt } from './promptScan.js';
+import { MAX_ROUTINE_PROMPT_CHARS, scanRoutinePrompt } from './promptScan.js';
+import { MAX_RUN_BUDGET_CENTS } from './runLimits.js';
 
 export type RoutineRefusalCode =
   | 'ROUTINE_SHAPE'
-  | 'ROUTINE_NOT_PLAN_APPROVED'
+  | 'ROUTINE_NO_PLAN_DECISION'
   | 'ROUTINE_BUDGET'
   | 'ROUTINE_PROMPT_THREAT'
   | 'SCHEDULE_UNREADABLE'
@@ -37,6 +44,7 @@ export interface RoutineRefusal {
   readonly message: string;
 }
 
+/** What a record says about its own approval. The reader checks its form only. */
 export interface RoutineApproval {
   readonly decisionId: string;
   readonly decidedBy: 'owner';
@@ -51,7 +59,10 @@ export interface RoutineRecord {
   readonly cron: string;
   readonly timezone: string;
   readonly prompt: string;
-  /** Each run has its own budget, in cents. It is not shared across runs and not carried over. */
+  /**
+   * What each run may spend, in US CENTS (not the envelope's micro-USD: 1 cent is 10,000 micro-USD, and the wiring
+   * converts). Each run has its own budget; it is not shared across runs and not carried over.
+   */
   readonly runBudgetCents: number;
   readonly approval: RoutineApproval;
   /** A SHA-256 over every field above, so another version of a routine is another effect. */
@@ -62,7 +73,6 @@ export type RoutineRecordResult =
   | { readonly ok: true; readonly record: RoutineRecord }
   | { readonly ok: false; readonly refusals: readonly RoutineRefusal[] };
 
-const MAX_PROMPT_CHARS = 8000;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const DECISION_ID = /^PLANDEC-[A-Za-z0-9-]{1,64}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -74,37 +84,48 @@ const ADMITTED = new WeakSet<object>();
 const refusal = (code: RoutineRefusalCode, message: string): RoutineRefusal => ({ code, message });
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value) && [Object.prototype, null].includes(Object.getPrototypeOf(value) as object | null);
-const onlyKeys = (value: Record<string, unknown>, allowed: readonly string[]): boolean => Object.keys(value).every((key) => allowed.includes(key));
+
+/**
+ * Copy an object's own fields, once each. Null when it has a key that is not allowed, a key that is not an enumerable
+ * string, or a field that is a getter or setter.
+ */
+function snapshotOf(value: unknown, allowed: readonly string[]): Record<string, unknown> | null {
+  if (!isPlainObject(value)) return null;
+  const copy: Record<string, unknown> = {};
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string' || !allowed.includes(key)) return null;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !('value' in descriptor) || descriptor.enumerable !== true) return null;
+    copy[key] = descriptor.value;
+  }
+  return copy;
+}
 
 /** Did the reader admit this record? A copy of one, built by hand, was not admitted. */
 export function isAdmittedRoutineRecord(value: unknown): value is RoutineRecord {
   return typeof value === 'object' && value !== null && ADMITTED.has(value);
 }
 
-function approvalProblem(value: unknown): RoutineRefusal | null {
-  if (!isPlainObject(value) || !onlyKeys(value, APPROVAL_FIELDS)) {
-    return refusal('ROUTINE_NOT_PLAN_APPROVED', 'a routine needs the plan decision that approved it');
-  }
-  if (typeof value['decisionId'] !== 'string' || !DECISION_ID.test(value['decisionId'])) {
-    return refusal('ROUTINE_NOT_PLAN_APPROVED', 'the approval does not name a plan decision');
-  }
-  if (value['decidedBy'] !== 'owner') return refusal('ROUTINE_NOT_PLAN_APPROVED', 'only the owner approves a routine');
-  if (typeof value['planDigest'] !== 'string' || !DIGEST.test(value['planDigest'])) {
-    return refusal('ROUTINE_NOT_PLAN_APPROVED', 'the approval does not name the plan digest it was decided against');
-  }
-  return null;
+function approvalOf(raw: unknown): { readonly approval: RoutineApproval } | { readonly refusal: RoutineRefusal } {
+  const no = (message: string) => ({ refusal: refusal('ROUTINE_NO_PLAN_DECISION', message) });
+  const value = snapshotOf(raw, APPROVAL_FIELDS);
+  if (value === null) return no('a routine record needs an approval that names a plan decision, as plain fields');
+  const { decisionId, decidedBy, planDigest } = value;
+  if (typeof decisionId !== 'string' || !DECISION_ID.test(decisionId)) return no('the approval does not name a plan decision');
+  if (decidedBy !== 'owner') return no('the approval does not say the owner decided');
+  if (typeof planDigest !== 'string' || !DIGEST.test(planDigest)) return no('the approval does not name the plan digest it was decided against');
+  return { approval: Object.freeze({ decisionId, decidedBy: 'owner' as const, planDigest }) };
 }
 
-function shapeProblem(raw: Record<string, unknown>): RoutineRefusal | null {
-  if (!onlyKeys(raw, FIELDS)) return refusal('ROUTINE_SHAPE', 'a routine record has a field this reader does not know');
+function shapeProblem(fields: Record<string, unknown>): RoutineRefusal | null {
   for (const field of ['recordId', 'routineId', 'tenant', 'project'] as const) {
-    const value = raw[field];
+    const value = fields[field];
     if (typeof value !== 'string' || !ID.test(value)) return refusal('ROUTINE_SHAPE', `'${field}' must be one plain id`);
   }
-  if (typeof raw['cron'] !== 'string' || typeof raw['timezone'] !== 'string') return refusal('ROUTINE_SHAPE', 'the schedule must be text');
-  const prompt = raw['prompt'];
-  if (typeof prompt !== 'string' || prompt.trim() === '' || prompt.length > MAX_PROMPT_CHARS) {
-    return refusal('ROUTINE_SHAPE', `the prompt must be 1 to ${MAX_PROMPT_CHARS} characters`);
+  if (typeof fields['cron'] !== 'string' || typeof fields['timezone'] !== 'string') return refusal('ROUTINE_SHAPE', 'the schedule must be text');
+  const prompt = fields['prompt'];
+  if (typeof prompt !== 'string' || prompt.trim() === '' || prompt.length > MAX_ROUTINE_PROMPT_CHARS) {
+    return refusal('ROUTINE_SHAPE', `the prompt must be 1 to ${MAX_ROUTINE_PROMPT_CHARS} characters`);
   }
   return null;
 }
@@ -128,34 +149,36 @@ const hashOf = (record: Omit<RoutineRecord, 'recordHash'>): string =>
     )
     .digest('hex')}`;
 
-/** Read a routine record from parsed JSON, and approve it or refuse it with every reason found. */
+/** Read a routine record from parsed JSON, and admit it or refuse it with every reason found. */
 export function admitRoutineRecord(raw: unknown): RoutineRecordResult {
-  if (!isPlainObject(raw)) return { ok: false, refusals: [refusal('ROUTINE_SHAPE', 'a routine record is one object')] };
-  const approvalRefusal = approvalProblem(raw['approval']);
-  const shape = shapeProblem(raw);
-  if (shape !== null) return { ok: false, refusals: approvalRefusal === null ? [shape] : [shape, approvalRefusal] };
-  const refusals: RoutineRefusal[] = approvalRefusal === null ? [] : [approvalRefusal];
-  const budget = raw['runBudgetCents'];
-  if (typeof budget !== 'number' || !Number.isSafeInteger(budget) || budget < 1) {
-    refusals.push(refusal('ROUTINE_BUDGET', 'each run needs its own budget, a whole number of cents above zero'));
+  const fields = snapshotOf(raw, FIELDS);
+  if (fields === null) {
+    return { ok: false, refusals: [refusal('ROUTINE_SHAPE', 'a routine record is one object of plain fields this reader knows, with no getters')] };
   }
-  const floor = checkScheduleFloor(raw['cron'] as string, raw['timezone'] as string);
+  const approved = approvalOf(fields['approval']);
+  const shape = shapeProblem(fields);
+  if (shape !== null) return { ok: false, refusals: 'refusal' in approved ? [shape, approved.refusal] : [shape] };
+  const refusals: RoutineRefusal[] = 'refusal' in approved ? [approved.refusal] : [];
+  const budget = fields['runBudgetCents'];
+  if (typeof budget !== 'number' || !Number.isSafeInteger(budget) || budget < 1 || budget > MAX_RUN_BUDGET_CENTS) {
+    refusals.push(refusal('ROUTINE_BUDGET', `each run needs its own budget, a whole number of cents from 1 to ${MAX_RUN_BUDGET_CENTS}`));
+  }
+  const floor = checkScheduleFloor(fields['cron'] as string, fields['timezone'] as string);
   if (!floor.ok) refusals.push(refusal(floor.code, floor.message));
-  const finding = scanRoutinePrompt(raw['prompt'] as string);
+  const finding = scanRoutinePrompt(fields['prompt'] as string);
   if (finding !== null) refusals.push(refusal('ROUTINE_PROMPT_THREAT', finding.message));
-  if (refusals.length > 0) return { ok: false, refusals };
+  if (refusals.length > 0 || 'refusal' in approved) return { ok: false, refusals };
 
-  const approval = raw['approval'] as RoutineApproval;
   const body = {
-    recordId: raw['recordId'] as string,
-    routineId: raw['routineId'] as string,
-    tenant: raw['tenant'] as string,
-    project: raw['project'] as string,
-    cron: raw['cron'] as string,
-    timezone: raw['timezone'] as string,
-    prompt: raw['prompt'] as string,
+    recordId: fields['recordId'] as string,
+    routineId: fields['routineId'] as string,
+    tenant: fields['tenant'] as string,
+    project: fields['project'] as string,
+    cron: fields['cron'] as string,
+    timezone: fields['timezone'] as string,
+    prompt: fields['prompt'] as string,
     runBudgetCents: budget as number,
-    approval: Object.freeze({ decisionId: approval.decisionId, decidedBy: 'owner' as const, planDigest: approval.planDigest }),
+    approval: approved.approval,
   };
   const record: RoutineRecord = Object.freeze({ ...body, recordHash: hashOf(body) });
   ADMITTED.add(record);

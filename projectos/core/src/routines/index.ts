@@ -5,7 +5,6 @@
  */
 export {
   ROUTINE_MINIMUM_INTERVAL_MS,
-  ROUTINE_SCAN_OCCURRENCES,
   checkScheduleFloor,
   isScheduledInstant,
   nextRoutineOccurrence,
@@ -17,7 +16,13 @@ export {
   type ScheduleRefusal,
   type ScheduleRefusalCode,
 } from './cronSchedule.js';
-export { scanRoutinePrompt, type RoutinePromptFinding } from './promptScan.js';
+export { MAX_ROUTINE_PROMPT_CHARS, scanRoutinePrompt, type RoutinePromptFinding } from './promptScan.js';
+export {
+  MAX_ROUTINE_WINDOW_BUDGET_CENTS,
+  MAX_RUN_BUDGET_CENTS,
+  ROUTINE_BUDGET_WINDOW_MS,
+  ROUTINE_CATCH_UP_WINDOW_MS,
+} from './runLimits.js';
 export {
   admitRoutineRecord,
   isAdmittedRoutineRecord,
@@ -54,4 +59,4 @@ export {
   type UnattendedRequest,
   type UnattendedResult,
 } from './unattended.js';
-export { admitRoutineRun, type RunAdmission, type RunRefusalCode, type RunRequest } from './runAdmission.js';
+export { admitRoutineRun, type RunAdmission, type RunPorts, type RunRefusalCode, type RunRequest } from './runAdmission.js';

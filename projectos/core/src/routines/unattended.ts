@@ -35,7 +35,7 @@ export interface OwnerQueueEscalation {
   readonly reason: string;
 }
 
-/** Puts one item on the owner's queue. True when it was taken. */
+/** Puts one item on the owner queue. It was taken only if the answer is true. */
 export type OwnerQueuePort = (escalation: OwnerQueueEscalation) => boolean;
 
 export type UnattendedResult =
@@ -49,6 +49,15 @@ export type UnattendedResult =
       readonly message: string;
     };
 
+/** Put one item on the queue. It counts only if the port answers `true`: a Promise, a number or a throw is not a yes. */
+function putOnQueue(escalate: OwnerQueuePort, item: OwnerQueueEscalation): boolean {
+  try {
+    return escalate(item) === true;
+  } catch {
+    return false;
+  }
+}
+
 export function admitUnattendedAction(request: UnattendedRequest, registry: ActionRegistry, escalate: OwnerQueuePort): UnattendedResult {
   if (!isActionName(request.action)) {
     return { ok: false, code: 'UNATTENDED_BAD_ACTION', message: 'the action is not one plain word, so it cannot be classed' };
@@ -56,7 +65,7 @@ export function admitUnattendedAction(request: UnattendedRequest, registry: Acti
   const { actionClass } = resolveAction(registry, request.action);
   if (classAtMost(actionClass, UNATTENDED_CEILING)) return { ok: true, actionClass };
   const reason = `an unattended routine run asked for '${request.action}', which is ${actionClass}; only ${UNATTENDED_CEILING} and below run without the owner`;
-  const escalated = escalate({
+  const escalated = putOnQueue(escalate, {
     kind: 'unattended-gated-action',
     routineId: request.routineId,
     occurrenceId: request.occurrenceId,

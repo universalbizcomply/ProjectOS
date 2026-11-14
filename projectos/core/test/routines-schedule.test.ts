@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   ROUTINE_MINIMUM_INTERVAL_MS,
-  ROUTINE_SCAN_OCCURRENCES,
   checkScheduleFloor,
   isScheduledInstant,
   nextRoutineOccurrence,
@@ -42,10 +41,9 @@ describe('the five-field cron reader', () => {
   });
 });
 
-describe('the fifteen-minute floor over the next 200 occurrences', () => {
-  it('states the floor and the scan length as constants', () => {
+describe('the fifteen-minute floor', () => {
+  it('states the floor as a constant', () => {
     expect(ROUTINE_MINIMUM_INTERVAL_MS).toBe(15 * MINUTE);
-    expect(ROUTINE_SCAN_OCCURRENCES).toBe(200);
   });
 
   it('refuses a schedule whose closest pair is 14 minutes apart', () => {
@@ -82,6 +80,27 @@ describe('the fifteen-minute floor over the next 200 occurrences', () => {
 
   it('reads past the first pair: a gap that only shows on the third occurrence is refused', () => {
     expect(checkScheduleFloor('15,30,44 * * * *', 'UTC').ok).toBe(false);
+  });
+
+  it('refuses a wrap across midnight that the first 200 occurrences from 2024 never meet', () => {
+    // Fires Monday 23:59 and Tuesday 00:00 on the odd days of the month: 2025-03-31 then 2025-04-01, one minute apart.
+    const verdict = checkScheduleFloor('0,59 0,23 */2 * 1,2', 'UTC');
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) expect(verdict.code).toBe('SCHEDULE_TOO_FREQUENT');
+  });
+
+  it('refuses a wrap across a month end and a year end', () => {
+    expect(checkScheduleFloor('59,0 23,0 31,1 * *', 'UTC').ok).toBe(false);
+  });
+
+  it('refuses a wrap across midnight on two weekdays in a row', () => {
+    expect(checkScheduleFloor('0,59 23,0 * * 1,2', 'UTC').ok).toBe(false);
+  });
+
+  it('admits a near-midnight pair when the days it needs never follow one another: the controls for the wrap', () => {
+    expect(checkScheduleFloor('0,59 0,23 * * 1', 'UTC').ok).toBe(true);
+    expect(checkScheduleFloor('0,59 23,0 * * 1,3', 'UTC').ok).toBe(true);
+    expect(checkScheduleFloor('59 23 * * *', 'UTC').ok).toBe(true);
   });
 
   it('refuses an expression that never fires', () => {
@@ -123,6 +142,15 @@ describe('the next occurrence', () => {
     const sunday = nextRoutineOccurrence('0 9 * * 7', 'UTC', at('2026-11-13T12:00:00Z'));
     expect(sunday.ok && new Date(sunday.at).getUTCDay()).toBe(0);
     expect(parseCron('0 9 1 JAN-MAR *').ok).toBe(true);
+  });
+
+  it('counts years 0 to 99 as the years they are, not as 1900 to 1999', () => {
+    const early = new Date(0);
+    early.setUTCFullYear(50, 0, 1);
+    const expected = new Date(0);
+    expected.setUTCFullYear(50, 1, 1);
+    const next = nextRoutineOccurrence('0 0 1 * *', 'UTC', early.getTime());
+    expect(next.ok && next.at).toBe(expected.getTime());
   });
 
   it('refuses a too-frequent schedule when asked for its next occurrence', () => {

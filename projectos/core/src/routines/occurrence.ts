@@ -44,7 +44,7 @@ export interface OccurrenceIdentity {
   readonly tenant: string;
   readonly project: string;
   readonly routineId: string;
-  /** The hash of the approved record, so another version of the routine is another effect. */
+  /** The hash of the admitted record, so another version of the routine is another effect. */
   readonly recordHash: string;
   /** A canonical instant from `scheduledInstant`. */
   readonly instant: string;

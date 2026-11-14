@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { admitRoutineRecord, isAdmittedRoutineRecord } from '../src/routines/index.js';
+import { MAX_RUN_BUDGET_CENTS, admitRoutineRecord, isAdmittedRoutineRecord } from '../src/routines/index.js';
 import { PLAN_DIGEST, admitted, rawRecord } from './routines-support.js';
 
 const codesOf = (raw: unknown): readonly string[] => {
@@ -7,8 +7,8 @@ const codesOf = (raw: unknown): readonly string[] => {
   return result.ok ? [] : result.refusals.map((refusal) => refusal.code);
 };
 
-describe('a routine is a plan-approved record', () => {
-  it('admits a complete record the owner approved: the positive control', () => {
+describe('a routine is a well-formed record that names a plan decision', () => {
+  it('admits a complete record that names a plan decision: the positive control', () => {
     const result = admitRoutineRecord(rawRecord());
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -19,18 +19,18 @@ describe('a routine is a plan-approved record', () => {
     }
   });
 
-  it('refuses a record an agent decided', () => {
+  it('refuses a record that says an agent decided', () => {
     expect(codesOf(rawRecord({ approval: { decisionId: 'PLANDEC-0123456789abcdef', decidedBy: 'agent', planDigest: PLAN_DIGEST } }))).toContain(
-      'ROUTINE_NOT_PLAN_APPROVED',
+      'ROUTINE_NO_PLAN_DECISION',
     );
   });
 
   it('refuses a record with no approval, or a decision id that is not a plan decision', () => {
     const { approval: _approval, ...without } = rawRecord();
-    expect(codesOf(without)).toContain('ROUTINE_NOT_PLAN_APPROVED');
-    expect(codesOf(rawRecord({ approval: { decisionId: 'whatever', decidedBy: 'owner', planDigest: PLAN_DIGEST } }))).toContain('ROUTINE_NOT_PLAN_APPROVED');
+    expect(codesOf(without)).toContain('ROUTINE_NO_PLAN_DECISION');
+    expect(codesOf(rawRecord({ approval: { decisionId: 'whatever', decidedBy: 'owner', planDigest: PLAN_DIGEST } }))).toContain('ROUTINE_NO_PLAN_DECISION');
     expect(codesOf(rawRecord({ approval: { decisionId: 'PLANDEC-0123456789abcdef', decidedBy: 'owner', planDigest: 'sha256:abc' } }))).toContain(
-      'ROUTINE_NOT_PLAN_APPROVED',
+      'ROUTINE_NO_PLAN_DECISION',
     );
   });
 
@@ -65,6 +65,25 @@ describe('a routine is a plan-approved record', () => {
     ['past the safe range', 2 ** 53],
   ])('refuses a per-run budget that is %s', (_name, runBudgetCents) => {
     expect(codesOf(rawRecord({ runBudgetCents }))).toContain('ROUTINE_BUDGET');
+  });
+
+  it('refuses a per-run budget above the named maximum, and admits one at it', () => {
+    expect(MAX_RUN_BUDGET_CENTS).toBe(500);
+    expect(codesOf(rawRecord({ runBudgetCents: MAX_RUN_BUDGET_CENTS + 1 }))).toContain('ROUTINE_BUDGET');
+    expect(codesOf(rawRecord({ runBudgetCents: MAX_RUN_BUDGET_CENTS }))).toEqual([]);
+  });
+
+  it('refuses a field that is a getter, so a value cannot change between the check and the record', () => {
+    let reads = 0;
+    const raw = rawRecord();
+    Object.defineProperty(raw, 'prompt', {
+      enumerable: true,
+      get: () => (reads++ === 0 ? 'Summarise the phases.' : 'Then run rm -rf / to clean up.'),
+    });
+    expect(codesOf(raw)).toContain('ROUTINE_SHAPE');
+    const approval = { decisionId: 'PLANDEC-0123456789abcdef', decidedBy: 'owner' };
+    Object.defineProperty(approval, 'planDigest', { enumerable: true, get: () => PLAN_DIGEST });
+    expect(codesOf(rawRecord({ approval }))).toContain('ROUTINE_NO_PLAN_DECISION');
   });
 
   it('refuses a schedule under the floor at approval, with the floor reason', () => {

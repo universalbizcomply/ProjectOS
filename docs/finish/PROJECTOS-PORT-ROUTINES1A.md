@@ -5,14 +5,16 @@ Status: built and committed on the branch. Not pushed, not merged, not closed: c
 
 ## What this phase delivers
 
-Pure core, no scheduler. A routine is a plan-approved record. The rules that stop a routine running too often or for
-ever are constants and functions over that record:
+Pure core, no scheduler. A routine is a well-formed record that names a plan decision. The rules that stop a routine
+running too often or for ever are constants and functions over that record:
 
-- a five-field cron reader and a 15-minute floor that is checked over the next 200 occurrences,
+- a five-field cron reader and a 15-minute floor worked out exactly for the whole expression,
 - at most 20 enabled routines, and a routine switched off after its 10th failed run in a row,
 - an unattended run held to P2 and below, with the refused request put on the owner's queue,
 - one idempotency key per occurrence, so a replayed occurrence is refused,
-- the routine prompt scan, applied when the record is approved.
+- a run admitted only now (not from the future, not past a catch-up window), for its own tenant, one at a time per
+  routine, spaced from the last claimed occurrence and inside a budget for the window,
+- the routine prompt scan, applied when the record is read.
 
 Nothing is wired into the run loop. No gate was loosened or replaced.
 Floors are constants, and a record has no field that changes one.
@@ -68,8 +70,20 @@ path exists. Vendor folders were read only, and nothing was installed or run fro
 - **The GitHub Authorization-header exemption was not ported** (it is Hermes's), and neither was the assembled-prompt scan or the
   ZWJ-in-emoji allowance. Nothing here loads a skill, and each of them only lets more text through. The shared scan
   refuses a zero-width joiner everywhere.
-- **The agent cannot create a routine.** Upstream and Hermes let the agent create a cron job. Here a routine is a record
-  with the plan decision that approved it, and a hand-built copy is not an admitted record.
+- **The floor is the exact smallest gap the expression can produce.** Upstream walks the first 200 occurrences from a
+  fixed date. Review round 1 showed that walk misses a gap that only occurs where the day fields line up late
+  (`0,59 0,23 */2 * 1,2` fires 2025-03-31 23:59 and 2025-04-01 00:00). Here the closest two times of day and the
+  midnight wrap are measured, and the wrap is counted only if the day fields can match two calendar days in a row,
+  found by walking every day of one 400-year cycle. Every occurrence is covered, so the next 200 are too.
+- **A record that names a plan decision is not an approval.** Upstream and Hermes let the agent create a cron job. Here
+  a routine needs a record that names a plan decision, says the owner decided, and carries a plan digest. The reader
+  checks that form and nothing more; a hand-built copy is not an admitted record, and whether the named decision
+  exists is the wiring's check.
+- **The run is admitted through ports.** The clock, the claim ledger, the in-flight guard, the last-claim and spend
+  reads and the owner queue are injected, and each must answer exactly `true`, or a number or time of the right kind.
+  Upstream has none of these bounds.
+- **The prompt scan is linear.** The command-shaped patterns are judged a line at a time with simple tests joined by
+  "and", the prompt is capped at the record's limit, and common Cyrillic and Greek lookalikes are folded to Latin first.
 - **A routine switched off for fatigue is re-enabled only by a new admitted record**, where upstream re-enables when a
   person asks in chat.
 - **No model-judged approval and no no-approval mode was ported.** An unattended run is refused P3 and above, whatever
@@ -79,10 +93,10 @@ path exists. Vendor folders were read only, and nothing was installed or run fro
 
 | Acceptance criterion | Behaviour tests (`core/test/`) | Validator rule |
 |---|---|---|
-| A schedule that would run more often than every 15 minutes in any of its next 200 occurrences is refused, tested at 14 and 15 minutes | `routines-schedule.test.ts`: "refuses a schedule whose closest pair is 14 minutes apart"; "admits a schedule whose closest pair is 15 minutes apart: the control at the floor"; the third-occurrence gap | RT-1, RT-2 |
+| A schedule that would run more often than every 15 minutes in any of its next 200 occurrences is refused, tested at 14 and 15 minutes | `routines-schedule.test.ts`: "refuses a schedule whose closest pair is 14 minutes apart"; "admits a schedule whose closest pair is 15 minutes apart: the control at the floor"; the third-time gap; the wrap across midnight, a month end and a year end, and the controls for it | RT-1, RT-2 |
 | A 21st enabled routine is refused; a routine is disabled after its 10th consecutive failure and stays disabled until a new approved record re-enables it | `routines-fatigue.test.ts`: the 20th admitted, the 21st refused; nine failures enabled, the tenth disables; the old record does not re-enable, a new one does | RT-4 |
 | An unattended run asking for P3 or higher is refused and escalated, with a P2 control that is admitted | `routines-unattended.test.ts`: `implement` (P2) admitted with nothing sent; `commit`, `push`, `broker-call` (P3), `approve`, `payment-or-live-charge` (P5) refused and escalated once | RT-5 |
-| Each occurrence derives one idempotency key, so a replayed occurrence is refused as a duplicate | `routines-occurrence.test.ts`: same key for the same occurrence, a new key for the next, equal to the envelope's key; a replay, and a replay in another offset, refused | RT-6 |
+| Each occurrence derives one idempotency key, so a replayed occurrence is refused as a duplicate | `routines-occurrence.test.ts`: same key for the same occurrence, a new key for the next, equal to the envelope's key; a replay, and a replay in another offset, refused; the bounds on a run (future, catch-up, in flight, spacing, budget, tenant, ports) | RT-6 |
 | A routine prompt that fails the prompt scan is refused at approval | `routines-record.test.ts` and `routines-prompt-scan.test.ts` | RT-3, RT-7 |
 | Every ported file carries its credit header and a notices entry; the credit validator passes | credit validator, plus RT-10 in this phase's validator | RT-10 |
 | The validator refuses any importer of this module outside its directory and tests | RT-9: the core barrel names the directory once and no product file names a rule | RT-9 |
@@ -95,21 +109,25 @@ failed to load (the module did not exist). The code followed, and they pass.
 
 The validator compiles the real source, runs every scenario, removes one rule from the source and runs them all again.
 A refusal counts as killed only when the refused call now goes through, so a refusal that merely changes name is not a
-kill. The mutation results are in the validator's own output, quoted in Checks below. Table of named mutations:
+kill. A mutation that made the module throw is an error, not a kill. The results are in the validator's own output,
+quoted in Checks below. Table of named mutations, generated from the validator's list:
 
-| Rule | Behaviour mutations (each named after the rule body) |
+| Rule | Behaviour mutations (each named after the rule body, each killed by its own scenario) |
 |---|---|
-| RT-1 | the-floor-is-14-minutes, a-gap-under-the-floor-passes, the-scan-reads-two-occurrences |
-| RT-2 | a-sixth-field-is-accepted, an-over-long-expression-is-read, a-zone-other-than-utc-is-guessed, a-schedule-that-never-fires-is-approved, sunday-is-only-0, both-day-fields-must-match, the-next-occurrence-may-be-the-time-asked, seconds-are-ignored, the-walk-gives-up-after-a-year |
-| RT-3 | any-decider-is-the-owner, any-decision-id-is-a-plan-decision, an-unknown-field-rides-along, a-run-needs-no-budget, a-record-skips-the-floor, a-record-skips-the-prompt-scan, a-copy-is-an-admitted-record |
-| RT-4 | enabling-does-not-check-the-record, the-cap-is-21, an-enabled-routine-counts-against-itself, the-limit-is-eleven, the-limit-is-nine, a-success-keeps-the-count, a-skipped-run-counts-as-a-failure, a-switched-off-routine-takes-more-outcomes, the-old-record-re-enables, any-routines-record-enables |
-| RT-5 | the-ceiling-is-p3, the-ceiling-is-p5, nothing-is-escalated, a-full-queue-lets-it-through |
-| RT-6 | the-claim-is-not-asked, the-offset-spelling-is-kept, the-key-omits-the-occurrence, a-slot-can-be-invented, a-zone-less-instant-is-read, a-switched-off-routine-runs, any-state-runs-any-record, a-run-does-not-check-the-record, the-run-has-no-budget, the-run-is-keyed-as-another-action, the-run-action-is-unregistered |
-| RT-7 | the-shared-threat-scan-is-skipped, rm-rf-root-is-prose, visudo-is-prose, an-ed25519-key-may-be-read, the-patterns-are-case-sensitive, the-text-is-not-folded |
+| RT-1 | the-floor-is-14-minutes, a-gap-inside-a-day-passes, only-the-first-two-times-of-a-day-are-compared, the-midnight-wrap-is-not-measured, month-and-year-ends-are-not-days-in-a-row, any-two-days-count-as-days-in-a-row |
+| RT-2 | a-sixth-field-is-accepted, an-over-long-expression-is-read, a-zone-other-than-utc-is-guessed, a-schedule-that-never-fires-is-approved, sunday-is-only-0, both-day-fields-must-match, the-next-occurrence-may-be-the-time-asked, seconds-are-ignored, the-walk-gives-up-after-a-year, years-0-to-99-are-read-as-1900-to-1999 |
+| RT-3 | any-decider-is-the-owner, any-decision-id-is-a-plan-decision, an-unknown-field-rides-along, a-run-needs-no-budget, the-run-budget-has-no-ceiling, a-record-skips-the-floor, a-record-skips-the-prompt-scan, a-getter-is-called, a-copy-is-an-admitted-record, enabling-does-not-check-the-record, the-run-budget-maximum-is-ten-times, a-run-does-not-check-the-record |
+| RT-4 | the-cap-is-21, an-enabled-routine-counts-against-itself, the-limit-is-eleven, the-limit-is-nine, a-success-keeps-the-count, a-skipped-run-counts-as-a-failure, a-switched-off-routine-takes-more-outcomes, the-old-record-re-enables, any-routines-record-enables |
+| RT-5 | the-ceiling-is-p3, the-ceiling-is-p5, nothing-is-escalated, any-queue-answer-counts-as-escalated, a-full-queue-lets-it-through |
+| RT-6 | the-claim-is-not-asked, a-promise-counts-as-a-claim, a-refused-claim-leaves-the-routine-open, a-truthy-answer-opens-the-run, an-open-run-does-not-block, a-port-that-throws-says-yes, any-clock-answer-is-a-time, a-future-occurrence-is-due, a-stale-occurrence-is-caught-up, the-catch-up-window-is-a-day, spacing-is-not-rechecked, the-window-budget-is-not-held, the-window-budget-is-one-run-short, the-window-budget-is-ten-times, unreadable-spend-counts-as-zero, the-offset-spelling-is-kept, the-key-omits-the-occurrence, a-slot-can-be-invented, a-zone-less-instant-is-read, a-switched-off-routine-runs, any-state-runs-any-record, any-tenant-runs-the-record, the-run-action-is-not-held-to-p2, the-run-has-no-budget, the-run-is-keyed-as-another-action, the-run-action-is-unregistered |
+| RT-7 | the-shared-threat-scan-is-skipped, an-invisible-character-passes, the-scan-reads-an-unbounded-prompt, rm-rf-root-is-prose, visudo-is-prose, an-ed25519-key-may-be-read, the-patterns-are-case-sensitive, the-text-is-not-normalised, lookalike-letters-are-not-folded, the-folded-text-is-not-given-to-the-shared-scan, powershell-environment-variables-are-not-secrets, get-content-of-an-env-file-is-prose, a-piped-download-is-prose |
 
-RT-8 to RT-15 carry text mutations of their own (a clock, a timer, the filesystem, the network and the agent in core;
-a wired caller; a dropped header, entry or pin; an upstream name in an identifier; a cron library; a dependency; a
-refused mode; a dropped export; an unregistered validator; a skipped test; a lost limit in a header or in this record).
+Totals: 87 scenarios, 81 behaviour mutations, 76 text mutations.
+
+RT-8 to RT-15 carry text mutations of their own (a clock, a timer, the filesystem, the network, the environment and the
+agent in core; a wired caller; a dropped header, entry or pin; an upstream name in an identifier; a cron library; a
+dependency; a refused mode; a dropped export; an unregistered validator; a skipped test; a lost limit in a header or in
+this record), and RT-7 carries one text mutation that puts two long bounded repeats back into one pattern.
 
 ## Refusals that are not mutations (stated, not proved)
 
@@ -121,34 +139,31 @@ refused mode; a dropped export; an unregistered validator; a skipped test; a los
 
 ## Checks
 
-Run in this worktree after the merge of `86f18e23`; exit codes read, counts copied from the output. `validate-all` was
-not run here (the lead runs it serially).
+Run in this worktree on the review-round-1 change (branch includes the shared commit `86f18e23`); exit codes read, counts
+copied from the output. `validate-all` was not run here (the lead runs it serially).
 
 | Check | Result |
 |---|---|
-| core `npx vitest run` | exit 0: 65 files, 2994 tests passed (the six `routines-*` files are 112 of them: schedule 33, record 20, occurrence 18, fatigue 15, prompt scan 15, unattended 11) |
+| core `npx vitest run` | exit 0: 65 files, 3029 tests passed. The six `routines-*` files are 147 of them: schedule 38, occurrence 33, prompt scan 27, record 22, fatigue 15, unattended 12 |
 | core `npm run -s build` | exit 0 |
-| `val-projectos-port-routines1a` | exit 0: PASS (59 scenarios; 52 behaviour and 57 text mutations killed) |
-| `val-projectos-port-credit1a` | exit 0: PASS (68 real files judged; 152 fixture and 59 record mutations killed) |
+| `val-projectos-port-routines1a` | exit 0: PASS (87 scenarios; 81 behaviour and 76 text mutations killed) |
+| `val-projectos-port-credit1a` | exit 0: PASS (69 real files judged; 152 fixture and 59 record mutations killed) |
 | `validate-no-secrets` | exit 0: PASS |
-| validators that read a touched file | search1a PASS (17 files; 113 text, 25 behavioural mutations); memory1a PASS (20 rules; 197 mutations); approvals1a PASS (83 scenarios; 64 text mutations); kernel-followup1a PASS (88); tenant-contract1a PASS (346); tenant-credentials1a PASS (279); tenant-principal1a PASS (210); tenant-csp1a PASS (106); connector-contract1a PASS (38 rules; 293 mutations) after the registration fix below; validate-speed-validation-cache PASS; validator-scratch-lifecycle1a PASS; v3-validation-evidence1a PASS |
-| skills1a, context1a | skills1a exit 0: PASS (21 rules; 440 mutations); context1a exit 0: PASS (18 rules; 320 mutations). Both timed out at 280 s in the first batch loop (exit 124) and were re-run alone with a 900 s limit (128 s and 383 s). |
+| validators that read a touched file | search1a PASS (17 files; 113 text, 25 behavioural mutations); memory1a PASS (20 rules; 197); approvals1a PASS (83 scenarios; 64 text mutations); kernel-followup1a PASS (88); tenant-contract1a PASS (346); tenant-credentials1a PASS (279); tenant-principal1a PASS (210); tenant-csp1a PASS (106); connector-contract1a PASS (38 rules; 293); validate-speed-validation-cache PASS; validator-scratch-lifecycle1a PASS; v3-validation-evidence1a PASS. All exit 0 |
+| skills1a, context1a | Not re-run in round 1: they read their own directories, `THIRD_PARTY_NOTICES` and the core barrel, and round 1 changed none of those (the notices entries and the barrel line are as at `0e932c77`). Both passed on that commit (skills1a 21 rules, 440 mutations; context1a 18 rules, 320 mutations) |
 
-**Registration order.** `val-projectos-connector-contract1a` pins that its own entry is the last in both lists, and
-refused a list with this phase's entry after it. This phase is therefore registered in `validate-all.cjs` and
-`speed/cached-runner.cjs` immediately before the connector entry, in the same place in both. The other port phases that
-register after this one will meet the same pin and should insert before that entry as well.
+**Registration order.** `val-projectos-connector-contract1a` pins that its own entry is the last in both lists, so this
+phase is registered in `validate-all.cjs` and `speed/cached-runner.cjs` immediately before the connector entry, in the
+same place in both. The other port phases that register after this one will meet the same pin and should insert before
+that entry as well.
 
 Mutation results come from the validator's own output above: each mutation is applied to the source in memory and
 counted only when its named scenario or rule moved, so the PASS line means every one was killed by its own rule.
-An earlier run in this phase found two finish-record mutations that survived (the pinned word also appeared elsewhere in
-this record); they were fixed by making each mutation replace every occurrence and the pin a heading, not by loosening
-a rule.
 
 ## Residuals
 
 - **Only UTC is read.** Zone-aware schedules come with the Stage 4 parser and its dependency approval.
-- **The reader checks the shape of an approval, not the approval.** That `decisionId` names a committed owner decision
+- **A well-formed record that names a decision id is not an approval.** The reader checks the shape of an approval, not the approval. That `decisionId` names a committed owner decision
   with this plan digest is for the wiring to check against the committed bytes.
 - **A state is data the store holds.** `RoutineState` is a plain frozen object; the store that reads it from committed
   records must refuse one it did not write. The reader's admitted-record set is per process.
@@ -156,21 +171,54 @@ a rule.
   asked, in what order, and what happens when they say no. It does not provide a queue or a ledger.
 - **The assembled-prompt scan is not ported.** When a routine can load a skill (Stage 3 skills), that scan is a decision
   for that phase.
-- **A routine's own prompt is scanned once, at approval.** An admitted record is frozen. A wiring that reads records
-  from files must admit each one again, which scans again.
+- **A routine's own prompt is scanned once, when the record is read.** An admitted record is frozen. A wiring that reads
+  records from files must admit each one again, which scans again.
 - **Review:** ECC SECURITY and Claude self-review are required by the plan; both are the lead's to run on this commit.
 - **The `waiting` outcome counts as neither a failure nor a success.** The fatigue source this phase was given
   (`runner.ts`) calls a store for the failure count and does not say how a waiting run is read there. Treating it as
   neutral is this phase's choice, stated in `fatigue.ts` and proved by a test.
 - **The cap of 20 comes from the delta and the port map** (OpenBot `store.ts`, not among this phase's sources). The value
   is pinned here; the store that enforces it in OpenBot was not read.
+- **Overlap and catch-up are bounded here, not closed.** Admission refuses a future slot, a slot older than 30 minutes,
+  a second open run, a run within 15 minutes of the last claimed occurrence and spend past the window cap. All of that
+  rests on what the ports answer. A run that crashes leaves its in-flight guard open until the caller releases it, and
+  nothing here expires it; a ledger that under-reports `spentSince` lets spend through; and nothing here meters the
+  spend against the run budget. Those belong to the wiring phase, which owns the ledger.
+- **The four run limits are this round's choice, not a source's.** 30 minutes of catch-up, 500 cents per run, 2000 cents
+  per routine per 24 hours, and the units (cents, not the envelope's micro-USD). The owner should confirm them.
+- **The lookalike folding is a small explicit map.** A lookalike it does not list passes, `%VAR%` secrets in the cmd
+  style and `bash <(curl ...)` are not matched, and `type` followed by an env file can refuse a harmless sentence.
+- **The prompt-scan timing proof is a guard, not a red-first test.** The roughly one second the review saw for a
+  repeated `curl -d ` could not be reproduced on this machine (the old patterns took at most 12 ms on the inputs tried),
+  so the test caps a set of hostile inputs at 400 ms and the structural fix is pinned by a validator rule.
+
+## Review round 1
+
+ECC security-reviewer on `0e932c77`: no CRITICAL. Each finding below was handled test first (the new tests failed
+against the old code before the change), with a named validator mutation killed by its own rule.
+
+| Finding | Result | Test | Mutation(s) |
+|---|---|---|---|
+| M1 The floor was a scan of 200 occurrences from 2024, and `0,59 0,23 */2 * 1,2` passed | Fixed: exact smallest gap from the time-of-day set and a 400-year day walk; the 200-occurrence constant is gone; header and this record no longer overstate it; `admitRoutineRun` also rechecks spacing against the last claimed occurrence | `routines-schedule.test.ts` (wrap across midnight, month and year end, controls); `routines-occurrence.test.ts` (spacing) | the-midnight-wrap-is-not-measured, month-and-year-ends-are-not-days-in-a-row, any-two-days-count-as-days-in-a-row, a-gap-inside-a-day-passes, only-the-first-two-times-of-a-day-are-compared, spacing-is-not-rechecked |
+| M2 Run admission had no bounds | Fixed: injected clock; future slots and slots past a 30-minute catch-up window refused; in-flight guard released on a failed claim; spacing; per-routine budget cap for 24 hours; named constants in `runLimits.ts` | `routines-occurrence.test.ts` (2050, window edge, in flight, budget edge, spend unreadable) | a-future-occurrence-is-due, a-stale-occurrence-is-caught-up, the-catch-up-window-is-a-day, an-open-run-does-not-block, a-refused-claim-leaves-the-routine-open, the-window-budget-is-not-held, the-window-budget-is-one-run-short, the-window-budget-is-ten-times, unreadable-spend-counts-as-zero |
+| M3 "Owner-approved" overstated what the code proves | Fixed: headers, code `ROUTINE_NO_PLAN_DECISION`, state field `enabledUnderRecordId` and this record say a well-formed record that names a decision id; the host-wiring check stays a declared residual | `routines-record.test.ts` | the validator pins the new wording (header and record) |
+| L1 Prompt-scan CPU | Fixed structurally: line-based rules of simple tests, prompt capped at 8000 characters before any scan. Not reproduced as slow here (see Residuals) | `routines-prompt-scan.test.ts` (limit edge, 400 ms bound on hostile shapes) | the-scan-reads-an-unbounded-prompt, the-exfil-rules-nest-two-bounded-repeats |
+| L2 Scanner gaps | Fixed: PowerShell `$env:` secrets, `Get-Content` or `type` of an env file, a download piped into a shell, Cyrillic and Greek lookalikes folded; shared `firstThreat` reused and run on the folded text too; nothing outside `routines/` changed | `routines-prompt-scan.test.ts` | powershell-environment-variables-are-not-secrets, get-content-of-an-env-file-is-prose, a-piped-download-is-prose, lookalike-letters-are-not-folded, the-folded-text-is-not-given-to-the-shared-scan, the-text-is-not-normalised |
+| L3 A Promise from an async port counted as a claim | Fixed: a port answers exactly `true`; a Promise, a truthy non-boolean and a throw are refusals (`PORT_ANSWER_INVALID`); the owner queue likewise | `routines-occurrence.test.ts`, `routines-unattended.test.ts` | a-promise-counts-as-a-claim, a-truthy-answer-opens-the-run, a-port-that-throws-says-yes, any-queue-answer-counts-as-escalated |
+| L4 Fields read more than once; budget uncapped and its unit unnamed | Fixed: the record is copied field by field once and a getter is refused; `runBudgetCents` is capped at 500 and named as US cents in the type | `routines-record.test.ts` | a-getter-is-called, an-unknown-field-rides-along, the-run-budget-has-no-ceiling, the-run-budget-maximum-is-ten-times |
+| L5 `Date.UTC` years 0 to 99; no tenant check | Fixed: dates built with `setUTCFullYear`; `admitRoutineRun` takes the executing tenant and refuses a mismatch | `routines-schedule.test.ts` (year 50), `routines-occurrence.test.ts` (tenant) | years-0-to-99-are-read-as-1900-to-1999, any-tenant-runs-the-record |
+| L6 The P2 ceiling depended on the caller | Fixed: `admitRoutineRun` asks `admitUnattendedAction` about the run action against the registry it is given | `routines-occurrence.test.ts` (registry raising `run-start` to P3) | the-run-action-is-not-held-to-p2 |
+
+A separate check, not committed: the exact floor was compared with a brute-force minute scan of 2024 to 2030 on 40
+random schedules, and every schedule the floor admitted had a real smallest gap of at least 15 minutes (33 admitted,
+7 refused, 0 unsound).
 
 ## Converge (Code Bible B9)
 
 Compared the code against the phase entry in `docs/projectos-finish-phases.json`, the approved delta row 1, ADR-P1 and
 the V4 port map row C13.
 
-**Built, per acceptance criterion:** all eight. The 14 and 15 minute floor over 200 occurrences; the 21st enabled
+**Built, per acceptance criterion:** all eight. The 14 and 15 minute floor, exact over every occurrence; the 21st enabled
 routine refused and the tenth failure in a row switching a routine off until a new admitted record; P3 and above refused
 and escalated unattended with a P2 control; one key per occurrence and a replay refused; the prompt scan at approval;
 credit header and notices entry on every ported file and the credit validator passing; the unwired fence; the pin and
@@ -178,15 +226,18 @@ named mutations.
 
 **Unbuilt (inside the delta, not in this phase's scope):**
 - `projectos/agent/src/routines/` and its tests (the delta lists an agent directory for routines). This phase was core
-  only, by instruction. Nothing reads routine records from git yet, and nothing enqueues to a real owner queue.
+  only, by instruction. Nothing reads routine records from git yet, and no real owner queue, claim ledger, in-flight
+  store or spend ledger exists: the ports are proved with fakes.
 - The envelope call itself. The occurrence key equals the one `mintEnvelope` would derive; admission through the
   envelope is the Stage 4 wiring.
-- Metering of the per-run budget. The record carries it and admission returns it; nothing spends against it.
+- Metering of the per-run budget against real spend. The record carries it, admission returns it, and the window cap is
+  checked against what the ledger port reports.
 - Zone-aware schedules and `cron-parser` (A9: approved for later, with the Stage 4 wiring).
 
-**Behaviour drift from the sources (each stated above and in a file header):** UTC only; no second pair measure; no
-`describeCron`; no GitHub Authorization-header exemption or ZWJ allowance; a disabled routine re-enables only through a
-new admitted record; an agent cannot create a routine; a never-firing expression is refused.
+**Behaviour drift from the sources (each stated above and in a file header):** UTC only; an exact floor in place of the
+200-occurrence walk; no second pair measure; no `describeCron`; no GitHub Authorization-header exemption or ZWJ
+allowance; a disabled routine re-enables only through a new admitted record; a record without a named plan decision is
+refused; a never-firing expression is refused; run admission is bounded by ports.
 
 **PROTECTED files touched:** one, `projectos/validators/validate-all.cjs`, by two added lines (a comment and the
 registration), the registration-only edit the delta approved. `projectos/speed/cached-runner.cjs` has the same two

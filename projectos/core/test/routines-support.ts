@@ -1,20 +1,27 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseActionRegistry, type ActionRegistry } from '../src/actionRegistry.js';
-import { admitRoutineRecord, type RoutineRecord } from '../src/routines/index.js';
+import { admitRoutineRecord, type OwnerQueueEscalation, type RoutineRecord, type RunPorts } from '../src/routines/index.js';
 
 const registryPath = fileURLToPath(new URL('../../security/action-registry.json', import.meta.url));
 
 /** The committed action registry, parsed the way the kernel parses it. */
 export function committedRegistry(): ActionRegistry {
-  const parsed = parseActionRegistry(JSON.parse(readFileSync(registryPath, 'utf8')) as unknown);
-  if (!parsed.ok) throw new Error('the committed action registry does not parse');
+  return registryWith({});
+}
+
+/** The committed registry with one action's entry changed, for a test that needs the registry to say something else. */
+export function registryWith(change: Record<string, Record<string, unknown>>): ActionRegistry {
+  const raw = JSON.parse(readFileSync(registryPath, 'utf8')) as { actions: Record<string, unknown>[] };
+  const actions = raw.actions.map((entry) => ({ ...entry, ...(change[String(entry['id'])] ?? {}) }));
+  const parsed = parseActionRegistry({ ...raw, actions });
+  if (!parsed.ok) throw new Error('the action registry does not parse');
   return parsed.registry;
 }
 
 export const PLAN_DIGEST = `sha256:${'a'.repeat(64)}`;
 
-/** A routine record as a plan-approved file would hold it. Each test changes the one field it is about. */
+/** A routine record as a file naming a plan decision would hold it. Each test changes the one field it is about. */
 export function rawRecord(change: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     recordId: 'RTN-weekday-summary-v1',
@@ -38,3 +45,33 @@ export function admitted(change: Record<string, unknown> = {}): RoutineRecord {
 }
 
 export const at = (iso: string): number => Date.parse(iso);
+
+export interface FakePorts {
+  readonly ports: RunPorts;
+  readonly claimed: Set<string>;
+  readonly open: Set<string>;
+  readonly sent: OwnerQueueEscalation[];
+}
+
+/** Ports with a memory, the way the ledger will be: a claim answers true once, a routine opens once until released. */
+export function fakePorts(now: number, over: Partial<RunPorts> = {}): FakePorts {
+  const claimed = new Set<string>();
+  const open = new Set<string>();
+  const sent: OwnerQueueEscalation[] = [];
+  const ports: RunPorts = {
+    now: () => now,
+    claim: (key) => (claimed.has(key) ? false : (claimed.add(key), true)),
+    tryOpen: (routineId) => (open.has(routineId) ? false : (open.add(routineId), true)),
+    release: (routineId) => {
+      open.delete(routineId);
+    },
+    lastClaimed: () => null,
+    spentSince: () => 0,
+    escalate: (escalation) => {
+      sent.push(escalation);
+      return true;
+    },
+    ...over,
+  };
+  return { ports, claimed, open, sent };
+}

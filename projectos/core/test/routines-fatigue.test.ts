@@ -102,7 +102,7 @@ describe('a disabled routine stays disabled until a new approved record', () => 
     if (result.ok) {
       expect(result.state.enabled).toBe(true);
       expect(result.state.consecutiveFailures).toBe(0);
-      expect(result.state.approvedRecordId).toBe('RTN-weekday-summary-v2');
+      expect(result.state.enabledUnderRecordId).toBe('RTN-weekday-summary-v2');
     }
   });
 

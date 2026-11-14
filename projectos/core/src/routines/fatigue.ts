@@ -21,7 +21,7 @@
  * tenth, not the ninth.
  *
  * SWITCHED OFF STAYS OFF. A routine disabled for fatigue is enabled again only by a new admitted record for
- * the same routine, which the owner approves through the plan. The record it was disabled under does not
+ * the same routine, one that names a plan decision of its own. The record it was disabled under does not
  * count, and nothing a run does re-enables it, because a disabled routine does not run.
  *
  * WHAT THIS MODULE CANNOT PROVE. A state is data the store holds, and a forged state says what it likes; the
@@ -40,7 +40,7 @@ export type RunOutcome = 'succeeded' | 'failed' | 'skipped' | 'waiting';
 export interface RoutineState {
   readonly routineId: string;
   /** The record this state was enabled under. */
-  readonly approvedRecordId: string;
+  readonly enabledUnderRecordId: string;
   readonly enabled: boolean;
   readonly consecutiveFailures: number;
   readonly disabledReason: 'FATIGUE' | null;
@@ -61,14 +61,14 @@ const no = (code: EnableRefusalCode, message: string): EnableResult => ({ ok: fa
 export function enableRoutine(prior: RoutineState | null, record: RoutineRecord, enabledRoutineIds: readonly string[]): EnableResult {
   if (!isAdmittedRoutineRecord(record)) return no('RECORD_NOT_ADMITTED', 'only a record the reader admitted can enable a routine');
   if (prior !== null && prior.routineId !== record.routineId) return no('ROUTINE_MISMATCH', `this record is for '${record.routineId}', not '${prior.routineId}'`);
-  if (prior !== null && prior.disabledReason === 'FATIGUE' && prior.approvedRecordId === record.recordId) {
-    return no('NEEDS_NEW_RECORD', 'this routine was switched off after repeated failures, and only a new approved record turns it back on');
+  if (prior !== null && prior.disabledReason === 'FATIGUE' && prior.enabledUnderRecordId === record.recordId) {
+    return no('NEEDS_NEW_RECORD', 'this routine was switched off after repeated failures, and only a new record that names a plan decision turns it back on');
   }
   const others = enabledRoutineIds.filter((id) => id !== record.routineId);
   if (others.length >= MAX_ENABLED_ROUTINES) return no('ENABLED_CAP', `at most ${MAX_ENABLED_ROUTINES} routines may be enabled`);
   return {
     ok: true,
-    state: Object.freeze({ routineId: record.routineId, approvedRecordId: record.recordId, enabled: true, consecutiveFailures: 0, disabledReason: null }),
+    state: Object.freeze({ routineId: record.routineId, enabledUnderRecordId: record.recordId, enabled: true, consecutiveFailures: 0, disabledReason: null }),
   };
 }
 

@@ -5,39 +5,49 @@
 // Source-Copyright: Copyright (c) 2026 CopilotKit
 // Port-Strategy: ADAPTED
 // Modified-By: ProjectOS 2026-11-13: modified for ProjectOS. CHANGED: the cron-parser dependency replaced by a five-field reader and an occurrence walk written here, so core stays dependency-free; UTC is the only zone, and another zone is refused instead of guessed; milliseconds in and out in place of Date objects and thrown errors; an expression that never fires is refused; day and month names, 7 as Sunday and the day-of-month or day-of-week rule are stated here; the describeCron wording helper, the memo caches and the second pair measure, which only a daylight-saving shift needs, were not ported
+// Modified-By: ProjectOS 2026-11-14: modified for ProjectOS. CHANGED: the floor is no longer a scan of the first occurrences from a fixed start; it is the exact smallest gap the expression can ever produce, worked out from its time-of-day set and a full 400-year cycle of days; dates are built with setUTCFullYear so years 0 to 99 are not read as 1900 to 1999
 // Notice: full licence text in THIRD_PARTY_NOTICES
 /**
  * The routine schedule: a hard five-field cron, and a floor that no record, model or caller can lower.
  *
- * THE FLOOR IS A CONSTANT. Upstream: "A model can be talked into anything; the floor cannot." A schedule
- * that would run more often than every 15 minutes in any of its next 200 occurrences is refused. There is
- * no argument that changes the number, and a record has no field for it.
+ * THE FLOOR IS A CONSTANT. Upstream: "A model can be talked into anything; the floor cannot." A schedule that can
+ * ever fire two occurrences less than 15 minutes apart is refused. There is no argument that changes the number,
+ * and a record has no field for it.
  *
- * ACCEPTANCE IS A PROPERTY OF THE EXPRESSION, NOT OF THE CLOCK. The 200 occurrences are walked from a fixed
- * leap-year start, so `45,55 8 * * *` is refused when asked about at 08:50 as well as at 08:00. A check
- * sampled from "now" would accept at some hours what it refuses at others. Upstream also measures the pair
- * ahead of the asking time, as a backstop for a gap that only appears under a daylight-saving shift. UTC has
- * no shift, so that second measure is not ported.
+ * THE FLOOR IS A PROPERTY OF THE WHOLE EXPRESSION. Upstream walks the first 200 occurrences from a fixed date and
+ * accepts what that walk does not trip on. That misses a gap that only occurs where the day fields line up late,
+ * such as minutes 0 and 59, hours 0 and 23, every other day of the month, on Mondays and Tuesdays, which fires
+ * 2025-03-31 23:59 and then 2025-04-01 00:00. Here the smallest gap is
+ * worked out exactly, from two facts that between them cover every pair of consecutive occurrences:
+ *   - inside one day: the closest two times of day in the set the minute and hour fields give; and
+ *   - across midnight: 24 hours less the spread of that set, which only happens if the day fields can match two
+ *     calendar days in a row. That is answered by walking every day of one 400-year Gregorian cycle (146,097 days,
+ *     a whole number of weeks), month ends and year ends included, so no year is sampled.
+ * Two occurrences on days that are not adjacent are always more than a day apart.
+ *
+ * ACCEPTANCE IS A PROPERTY OF THE EXPRESSION, NOT OF THE CLOCK. The answer is the same at any time of day and in any
+ * year. The criterion's "next 200 occurrences" is covered because every occurrence is covered.
  *
  * FIVE FIELDS OR NONE. Macros (`@daily`), seconds or year fields, `?`, `L`, `W` and `#` are unreadable here.
  *
  * WHAT THIS MODULE CANNOT PROVE. It reads only UTC. A routine that must follow a local clock waits for the
- * zone-aware parser that comes with the Stage 4 wiring. Nothing here runs a schedule: it answers what the
- * next occurrence would be and whether an expression may be approved, and holds no clock and no timer.
+ * zone-aware parser that comes with the Stage 4 wiring. Nothing here runs a schedule: it answers what the next
+ * occurrence would be and whether an expression may be named in a record, and holds no clock and no timer.
  */
 
 /** Routines may run at most this often. */
 export const ROUTINE_MINIMUM_INTERVAL_MS = 15 * 60 * 1000;
 
-/** How many successive occurrences the floor scan walks. */
-export const ROUTINE_SCAN_OCCURRENCES = 200;
-
 const MINUTE_MS = 60_000;
+const DAY_MINUTES = 24 * 60;
 const MAX_CRON_CHARS = 256;
-/** A leap-year start, so expressions pinned to 29 February are scanned on days they actually fire. */
-const FLOOR_SCAN_START = Date.UTC(2024, 0, 1);
 /** A walk gives up this far on: past a full Gregorian cycle, an expression that has not fired never will. */
 const WALK_HORIZON_MS = 400 * 366 * 24 * 60 * MINUTE_MS;
+/** One Gregorian cycle, in days. 400 years hold 146,097 days, which is exactly 20,871 weeks. */
+const CYCLE_DAYS = 146_097;
+/** 2000-01-01 begins a 400-year cycle, and it was a Saturday. */
+const CYCLE_START_YEAR = 2000;
+const CYCLE_START_WEEKDAY = 6;
 
 export type ScheduleRefusalCode = 'SCHEDULE_UNREADABLE' | 'SCHEDULE_TIMEZONE' | 'SCHEDULE_TOO_FREQUENT' | 'SCHEDULE_NEVER_FIRES';
 
@@ -160,10 +170,19 @@ export function parseCron(cron: string): CronResult {
   };
 }
 
-function dayMatches(schedule: CronSchedule, date: Date): boolean {
-  const ofMonth = schedule.daysOfMonth.has(date.getUTCDate());
-  const ofWeek = schedule.daysOfWeek.has(date.getUTCDay());
+/** Does a day with this day of the month and weekday match the day fields? The month is judged separately. */
+function dayFieldsMatch(schedule: CronSchedule, dayOfMonth: number, weekday: number): boolean {
+  const ofMonth = schedule.daysOfMonth.has(dayOfMonth);
+  const ofWeek = schedule.daysOfWeek.has(weekday);
   return schedule.dayOfMonthRestricted && schedule.dayOfWeekRestricted ? ofMonth || ofWeek : ofMonth && ofWeek;
+}
+
+/** The instant at the given UTC date and hour. `Date.UTC` would read years 0 to 99 as 1900 to 1999. */
+function utcMs(year: number, month: number, day: number, hour = 0): number {
+  const date = new Date(0);
+  date.setUTCFullYear(year, month, day);
+  date.setUTCHours(hour, 0, 0, 0);
+  return date.getTime();
 }
 
 /** Is this instant one the schedule fires at? An instant off the minute never is. */
@@ -172,7 +191,7 @@ export function isScheduledInstant(schedule: CronSchedule, instant: number): boo
   const date = new Date(instant);
   return (
     schedule.months.has(date.getUTCMonth() + 1) &&
-    dayMatches(schedule, date) &&
+    dayFieldsMatch(schedule, date.getUTCDate(), date.getUTCDay()) &&
     schedule.hours.has(date.getUTCHours()) &&
     schedule.minutes.has(date.getUTCMinutes())
   );
@@ -185,11 +204,11 @@ function nextAfter(schedule: CronSchedule, after: number, limit: number): number
     const date = new Date(at);
     const [year, month, day, hour] = [date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), date.getUTCHours()];
     if (!schedule.months.has(month + 1)) {
-      at = Date.UTC(year, month + 1, 1);
-    } else if (!dayMatches(schedule, date)) {
-      at = Date.UTC(year, month, day + 1);
+      at = utcMs(year, month + 1, 1);
+    } else if (!dayFieldsMatch(schedule, day, date.getUTCDay())) {
+      at = utcMs(year, month, day + 1);
     } else if (!schedule.hours.has(hour)) {
-      at = Date.UTC(year, month, day, hour + 1);
+      at = utcMs(year, month, day, hour + 1);
     } else if (!schedule.minutes.has(date.getUTCMinutes())) {
       at += MINUTE_MS;
     } else {
@@ -199,31 +218,66 @@ function nextAfter(schedule: CronSchedule, after: number, limit: number): number
   return null;
 }
 
-/** Walk up to `count` occurrences after `start`, and say whether two of them sit under the floor. */
-function floorOver(schedule: CronSchedule, start: number): ScheduleFloorResult {
-  const limit = start + WALK_HORIZON_MS;
-  let previous = nextAfter(schedule, start, limit);
-  if (previous === null) return NEVER_FIRES;
-  for (let seen = 1; seen < ROUTINE_SCAN_OCCURRENCES; seen += 1) {
-    const current = nextAfter(schedule, previous, limit);
-    if (current === null) return { ok: true };
-    if (current - previous < ROUTINE_MINIMUM_INTERVAL_MS) return TOO_FREQUENT;
-    previous = current;
-  }
-  return { ok: true };
+const isLeapYear = (year: number): boolean => (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+const daysInMonth = (year: number, month: number): number => (month === 2 ? (isLeapYear(year) ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31);
+
+interface DayPattern {
+  /** At least one day in the cycle matches, so the expression fires at all. */
+  readonly anyDay: boolean;
+  /** Two calendar days in a row both match, the month end and the year end included. */
+  readonly consecutiveDays: boolean;
 }
 
-/** May this schedule be approved? The same answer at any time of day. */
+/** Walk every day of one 400-year cycle, and one day more, so the last pair wraps into the first. */
+function dayPattern(schedule: CronSchedule): DayPattern {
+  let [year, month, day, weekday] = [CYCLE_START_YEAR, 1, 1, CYCLE_START_WEEKDAY];
+  let previous = false;
+  let anyDay = false;
+  let consecutiveDays = false;
+  for (let index = 0; index <= CYCLE_DAYS; index += 1) {
+    const matches = schedule.months.has(month) && dayFieldsMatch(schedule, day, weekday);
+    anyDay = anyDay || matches;
+    consecutiveDays = consecutiveDays || (matches && previous);
+    previous = matches;
+    day += 1;
+    weekday = (weekday + 1) % 7;
+    if (day > daysInMonth(year, month)) {
+      day = 1;
+      month += 1;
+      if (month > 12) {
+        month = 1;
+        year += 1;
+      }
+    }
+  }
+  return { anyDay, consecutiveDays };
+}
+
+/** The times of the day the minute and hour fields give, in minutes after midnight, in order. */
+function timesOfDay(schedule: CronSchedule): readonly number[] {
+  return [...schedule.hours].flatMap((hour) => [...schedule.minutes].map((minute) => hour * 60 + minute)).sort((a, b) => a - b);
+}
+
+/** May this schedule be named in a record? The same answer at any time of day and in any year. */
 export function checkScheduleFloor(cron: string, timezone: string): ScheduleFloorResult {
   if (timezone !== 'UTC') return UNKNOWN_ZONE;
   const parsed = parseCron(cron);
   if (!parsed.ok) return parsed;
-  return floorOver(parsed.schedule, FLOOR_SCAN_START);
+  const pattern = dayPattern(parsed.schedule);
+  if (!pattern.anyDay) return NEVER_FIRES;
+  const floorMinutes = ROUTINE_MINIMUM_INTERVAL_MS / MINUTE_MS;
+  const times = timesOfDay(parsed.schedule);
+  const first = times[0] as number;
+  const last = times[times.length - 1] as number;
+  const closestInDay = times.slice(1).reduce((closest, time, index) => Math.min(closest, time - (times[index] as number)), Infinity);
+  if (closestInDay < floorMinutes) return TOO_FREQUENT;
+  if (DAY_MINUTES - (last - first) < floorMinutes && pattern.consecutiveDays) return TOO_FREQUENT;
+  return { ok: true };
 }
 
 /**
- * Parse, hold to the floor, and return the next occurrence after `after`. One function owns both acceptance
- * and scheduling, so what was accepted is always schedulable.
+ * Parse, hold to the floor, and return the next occurrence after `after`. One function owns both acceptance and
+ * scheduling, so what was accepted is always schedulable.
  */
 export function nextRoutineOccurrence(cron: string, timezone: string, after: number): NextOccurrenceResult {
   const floor = checkScheduleFloor(cron, timezone);

@@ -69,6 +69,12 @@ describe('an unattended run refuses P3 and above, and escalates', () => {
     if (!result.ok) expect(result.escalated).toBe(false);
   });
 
+  it('does not count a truthy answer that is not true as an escalation', () => {
+    const result = admitUnattendedAction(request('commit'), registry, (() => 1) as unknown as () => boolean);
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.code === 'UNATTENDED_GATED_ACTION') expect(result.escalated).toBe(false);
+  });
+
   it('refuses an action name that is not a plain word', () => {
     const { escalate, sent } = queue();
     expect(admitUnattendedAction(request('implement now'), registry, escalate).ok).toBe(false);
