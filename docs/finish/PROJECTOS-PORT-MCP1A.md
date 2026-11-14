@@ -4,8 +4,8 @@
 **Branch:** `projectos-port-mcp1a`, worktree `C:/dev/ProjectOS-worktrees/port-mcp1a-v136`, base `d443a0fa`. Not pushed, not
 merged, phase not closed, no phase record created. `docs/06_Plan.md` is not edited.
 **State:** built and self-reviewed by the implementer only. ECC SECURITY and the Agency `application-security-engineer`
-review have not seen it. `val-projectos-port-credit1a` is red on this branch for one reason outside this phase's write
-paths, and a tested patch is held beside this file. See "Credit result".
+review have not seen it. The shared credit-directories commit `86f18e23` is merged in (`192e53b4`), so `val-projectos-port-credit1a`
+passes. `validate-all` is the lead's and was not run here. See "Checks" and "Converge".
 
 Nothing was run from a vendor folder, `openbot-lower` was not opened, no `DO-NOT-PORT.txt` was read, and no `node:child_process`
 is imported. `agent/src/mcp/` and `projectos/connectors/registry.json` are byte-for-byte as they were.
@@ -36,7 +36,6 @@ is imported. `agent/src/mcp/` and `projectos/connectors/registry.json` are byte-
 | Notices | `THIRD_PARTY_NOTICES` | 5 entries, written by script from each file's own header |
 | Tests | `projectos/core/test/mcp-{allowlist,spend,requests,toolcall,lifecycle}.test.ts`, `projectos/agent/test/mcp{Connector,RpcClient}.test.ts` | 133 core, 35 agent |
 | Validator | `projectos/validators/val-projectos-port-mcp1a.cjs` | 22 rules plus MC-T, 152 text and 42 behavioural mutations; registered in `validate-all.cjs` and `speed/cached-runner.cjs`, same position |
-| Patch, not applied | `docs/finish/PROJECTOS-PORT-MCP1A.credit-dirs.patch` | The credit-directory change this phase needs, outside its write paths |
 
 ## Ported paths and pins
 
@@ -69,35 +68,17 @@ Pi / pi-mono: searched all five upstream files for `pi-mono`, `mario`, `zechner`
 | A sampling request is refused; an elicitation becomes an owner-queue item and is never answered by the model, tested | `mcp-requests.test.ts` "refuses sampling/createMessage whatever it carries", "declares no sampling and no roots"; `mcpConnector.test.ts` "refuses sampling, tells the server so, and never reaches the owner or a model", "puts an elicitation to the owner and returns the owner's answer", "turns a failed owner queue into a cancel, never an accept". There is no model port to give the connector, and MC-10 refuses any model word in it. MC-9: 5 / 3, MC-10: 13 / 5 |
 | A tool call without a budget, or past it, is refused, and tool output is rendered as untrusted, tested | `mcp-spend.test.ts` (undeclared tool, envelope ceiling, spend limit, exact limit, rotation, refund); `mcp-toolcall.test.ts`; `mcp-requests.test.ts` "tool output is data" (fence id follows the text, hand-made output refused, images not kept); `mcpConnector.test.ts` "tool output is untrusted…". MC-11: 14 / 6, MC-12: 21 / 6 |
 | The registry stays empty and CC-25 still passes | `projectos/connectors/registry.json` untouched. `mcpConnector.test.ts` "with the committed registry, which holds no connector, refuses the call and sends nothing" reads the committed file. MC-14 refuses a row. `val-projectos-connector-contract1a`: PASS (38 rules; 293 named mutations) |
-| Credit header and notices entry on every ported file; the credit validator passes | Headers on 5 files, 5 notices entries, MC-2 and MC-4. **The credit validator is red on this branch until the held patch is applied.** See next section |
+| Credit header and notices entry on every ported file; the credit validator passes | Headers on 5 files, 5 notices entries, MC-2 and MC-4. `val-projectos-port-credit1a`: PASS (73 real files judged; 152 fixture and 59 record mutations killed), exit 0, after the shared credit-dirs commit `86f18e23` |
 | The validator refuses any importer outside the module and its tests | MC-19 scans every other source file under `projectos/` by path (`mcpConnectors`) and by exported name, so an importer through the package barrel is caught. The one allowed line is the core barrel's own. Two mutations add an importer |
 | Validator pin and named mutations, each killed by its own rule | 194 mutations (152 text, 42 behavioural), each named after the rule body. A mutation counts only if its rule fires and no rule it did not declare |
 
-## Credit result: red on this branch, green with a patch outside this phase's write paths
+## Credit result: green
 
-`val-projectos-port-credit1a` on this branch: **FAIL, 5 errors**, all `PC-16 … it is outside the port directories`, one per ported
-file. The credit validator judges only the directories in its `PORT_DIRS`, ADR-P1 §7 lists the same directories (PC-17 keeps them equal),
-and a file with a `Ported-From:` header outside them is refused. `mcpConnectors/` is not in either, and the delta names no step
-that adds it. Adding a port directory is, in ADR-P1's words, "a listed, reviewed change, made here and in the validator together".
-**Both files are outside this phase's write paths, so I did not edit them.**
-
-**The fix, named (FIX IT, OR SAY THE FIX):** three small edits, held as `docs/finish/PROJECTOS-PORT-MCP1A.credit-dirs.patch`
-(`git apply --check` passes on this branch):
-
-1. `projectos/validators/val-projectos-port-credit1a.cjs`: add `projectos/core/src/mcpConnectors` and `projectos/agent/src/mcpConnectors` to `PORT_DIRS`.
-2. Same file, PC-17's regex: `src\/[a-z]+` becomes `src\/[A-Za-z]+`. **The first two edits are not enough**: the directory name has a capital C, and the regex that reads ADR-P1's list would not see the new bullets.
-3. `docs/adr/ADR-P1-port-ownership-and-credit.md` §7: the two directories as bullets.
-
-**Rehearsed, with no branch touched:** `git archive` of `d443a0fa`, this branch's files laid over it, a scratch repository, the patch
-applied:
-
-```text
-before the patch: val-projectos-port-credit1a: 5 error(s)   (PC-16 x5, outside the port directories)
-after the patch:  val-projectos-port-credit1a: PASS (73 real file(s) judged; 149 fixture and 59 record mutations killed)
-```
-
-Who acts: the lead, with the owner's word because ADR-P1 is an approved record. Cost: apply the patch and re-run the credit
-validator. It touches no authority record.
+On the pre-merge branch the credit validator failed with 5 errors (`PC-16 ... it is outside the port directories`): it judges only
+the directories in its `PORT_DIRS`, ADR-P1 §7 lists the same set (PC-17), and `mcpConnectors/` was in neither, nor in this phase's
+write paths. I held a rehearsed patch rather than edit outside the write paths, and the lead landed the same change as
+`86f18e23` (PORT_DIRS, ADR-P1 §7 and the PC-17 regex, which also needed `[a-z]` widened to `[A-Za-z]` for the capital C). The
+held patch was deleted as superseded. After the merge the validator passes.
 
 ## Refusals this phase makes, and where each is held
 
@@ -149,15 +130,25 @@ pins only; `a-settled-session-keeps-its-old-scope` was dead code (settled items 
 | Check | Result |
 |---|---|
 | Tests first | The five core test files and the agent connector test were written against a module that did not exist. With `src/mcpConnectors` moved aside, `npx vitest run test/mcp-` failed all 5 files at import ("Failed to load url ../src/mcpConnectors/index.js"). The connector was then written, so the agent connector's RED run is the same fact in a weaker form: the agent test did not exist before `connector.ts`, an order slip, recorded rather than hidden. Four tests failed on the first agent run and were fixed in code |
-| Core `npx vitest run` | 64 files, **3015 tests passed** (the five new files are 133 of them) |
+| Core `npx vitest run` | 64 files, **3015 tests passed**, exit 0 (the five new files are 133 of them) |
 | Core `npm run -s build` | exit 0 |
-| Agent tests | see below: `npx vitest run` as shipped cannot see this phase's core |
-| Agent typecheck | exit 0 through a scratch tsconfig mapping `@projectos/core` to this worktree's `core/dist` (stock `npm run -s build` cannot, see below) |
+| Agent tests (this phase's two files) | 2 files, **35 tests passed**, exit 0, through the alias config below |
+| Agent full suite | 111 files; 110 passed, 3449 tests passed, 10 skipped; **exit 1 from `tenantSidecar.test.ts` alone**, which is junction-induced, not this phase. See below |
+| Agent typecheck | exit 0 through a scratch tsconfig mapping `@projectos/core` to this worktree's `core/dist`. Stock `npx tsc -p tsconfig.json` has 26 diagnostics, **all in `src/mcpConnectors/`**, all from the junction'd core lacking this phase's exports |
 | `val-projectos-port-mcp1a` | PASS (13 real files judged; 152 text and 42 behavioural mutations killed) |
 | `val-projectos-connector-contract1a` | PASS (38 rules; 293 named mutations killed), so CC-25 stands |
 | `validate-no-secrets` | PASS |
-| `val-projectos-port-credit1a` | FAIL, 5 errors, outside this phase's write paths; PASS with the held patch (rehearsal above) |
-| `validate-all` | NOT RUN (paused before shutdown) |
+| Validators reading a touched file | 19 validators, each its own process, **all exit 0**: `val-projectos-port-{credit1a,mcp1a,search1a,memory1a,skills1a,context1a,approvals1a}`, `val-projectos-connector-contract1a`, `validate-no-secrets`, `val-projectos-tenant-{contract1a,credentials1a,principal1a,csp1a,rls1a}`, `val-projectos-kernel-followup1a`, `val-projectos-validator-scratch-lifecycle1a`, `val-projectos-v3-validation-evidence1a`, `validate-speed-validation-cache`, `validate-v2-closure-evidence` |
+| `validate-all` | not run: the lead runs it serially |
+
+**`test/tenantSidecar.test.ts`, the one failing agent file.** Its `beforeAll` runs the real `tsc -p projectos/agent/tsconfig.json`, and that
+failed. On `d443a0fa` the same test passes: a scratch `git archive` of the base, with the same `node_modules` junctions, ran
+`npx vitest run test/tenantSidecar.test.ts` to **10 of 10 passed** (241 s). On this branch, stock `tsc -p tsconfig.json --noEmit` reports 26
+diagnostics, every one in `src/mcpConnectors/` (20 in `connector.ts`, 4 in `rpcClient.ts`, 2 in `ports.ts`), because the agent's
+`@projectos/core` resolves through the junction to the `host-review-path1b` core, which has no `mcpConnectors` exports. This phase did not
+break it and nothing outside `mcpConnectors/` changed: it is alias-induced. The same files typecheck clean (exit 0) against this
+worktree's core. In a checkout whose agent resolves its own core, after a core build, the stock command and this test are expected to
+pass; I could not prove that here without changing a junction, which I was told not to do.
 
 **Agent tests and build, and the junction.** `projectos/agent/node_modules` is a junction to the `host-review-path1b` worktree, and
 its `@projectos/core` resolves to that worktree's core, not this one. So `npx vitest run` and `npm run -s build` in
@@ -194,8 +185,7 @@ After a merge and a core build in the main checkout, the plain commands work the
 
 **Unbuilt requirements, or built short:**
 
-1. **The credit validator does not pass on this branch.** The phase's own criterion 5 needs two files outside its write paths. A tested
-   patch is held and the fix is named above. This is the one requirement I could not meet inside the phase.
+1. **None of the spec's criteria is unmet.** The credit validator, red before the merge, passes after `86f18e23`. `validate-all` is the lead's and was not run by me.
 2. **The OpenClaw MCP client is only partly ported.** The brief's sources hold a server and a relay, not a client; the lifecycle
    and content-block reading were ported, and the client is original. `src/agents/agent-bundle-mcp-*.ts` and `src/plugins/bundle-mcp.ts`
    (port map C15) were outside the brief's source list and unread.
@@ -234,16 +224,13 @@ itself as the last entry), and the new files.
 
 ## Commits
 
-`d65df10f` core, `97a4a1d7` agent, `5b19d29c` validator, then the wip commit that holds this doc and the held patch.
+`d65df10f` core, `97a4a1d7` agent, `5b19d29c` validator, `2667d147` wip (paused), `192e53b4` merge of the shared credit-dirs commit `86f18e23`, then the final commit of this doc.
 
-## PAUSED STATE
+## Final state
 
-Paused on the lead's word before shutdown. Nothing was started after it.
+Resumed on the lead's word with the shared credit-dirs commit merged. Complete on this branch, not pushed or merged, phase not closed.
 
-**Passed, seen:** core `npx vitest run` (64 files, 3015 tests) and core build exit 0; `val-projectos-port-mcp1a` PASS (152 text, 42 behavioural); `val-projectos-connector-contract1a` PASS (CC-25); `validate-no-secrets` PASS; agent typecheck exit 0 (scratch tsconfig); credit patch rehearsed green in a scratch repo.
-
-**Agent full suite (alias config): exit 1.** 110 of 111 files passed, 3449 tests passed, 10 skipped. The one failing file is `test/tenantSidecar.test.ts` (a file-level failure, "FAIL ... [ test/tenantSidecar.test.ts ]"); its cause was not read and it is not one of this phase's files. Unknown whether it fails on the base too.
-
-**Not run:** `validate-all`; the agent suite on base to settle `tenantSidecar`; `val-projectos-port-credit1a` after the patch (red, 5 errors, until the lead applies it).
-
-**Left:** read why `tenantSidecar.test.ts` failed; run `validate-all`; the lead applies the credit patch; ECC SECURITY and Agency review.
+- **Seen to pass:** core tests (64 files, 3015) and build; this phase's agent tests (35) and the agent typecheck through the alias; the 19 validators above, all exit 0, including `val-projectos-port-credit1a` and CC-25.
+- **`tenantSidecar.test.ts`:** passes on base (10 of 10), fails here only through the junction, with every diagnostic inside `src/mcpConnectors/`. Not this phase's break.
+- **Not run:** `validate-all` (the lead's); the stock agent build and suite against a core that resolves to this worktree; ECC SECURITY and Agency reviews.
+- **Left:** the lead's `validate-all`, the two reviews, and the residuals above (no real spawn, no timeouts, durable spend ledger).
