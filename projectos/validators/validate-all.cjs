@@ -156,6 +156,8 @@ const MODULES = [
   "val-projectos-tenant-credentials1a",
   // PROJECTOS-PORT-ROUTINES1A — routine floors: 15-minute minimum, 20 enabled, off after 10 failures, P2 ceiling unattended, one key per occurrence.
   "val-projectos-port-routines1a",
+  // PROJECTOS-PORT-PROVIDERS1A — the model broker: a budget on every call, a backoff floor, committed prices, a closed registry, loopback only.
+  "val-projectos-port-providers1a",
   // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
   "val-projectos-connector-contract1a"
 ];
