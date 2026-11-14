@@ -6,7 +6,7 @@ import {
   enableRoutine,
   type RoutineState,
 } from '../src/routines/index.js';
-import { admitted } from './routines-support.js';
+import { OTHER_DECISION, admitted } from './routines-support.js';
 
 const enabled = (): RoutineState => {
   const result = enableRoutine(null, admitted(), []);
@@ -96,8 +96,14 @@ describe('a disabled routine stays disabled until a new approved record', () => 
     expect(applyRunOutcome(disabled(), 'succeeded').state.enabled).toBe(false);
   });
 
-  it('is re-enabled by a new approved record for the same routine, with the count at zero', () => {
+  it('is not re-enabled by a new record id under the same plan decision', () => {
     const result = enableRoutine(disabled(), admitted({ recordId: 'RTN-weekday-summary-v2' }), []);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('NEEDS_NEW_RECORD');
+  });
+
+  it('is re-enabled by a new record under a different plan decision, with the count at zero', () => {
+    const result = enableRoutine(disabled(), admitted({ recordId: 'RTN-weekday-summary-v2', approval: OTHER_DECISION }), []);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.state.enabled).toBe(true);
@@ -114,7 +120,7 @@ describe('a disabled routine stays disabled until a new approved record', () => 
 
   it('is still held to the cap when it is re-enabled', () => {
     const full = Array.from({ length: 20 }, (_unused, index) => `routine-${index}`);
-    const result = enableRoutine(disabled(), admitted({ recordId: 'RTN-weekday-summary-v2' }), full);
+    const result = enableRoutine(disabled(), admitted({ recordId: 'RTN-weekday-summary-v2', approval: OTHER_DECISION }), full);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe('ENABLED_CAP');
   });

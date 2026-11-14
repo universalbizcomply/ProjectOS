@@ -18,13 +18,13 @@
  * THREE SCANS, IN THIS ORDER. The shared threat scan (invisible characters, comments, oversize text, injection,
  * exfiltration); the same scan again over the prompt with lookalike letters folded to Latin, so `ignоre` written with a
  * Cyrillic `о` is the directive it looks like; then the command-shaped patterns upstream keeps for cron prompts, with
- * the PowerShell and pipe-to-shell shapes added. A directive-shaped prompt has no business containing `cat ~/.env` or
+ * the PowerShell, pipe-to-shell and command-substitution shapes added. A directive-shaped prompt has no business containing `cat ~/.env` or
  * `rm -rf /`: there it is a smoking gun, not prose. Several of these overlap the shared scan; they stay, as data, so a
  * change to one list never silently narrows the other.
  *
  * BOUNDED WORK. The prompt is capped before any scan, and each command-shaped rule is a few simple tests over one line,
  * never a long expression with two bounded repeats nested in it, so a hostile prompt costs time in proportion to its
- * length. The folding map is small and explicit; it is not a confusables database, and a lookalike it does not list
+ * length. The folding map is explicit and still small; it is not a confusables database, and a lookalike it does not list
  * passes.
  *
  * WHAT A CLEAN RESULT MEANS. Nothing but that no listed pattern matched. A pattern list cannot prove a prompt is safe,
@@ -73,12 +73,16 @@ const RULES: readonly Rule[] = [
   ['exfil_curl_data', [CURL, re(String.raw`(?:^|\s)(?:--data(?:-raw|-binary|-urlencode)?|-d|--form|-F)(?:\s|=)`), re(SECRET_VAR)]],
   ['exfil_wget_post', [WGET, re(String.raw`--post-(?:data|file)=`), re(SECRET_VAR)]],
   ['exfil_curl_auth_header', [CURL, re(String.raw`(?:-H|--header)\s+["']Authorization:\s*(?:Bearer|token)\s+${SECRET_VAR}`)]],
+  ['exfil_powershell_request', [re(String.raw`\b(?:iwr|irm|invoke-webrequest|invoke-restmethod)\b`), re(SECRET_VAR)]],
+  ['powershell_eval_environment', [re(String.raw`\b(?:iex|invoke-expression)\b`), re(String.raw`\$env:`)]],
+  // One test each, so they are judged over the whole text and a pipe or a substitution may cross a line break.
   [
     'pipe_to_shell',
-    [
-      re(String.raw`\b(?:curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)\b`),
-      re(String.raw`\|\s*(?:(?:sudo|env)\s+)?(?:(?:ba|z|da|k|c)?sh|iex|invoke-expression)\b`),
-    ],
+    [re(String.raw`\b(?:curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)\b[^|]{0,2048}\|\s*(?:(?:sudo|env)\s+)?(?:(?:ba|z|da|k|c)?sh|iex|invoke-expression)\b`)],
+  ],
+  [
+    'download_into_shell_substitution',
+    [re(String.raw`\b(?:(?:ba|z|da|k|c)?sh|eval|source)\s+[^\n]{0,64}(?:\$\(|\x60|<\()\s*(?:curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)\b`)],
   ],
 ];
 
@@ -96,10 +100,18 @@ const LOOKALIKES: readonly (readonly [string, string])[] = [
   // Greek, upper case
   ['0391', 'A'], ['0392', 'B'], ['0395', 'E'], ['0396', 'Z'], ['0397', 'H'], ['0399', 'I'], ['039A', 'K'], ['039C', 'M'],
   ['039D', 'N'], ['039F', 'O'], ['03A1', 'P'], ['03A4', 'T'], ['03A5', 'Y'], ['03A7', 'X'],
+  // The rest of the common Cyrillic and Greek ones, lower case: h k m n t v y
+  ['04BB', 'h'], ['043A', 'k'], ['043C', 'm'], ['043F', 'n'], ['03B7', 'n'], ['0442', 't'], ['0475', 'v'], ['04AF', 'y'],
+  // IPA, small-capital and other lookalikes: a c g i j s u y
+  ['0251', 'a'], ['03F2', 'c'], ['1D04', 'c'], ['0261', 'g'], ['050D', 'g'], ['0131', 'i'], ['0269', 'i'], ['03F3', 'j'],
+  ['A731', 's'], ['1D1C', 'u'], ['028F', 'y'],
+  // Upper case: G H I J Q S W
+  ['050C', 'G'], ['04BA', 'H'], ['0406', 'I'], ['0408', 'J'], ['051A', 'Q'], ['0405', 'S'], ['051C', 'W'],
 ];
 const LOOKALIKE_MAP: ReadonlyMap<string, string> = new Map(LOOKALIKES.map(([code, latin]) => [String.fromCodePoint(Number.parseInt(code, 16)), latin]));
 
-function foldLookalikes(text: string): string {
+/** The text with lookalike letters folded to Latin. Exported so the map can be proved letter by letter. */
+export function foldLookalikes(text: string): string {
   return Array.from(text, (character) => LOOKALIKE_MAP.get(character) ?? character).join('');
 }
 

@@ -13,7 +13,8 @@ running too often or for ever are constants and functions over that record:
 - an unattended run held to P2 and below, with the refused request put on the owner's queue,
 - one idempotency key per occurrence, so a replayed occurrence is refused,
 - a run admitted only now (not from the future, not past a catch-up window), for its own tenant, one at a time per
-  routine, spaced from the last claimed occurrence and inside a budget for the window,
+  tenant, project and routine, spaced from the last claimed occurrence and inside a budget for the window for the
+  routine and for the project,
 - the routine prompt scan, applied when the record is read.
 
 Nothing is wired into the run loop. No gate was loosened or replaced.
@@ -94,7 +95,7 @@ path exists. Vendor folders were read only, and nothing was installed or run fro
 | Acceptance criterion | Behaviour tests (`core/test/`) | Validator rule |
 |---|---|---|
 | A schedule that would run more often than every 15 minutes in any of its next 200 occurrences is refused, tested at 14 and 15 minutes | `routines-schedule.test.ts`: "refuses a schedule whose closest pair is 14 minutes apart"; "admits a schedule whose closest pair is 15 minutes apart: the control at the floor"; the third-time gap; the wrap across midnight, a month end and a year end, and the controls for it | RT-1, RT-2 |
-| A 21st enabled routine is refused; a routine is disabled after its 10th consecutive failure and stays disabled until a new approved record re-enables it | `routines-fatigue.test.ts`: the 20th admitted, the 21st refused; nine failures enabled, the tenth disables; the old record does not re-enable, a new one does | RT-4 |
+| A 21st enabled routine is refused; a routine is disabled after its 10th consecutive failure and stays disabled until a new record that names a different plan decision re-enables it | `routines-fatigue.test.ts`: the 20th admitted, the 21st refused; nine failures enabled, the tenth disables; the old record does not re-enable, a new record id under the same decision does not, one under a different decision does | RT-4 |
 | An unattended run asking for P3 or higher is refused and escalated, with a P2 control that is admitted | `routines-unattended.test.ts`: `implement` (P2) admitted with nothing sent; `commit`, `push`, `broker-call` (P3), `approve`, `payment-or-live-charge` (P5) refused and escalated once | RT-5 |
 | Each occurrence derives one idempotency key, so a replayed occurrence is refused as a duplicate | `routines-occurrence.test.ts`: same key for the same occurrence, a new key for the next, equal to the envelope's key; a replay, and a replay in another offset, refused; the bounds on a run (future, catch-up, in flight, spacing, budget, tenant, ports) | RT-6 |
 | A routine prompt that fails the prompt scan is refused at approval | `routines-record.test.ts` and `routines-prompt-scan.test.ts` | RT-3, RT-7 |
@@ -117,12 +118,12 @@ quoted in Checks below. Table of named mutations, generated from the validator's
 | RT-1 | the-floor-is-14-minutes, a-gap-inside-a-day-passes, only-the-first-two-times-of-a-day-are-compared, the-midnight-wrap-is-not-measured, month-and-year-ends-are-not-days-in-a-row, any-two-days-count-as-days-in-a-row |
 | RT-2 | a-sixth-field-is-accepted, an-over-long-expression-is-read, a-zone-other-than-utc-is-guessed, a-schedule-that-never-fires-is-approved, sunday-is-only-0, both-day-fields-must-match, the-next-occurrence-may-be-the-time-asked, seconds-are-ignored, the-walk-gives-up-after-a-year, years-0-to-99-are-read-as-1900-to-1999 |
 | RT-3 | any-decider-is-the-owner, any-decision-id-is-a-plan-decision, an-unknown-field-rides-along, a-run-needs-no-budget, the-run-budget-has-no-ceiling, a-record-skips-the-floor, a-record-skips-the-prompt-scan, a-getter-is-called, a-copy-is-an-admitted-record, enabling-does-not-check-the-record, the-run-budget-maximum-is-ten-times, a-run-does-not-check-the-record |
-| RT-4 | the-cap-is-21, an-enabled-routine-counts-against-itself, the-limit-is-eleven, the-limit-is-nine, a-success-keeps-the-count, a-skipped-run-counts-as-a-failure, a-switched-off-routine-takes-more-outcomes, the-old-record-re-enables, any-routines-record-enables |
+| RT-4 | the-cap-is-21, an-enabled-routine-counts-against-itself, the-limit-is-eleven, the-limit-is-nine, a-success-keeps-the-count, a-skipped-run-counts-as-a-failure, a-switched-off-routine-takes-more-outcomes, the-old-record-re-enables, the-same-decision-re-enables, any-routines-record-enables |
 | RT-5 | the-ceiling-is-p3, the-ceiling-is-p5, nothing-is-escalated, any-queue-answer-counts-as-escalated, a-full-queue-lets-it-through |
-| RT-6 | the-claim-is-not-asked, a-promise-counts-as-a-claim, a-refused-claim-leaves-the-routine-open, a-truthy-answer-opens-the-run, an-open-run-does-not-block, a-port-that-throws-says-yes, any-clock-answer-is-a-time, a-future-occurrence-is-due, a-stale-occurrence-is-caught-up, the-catch-up-window-is-a-day, spacing-is-not-rechecked, the-window-budget-is-not-held, the-window-budget-is-one-run-short, the-window-budget-is-ten-times, unreadable-spend-counts-as-zero, the-offset-spelling-is-kept, the-key-omits-the-occurrence, a-slot-can-be-invented, a-zone-less-instant-is-read, a-switched-off-routine-runs, any-state-runs-any-record, any-tenant-runs-the-record, the-run-action-is-not-held-to-p2, the-run-has-no-budget, the-run-is-keyed-as-another-action, the-run-action-is-unregistered |
-| RT-7 | the-shared-threat-scan-is-skipped, an-invisible-character-passes, the-scan-reads-an-unbounded-prompt, rm-rf-root-is-prose, visudo-is-prose, an-ed25519-key-may-be-read, the-patterns-are-case-sensitive, the-text-is-not-normalised, lookalike-letters-are-not-folded, the-folded-text-is-not-given-to-the-shared-scan, powershell-environment-variables-are-not-secrets, get-content-of-an-env-file-is-prose, a-piped-download-is-prose |
+| RT-6 | the-claim-is-not-asked, the-key-includes-the-record-hash, a-promise-counts-as-a-claim, a-refused-claim-leaves-the-routine-open, a-failed-release-is-not-said, an-invalid-answer-leaves-the-guard-open, a-throwing-claim-leaves-the-guard-open, a-guard-held-by-another-run-is-released, a-truthy-answer-opens-the-run, an-open-run-does-not-block, the-lease-never-ends, the-lease-is-zero, the-scope-is-the-routine-id-alone, the-guard-is-shared-across-tenants, the-spend-is-shared-across-tenants, the-project-scope-is-the-tenant-alone, the-guard-is-keyed-by-the-routine-id-alone, the-last-claim-is-read-by-the-routine-id-alone, the-routine-spend-is-read-by-the-routine-id-alone, the-project-spend-is-read-under-the-routine-scope, the-owner-is-told-before-the-bounds-are-checked, a-port-that-throws-says-yes, any-clock-answer-is-a-time, a-future-occurrence-is-due, a-stale-occurrence-is-caught-up, the-catch-up-window-is-a-day, spacing-is-not-rechecked, the-window-budget-is-not-held, the-window-budget-is-one-run-short, the-project-budget-is-not-held, the-project-budget-is-one-run-short, the-project-budget-is-ten-times, unreadable-project-spend-counts-as-zero, the-window-budget-is-ten-times, unreadable-routine-spend-counts-as-zero, the-offset-spelling-is-kept, the-key-omits-the-occurrence, a-slot-can-be-invented, a-zone-less-instant-is-read, a-switched-off-routine-runs, any-state-runs-any-record, any-tenant-runs-the-record, the-run-action-is-not-held-to-p2, the-run-has-no-budget, the-run-is-keyed-as-another-action, the-run-action-is-unregistered |
+| RT-7 | the-shared-threat-scan-is-skipped, an-invisible-character-passes, the-scan-reads-an-unbounded-prompt, rm-rf-root-is-prose, visudo-is-prose, an-ed25519-key-may-be-read, the-patterns-are-case-sensitive, the-text-is-not-normalised, lookalike-letters-are-not-folded, the-folded-text-is-not-given-to-the-shared-scan, powershell-environment-variables-are-not-secrets, a-powershell-request-is-prose, evaluating-the-environment-is-prose, a-pipe-before-a-line-break-is-not-a-pipe, a-substituted-download-is-prose, the-script-g-is-not-folded, the-cyrillic-h-is-not-folded, get-content-of-an-env-file-is-prose, a-piped-download-is-prose |
 
-Totals: 87 scenarios, 81 behaviour mutations, 76 text mutations.
+Totals: 109 scenarios, 108 behaviour mutations, 83 text mutations.
 
 RT-8 to RT-15 carry text mutations of their own (a clock, a timer, the filesystem, the network, the environment and the
 agent in core; a wired caller; a dropped header, entry or pin; an upstream name in an identifier; a cron library; a
@@ -139,18 +140,19 @@ this record), and RT-7 carries one text mutation that puts two long bounded repe
 
 ## Checks
 
-Run in this worktree on the review-round-1 change (branch includes the shared commit `86f18e23`); exit codes read, counts
+Run in this worktree on the review-round-2 change (branch includes the shared commit `86f18e23`); exit codes read, counts
 copied from the output. `validate-all` was not run here (the lead runs it serially).
 
 | Check | Result |
 |---|---|
-| core `npx vitest run` | exit 0: 65 files, 3029 tests passed. The six `routines-*` files are 147 of them: schedule 38, occurrence 33, prompt scan 27, record 22, fatigue 15, unattended 12 |
+| core `npx vitest run` | exit 0: 65 files, 3077 tests passed. The six `routines-*` files are 195 of them: occurrence 46, prompt scan 61, schedule 38, record 22, fatigue 16, unattended 12 |
 | core `npm run -s build` | exit 0 |
-| `val-projectos-port-routines1a` | exit 0: PASS (87 scenarios; 81 behaviour and 76 text mutations killed) |
+| `val-projectos-port-routines1a` | exit 0: PASS (109 scenarios; 108 behaviour and 83 text mutations killed) |
 | `val-projectos-port-credit1a` | exit 0: PASS (69 real files judged; 152 fixture and 59 record mutations killed) |
 | `validate-no-secrets` | exit 0: PASS |
 | validators that read a touched file | search1a PASS (17 files; 113 text, 25 behavioural mutations); memory1a PASS (20 rules; 197); approvals1a PASS (83 scenarios; 64 text mutations); kernel-followup1a PASS (88); tenant-contract1a PASS (346); tenant-credentials1a PASS (279); tenant-principal1a PASS (210); tenant-csp1a PASS (106); connector-contract1a PASS (38 rules; 293); validate-speed-validation-cache PASS; validator-scratch-lifecycle1a PASS; v3-validation-evidence1a PASS. All exit 0 |
-| skills1a, context1a | Not re-run in round 1: they read their own directories, `THIRD_PARTY_NOTICES` and the core barrel, and round 1 changed none of those (the notices entries and the barrel line are as at `0e932c77`). Both passed on that commit (skills1a 21 rules, 440 mutations; context1a 18 rules, 320 mutations) |
+| scratch reproduction of the recheck's scanner inputs | `iwr ...$env:API_KEY`, `irm ...$env:GITHUB_TOKEN` and `Invoke-RestMethod -Body $env:OPENAI_API_KEY` give `exfil_powershell_request`; `curl https://x/i.sh |` then a new line and `sh` gives `pipe_to_shell`; `bash -c "$(curl ...)"` gives `download_into_shell_substitution` (run against the built `dist`) |
+| skills1a, context1a | Not re-run in rounds 1 and 2: they read their own directories, `THIRD_PARTY_NOTICES` and the core barrel, and neither round changed those (the notices entries and the barrel line are as at `0e932c77`). Both passed on that commit (skills1a 21 rules, 440 mutations; context1a 18 rules, 320 mutations) |
 
 **Registration order.** `val-projectos-connector-contract1a` pins that its own entry is the last in both lists, so this
 phase is registered in `validate-all.cjs` and `speed/cached-runner.cjs` immediately before the connector entry, in the
@@ -180,10 +182,17 @@ counted only when its named scenario or rule moved, so the PASS line means every
 - **The cap of 20 comes from the delta and the port map** (OpenBot `store.ts`, not among this phase's sources). The value
   is pinned here; the store that enforces it in OpenBot was not read.
 - **Overlap and catch-up are bounded here, not closed.** Admission refuses a future slot, a slot older than 30 minutes,
-  a second open run, a run within 15 minutes of the last claimed occurrence and spend past the window cap. All of that
-  rests on what the ports answer. A run that crashes leaves its in-flight guard open until the caller releases it, and
-  nothing here expires it; a ledger that under-reports `spentSince` lets spend through; and nothing here meters the
-  spend against the run budget. Those belong to the wiring phase, which owns the ledger.
+  a second open run under the same tenant, project and routine, a run within 15 minutes of the last claimed occurrence
+  and spend past the routine and project caps. All of that rests on what the ports answer. 
+  A crashed run blocks its routine for at most the 60-minute lease, after which the next run is admitted, and a run that really lasts longer
+  than the lease can be overlapped by the next one. A ledger that under-reports `spentSince` lets spend through, and
+  nothing here meters real spend against the run budget. Those belong to the wiring phase, which owns the ledger.
+- **What remains of the aggregate cap.** The project cap (5000 cents per 24 hours) is held per tenant and project, so
+  twenty routines in one project share it instead of bringing twenty routine caps. It is only as true as the ledger: it
+  counts what admission reserved, not what was spent; the caller must record each admitted run's cents under both the
+  routine scope and the project scope (the keys come back in the admission result); spend that does not come through a
+  routine is not counted; and nothing caps a tenant across its projects. A release that fails after a refused run says
+  `releaseFailed: true` and leaves the lease to clear the guard.
 - **The four run limits are this round's choice, not a source's.** 30 minutes of catch-up, 500 cents per run, 2000 cents
   per routine per 24 hours, and the units (cents, not the envelope's micro-USD). The owner should confirm them.
 - **The lookalike folding is a small explicit map.** A lookalike it does not list passes, `%VAR%` secrets in the cmd
@@ -193,6 +202,8 @@ counted only when its named scenario or rule moved, so the PASS line means every
   so the test caps a set of hostile inputs at 400 ms and the structural fix is pinned by a validator rule.
 
 ## Review round 1
+
+Round 2 below supersedes the parts of M2 that keyed the guard, the spacing and the spend by routine id alone.
 
 ECC security-reviewer on `0e932c77`: no CRITICAL. Each finding below was handled test first (the new tests failed
 against the old code before the change), with a named validator mutation killed by its own rule.
@@ -212,6 +223,21 @@ against the old code before the change), with a named validator mutation killed 
 A separate check, not committed: the exact floor was compared with a brute-force minute scan of 2024 to 2030 on 40
 random schedules, and every schedule the floor admitted had a real smallest gap of at least 15 minutes (33 admitted,
 7 refused, 0 unsound).
+
+## Review round 2
+
+Recheck of `0e932c77..83df6b80` found M1, L1 and L3 to L6 fixed, and the items below open. Each was handled test first
+(the new tests failed against the old code before the change), with named validator mutations killed by their own rule.
+
+| Finding | Result | Test | Mutation(s) |
+|---|---|---|---|
+| N1 The guard, the last claim and the spend were keyed by routine id alone | Fixed: all three are held under a scope key built from tenant, project and routine (`routineScopeKey`), and the project aggregate under `projectScopeKey`; both are exported for the wiring and returned in the admission result | `routines-occurrence.test.ts` (tenants A and B each with a routine `daily`: B at 10:05 is not `RUN_TOO_SOON` after A's 10:00, and A's guard and spend do not block B) | the-scope-is-the-routine-id-alone, the-guard-is-shared-across-tenants, the-spend-is-shared-across-tenants, the-project-scope-is-the-tenant-alone, the-guard-is-keyed-by-the-routine-id-alone, the-last-claim-is-read-by-the-routine-id-alone, the-routine-spend-is-read-by-the-routine-id-alone, the-project-spend-is-read-under-the-routine-scope |
+| N2 A guard could stay open: a throwing release, or a non-boolean answer from the port that opened it | Fixed: every path that opened the guard (or may have) and did not claim releases it; a failed release is surfaced as `releaseFailed: true`; the guard has a 60-minute lease passed to the port with the injected clock, so a crashed run stops blocking; a guard the port said it did not open is not released | `routines-occurrence.test.ts` (release throws, Promise from `tryOpen`, claim throws, told-not-opened, lease edge) | a-refused-claim-leaves-the-routine-open, a-failed-release-is-not-said, an-invalid-answer-leaves-the-guard-open, a-throwing-claim-leaves-the-guard-open, a-guard-held-by-another-run-is-released, a-truthy-answer-opens-the-run, an-open-run-does-not-block, the-lease-never-ends, the-lease-is-zero |
+| M2b Aggregate spend was per routine, so N routines meant N caps | Fixed as far as admission can: a per-tenant-and-project cap (5000 cents per 24 hours) is checked beside the routine cap, from the same spend port under the project scope. What remains is in Residuals | `routines-occurrence.test.ts` (project cap edge, unreadable project spend, another project) | the-project-budget-is-not-held, the-project-budget-is-one-run-short, the-project-budget-is-ten-times, unreadable-project-spend-counts-as-zero |
+| M3b A new record id under the same decision re-enabled a routine switched off for failures | Fixed: the state remembers the decision id and a re-enable needs a different one; wording in this record and in the code corrected | `routines-fatigue.test.ts` | the-same-decision-re-enables, the-old-record-re-enables |
+| L2b Scanner gaps: `iwr` and `irm` with `$env:` secrets, `Invoke-Expression`, a pipe across a line break, `bash -c "$(curl ...)"`, more lookalikes | Fixed: new rules `exfil_powershell_request`, `powershell_eval_environment`, a multi-line `pipe_to_shell` and `download_into_shell_substitution`; the lookalike map covers the letters a c e i j o p s x y h k m t v u n g (U+0261, U+04BB, U+0456, U+0455 included); still linear (measured under 30 ms on hostile inputs) and capped at 8000 | `routines-prompt-scan.test.ts` | a-powershell-request-is-prose, evaluating-the-environment-is-prose, a-pipe-before-a-line-break-is-not-a-pipe, a-substituted-download-is-prose, the-script-g-is-not-folded, the-cyrillic-h-is-not-folded |
+| LOW The occurrence key included the record hash, so a re-recorded routine could run a slot twice | Fixed: the key is tenant, project, routine and slot; the record hash travels in the admission result for the ledger entry | `routines-occurrence.test.ts` | the-key-includes-the-record-hash |
+| LOW The owner was told before spacing and budget were checked | Fixed: escalation happens only after those checks pass | `routines-occurrence.test.ts` | the-owner-is-told-before-the-bounds-are-checked |
 
 ## Converge (Code Bible B9)
 
@@ -233,6 +259,11 @@ named mutations.
 - Metering of the per-run budget against real spend. The record carries it, admission returns it, and the window cap is
   checked against what the ledger port reports.
 - Zone-aware schedules and `cron-parser` (A9: approved for later, with the Stage 4 wiring).
+
+**Round 2 changes to the contract with the wiring:** `RunPorts.tryOpen`, `release`, `lastClaimed` and `spentSince` take a
+scope key (tenant, project, routine; or tenant and project for the aggregate), and `tryOpen` also takes the time and the
+lease. `RoutineState` carries `enabledUnderDecisionId`. `deriveOccurrenceKey` no longer takes a record hash, and the
+admission result carries `recordHash`, `routineScope` and `projectScope`. Nothing outside `routines/` calls any of it.
 
 **Behaviour drift from the sources (each stated above and in a file header):** UTC only; an exact floor in place of the
 200-occurrence walk; no second pair measure; no `describeCron`; no GitHub Authorization-header exemption or ZWJ

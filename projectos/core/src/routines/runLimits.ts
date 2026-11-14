@@ -24,3 +24,14 @@ export const ROUTINE_BUDGET_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /** The most one routine may be budgeted across `ROUTINE_BUDGET_WINDOW_MS`, in cents. */
 export const MAX_ROUTINE_WINDOW_BUDGET_CENTS = 2000;
+
+/**
+ * How long a run that was admitted and never released still holds its routine's in-flight guard. The guard is released
+ * by the caller when the run ends; a run that crashes never does, and without a limit it would block the routine for
+ * ever. After this long the guard no longer blocks, so a crashed run costs the routine at most this much. A run that
+ * really takes longer than this may be overlapped by the next one, which is the price of not blocking for ever.
+ */
+export const ROUTINE_RUN_LEASE_MS = 60 * 60 * 1000;
+
+/** The most one tenant's project may be budgeted across all its routines in `ROUTINE_BUDGET_WINDOW_MS`, in cents. */
+export const MAX_PROJECT_WINDOW_BUDGET_CENTS = 5000;

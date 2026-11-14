@@ -18,8 +18,10 @@
  * and next week's derives a new one. A routine's occurrence is claimed through a port, which answers true
  * once. That makes "have I run this slot" a question for whoever holds the ledger, and a replay a refusal.
  *
- * Pure: no clock, no store.
+ * Pure: no clock, no store. The key does not include the record's hash, so re-recording a routine does not give its
+ * slots new keys.
  */
+import { createHash } from 'node:crypto';
 import { deriveIdempotencyKey } from '../taskEnvelope.js';
 
 /** The action a routine run is admitted as. It is registered P2 and local, which is the unattended ceiling. */
@@ -44,19 +46,25 @@ export interface OccurrenceIdentity {
   readonly tenant: string;
   readonly project: string;
   readonly routineId: string;
-  /** The hash of the admitted record, so another version of the routine is another effect. */
-  readonly recordHash: string;
   /** A canonical instant from `scheduledInstant`. */
   readonly instant: string;
 }
 
-/** The key a replay of this occurrence derives again. */
+/**
+ * What the key is a key of: the routine, not one version of its record. A re-recorded routine has the same slots, so
+ * it must meet the same keys; the record hash travels in the ledger entry, where it says which version ran.
+ */
+export function occurrenceSubjectHash(routineId: string): string {
+  return `sha256:${createHash('sha256').update(`projectos-routine-subject-v1:${routineId}`, 'utf8').digest('hex')}`;
+}
+
+/** The key a replay of this occurrence derives again, whichever version of the record it is run under. */
 export function deriveOccurrenceKey(identity: OccurrenceIdentity): string {
   return deriveIdempotencyKey({
     tenant: identity.tenant,
     project: identity.project,
     action: ROUTINE_RUN_ACTION,
-    subjectHash: identity.recordHash,
+    subjectHash: occurrenceSubjectHash(identity.routineId),
     intentScope: occurrenceIntentScope(identity.routineId, identity.instant),
   });
 }

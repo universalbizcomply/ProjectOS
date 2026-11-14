@@ -44,26 +44,38 @@ export function admitted(change: Record<string, unknown> = {}): RoutineRecord {
   return result.record;
 }
 
+/** The same record under another plan decision, as a re-approval would be. */
+export const OTHER_DECISION = { decisionId: 'PLANDEC-fedcba9876543210', decidedBy: 'owner', planDigest: PLAN_DIGEST };
+
 export const at = (iso: string): number => Date.parse(iso);
 
 export interface FakePorts {
   readonly ports: RunPorts;
   readonly claimed: Set<string>;
-  readonly open: Set<string>;
+  /** Scope key to the time its open run began. */
+  readonly open: Map<string, number>;
   readonly sent: OwnerQueueEscalation[];
 }
 
-/** Ports with a memory, the way the ledger will be: a claim answers true once, a routine opens once until released. */
+/**
+ * Ports with a memory, the way the ledger will be: a claim answers true once, and a scope opens once until it is
+ * released or its lease runs out.
+ */
 export function fakePorts(now: number, over: Partial<RunPorts> = {}): FakePorts {
   const claimed = new Set<string>();
-  const open = new Set<string>();
+  const open = new Map<string, number>();
   const sent: OwnerQueueEscalation[] = [];
   const ports: RunPorts = {
     now: () => now,
     claim: (key) => (claimed.has(key) ? false : (claimed.add(key), true)),
-    tryOpen: (routineId) => (open.has(routineId) ? false : (open.add(routineId), true)),
-    release: (routineId) => {
-      open.delete(routineId);
+    tryOpen: (scope, nowMs, leaseMs) => {
+      const since = open.get(scope);
+      if (since !== undefined && nowMs < since + leaseMs) return false;
+      open.set(scope, nowMs);
+      return true;
+    },
+    release: (scope) => {
+      open.delete(scope);
     },
     lastClaimed: () => null,
     spentSince: () => 0,
