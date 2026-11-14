@@ -251,6 +251,79 @@ describe('a request from the server', () => {
   });
 });
 
+describe('a request waiting on a handler is not timed (N6)', () => {
+  it('stops every pending timer while the handler has asked for it, and starts each afresh once the answer is sent', async () => {
+    const wire = new Wire();
+    const timers = new FakeTimers();
+    let finish: () => void = () => undefined;
+    const client = createRpcClient(
+      wire,
+      async (_request, control) => {
+        control.suspendTimeouts();
+        await new Promise<void>((resolve) => { finish = resolve; });
+        return { result: { action: 'decline' } };
+      },
+      { timers, requestTimeoutMs: 1_000 },
+    );
+    const pending = client.request('tools/call').then(() => 'answered', (error: unknown) => error);
+    wire.say({ jsonrpc: '2.0', id: 'srv-1', method: 'elicitation/create', params: {} });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    expect(timers.live()).toBe(0);
+    timers.advance(60_000);
+    expect(client.pending()).toBe(1);
+    finish();
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    expect(timers.live()).toBe(1);
+    timers.advance(999);
+    expect(client.pending()).toBe(1);
+    timers.advance(1);
+    expect(await pending).toBeInstanceOf(RequestTimeoutError);
+  });
+
+  it('a request made while the timers are stopped is timed only after they start again', async () => {
+    const wire = new Wire();
+    const timers = new FakeTimers();
+    let finish: () => void = () => undefined;
+    const client = createRpcClient(
+      wire,
+      async (_request, control) => {
+        control.suspendTimeouts();
+        await new Promise<void>((resolve) => { finish = resolve; });
+        return { result: {} };
+      },
+      { timers, requestTimeoutMs: 1_000 },
+    );
+    wire.say({ jsonrpc: '2.0', id: 'srv-2', method: 'x' });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const late = client.request('a').then(() => 'answered', (error: unknown) => error);
+    expect(timers.live()).toBe(0);
+    finish();
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    expect(timers.live()).toBe(1);
+    timers.advance(1_000);
+    expect(await late).toBeInstanceOf(RequestTimeoutError);
+  });
+
+  it('a handler that throws still lets the timers start again', async () => {
+    const wire = new Wire();
+    const timers = new FakeTimers();
+    const client = createRpcClient(
+      wire,
+      async (_request, control) => {
+        control.suspendTimeouts();
+        throw new Error('boom');
+      },
+      { timers, requestTimeoutMs: 1_000 },
+    );
+    const pending = client.request('a').then(() => 'answered', (error: unknown) => error);
+    wire.say({ jsonrpc: '2.0', id: 'srv-3', method: 'x' });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    expect(timers.live()).toBe(1);
+    timers.advance(1_000);
+    expect(await pending).toBeInstanceOf(RequestTimeoutError);
+  });
+});
+
 describe('close', () => {
   it('fails every reply still pending with a lost-reply error, and closes the transport once', async () => {
     const wire = new Wire();

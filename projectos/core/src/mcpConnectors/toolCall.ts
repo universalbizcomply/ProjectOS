@@ -50,10 +50,16 @@ export interface McpToolCallRequest {
   readonly envelope: TaskEnvelope;
   readonly history: unknown;
   readonly facts: ConnectorRetryFacts;
+  /** The connector's own clock as an ISO instant, for the contract's expiry and acceptance checks. */
   readonly now: string;
+  /**
+   * The same instant in milliseconds, from the same clock. Where a spend window starts and ends. The two must be one instant:
+   * a time a caller hands in is never used for spend or for staleness, because whoever picks the time picks the window.
+   */
+  readonly nowMs: number;
 }
 
-export type McpToolRefusalCode = ServerAdmissionCode | 'TOOL_NOT_ALLOWLISTED' | 'TOOL_ACTION_MISMATCH' | 'TENANT_MISMATCH' | ConnectorGateCode | SpendRefusalCode;
+export type McpToolRefusalCode = ServerAdmissionCode | 'TOOL_NOT_ALLOWLISTED' | 'TOOL_ACTION_MISMATCH' | 'TENANT_MISMATCH' | 'CLOCK_MISMATCH' | ConnectorGateCode | SpendRefusalCode;
 
 export interface AdmittedMcpToolCall {
   readonly admitted: true;
@@ -72,6 +78,7 @@ function refused(code: McpToolRefusalCode, reasons: readonly string[]): McpToolA
 }
 
 export function admitMcpToolCall(request: McpToolCallRequest): McpToolAdmission {
+  if (!Number.isSafeInteger(request.nowMs) || Date.parse(request.now) !== request.nowMs) return refused('CLOCK_MISMATCH', ['the time of the call is not one instant on one clock']);
   const server = admitServer(request.allowlist, request.manifest);
   if (!server.admitted) return refused(server.code, server.reasons);
   const { entry } = server;
@@ -86,8 +93,7 @@ export function admitMcpToolCall(request: McpToolCallRequest): McpToolAdmission 
   const gate = admitConnectorCall({ registry: request.registry, actions: request.actions, connectorId: entry.connectorId, envelope, history: request.history, facts: request.facts, now: request.now });
   if (!gate.admitted) return refused(gate.code, gate.reasons);
   if (gate.call.connector.tenant !== tenant) return refused('TENANT_MISMATCH', ['the connector this row names belongs to another tenant than the server']);
-  const nowMs = Date.parse(request.now);
-  const spend = reserveToolSpend({ policy: entry.costPolicy, serverKey: entry.key, tool, tally: request.tally, envelopeBudget: envelope.budget, nowMs });
+  const spend = reserveToolSpend({ policy: entry.costPolicy, serverKey: entry.key, tool, tally: request.tally, envelopeBudget: envelope.budget, nowMs: request.nowMs });
   if (!spend.ok) return refused(spend.code, [spend.reason]);
   return { admitted: true, entry, call: gate.call, started: gate.started, charge: spend.charge, tally: spend.tally };
 }

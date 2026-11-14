@@ -40,7 +40,15 @@ const FIELD_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 const FLAT_TYPES = ['string', 'number', 'integer', 'boolean'];
 const MAX_ENUM_VALUES = 50;
 /** A field a form must never ask for: what is typed in answer goes to the server whose text asked. */
-const SECRET_FIELD = /pass(?:word|wd)|secret|token|api[_-]?key|credential|private[_-]?key/i;
+const SECRET_WORDS = /passw|passphrase|passcode|secret|token|apikey|privatekey|credential|mnemonic|bearer|cookie|session/;
+/** Short words that are secrets only as a whole word of the field's name: a `pin` is, a `spinner` is not, a `pass` is, a `passenger` is not. */
+const SECRET_TOKENS = ['pass', 'pwd', 'pin', 'otp', 'cvv', 'cvc', 'ssn', 'mfa', '2fa', 'seed'];
+
+/** Whether a field's name asks for a secret. The name is split at case changes and separators, so `apiKey`, `api_key` and `api-key` read alike. */
+function isSecretField(name: string): boolean {
+  const tokens = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/).filter((token) => token !== '');
+  return SECRET_WORDS.test(tokens.join('')) || tokens.some((token) => SECRET_TOKENS.includes(token));
+}
 
 export type AnswerValue = string | number | boolean;
 
@@ -138,7 +146,7 @@ function elicitationItem(serverKey: string, id: string, params: unknown): Server
   const message = record['message'];
   const specs = specsOf(record['requestedSchema']);
   if (typeof message !== 'string' || message.trim() === '' || message.length > MAX_ELICITATION_MESSAGE_CHARS || specs === null) return refusal('ELICITATION_MALFORMED');
-  if (specs.some((spec) => SECRET_FIELD.test(spec.name))) return refusal('ELICITATION_SECRET_FIELD');
+  if (specs.some((spec) => isSecretField(spec.name))) return refusal('ELICITATION_SECRET_FIELD');
   const fields = specs.map((spec) => spec.name);
   const itemId = `mcpq-${sha256Hex(`${serverKey}\n${id}\n${message}\n${fields.join(',')}`).slice(0, 24)}`;
   return { kind: 'owner-queue', item: Object.freeze({ kind: 'mcp-elicitation' as const, itemId, serverKey, trust: 'untrusted-data' as const, untrustedMessage: message, fields: Object.freeze([...fields]), specs: Object.freeze([...specs]) }) };

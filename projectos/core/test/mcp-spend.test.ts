@@ -189,6 +189,32 @@ describe('every call counts, a free one too (H2)', () => {
   });
 });
 
+describe('a refund is taken from the window the booking was made in (N1)', () => {
+  it('takes nothing from a new window when the window it was booked in has ended', () => {
+    const early = reserve({ nowMs: T0 });
+    if (!early.ok) throw new Error('control');
+    const rolled = reserve({ tally: early.tally, nowMs: T0 + DEFAULT_SPEND_WINDOW_MS });
+    if (!rolled.ok) throw new Error('control');
+    expect(spendOf(rolled.tally, SERVER)).toBe(100);
+    const after = refundCharge(rolled.tally, early.charge);
+    expect(spendOf(after, SERVER)).toBe(100);
+    expect(callsOf(after, SERVER)).toBe(1);
+  });
+
+  it('a charge records the window it was booked in', () => {
+    const decision = reserve({ nowMs: T0 + 7 });
+    expect(decision.ok && decision.charge.windowStart).toBe(T0 + 7);
+  });
+
+  it('still refunds the window that is open', () => {
+    const first = reserve();
+    if (!first.ok) throw new Error('control');
+    const second = reserve({ tally: first.tally, nowMs: T0 + 10 });
+    if (!second.ok) throw new Error('control');
+    expect(spendOf(refundCharge(second.tally, second.charge), SERVER)).toBe(100);
+  });
+});
+
 describe('a refund', () => {
   it('returns the money and the call a charge took, and never goes below zero', () => {
     const decision = reserve();

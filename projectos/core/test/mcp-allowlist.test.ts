@@ -80,21 +80,25 @@ describe('the manifest', () => {
   });
 });
 
-describe('manifest hygiene (M3)', () => {
+describe('manifest hygiene (M3, N5)', () => {
   const FAKE_KEY = ['sk', 'ant', 'api03', 'abcdefghij', 'klmnopqrst', 'uvwxyz0123'].join('-');
+  const NODE = 'C:/Program Files/nodejs/node.exe';
+  const manifestWith = (over: Record<string, unknown>) => parseManifest({ ...MANIFEST, ...over });
 
   it.each([
-    ['PATH', ['PATH']],
-    ['PATHEXT', ['PATHEXT']],
-    ['COMSPEC', ['COMSPEC']],
-    ['NODE_OPTIONS', ['NODE_OPTIONS']],
-    ['LD_PRELOAD', ['LD_PRELOAD']],
-    ['LD_LIBRARY_PATH', ['LD_LIBRARY_PATH']],
-    ['DYLD_INSERT_LIBRARIES', ['DYLD_INSERT_LIBRARIES']],
-    ['PYTHONPATH', ['PYTHONPATH']],
-    ['PYTHONHOME', ['PYTHONHOME']],
-  ])('refuses the environment name %s, which changes what a program loads', (_name, envNames) => {
-    expect(parseManifest({ ...MANIFEST, envNames })).toMatchObject({ ok: false });
+    'PATH', 'PATHEXT', 'COMSPEC', 'NODE_OPTIONS', 'NODE_PATH', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES', 'PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP', 'PERL5OPT', 'RUBYOPT', 'BASH_ENV', 'ENV',
+    'JAVA_TOOL_OPTIONS', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NPM_CONFIG_REGISTRY', 'NPM_CONFIG_USERCONFIG', 'GIT_SSH_COMMAND', 'GIT_CONFIG_GLOBAL',
+  ])('refuses the environment name %s, which changes what a program loads or where it talks', (name) => {
+    expect(manifestWith({ envNames: [name] })).toMatchObject({ ok: false });
+  });
+
+  it('refuses the same names in lower case, and the underscore-first Java one', () => {
+    expect(manifestWith({ envNames: ['http_proxy'] })).toMatchObject({ ok: false });
+    expect(manifestWith({ envNames: ['_JAVA_OPTIONS'] })).toMatchObject({ ok: false });
+  });
+
+  it('an environment name that is not on the list, still passes', () => {
+    expect(manifestWith({ envNames: ['MAIL_TOKEN_REF', 'LOG_LEVEL'] })).toMatchObject({ ok: true });
   });
 
   it.each([
@@ -104,40 +108,104 @@ describe('manifest hygiene (M3)', () => {
     ['a pipe in an argument', { args: ['a|b'] }],
     ['a parenthesis in an argument', { args: ['(a)'] }],
     ['a caret in an argument', { args: ['a^b'] }],
-    ['a right-to-left override in an argument', { args: ['--name=‮gpj.exe'] }],
-    ['a zero-width space in the command', { command: 'C:/tools/mcp/mail​-reader.exe' }],
-    ['a control character above 0x7f in an argument', { args: ['ab'] }],
+    ['a right-to-left override in an argument', { args: ['--name=\u202egpj.exe'] }],
+    ['a zero-width space in the command', { command: 'C:/tools/mcp/mail\u200b-reader.exe' }],
+    ['a control character above 0x7f in an argument', { args: ['a\u0085b'] }],
     ['a credential in an argument', { args: [`--key=${FAKE_KEY}`] }],
   ])('refuses %s', (_label, over) => {
-    expect(parseManifest({ ...MANIFEST, ...over })).toMatchObject({ ok: false });
+    expect(manifestWith(over)).toMatchObject({ ok: false });
   });
 
   it.each([
-    ['npx', { command: 'npx', args: ['some-mcp-server'] }],
-    ['an npx path with an extension', { command: 'C:/Program Files/nodejs/npx.cmd', args: ['x'] }],
-    ['uvx', { command: 'uvx', args: ['some-server'] }],
-    ['pnpm dlx style runners', { command: 'pnpm', args: ['dlx', 'x'] }],
-    ['bunx', { command: 'bunx', args: ['x'] }],
-    ['an auto-yes flag', { command: 'C:/tools/mcp/mail-reader.exe', args: ['-y'] }],
-    ['a --yes flag', { command: 'C:/tools/mcp/mail-reader.exe', args: ['--yes'] }],
-    ['a floating version', { command: 'C:/tools/mcp/mail-reader.exe', args: ['server@latest'] }],
-    ['node -e', { command: 'node', args: ['-e', 'run()'] }],
-    ['node --eval', { command: 'C:/Program Files/nodejs/node.exe', args: ['--eval', 'run()'] }],
-    ['python -c', { command: 'python3', args: ['-c', 'import x'] }],
-    ['powershell -Command', { command: 'powershell.exe', args: ['-Command', 'x'] }],
-    ['cmd /c', { command: 'cmd', args: ['/c', 'x'] }],
-    ['sh -c', { command: '/bin/sh', args: ['-c', 'x'] }],
-  ])('refuses a launch that is a package runner or an inline program: %s', (_label, over) => {
-    expect(parseManifest({ ...MANIFEST, ...over })).toMatchObject({ ok: false });
+    ['a bare name, which the search path decides', { command: 'mail-reader' }],
+    ['a relative path', { command: './mail-reader.exe' }],
+    ['a path that climbs from the working directory', { command: '../tools/mail-reader.exe' }],
+    ['a home-relative path', { command: '~/tools/mail-reader.exe' }],
+  ])('refuses a command that is not an absolute path: %s (N5)', (_label, over) => {
+    expect(manifestWith(over)).toMatchObject({ ok: false });
+  });
+
+  it.each([
+    ['an absolute Windows path', 'C:/tools/mcp/mail-reader.exe'],
+    ['an absolute Windows path with backslashes', 'C:\\tools\\mcp\\mail-reader.exe'],
+    ['an absolute POSIX path', '/opt/mcp/mail-reader'],
+    ['a UNC path', '\\\\server\\share\\mail-reader.exe'],
+  ])('accepts %s: the positive control', (_label, command) => {
+    expect(manifestWith({ command })).toMatchObject({ ok: true });
+  });
+
+  it.each([
+    'env', 'xargs', 'nohup', 'busybox', 'wsl', 'nice', 'timeout', 'sudo', 'doas', 'start', 'cmd', 'runas', 'stdbuf', 'setsid',
+  ])('refuses the launcher wrapper %s, by its name wherever it is, whatever its extension or a trailing dot (N5)', (name) => {
+    expect(manifestWith({ command: `/usr/bin/${name}`, args: ['mail-reader'] })).toMatchObject({ ok: false });
+    expect(manifestWith({ command: `C:/Windows/System32/${name}.exe`, args: ['x'] })).toMatchObject({ ok: false });
+    expect(manifestWith({ command: `C:/Windows/System32/${name}.EXE.`, args: ['x'] })).toMatchObject({ ok: false });
+    expect(manifestWith({ command: `C:/Windows/System32/${name}. `, args: ['x'] })).toMatchObject({ ok: false });
+  });
+
+  it.each([
+    'npx', 'npm', 'pnpm', 'pnpx', 'yarn', 'bunx', 'bun', 'uvx', 'uv', 'pipx', 'deno',
+  ])('refuses the package runner %s as an absolute path (N5)', (name) => {
+    expect(manifestWith({ command: `/usr/local/bin/${name}`, args: ['some-server'] })).toMatchObject({ ok: false });
+    expect(manifestWith({ command: `C:/Program Files/nodejs/${name}.cmd`, args: ['x'] })).toMatchObject({ ok: false });
+  });
+
+  it.each([
+    ['sh -c', '/bin/sh', ['-c', 'x']],
+    ['bash -lc', '/bin/bash', ['-lc', 'x']],
+    ['zsh -ic', '/bin/zsh', ['-ic', 'x']],
+    ['dash -c', '/bin/dash', ['-c', 'x']],
+    ['ksh -c', '/bin/ksh', ['-c', 'x']],
+    ['bash -xc', '/bin/bash', ['-xc', 'x']],
+    ['node -e', NODE, ['-e', 'run()']],
+    ['node --eval', NODE, ['--eval', 'run()']],
+    ['node --eval=', NODE, ['--eval=run()']],
+    ['node -p', NODE, ['-p', '1']],
+    ['node -pe', NODE, ['-pe', '1']],
+    ['node --print', NODE, ['--print', '1']],
+    ['node18 -e', 'C:/tools/node18.exe', ['-e', 'x']],
+    ['python3 -c', '/usr/bin/python3', ['-c', 'x']],
+    ['python3.11 -c', '/usr/bin/python3.11', ['-c', 'x']],
+    ['python -m', '/usr/bin/python', ['-m', 'http.server']],
+    ['python -Ic', '/usr/bin/python', ['-Ic', 'x']],
+    ['pythonw -c', 'C:/Python/pythonw.exe', ['-c', 'x']],
+    ['py -c', 'C:/Windows/py.exe', ['-c', 'x']],
+    ['perl -e', '/usr/bin/perl', ['-e', 'x']],
+    ['perl -le', '/usr/bin/perl', ['-le', 'x']],
+    ['ruby -e', '/usr/bin/ruby', ['-e', 'x']],
+    ['php -r', '/usr/bin/php', ['-r', 'x']],
+    ['powershell -Command', 'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe', ['-Command', 'x']],
+    ['powershell -c', 'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe', ['-c', 'x']],
+    ['powershell -com', 'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe', ['-com', 'x']],
+    ['pwsh -enc', 'C:/Program Files/PowerShell/7/pwsh.exe', ['-enc', 'AAAA']],
+    ['pwsh -EncodedCommand', 'C:/Program Files/PowerShell/7/pwsh.exe', ['-EncodedCommand', 'AAAA']],
+    ['pwsh /c', 'C:/Program Files/PowerShell/7/pwsh.exe', ['/c', 'x']],
+  ])('refuses an interpreter given text to run: %s (N5)', (_label, command, args) => {
+    expect(manifestWith({ command, args })).toMatchObject({ ok: false });
+  });
+
+  it('refuses an interpreter given no script at all, and one named with trailing spaces', () => {
+    expect(manifestWith({ command: NODE, args: [] })).toMatchObject({ ok: false });
+    expect(manifestWith({ command: 'C:/Program Files/nodejs/node.exe  ', args: ['-e', 'x'] })).toMatchObject({ ok: false });
+  });
+
+  it.each([
+    ['an auto-yes flag', ['-y']],
+    ['a --yes flag', ['--yes']],
+    ['a floating version', ['server@latest']],
+    ['a moving tag', ['server@next']],
+  ])('refuses %s (M3)', (_label, args) => {
+    expect(manifestWith({ args })).toMatchObject({ ok: false });
   });
 
   it('allows an interpreter that runs a named script, and a plain pinned binary: the positive control', () => {
-    expect(parseManifest({ ...MANIFEST, command: 'node', args: ['C:/tools/mcp/server.js'] })).toMatchObject({ ok: true });
-    expect(parseManifest(MANIFEST)).toMatchObject({ ok: true });
+    expect(manifestWith({ command: NODE, args: ['C:/tools/mcp/server.js'] })).toMatchObject({ ok: true });
+    expect(manifestWith({ command: '/usr/bin/python3.11', args: ['/opt/mcp/server.py'] })).toMatchObject({ ok: true });
+    expect(manifestWith({})).toMatchObject({ ok: true });
   });
 
-  it('an environment name that is not on the list, still passes', () => {
-    expect(parseManifest({ ...MANIFEST, envNames: ['MAIL_TOKEN_REF', 'LOG_LEVEL'] })).toMatchObject({ ok: true });
+  it('a binary whose own name ends in a digit is not mistaken for an interpreter', () => {
+    expect(manifestWith({ command: 'C:/tools/mcp/mail-reader2.exe', args: ['-c', 'config.json'] })).toMatchObject({ ok: true });
   });
 });
 

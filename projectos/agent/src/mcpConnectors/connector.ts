@@ -23,6 +23,22 @@
  * WHAT IT DOES NOT CARRY. A server's tool descriptions and input schemas are its own words, and are hashed and dropped:
  * the connection keeps only the names of the tools the owner listed and the server still describes as approved.
  *
+ * THERE IS ONE CLOCK, AND IT IS THE CONNECTOR'S. A call carries no time of its own: the instant for the contract's expiry and
+ * acceptance checks and the millisecond reading that opens and closes a spend window both come from `deps.nowMs`, which can only
+ * go forward here (the highest reading seen is kept). A caller that could hand in a time could pick its own window.
+ *
+ * THE SPEND LIVES OUTSIDE THE CONNECTION. `spendStore` is the caller's, keyed by tenant and server, and every booking and refund
+ * is written to it at once, so closing and opening again continues from what was spent, and a missing store is a refusal to open,
+ * never a fresh budget.
+ *
+ * THE START STORE IS HELD TO A STRICT CONTRACT. Its answer is read as exactly `true` or the call is not sent: `false`, `'duplicate'`
+ * (a start the store already holds, which is how two connections are kept from running one call), a truthy thing that is not
+ * `true`, a throw and a timeout are refusals, and the booking is given back. A call is never reported as admitted unless its
+ * start was stored.
+ *
+ * ARGUMENTS ARE DIGESTED AS THEY ARE SENT. They are written to JSON and read back once, so a `toJSON` or a Date is already what it
+ * will be on the wire, and the digest in the start record and the message sent are of that same value.
+ *
  * ONE CALL AT A TIME PER IDEMPOTENCY KEY, AND A FEW AT ONCE. A second call with the key of one in flight is refused, and so
  * is any call past `MAX_CONCURRENT_CALLS`, before anything is booked.
  *
@@ -45,7 +61,6 @@ import {
   toolDescriptorHashOf,
   toToolResult,
   untrustedToolOutput,
-  EMPTY_TALLY,
   type ActionRegistry,
   type ConnectorReceipt,
   type ConnectorRegistry,
@@ -55,10 +70,11 @@ import {
   type ServerAdmissionCode,
   type ServerAllowlist,
   type SpendTally,
+  type SpendWindow,
   type TaskEnvelope,
 } from '@projectos/core';
 import type { McpTransport, OwnerQueuePort, SpawnConfinement, SpawnPort, StartStorePort, TimerPort } from './ports.js';
-import { createRpcClient, MAX_RPC_MESSAGE_CHARS, ReplyLostError, RpcFailure, type RpcClient, type ServerRequestAnswer } from './rpcClient.js';
+import { createRpcClient, MAX_RPC_MESSAGE_CHARS, ReplyLostError, RpcFailure, type RequestControl, type RpcClient, type ServerRequestAnswer } from './rpcClient.js';
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
 export const MCP_CLIENT_NAME = 'projectos';
@@ -66,6 +82,7 @@ export const MAX_CONCURRENT_CALLS = 4;
 export const MAX_PENDING_ELICITATIONS = 2;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_ELICITATION_TIMEOUT_MS = 300_000;
+export const DEFAULT_START_STORE_TIMEOUT_MS = 10_000;
 const MAX_TOOL_PAGES = 10;
 const MAX_ARGUMENT_CHARS = 65_536;
 const TOOLS_CHANGED_NOTICE = 'notifications/tools/list_changed';
@@ -88,20 +105,24 @@ export interface McpConnectorDeps {
   /** Where a call's start record is stored before the call is sent. */
   readonly startStore: StartStorePort;
   readonly timers: TimerPort;
-  /** The clock, for the elicitation window. */
+  /** THE clock, in ms. The only time this connector uses, for the elicitation window, the spend window and the contract's checks. */
   readonly nowMs: () => number;
   /**
    * The elicitation window of each server, by server key. It is the caller's, and outlives a connection, so closing and
    * opening again is not a new allowance.
    */
   readonly elicitationWindows: Map<string, readonly number[]>;
+  /**
+   * What each tenant's server has spent, by server key. The caller's, and it outlives a connection: every booking and refund is
+   * written to it, and a connection opened later continues from it. Without one the connector will not open.
+   */
+  readonly spendStore: Map<string, SpendWindow>;
   readonly requestTimeoutMs?: number;
   readonly elicitationTimeoutMs?: number;
-  /** What has already been spent, from the durable ledger once there is one. */
-  readonly initialTally?: SpendTally;
+  readonly startStoreTimeoutMs?: number;
 }
 
-export type OpenCode = ServerAdmissionCode | 'SPAWN_FAILED' | 'INITIALIZE_FAILED';
+export type OpenCode = ServerAdmissionCode | 'SPEND_STORE_MISSING' | 'SPAWN_FAILED' | 'INITIALIZE_FAILED';
 
 export type OpenOutcome =
   | { readonly ok: true; readonly connector: McpConnector }
@@ -115,7 +136,6 @@ export interface ToolCallInput {
   readonly envelope: TaskEnvelope;
   readonly history: unknown;
   readonly facts: ConnectorRetryFacts;
-  readonly now: string;
 }
 
 export type ToolCallRefusal =
@@ -126,7 +146,9 @@ export type ToolCallRefusal =
   | 'TOO_MANY_IN_FLIGHT'
   | 'TOOLS_STALE'
   | 'TOOL_DESCRIPTOR_CHANGED'
-  | 'START_NOT_RECORDED';
+  | 'START_NOT_RECORDED'
+  | 'START_DUPLICATE'
+  | 'CONNECTION_CLOSED';
 
 export type ToolCallResult =
   | { readonly admitted: false; readonly code: ToolCallRefusal; readonly reasons: readonly string[] }
@@ -162,13 +184,26 @@ function asRecord(value: unknown): Readonly<Record<string, unknown>> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Readonly<Record<string, unknown>>) : null;
 }
 
-function argumentsProblem(args: unknown): string | null {
-  if (asRecord(args) === null) return 'the arguments are not an object';
+type WireArguments = { readonly ok: true; readonly value: Readonly<Record<string, unknown>> } | { readonly ok: false; readonly problem: string };
+
+/** The arguments exactly as they will be sent: written to JSON once and read back, so a toJSON or a Date is already its wire form. */
+function wireArguments(args: unknown): WireArguments {
+  if (asRecord(args) === null) return { ok: false, problem: 'the arguments are not an object' };
   try {
-    return JSON.stringify(args).length > MAX_ARGUMENT_CHARS ? 'the arguments are larger than a call may carry' : null;
+    const text = JSON.stringify(args);
+    if (typeof text !== 'string') return { ok: false, problem: 'the arguments cannot be written out' };
+    if (text.length > MAX_ARGUMENT_CHARS) return { ok: false, problem: 'the arguments are larger than a call may carry' };
+    const value = asRecord(JSON.parse(text));
+    return value === null ? { ok: false, problem: 'the arguments are not an object once written out' } : { ok: true, value };
   } catch {
-    return 'the arguments cannot be written out';
+    return { ok: false, problem: 'the arguments cannot be written out' };
   }
+}
+
+/** An ISO instant for a clock reading, or `null` when it is not a time. */
+function isoOf(ms: number): string | null {
+  const at = new Date(ms);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
 }
 
 interface ToolsReading {
@@ -225,6 +260,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, timers: TimerPort, fall
 }
 
 export async function openMcpConnector(deps: McpConnectorDeps): Promise<OpenOutcome> {
+  if (!(deps.spendStore instanceof Map)) return { ok: false, code: 'SPEND_STORE_MISSING', reasons: ['no spend store was given, and a connection without one would start from a fresh budget'] };
   const server = admitServer(deps.allowlist, deps.manifest);
   if (!server.admitted) return { ok: false, code: server.code, reasons: server.reasons };
   const { entry, manifest } = server;
@@ -236,22 +272,32 @@ export async function openMcpConnector(deps: McpConnectorDeps): Promise<OpenOutc
   }
 
   const inFlight = new Set<string>();
-  /** Waits on the owner that a close must end, or the close would wait for an owner who never answers. */
+  /** Waits on the owner or the start store that a close must end, or the close would wait for one that never answers. */
   const ownerWaits = new Set<() => void>();
+  /** The highest clock reading seen. The clock can only go forward here, so a clock that steps back opens no window and un-expires nothing. */
+  let clockHigh = 0;
+  const clockNow = (): number => {
+    const reading = deps.nowMs();
+    if (Number.isSafeInteger(reading) && reading > clockHigh) clockHigh = reading;
+    return clockHigh;
+  };
   let pendingElicitations = 0;
   let stale = false;
   let offered: readonly string[] = [];
   let quarantinedNames: readonly string[] = [];
   const requestTimeoutMs = deps.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const elicitationTimeoutMs = deps.elicitationTimeoutMs ?? DEFAULT_ELICITATION_TIMEOUT_MS;
+  const startStoreTimeoutMs = deps.startStoreTimeoutMs ?? DEFAULT_START_STORE_TIMEOUT_MS;
 
-  const handleServerRequest = async (request: unknown): Promise<ServerRequestAnswer> => {
-    const out = decideServerRequest({ serverKey: entry.key, request, window: deps.elicitationWindows.get(entry.key) ?? [], nowMs: deps.nowMs(), callInFlight: inFlight.size > 0 });
+  const handleServerRequest = async (request: unknown, control: RequestControl): Promise<ServerRequestAnswer> => {
+    const out = decideServerRequest({ serverKey: entry.key, request, window: deps.elicitationWindows.get(entry.key) ?? [], nowMs: clockNow(), callInFlight: inFlight.size > 0 });
     deps.elicitationWindows.set(entry.key, out.window);
     if (out.decision.kind === 'refused') return { error: out.decision.error };
     if (pendingElicitations >= MAX_PENDING_ELICITATIONS) return { error: { code: -32000, message: 'too many requests' } };
     const { item } = out.decision;
     pendingElicitations += 1;
+    // The call waiting on this answer is not timed while the owner decides: the owner's wait has its own timeout.
+    control.suspendTimeouts();
     try {
       // The owner decides. A failure to ask, a wait that is never answered, or an answer that does not parse is a cancel
       // and never an accept.
@@ -286,8 +332,6 @@ export async function openMcpConnector(deps: McpConnectorDeps): Promise<OpenOutc
     return { ok: false, code: 'INITIALIZE_FAILED', reasons: ['the server did not complete the handshake'] };
   }
 
-  let tally: SpendTally = deps.initialTally ?? EMPTY_TALLY;
-
   const refresh = async (): Promise<RefreshResult> => {
     try {
       const reading = await readTools(rpc, entry.tools);
@@ -300,12 +344,18 @@ export async function openMcpConnector(deps: McpConnectorDeps): Promise<OpenOutc
     }
   };
 
-  const runCall = async (input: ToolCallInput): Promise<ToolCallResult> => {
-    const admission = admitMcpToolCall({ ...input, allowlist: deps.allowlist, manifest: deps.manifest, tally });
+  const runCall = async (input: ToolCallInput, args: Readonly<Record<string, unknown>>): Promise<ToolCallResult> => {
+    const nowMs = clockNow();
+    const now = isoOf(nowMs);
+    if (now === null) return { admitted: false, code: 'CLOCK_MISMATCH', reasons: ['the clock does not give a time'] };
+    const admission = admitMcpToolCall({ ...input, allowlist: deps.allowlist, manifest: deps.manifest, tally: new Map(deps.spendStore), now, nowMs });
     if (!admission.admitted) return { admitted: false, code: admission.code, reasons: admission.reasons };
-    tally = admission.tally;
+    // Booked in the caller's store at once, with nothing awaited between the read and the write.
+    const booked = admission.tally.get(entry.key);
+    if (booked !== undefined) deps.spendStore.set(entry.key, booked);
     const giveBack = (): void => {
-      tally = refundCharge(tally, admission.charge);
+      const returned = refundCharge(new Map(deps.spendStore), admission.charge).get(entry.key);
+      if (returned !== undefined) deps.spendStore.set(entry.key, returned);
     };
     const finish = (outcome: 'succeeded' | 'failed' | 'unknown', errorCode: string | null, rendered: string | null, digest?: string): ToolCallResult => {
       const receipt = mcpReceiptOf(admission, outcome, errorCode, digest);
@@ -319,7 +369,7 @@ export async function openMcpConnector(deps: McpConnectorDeps): Promise<OpenOutc
       quarantinedNames = live.quarantined;
     } catch (error) {
       giveBack();
-      if (error instanceof SessionClosedError) return finish('failed', 'upstream_unavailable', null);
+      if (error instanceof SessionClosedError) return { admitted: false, code: 'CONNECTION_CLOSED', reasons: ['the connection is closed, so the call was not sent'] };
       return { admitted: false, code: 'TOOL_DESCRIPTOR_CHANGED', reasons: ['the server\'s tool list could not be verified, so the call was not sent'] };
     }
     if (!offered.includes(input.tool)) {
@@ -327,24 +377,26 @@ export async function openMcpConnector(deps: McpConnectorDeps): Promise<OpenOutc
       return { admitted: false, code: 'TOOL_DESCRIPTOR_CHANGED', reasons: ['the server no longer describes this tool as the owner approved it'] };
     }
 
-    // The start record is stored, and awaited, before anything is sent.
-    const record = mcpStartRecordOf(admission, input.arguments);
-    let stored = false;
-    if (record !== null) {
-      try {
-        stored = await deps.startStore.record(record);
-      } catch {
-        stored = false;
-      }
+    // The start record is stored, and awaited, before anything is sent. Only an answer of exactly `true` lets the call go.
+    const record = mcpStartRecordOf(admission, args);
+    const answer: unknown = record === null ? false : await withTimeout<unknown>(deps.startStore.record(record), startStoreTimeoutMs, deps.timers, false, ownerWaits);
+    if (answer === 'duplicate') {
+      giveBack();
+      return { admitted: false, code: 'START_DUPLICATE', reasons: ['the store already holds the start of this call, so it was not sent a second time'] };
     }
-    if (!stored) {
+    if (answer !== true) {
       giveBack();
       return { admitted: false, code: 'START_NOT_RECORDED', reasons: ['the start of this call could not be stored, so it was not sent'] };
+    }
+    // A notice that the tools changed may have come in while the store was being waited on.
+    if (stale) {
+      giveBack();
+      return { admitted: false, code: 'TOOLS_STALE', reasons: ['the server said its tools changed while the start was being stored, so the call was not sent'] };
     }
 
     let reply: unknown;
     try {
-      reply = await rpc.request('tools/call', { name: input.tool, arguments: input.arguments });
+      reply = await rpc.request('tools/call', { name: input.tool, arguments: args });
     } catch (error) {
       // The call never left: give back its cost. The server refused it: the cost stays booked, as a ceiling. Anything else,
       // a timeout or a reply lost to a close, could have run, so the outcome is unknown and the cost stays booked.
@@ -359,8 +411,8 @@ export async function openMcpConnector(deps: McpConnectorDeps): Promise<OpenOutc
   };
 
   const callTool = async (input: ToolCallInput): Promise<ToolCallResult> => {
-    const problem = argumentsProblem(input.arguments);
-    if (problem !== null) return { admitted: false, code: 'ARGUMENTS_INVALID', reasons: [problem] };
+    const wire = wireArguments(input.arguments);
+    if (!wire.ok) return { admitted: false, code: 'ARGUMENTS_INVALID', reasons: [wire.problem] };
     const key = input.envelope.idempotencyKey;
     if (inFlight.has(key)) return { admitted: false, code: 'CALL_IN_FLIGHT', reasons: ['a call with this idempotency key is already waiting for its reply'] };
     if (inFlight.size >= MAX_CONCURRENT_CALLS) return { admitted: false, code: 'TOO_MANY_IN_FLIGHT', reasons: ['too many calls are waiting for a reply'] };
@@ -368,7 +420,7 @@ export async function openMcpConnector(deps: McpConnectorDeps): Promise<OpenOutc
     if (!offered.includes(input.tool)) return { admitted: false, code: 'TOOL_NOT_OFFERED', reasons: ['the server does not offer this tool as the owner approved it, or the owner has not listed it'] };
     inFlight.add(key);
     try {
-      return await runCall(input);
+      return await runCall(input, wire.value);
     } finally {
       inFlight.delete(key);
     }
@@ -376,7 +428,14 @@ export async function openMcpConnector(deps: McpConnectorDeps): Promise<OpenOutc
 
   return {
     ok: true,
-    connector: { serverKey: entry.key, tools: () => (stale ? [] : offered), quarantined: () => quarantinedNames, refresh, callTool, tally: () => tally, close: () => {
+    connector: {
+      serverKey: entry.key,
+      tools: () => (stale ? [] : offered),
+      quarantined: () => quarantinedNames,
+      refresh,
+      callTool,
+      tally: (): SpendTally => new Map(deps.spendStore),
+      close: () => {
         for (const release of [...ownerWaits]) release();
         return rpc.close();
       },

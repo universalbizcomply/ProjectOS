@@ -55,13 +55,35 @@ const UNSAFE_ARG = /[&|^%()]/;
 /** A control or format character, which is how a name is made to look like another: a right-to-left override, a zero-width space. */
 const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}]/u;
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
-/** Names that change what a program loads or finds, whatever the program is. The value is never in a record, but the name would be enough. */
-const DENIED_ENV_NAME = /^(?:PATH|PATHEXT|COMSPEC|NODE_OPTIONS|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_[A-Z0-9_]*|PYTHONPATH|PYTHONHOME)$/;
+/**
+ * Names that change what a program loads or finds, or where it talks, whatever the program is. The value is never in a record,
+ * but the name would be enough. Case does not matter.
+ */
+const DENIED_ENV_NAME = /^(?:PATH|PATHEXT|COMSPEC|NODE_OPTIONS|NODE_PATH|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_[A-Z0-9_]*|PYTHONPATH|PYTHONHOME|PYTHONSTARTUP|PERL5OPT|RUBYOPT|BASH_ENV|ENV|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|(?:[A-Z0-9_]*_)?PROXY|SSL_CERT_[A-Z0-9_]*|NPM_CONFIG_[A-Z0-9_]*|GIT_[A-Z0-9_]*)$/i;
+/** A command is a path that does not depend on a search path or a working directory: drive, root or UNC share. */
+const ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|\/|\\\\[^\\/\s])/;
 /** Programs whose job is to fetch and run something else, by name or from the network. */
 const PACKAGE_RUNNERS = ['npx', 'npm', 'pnpm', 'pnpx', 'yarn', 'bunx', 'bun', 'uvx', 'uv', 'pipx', 'deno'];
-const INTERPRETERS = ['node', 'nodejs', 'python', 'python2', 'python3', 'py', 'ruby', 'perl', 'php', 'bash', 'sh', 'zsh', 'dash', 'cmd', 'powershell', 'pwsh'];
-/** A flag that makes an interpreter run text from the command line instead of a file. */
-const INLINE_PROGRAM_FLAG = /^(?:-e|-c|-p|-r|--eval|--print|\/c|\/k|-command|-encodedcommand|-ec)$/i;
+/** Programs whose job is to launch another program: what they start is not what was approved, whatever their arguments. */
+const LAUNCHER_WRAPPERS = ['env', 'xargs', 'nohup', 'busybox', 'wsl', 'nice', 'timeout', 'sudo', 'doas', 'start', 'cmd', 'runas', 'stdbuf', 'setsid', 'chroot'];
+/** The flags that make each interpreter run text from the command line, or load code, instead of running a file. */
+const INLINE_FLAGS: Readonly<Record<string, RegExp>> = Object.freeze({
+  'node': /^(?:-[a-z]*[ep][a-z]*|-r|--(?:eval|print|require|import|input-type)(?:=.*)?)$/i,
+  nodejs: /^(?:-[a-z]*[ep][a-z]*|-r|--(?:eval|print|require|import|input-type)(?:=.*)?)$/i,
+  python: /^-[a-z]*[cm][a-z]*$/i,
+  pythonw: /^-[a-z]*[cm][a-z]*$/i,
+  py: /^-[a-z]*[cm][a-z]*$/i,
+  perl: /^-[a-z]*[er][a-z]*$/i,
+  ruby: /^-[a-z]*[er][a-z]*$/i,
+  php: /^-[a-z]*[er][a-z]*$/i,
+  sh: /^-[a-z]*c[a-z]*$/i,
+  bash: /^-[a-z]*c[a-z]*$/i,
+  zsh: /^-[a-z]*c[a-z]*$/i,
+  dash: /^-[a-z]*c[a-z]*$/i,
+  ksh: /^-[a-z]*c[a-z]*$/i,
+});
+/** PowerShell takes any prefix of -Command or -EncodedCommand, with a dash or a slash. */
+const POWERSHELLS = ['powershell', 'pwsh'];
 /** An auto-confirm flag, or a version that moves: the thing launched is not the thing that was approved. */
 const FLOATING_ARG = /^(?:-y|--yes)$|@(?:latest|next|beta|canary)$/i;
 const HASH = /^sha256:[0-9a-f]{64}$/;
@@ -78,18 +100,31 @@ function textList(value: unknown, max: number, maxChars: number, accepts: (item:
   return items.every((item) => typeof item === 'string' && item.length <= maxChars && accepts(item)) ? (items as readonly string[]) : null;
 }
 
-/** The program's own name, lower case, with its directory and its extension off. */
+/** The program's own name, lower case, with its directory, trailing dots and spaces, extension and version suffix off. */
 function launcherOf(command: string): string {
-  const name = command.replace(/\\/g, '/').split('/').pop() ?? '';
-  return name.toLowerCase().replace(/\.(?:exe|cmd|bat|com|ps1)$/, '');
+  const name = (command.replace(/\\/g, '/').split('/').pop() ?? '').trim().replace(/[. ]+$/, '').toLowerCase().replace(/\.(?:exe|cmd|bat|com|ps1)$/, '').replace(/[. ]+$/, '');
+  return name.replace(/[-_]?\d+(?:\.\d+)*$/, '');
+}
+
+/** Whether `arg` is -Command or -EncodedCommand, or any abbreviation of either, as PowerShell reads them. */
+function powershellInline(arg: string): boolean {
+  if (!/^[-/][A-Za-z]+$/.test(arg)) return false;
+  const rest = arg.slice(1).toLowerCase();
+  return 'command'.startsWith(rest) || 'encodedcommand'.startsWith(rest);
 }
 
 /** Why this command and these arguments launch something other than the thing that was approved, or `null`. */
 function launchProblem(command: string, args: readonly string[]): string | null {
+  if (!ABSOLUTE_PATH.test(command)) return 'the command is not an absolute path, so a search path or a working directory decides what runs';
   const program = launcherOf(command);
   if (PACKAGE_RUNNERS.includes(program)) return 'the command is a package runner, which fetches what it runs';
+  if (LAUNCHER_WRAPPERS.includes(program)) return 'the command launches another program, so what runs is not what was approved';
   if (args.some((arg) => FLOATING_ARG.test(arg))) return 'an argument confirms by itself or names a version that moves';
-  if (INTERPRETERS.includes(program) && (args.length === 0 || args.some((arg) => INLINE_PROGRAM_FLAG.test(arg)))) return 'an interpreter must run a named script, never text from the command line';
+  const inline = Object.hasOwn(INLINE_FLAGS, program) ? INLINE_FLAGS[program] : undefined;
+  const interpreter = inline !== undefined || POWERSHELLS.includes(program);
+  if (interpreter && args.length === 0) return 'an interpreter must be given a named script';
+  if (inline !== undefined && args.some((arg) => inline.test(arg))) return 'an interpreter must run a named script, never text from the command line';
+  if (POWERSHELLS.includes(program) && args.some(powershellInline)) return 'an interpreter must run a named script, never text from the command line';
   return null;
 }
 

@@ -6,6 +6,7 @@
 export {
   DEFAULT_ELICITATION_TIMEOUT_MS,
   DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_START_STORE_TIMEOUT_MS,
   MAX_CONCURRENT_CALLS,
   MAX_PENDING_ELICITATIONS,
   MCP_CLIENT_NAME,
@@ -29,6 +30,7 @@ export {
   RequestTimeoutError,
   RpcFailure,
   type RpcClient,
+  type RequestControl,
   type RpcClientOptions,
   type ServerRequestAnswer,
   type ServerRequestHandler,

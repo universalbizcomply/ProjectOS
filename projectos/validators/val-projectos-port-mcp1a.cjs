@@ -35,6 +35,8 @@
  *   MC-27 "let it ask"                           — and a server puts a question, or a secret request, to the owner unprompted
  *   MC-28 "it is only a launch command"          — and npx, an inline program or a loader variable is what runs
  *   MC-29 "the spawn port knows what to do"      — and no limit or scrubbed environment was ever named to it
+ *   MC-30 "the caller says what time it is"     — and a caller picks its own spend window, or a clock stepping back un-expires a call
+ *   MC-31 "the budget is the connection's"       — and closing and opening again is a fresh budget
  *   MC-T  "the tests exist"                      — and `.skip` keeps the proof while dropping the run
  *
  * THE MUTATIONS ARE IN THE BODIES. A pin on a call site survives a gutted function, so pins are taken from inside the
@@ -152,8 +154,10 @@ const TESTS = {
     "a refusal repeats none of the manifest text",
     "refuses a duplicate server for one tenant",
     "two tenants with the same server name are two connections, and neither sees the other",
-    "refuses the environment name %s, which changes what a program loads",
-    "refuses a launch that is a package runner or an inline program: %s",
+    "refuses the environment name %s, which changes what a program loads or where it talks",
+    "refuses an interpreter given text to run: %s (N5)",
+    "refuses the launcher wrapper %s, by its name wherever it is, whatever its extension or a trailing dot (N5)",
+    "refuses a command that is not an absolute path: %s (N5)",
     "allows an interpreter that runs a named script, and a plain pinned binary: the positive control",
   ],
   "projectos/core/test/mcp-canonical.test.ts": [
@@ -163,6 +167,8 @@ const TESTS = {
     "changes when the input schema changes, even by one property",
     "changes when an annotation changes",
     "holds none of the arguments: it is a hash",
+    "changes when the server adds %s: everything it sends except the name is pinned (N4)",
+    "refuses a tool that carries a number it cannot keep exactly, rather than collapsing it (N4)",
   ],
   "projectos/core/test/mcp-spend.test.ts": [
     "books the top of the range and reports what was spent before: the positive control",
@@ -176,6 +182,7 @@ const TESTS = {
     "a clock that runs backwards does not open a new window",
     "refuses the call past the call cap, with a tool that costs nothing",
     "returns the money and the call a charge took, and never goes below zero",
+    "takes nothing from a new window when the window it was booked in has ended",
     "refuses a limit that is %s",
   ],
   "projectos/core/test/mcp-requests.test.ts": [
@@ -187,6 +194,7 @@ const TESTS = {
     "refuses an elicitation when no tool call is in flight: a server may not ask the owner unprompted (M2)",
     "counts a malformed request in the window, so a server cannot flood with bad ones for free (M2)",
     "refuses a form that asks for the field %s (M2)",
+    "does not mistake the ordinary field %s for a secret (N6)",
     "an accept must cover every field that was asked, not some of them (M2)",
     "keeps an image as a note about the image, and never passes its bytes on",
     "text cannot close its own fence: the id follows the text",
@@ -201,6 +209,7 @@ const TESTS = {
     "books nothing for a call the connector gate refused",
     "a success gets a receipt the connector contract accepts, naming the call",
     "refuses a row for tenant A that names the connector of tenant B, even with an envelope of tenant B",
+    "refuses a call whose ISO time and whose millisecond clock are not the same instant",
     "holds the started line, what was booked and a digest of the arguments, and none of the arguments",
   ],
   "projectos/core/test/mcp-lifecycle.test.ts": [
@@ -219,7 +228,16 @@ const TESTS = {
     "with the committed registry, which holds no connector, refuses the call and sends nothing",
     "refuses a tool the server offers and the owner did not list, and sends nothing",
     "a reply that is lost when the connection closes is outcome_unknown, never a success",
-    "a call after close never reaches the server, and gives its cost back",
+    "a call after close never reaches the server, gives its cost back, and is not reported as admitted with a start that was never stored",
+    "a connection opened later continues from what was spent: close and reopen is no fresh budget",
+    "refuses to open without a spend store, and never starts the server",
+    "a store that never answers is a refusal after its timeout: nothing is sent, the booking and the key are released",
+    "a start the store already holds is refused, so two connections cannot run one call",
+    "checks again after the store: a tools-changed notice that came in while it was waited on stops the call",
+    "a tools/list that fails is a refusal with no started line, never an admitted call whose start was not stored",
+    "sends the written-and-read form, and the digest in the start record is of that same value",
+    "is not reported as lost while the owner decides, and is timed afresh once the answer has been delivered",
+    "a clock that steps backwards un-expires nothing and opens no window: the highest reading is kept",
     "tool output is untrusted: an injection stays inside the fence, and the result names the outside content for the kernel",
     "is stored, and awaited, before tools/call is sent",
     "does not send when the store refuses, and gives the booking back",
@@ -245,6 +263,7 @@ const TESTS = {
     "forgets the request and its timer when the transport rejects later",
     "is answered with an internal error when the handler throws, and never with silence",
     "fails every reply still pending with a lost-reply error, and closes the transport once",
+    "stops every pending timer while the handler has asked for it, and starts each afresh once the answer is sent",
   ],
 };
 
@@ -278,6 +297,8 @@ const RULE_NAMES = {
   "MC-27": "an elicitation is not held to its rules",
   "MC-28": "a launch is not the thing that was approved",
   "MC-29": "the spawn port is not told what confines it",
+  "MC-30": "the clock is not the connector's alone",
+  "MC-31": "the spend does not outlive the connection",
   "MC-T": "the proof does not run",
 };
 
@@ -308,7 +329,7 @@ const PIN_RULES = [
   ] },
   { rule: "MC-28", says: "a launch is not the thing that was approved", pins: [
     P(ALLOW, null, "import { holdsSecretShape } from '../context/redact.js';", "the-secret-check-is-not-imported"),
-    P(ALLOW, null, "const DENIED_ENV_NAME = /^(?:PATH|PATHEXT|COMSPEC|NODE_OPTIONS|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_[A-Z0-9_]*|PYTHONPATH|PYTHONHOME)$/;", "an-environment-name-that-changes-loading-is-passed"),
+    P(ALLOW, null, "const DENIED_ENV_NAME = /^(?:PATH|PATHEXT|COMSPEC|NODE_OPTIONS|NODE_PATH|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_[A-Z0-9_]*|PYTHONPATH|PYTHONHOME|PYTHONSTARTUP|PERL5OPT|RUBYOPT|BASH_ENV|ENV|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|(?:[A-Z0-9_]*_)?PROXY|SSL_CERT_[A-Z0-9_]*|NPM_CONFIG_[A-Z0-9_]*|GIT_[A-Z0-9_]*)$/i;", "an-environment-name-that-changes-loading-is-passed"),
     P(ALLOW, null, "const PACKAGE_RUNNERS = ['npx', 'npm', 'pnpm', 'pnpx', 'yarn', 'bunx', 'bun', 'uvx', 'uv', 'pipx', 'deno'];", "a-package-runner-is-a-command"),
     P(ALLOW, null, "const FLOATING_ARG = /^(?:-y|--yes)$|@(?:latest|next|beta|canary)$/i;", "a-floating-version-is-an-argument"),
     P(ALLOW, null, "const HIDDEN_CHARACTER = /[\\p{Cc}\\p{Cf}]/u;", "a-hidden-character-is-a-name"),
@@ -319,7 +340,20 @@ const PIN_RULES = [
     P(ALLOW, "parseManifest", "const launch = launchProblem(command, args);", "the-launch-is-not-judged"),
     P(ALLOW, "launchProblem", "if (PACKAGE_RUNNERS.includes(program)) return", "a-runner-is-not-refused"),
     P(ALLOW, "launchProblem", "if (args.some((arg) => FLOATING_ARG.test(arg))) return", "a-floating-argument-is-not-refused"),
-    P(ALLOW, "launchProblem", "INTERPRETERS.includes(program) && (args.length === 0 || args.some((arg) => INLINE_PROGRAM_FLAG.test(arg)))", "an-interpreter-runs-text-from-the-command-line"),
+    P(ALLOW, "launchProblem", "if (!ABSOLUTE_PATH.test(command)) return", "a-relative-command-is-launched"),
+    P(ALLOW, "launchProblem", "if (LAUNCHER_WRAPPERS.includes(program)) return", "a-launcher-wrapper-is-a-command"),
+    P(ALLOW, "launchProblem", "if (interpreter && args.length === 0) return", "an-interpreter-is-given-no-script"),
+    P(ALLOW, "launchProblem", "if (inline !== undefined && args.some((arg) => inline.test(arg))) return", "an-interpreter-runs-text-from-the-command-line"),
+    P(ALLOW, "launchProblem", "if (POWERSHELLS.includes(program) && args.some(powershellInline)) return", "a-powershell-abbreviation-is-an-inline-program"),
+    P(ALLOW, "launcherOf", ".trim().replace(/[. ]+$/, '')", "a-trailing-dot-hides-the-launcher"),
+    P(ALLOW, "launcherOf", "return name.replace(/[-_]?\\d+(?:\\.\\d+)*$/, '');", "a-version-suffix-hides-the-launcher"),
+    P(ALLOW, "powershellInline", "'command'.startsWith(rest) || 'encodedcommand'.startsWith(rest)", "a-powershell-prefix-is-not-an-inline-flag"),
+    P(ALLOW, null, "const ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\\\/]|\\/|\\\\\\\\[^\\\\/\\s])/;", "an-absolute-path-is-any-text"),
+    P(ALLOW, null, "const LAUNCHER_WRAPPERS = ['env', 'xargs', 'nohup', 'busybox', 'wsl', 'nice', 'timeout', 'sudo', 'doas', 'start', 'cmd', 'runas', 'stdbuf', 'setsid', 'chroot'];", "a-wrapper-is-missing-from-the-list"),
+    P(ALLOW, null, "sh: /^-[a-z]*c[a-z]*$/i,", "a-shell-cluster-is-not-a-c-flag"),
+    P(ALLOW, null, "python: /^-[a-z]*[cm][a-z]*$/i,", "python-m-and-i-clusters-are-not-inline"),
+    P(ALLOW, null, "perl: /^-[a-z]*[er][a-z]*$/i,", "perl-e-and-le-are-not-inline"),
+    P(ALLOW, null, "'node': /^(?:-[a-z]*[ep][a-z]*|-r|--(?:eval|print|require|import|input-type)(?:=.*)?)$/i,", "node-eval-equals-is-not-inline"),
   ] },
   { rule: "MC-9", says: "sampling or a URL elicitation is allowed", pins: [
     P(REQUESTS, "decideServerRequest", "if (method === SAMPLING_METHOD) return refused('SAMPLING_OFF');", "sampling-is-answered"),
@@ -344,8 +378,10 @@ const PIN_RULES = [
   { rule: "MC-27", says: "an elicitation is not held to its rules", pins: [
     P(REQUESTS, "decideServerRequest", "if (!input.callInFlight) return { decision: refusal('ELICITATION_UNSOLICITED'), window: counted };", "an-unsolicited-elicitation-is-heard"),
     P(REQUESTS, "decideServerRequest", "const counted = [...recent, nowMs];", "a-bad-elicitation-is-a-free-probe"),
-    P(REQUESTS, "elicitationItem", "if (specs.some((spec) => SECRET_FIELD.test(spec.name))) return refusal('ELICITATION_SECRET_FIELD');", "a-form-may-ask-for-a-secret"),
-    P(REQUESTS, null, "const SECRET_FIELD = /pass(?:word|wd)|secret|token|api[_-]?key|credential|private[_-]?key/i;", "the-secret-names-are-fewer"),
+    P(REQUESTS, "elicitationItem", "if (specs.some((spec) => isSecretField(spec.name))) return refusal('ELICITATION_SECRET_FIELD');", "a-form-may-ask-for-a-secret"),
+    P(REQUESTS, null, "const SECRET_WORDS = /passw|passphrase|passcode|secret|token|apikey|privatekey|credential|mnemonic|bearer|cookie|session/;", "the-secret-words-are-fewer"),
+    P(REQUESTS, null, "const SECRET_TOKENS = ['pass', 'pwd', 'pin', 'otp', 'cvv', 'cvc', 'ssn', 'mfa', '2fa', 'seed'];", "the-short-secret-names-are-fewer"),
+    P(REQUESTS, "isSecretField", "name.replace(/([a-z0-9])([A-Z])/g, '$1_$2')", "a-camel-case-secret-name-is-not-split"),
     P(REQUESTS, "parseOwnerAnswer", "const covers = item.specs.every((spec) => Object.hasOwn(content, spec.name));", "an-answer-may-leave-a-field-out"),
     P(REQUESTS, "satisfies", "const typed = spec.type === 'integer' ? typeof value === 'number' && Number.isInteger(value) : typeof value === spec.type;", "an-answer-need-not-be-typed"),
     P(REQUESTS, "satisfies", "(spec.enum === null || spec.enum.includes(value))", "an-answer-may-leave-the-enum"),
@@ -371,11 +407,13 @@ const PIN_RULES = [
     P(COSTS, "parseCostPolicy", "windowMs < MIN_SPEND_WINDOW_MS || windowMs > MAX_SPEND_WINDOW_MS", "a-window-may-be-any-length"),
     P(COSTS, "parseCostPolicy", "Object.create(null)", "the-cost-table-has-a-prototype"),
     P(COSTS, "refundCharge", "Math.max(0,", "a-refund-goes-below-zero"),
+    P(COSTS, "refundCharge", "open.windowStart !== charge.windowStart", "a-refund-goes-to-the-wrong-window"),
+    P(COSTS, "reserveToolSpend", "windowStart: open.windowStart })", "a-charge-forgets-its-window"),
     P(COSTS, "costOf", "return low > high ? { problem:", "a-reversed-range-is-a-cost"),
     P(COSTS, null, "return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;", "a-fraction-is-a-cost"),
     P(ALLOW, "rowProblems", "!Object.hasOwn(tool, 'cost')", "a-tool-may-be-listed-with-no-cost"),
     P(ALLOW, "rowProblems", "{ callLimit: record['callLimit'], windowMs: record['spendWindowMs'] }", "a-row-call-cap-is-not-read"),
-    P(CALL, "admitMcpToolCall", "const spend = reserveToolSpend({ policy: entry.costPolicy, serverKey: entry.key, tool, tally: request.tally, envelopeBudget: envelope.budget, nowMs });", "the-budget-is-not-reserved"),
+    P(CALL, "admitMcpToolCall", "const spend = reserveToolSpend({ policy: entry.costPolicy, serverKey: entry.key, tool, tally: request.tally, envelopeBudget: envelope.budget, nowMs: request.nowMs });", "the-budget-is-not-reserved"),
     P(CALL, "admitMcpToolCall", "if (!spend.ok) return refused(spend.code, [spend.reason]);", "a-refused-budget-is-admitted"),
   ] },
   { rule: "MC-12", says: "tool output is not held as data", pins: [
@@ -408,8 +446,8 @@ const PIN_RULES = [
     P(CALL, "admitMcpToolCall", "if (!gate.admitted) return refused(gate.code, gate.reasons);", "a-refused-gate-is-booked-anyway"),
     P(CALL, "admitMcpToolCall", "return { admitted: true, entry, call: gate.call, started: gate.started, charge: spend.charge, tally: spend.tally };", "an-admitted-call-hands-back-no-booked-tally"),
     P(CONNECTOR, "openMcpConnector", "if (!offered.includes(input.tool)) return { admitted: false, code: 'TOOL_NOT_OFFERED',", "a-tool-the-server-did-not-offer-is-called"),
-    P(CONNECTOR, "openMcpConnector", "tally = admission.tally;", "a-booked-call-is-not-kept"),
-    P(CONNECTOR, "openMcpConnector", "if (problem !== null) return { admitted: false, code: 'ARGUMENTS_INVALID',", "arguments-are-not-judged"),
+    P(CONNECTOR, "openMcpConnector", "if (booked !== undefined) deps.spendStore.set(entry.key, booked);", "a-booked-call-is-not-kept"),
+    P(CONNECTOR, "openMcpConnector", "if (!wire.ok) return { admitted: false, code: 'ARGUMENTS_INVALID',", "arguments-are-not-judged"),
     P(CONNECTOR, null, "const MAX_ARGUMENT_CHARS = 65_536;", "arguments-may-be-any-size"),
   ] },
   { rule: "MC-23", says: "a server, its connector and its envelope are not one tenant", pins: [
@@ -419,20 +457,28 @@ const PIN_RULES = [
     P(CALL, "admitMcpToolCall", "if (gate.call.connector.tenant !== tenant) return refused('TENANT_MISMATCH',", "the-connector-tenant-is-not-compared"),
   ] },
   { rule: "MC-24", says: "the start is not stored before the call is sent", pins: [
-    P(CONNECTOR, "openMcpConnector", "const record = mcpStartRecordOf(admission, input.arguments);", "the-start-record-is-not-built"),
-    P(CONNECTOR, "openMcpConnector", "stored = await deps.startStore.record(record);", "the-start-store-is-not-asked"),
+    P(CONNECTOR, "openMcpConnector", "deps.startStore.record(record), startStoreTimeoutMs, deps.timers, false, ownerWaits", "the-start-store-has-no-timeout"),
+    P(CONNECTOR, "openMcpConnector", "if (answer === 'duplicate') {", "a-duplicate-start-is-sent"),
+    P(CONNECTOR, "openMcpConnector", "if (answer !== true) {", "a-truthy-answer-is-a-stored-start"),
+    P(CONNECTOR, "openMcpConnector", "code: 'START_DUPLICATE'", "a-duplicate-has-no-name"),
+    P(CONNECTOR, "openMcpConnector", "if (stale) {", "a-list-that-went-stale-during-the-store-is-sent"),
+    P(CONNECTOR, "openMcpConnector", "return { admitted: false, code: 'CONNECTION_CLOSED',", "a-closed-connection-is-an-admitted-call"),
+    P(CONNECTOR, "openMcpConnector", "const record = mcpStartRecordOf(admission, args);", "the-start-record-is-of-other-arguments"),
+    P(CONNECTOR, "openMcpConnector", "arguments: args }", "the-call-sends-other-arguments-than-it-digested"),
+    P(CONNECTOR, "wireArguments", "const value = asRecord(JSON.parse(text));", "the-arguments-are-not-read-back-as-sent"),
+    P(CONNECTOR, "openMcpConnector", "return await runCall(input, wire.value);", "the-call-runs-on-the-unwritten-arguments"),
+    P(PORTS, null, "record(entry: McpStartRecord): Promise<true | false | 'duplicate'>;", "the-store-answer-may-be-anything"),
     P(CONNECTOR, "openMcpConnector", "return { admitted: false, code: 'START_NOT_RECORDED',", "a-refused-start-is-sent-anyway"),
     P(CONNECTOR, "openMcpConnector", "if (inFlight.has(key)) return { admitted: false, code: 'CALL_IN_FLIGHT',", "a-second-call-with-the-same-key-runs"),
     P(CONNECTOR, "openMcpConnector", "if (inFlight.size >= MAX_CONCURRENT_CALLS) return { admitted: false, code: 'TOO_MANY_IN_FLIGHT',", "any-number-of-calls-may-run-at-once"),
     P(CONNECTOR, "openMcpConnector", "inFlight.delete(key);", "a-finished-call-keeps-its-key"),
     P(CALL, "mcpStartRecordOf", "const argumentsDigest = argumentsDigestOf(args);", "the-start-record-holds-no-digest"),
     P(CALL, "mcpStartRecordOf", "if (argumentsDigest === null) return null;", "unreadable-arguments-are-stored-anyway"),
-    P(PORTS, null, "record(entry: McpStartRecord): Promise<boolean>;", "the-start-store-port-is-gone"),
   ] },
   { rule: "MC-25", says: "a rug pull is not refused", pins: [
-    P(CANON, "toolDescriptorHashOf", "description: record['description'] ?? null,", "the-descriptor-hash-leaves-out-the-description"),
-    P(CANON, "toolDescriptorHashOf", "inputSchema: record['inputSchema'] ?? null,", "the-descriptor-hash-leaves-out-the-schema"),
-    P(CANON, "toolDescriptorHashOf", "annotations: record['annotations'] ?? null,", "the-descriptor-hash-leaves-out-the-annotations"),
+    P(CANON, "toolDescriptorHashOf", ".filter(([key]) => key !== 'name')", "the-descriptor-hash-leaves-out-unknown-fields"),
+    P(CANON, "toolDescriptorHashOf", "Object.fromEntries(Object.entries(tool as Readonly<Record<string, unknown>>)", "the-descriptor-hash-reads-only-three-fields"),
+    P(CANON, "write", "(Number.isInteger(value) && !Number.isSafeInteger(value))", "a-huge-number-collapses"),
     P(CANON, "write", "if (depth > MAX_CANONICAL_DEPTH || budget.nodes > MAX_CANONICAL_NODES) throw new RangeError('too large');", "a-hostile-schema-is-read-without-a-bound"),
     P(CANON, "write", "const keys = Object.keys(record).sort();", "the-canonical-reading-keeps-key-order"),
     P(ALLOW, "rowProblems", "typeof descriptorHash !== 'string' || !HASH.test(descriptorHash)", "a-tool-may-be-listed-with-no-descriptor-pin"),
@@ -457,6 +503,10 @@ const PIN_RULES = [
     P(CONNECTOR, "withTimeout", "const cancel = timers.setTimer(ms, () => end(fallback));", "an-owner-wait-has-no-timeout"),
     P(CONNECTOR, "openMcpConnector", "for (const release of [...ownerWaits]) release();", "a-close-waits-on-an-owner-who-never-answers"),
     P(CONNECTOR, "openMcpConnector", "requestTimeoutMs,", "the-connection-passes-no-timeout"),
+    P(CONNECTOR, "openMcpConnector", "control.suspendTimeouts();", "an-elicited-call-is-timed-while-the-owner-decides"),
+    P(RPC, "createRpcClient", "suspended += 1;", "the-timers-are-never-held"),
+    P(RPC, "createRpcClient", "if (suspended === 0) for (const entry of pending.values()) entry.arm();", "the-timers-never-start-again"),
+    P(RPC, "createRpcClient", "if (suspended === 0) arm();", "a-request-made-while-held-is-timed-at-once"),
   ] },
   { rule: "MC-29", says: "the spawn port is not told what confines it", pins: [
     P(PORTS, null, "readonly inheritEnvironment: false;", "the-environment-may-be-inherited"),
@@ -469,13 +519,26 @@ const PIN_RULES = [
     P(CONNECTOR, null, "inheritEnvironment: false as const,", "the-confinement-inherits-the-environment"),
     P(CONNECTOR, null, "maxLineBytes: MAX_RPC_MESSAGE_CHARS,", "the-confinement-names-no-line-cap"),
   ] },
+  { rule: "MC-30", says: "the clock is not the connector's alone", pins: [
+    P(CALL, "admitMcpToolCall", "if (!Number.isSafeInteger(request.nowMs) || Date.parse(request.now) !== request.nowMs) return refused('CLOCK_MISMATCH',", "the-two-clock-readings-need-not-agree"),
+    P(CONNECTOR, "openMcpConnector", "if (Number.isSafeInteger(reading) && reading > clockHigh) clockHigh = reading;", "the-clock-can-step-backwards"),
+    P(CONNECTOR, "openMcpConnector", "const nowMs = clockNow();", "a-call-reads-no-clock-of-the-connector"),
+    P(CONNECTOR, "openMcpConnector", "now, nowMs });", "the-call-is-judged-at-another-time"),
+    P(CONNECTOR, "openMcpConnector", "nowMs: clockNow(),", "the-elicitation-window-uses-another-clock"),
+  ] },
+  { rule: "MC-31", says: "the spend does not outlive the connection", pins: [
+    P(CONNECTOR, "openMcpConnector", "if (!(deps.spendStore instanceof Map)) return { ok: false, code: 'SPEND_STORE_MISSING',", "a-missing-spend-store-is-a-fresh-budget"),
+    P(CONNECTOR, "openMcpConnector", "tally: new Map(deps.spendStore)", "the-admission-reads-a-private-tally"),
+    P(CONNECTOR, "openMcpConnector", "if (returned !== undefined) deps.spendStore.set(entry.key, returned);", "a-refund-is-not-written-to-the-store"),
+    P(CONNECTOR, "openMcpConnector", "tally: (): SpendTally => new Map(deps.spendStore)", "the-tally-is-not-the-stores"),
+  ] },
   { rule: "MC-14", says: "the connector contract is not the gate", pins: [
     P(CALL, null, "} from '../connectorContract.js';", "the-contract-is-not-imported"),
     P(CALL, "admitMcpToolCall", "const gate = admitConnectorCall({ registry: request.registry, actions: request.actions, connectorId: entry.connectorId, envelope, history: request.history, facts: request.facts, now: request.now });", "the-contract-gate-is-not-asked"),
     P(CALL, "mcpReceiptOf", "return checkConnectorReceipt(", "the-receipt-is-not-checked-by-the-contract"),
     P(CALL, "mcpReceiptOf", "`provider:mcp-reply:${server.serverId}:${replyDigest}`", "the-success-marker-names-no-reply"),
     P(CALL, null, "const REPLY_DIGEST = /^[0-9a-f]{16}$/;", "a-reply-digest-may-be-anything"),
-    P(CONNECTOR, "openMcpConnector", "const admission = admitMcpToolCall({ ...input, allowlist: deps.allowlist, manifest: deps.manifest, tally });", "the-connector-calls-without-the-gate"),
+    P(CONNECTOR, "openMcpConnector", "const admission = admitMcpToolCall({ ...input, allowlist: deps.allowlist, manifest: deps.manifest,", "the-connector-calls-without-the-gate"),
     P(CONNECTOR, "openMcpConnector", "if (!admission.admitted) return { admitted: false, code: admission.code, reasons: admission.reasons };", "a-refused-call-is-sent-anyway"),
     P(CONNECTOR, "openMcpConnector", "const receipt = mcpReceiptOf(admission, outcome, errorCode, digest);", "the-outcome-has-no-receipt"),
   ] },
@@ -492,7 +555,7 @@ const PIN_RULES = [
     P(RPC, "createRpcClient", "if (typeof id !== 'number' || entry === undefined) return;", "a-reply-nobody-asked-for-is-matched"),
     P(RPC, "createRpcClient", "answer = { error: { code: -32603, message: 'internal error' } };", "a-failed-handler-leaves-the-server-waiting"),
     P(CONNECTOR, "openMcpConnector", "error instanceof SessionClosedError && !(error instanceof ReplyLostError)", "a-lost-reply-reads-as-a-call-that-never-left"),
-    P(CONNECTOR, "openMcpConnector", "tally = refundCharge(tally, admission.charge);", "a-call-that-never-left-keeps-its-cost"),
+    P(CONNECTOR, "openMcpConnector", "refundCharge(new Map(deps.spendStore), admission.charge)", "a-call-that-never-left-keeps-its-cost"),
     P(CONNECTOR, "openMcpConnector", "finish('unknown', 'outcome_unknown', null)", "a-call-that-may-have-run-is-a-failure"),
     P(CONNECTOR, "openMcpConnector", "await rpc.close().catch(() => undefined);", "a-failed-handshake-leaves-the-server-running"),
   ] },
@@ -631,13 +694,18 @@ function check(raw) {
   const runCall = runStart < 0 || callStart < runStart ? "" : connect.slice(runStart, callStart);
   const callTool = callStart < 0 ? "" : connect.slice(callStart);
   if (!inOrder(callTool, ["argumentsProblem(", "inFlight.has(key)", "inFlight.size >= MAX_CONCURRENT_CALLS", "if (stale) return", "offered.includes(input.tool)", "inFlight.add(key)", "runCall(input)"])) E("MC-13", "a call is run before the cheap refusals have been made");
-  if (!inOrder(runCall, ["admitMcpToolCall(", "tally = admission.tally;", "readTools(rpc, entry.tools)", "mcpStartRecordOf(", "deps.startStore.record(", "rpc.request('tools/call'"])) E("MC-24", "a call is sent before the live list has been verified and its start stored");
+  if (!inOrder(runCall, ["admitMcpToolCall(", "deps.spendStore.set(entry.key, booked)", "readTools(rpc, entry.tools)", "mcpStartRecordOf(", "deps.startStore.record(", "if (stale) {", "rpc.request('tools/call'"])) E("MC-24", "a call is sent before the live list has been verified and its start stored");
+
+  // MC-30 and MC-31: the connector holds no time of a caller's, and no budget of its own.
+  if (/\binput\.now(?:Ms)?\b/.test(code[CONNECTOR])) E("MC-30", "the connector reads a time off its input");
+  if (/\bnow:\s*string\b/.test(/export interface ToolCallInput \{[\s\S]*?\n\}/.exec(code[CONNECTOR])?.[0] ?? "")) E("MC-30", "a call carries a time of its own");
+  if (/initialTally|EMPTY_TALLY/.test(code[CONNECTOR])) E("MC-31", "the connector starts from a tally of its own");
 
   // MC-11: no name a caller chooses starts a fresh budget.
   for (const rel of [COSTS, CALL, CONNECTOR]) if (/sessionKey/.test(code[rel])) E("MC-11", `${rel} keys spend by a name the caller chooses`);
 
   // MC-29: what a real spawn port must meet is written down, in the port's own words.
-  for (const phrase of ["SCRUBBED ENVIRONMENT", "A WORKING DIRECTORY THE PORT OWNS", "A LINE CAP BEFORE ANY PARSE", "STDERR IS BOUNDED", "RESOURCE LIMITS", "a binary-content hash pin", "an argument schema per row"]) {
+  for (const phrase of ["MUST REFUSE A DUPLICATE", "SCRUBBED ENVIRONMENT", "A WORKING DIRECTORY THE PORT OWNS", "A LINE CAP BEFORE ANY PARSE", "STDERR IS BOUNDED", "RESOURCE LIMITS", "a binary-content hash pin", "an argument schema per row"]) {
     if (!raw[PORTS].includes(phrase)) E("MC-29", `the spawn port's contract no longer says: ${phrase}`);
   }
 
@@ -753,7 +821,7 @@ const allowlistOf = (over = {}) => core.parseServerAllowlist({
 }).allowlist;
 const admit = (over = {}) => core.admitMcpToolCall({
   allowlist: allowlistOf(), manifest: MANIFEST, tool: 'search_mail', tally: core.EMPTY_TALLY, registry: registryOf([connectorRow()]),
-  actions: actionsParsed.registry, envelope: envelopeOf(), history: [], facts: { reauthenticated: false, approved: false }, now: NOW, ...over,
+  actions: actionsParsed.registry, envelope: envelopeOf(), history: [], facts: { reauthenticated: false, approved: false }, now: NOW, nowMs: Date.parse(NOW), ...over,
 });
 const SERVER = 'agency-business/mail-reader';
 const T0 = 1000000;
@@ -773,7 +841,7 @@ await expectIt('MC-8', () => admit({ registry: registryOf([]), manifest: { ...MA
 await expectIt('MC-16', () => core.parseManifest({ ...MANIFEST, url: 'https://example.invalid/server' }).ok === false);
 await expectIt('MC-16', () => core.parseManifest({ ...MANIFEST, catalogue: 'optional-mcps/mail' }).ok === false);
 await expectIt('MC-16', () => core.parseManifest({ ...MANIFEST, transport: 'http' }).ok === false);
-await expectIt('MC-16', () => core.parseManifest({ ...MANIFEST, command: 'node x.js && curl evil' }).ok === false);
+await expectIt('MC-16', () => core.parseManifest({ ...MANIFEST, command: 'C:/tools/x.exe && curl evil' }).ok === false);
 await expectIt('MC-16', () => core.parseManifest({ ...MANIFEST, envNames: ['TOKEN=abc'] }).ok === false);
 await expectIt('MC-16', () => core.parseManifest(MANIFEST).ok === true);
 
@@ -787,7 +855,7 @@ await expectIt('MC-28', () => refusedManifest({ args: ['--key=' + ['sk', 'ant', 
 await expectIt('MC-28', () => refusedManifest({ command: 'npx', args: ['some-server'] }) && refusedManifest({ command: 'C:/Program Files/nodejs/npx.cmd', args: ['x'] }) && refusedManifest({ command: 'uvx', args: ['x'] }) && refusedManifest({ command: 'bunx', args: ['x'] }));
 await expectIt('MC-28', () => refusedManifest({ args: ['-y'] }) && refusedManifest({ args: ['--yes'] }) && refusedManifest({ args: ['server@latest'] }));
 await expectIt('MC-28', () => refusedManifest({ command: 'node', args: ['-e', 'run()'] }) && refusedManifest({ command: 'python3', args: ['-c', 'x'] }) && refusedManifest({ command: 'powershell.exe', args: ['-Command', 'x'] }) && refusedManifest({ command: '/bin/sh', args: ['-c', 'x'] }) && refusedManifest({ command: 'node', args: [] }));
-await expectIt('MC-28', () => core.parseManifest({ ...MANIFEST, command: 'node', args: ['C:/tools/mcp/server.js'] }).ok === true);
+await expectIt('MC-28', () => core.parseManifest({ ...MANIFEST, command: 'C:/Program Files/nodejs/node.exe', args: ['C:/tools/mcp/server.js'] }).ok === true);
 
 // MC-9: sampling is off, and a URL elicitation is refused.
 const decide = (request, window = [], nowMs = T0, callInFlight = true) => core.decideServerRequest({ serverKey: SERVER, request, window, nowMs, callInFlight });
@@ -1052,7 +1120,7 @@ await expectIt('MC-15', async () => {
 
 // The agent side, against a fake server and fake ports. No process, network or shell.
 class FakeTimers {
-  constructor() { this.now = T0; this.timers = []; }
+  constructor() { this.now = Date.parse(NOW); this.timers = []; }
   setTimer(ms, fn) { const timer = { at: this.now + ms, fn, live: true }; this.timers.push(timer); return () => { timer.live = false; }; }
   advance(ms) { this.now += ms; for (const timer of this.timers) if (timer.live && timer.at <= this.now) { timer.live = false; timer.fn(); } }
   live() { return this.timers.filter((timer) => timer.live).length; }
@@ -1065,6 +1133,7 @@ class FakeServer {
     this.toolsList = [SEARCH_TOOL, EVIL_TOOL];
     this.reply = () => ({ content: [{ type: 'text', text: 'two enquiries' }] });
     this.silent = false;
+    this.listFails = false;
   }
   onMessage(handler) { this.handler = handler; }
   push(message) { this.handler(JSON.stringify(message)); }
@@ -1075,7 +1144,7 @@ class FakeServer {
     if (id === undefined || typeof method !== 'string') return;
     queueMicrotask(() => {
       if (method === 'initialize') this.push({ jsonrpc: '2.0', id, result: { protocolVersion: '2025-06-18', capabilities: {} } });
-      else if (method === 'tools/list') this.push({ jsonrpc: '2.0', id, result: { tools: this.toolsList } });
+      else if (method === 'tools/list') this.push(this.listFails ? { jsonrpc: '2.0', id, error: { code: -32000, message: 'down' } } : { jsonrpc: '2.0', id, result: { tools: this.toolsList } });
       else if (method === 'tools/call' && !this.silent) this.push({ jsonrpc: '2.0', id, result: this.reply(message.params) });
     });
   }
@@ -1088,14 +1157,16 @@ const openWith = async (over = {}) => {
   const items = [];
   const records = [];
   const toolCallsAtRecord = [];
-  const startStore = { record: async (entry) => { toolCallsAtRecord.push(server.sent.filter((m) => m.method === 'tools/call').length); if (over.storeThrows) throw new Error('disk full'); if (over.storeRefuses) return false; records.push(entry); return true; } };
+  const starts = over.starts ?? new Set();
+  const startStore = { record: async (entry) => { toolCallsAtRecord.push(server.sent.filter((m) => m.method === 'tools/call').length); (over.onRecord ?? (() => undefined))(); if (over.storeHangs) return new Promise(() => undefined); if (over.storeThrows) throw new Error('disk full'); if (over.storeAnswer !== undefined) return over.storeAnswer; if (over.storeRefuses) return false; const key = [entry.started.tenant, entry.started.connector, entry.started.idempotencyKey, entry.started.attempt].join('|'); if (starts.has(key)) return 'duplicate'; starts.add(key); records.push(entry); return true; } };
   const spawn = { open: async (manifest, given) => { opened += 1; confinement = given; return server; } };
-  const ownerQueue = { enqueue: async (item) => { items.push(item); if (over.queueFails) throw new Error('down'); if (over.ownerSilent) return new Promise(() => undefined); return over.answer ?? { action: 'decline' }; } };
+  const ownerQueue = { enqueue: async (item) => { items.push(item); if (over.queueFails) throw new Error('down'); if (over.ownerHook) return over.ownerHook(item); if (over.ownerSilent) return new Promise(() => undefined); return over.answer ?? { action: 'decline' }; } };
   const windows = over.windows ?? new Map();
-  const outcome = await agent.openMcpConnector({ allowlist: over.allowlist ?? allowlistOf(), manifest: over.manifest ?? MANIFEST, spawn, ownerQueue, startStore, timers, nowMs: () => timers.now, elicitationWindows: windows, requestTimeoutMs: 1000, elicitationTimeoutMs: 5000 });
-  return { server, outcome, timers, windows, opened: () => opened, confinement: () => confinement, items, records, toolCallsAtRecord };
+  const spendStore = over.spendStore ?? new Map();
+  const outcome = await agent.openMcpConnector({ allowlist: over.allowlist ?? allowlistOf(), manifest: over.manifest ?? MANIFEST, spawn, ownerQueue, startStore, timers, nowMs: () => timers.now, elicitationWindows: windows, spendStore: over.noSpendStore ? undefined : spendStore, requestTimeoutMs: 1000, elicitationTimeoutMs: 5000, startStoreTimeoutMs: 2000 });
+  return { server, outcome, timers, windows, spendStore, opened: () => opened, confinement: () => confinement, items, records, toolCallsAtRecord };
 };
-const callOf = (over = {}) => ({ tool: 'search_mail', arguments: { query: 'x' }, registry: registryOf([connectorRow()]), actions: actionsParsed.registry, envelope: envelopeOf(), history: [], facts: { reauthenticated: false, approved: false }, now: NOW, ...over });
+const callOf = (over = {}) => ({ tool: 'search_mail', arguments: { query: 'x' }, registry: registryOf([connectorRow()]), actions: actionsParsed.registry, envelope: envelopeOf(), history: [], facts: { reauthenticated: false, approved: false }, ...over });
 const sentCalls = (server) => server.sent.filter((m) => m.method === 'tools/call').length;
 const ask = async (server, request) => {
   const before = server.sent.length;
@@ -1246,7 +1317,7 @@ await expectIt('MC-15', async () => {
   const { outcome, server } = await openWith();
   await outcome.connector.close();
   const result = await outcome.connector.callTool(callOf());
-  return result.admitted === true && result.outcome === 'failed' && sentCalls(server) === 0 && core.spendOf(outcome.connector.tally(), SERVER) === 0;
+  return result.admitted === false && result.code === 'CONNECTION_CLOSED' && !('started' in result) && sentCalls(server) === 0 && core.spendOf(outcome.connector.tally(), SERVER) === 0;
 });
 await expectIt('MC-15', async () => {
   const { outcome, server } = await openWith();
@@ -1329,13 +1400,14 @@ await expectIt('MC-25', async () => {
   return result.admitted === false && result.code === 'TOOL_DESCRIPTOR_CHANGED';
 });
 await expectIt('MC-25', async () => {
-  const { outcome, server } = await openWith();
+  const { outcome, server, records } = await openWith();
   server.push({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
   await tick(5);
   const blocked = await outcome.connector.callTool(callOf());
+  const storedWhileBlocked = records.length;
   const refreshed = await outcome.connector.refresh();
   const after = await outcome.connector.callTool(callOf());
-  return outcome.connector.tools().length === 1 && blocked.admitted === false && blocked.code === 'TOOLS_STALE' && refreshed.ok === true && after.admitted === true;
+  return outcome.connector.tools().length === 1 && blocked.admitted === false && blocked.code === 'TOOLS_STALE' && storedWhileBlocked === 0 && refreshed.ok === true && after.admitted === true;
 });
 await expectIt('MC-25', async () => {
   const { outcome, server } = await openWith();
@@ -1433,6 +1505,182 @@ await expectIt('MC-26', async () => {
   return timers.live() === 0 && client.pending() === 0;
 });
 
+// ---- Final round (N1 to N7) ----
+const NODE_EXE = 'C:/Program Files/nodejs/node.exe';
+const manifestOk = (over) => core.parseManifest({ ...MANIFEST, ...over }).ok === true;
+const manifestRefused = (over) => core.parseManifest({ ...MANIFEST, ...over }).ok === false;
+
+// MC-30: one clock, the connector's.
+await expectIt('MC-30', () => admit({ nowMs: Date.parse(NOW) + 5 * 86400000 }).code === 'CLOCK_MISMATCH' && admit({ nowMs: Number.NaN }).code === 'CLOCK_MISMATCH' && admit().admitted === true);
+const farEnvelope = () => envelopeOf({ expiry: '2026-11-09T00:00:00.000Z' });
+await expectIt('MC-30', async () => {
+  const { outcome, timers } = await openWith({ allowlist: allowlistOf({ spendLimit: 100 }) });
+  const first = await outcome.connector.callTool(callOf({ envelope: farEnvelope() }));
+  timers.advance(86400000 - 1);
+  const held = await outcome.connector.callTool(callOf({ envelope: farEnvelope() }));
+  timers.advance(1);
+  const fresh = await outcome.connector.callTool(callOf({ envelope: farEnvelope() }));
+  return first.admitted === true && held.admitted === false && held.code === 'TOOL_OVER_SPEND_LIMIT' && fresh.admitted === true;
+});
+await expectIt('MC-30', async () => {
+  const { outcome, timers } = await openWith();
+  const start = timers.now;
+  timers.advance(2 * 3600000);
+  const a = await outcome.connector.callTool(callOf());
+  timers.now = start;
+  const b = await outcome.connector.callTool(callOf());
+  return a.code === 'CONNECTOR_ENVELOPE_EXPIRED' && b.code === 'CONNECTOR_ENVELOPE_EXPIRED';
+});
+
+// MC-11: a refund goes back to the window the booking was made in.
+await expectIt('MC-11', () => {
+  const early = reserve({ nowMs: T0 });
+  const rolled = reserve({ tally: early.tally, nowMs: T0 + core.DEFAULT_SPEND_WINDOW_MS });
+  const after = core.refundCharge(rolled.tally, early.charge);
+  return early.charge.windowStart === T0 && core.spendOf(after, SERVER) === 100 && core.callsOf(after, SERVER) === 1;
+});
+
+// MC-31: the spend outlives the connection.
+await expectIt('MC-31', async () => {
+  const spendStore = new Map();
+  const first = await openWith({ allowlist: allowlistOf({ spendLimit: 100 }), spendStore });
+  const a = await first.outcome.connector.callTool(callOf());
+  await first.outcome.connector.close();
+  const second = await openWith({ allowlist: allowlistOf({ spendLimit: 100 }), spendStore, timers: first.timers });
+  const b = await second.outcome.connector.callTool(callOf());
+  return a.admitted === true && b.admitted === false && b.code === 'TOOL_OVER_SPEND_LIMIT' && sentCalls(second.server) === 0;
+});
+await expectIt('MC-31', async () => {
+  const { outcome, opened } = await openWith({ noSpendStore: true });
+  return outcome.ok === false && outcome.code === 'SPEND_STORE_MISSING' && opened() === 0;
+});
+await expectIt('MC-31', async () => {
+  const { outcome, spendStore } = await openWith({ storeRefuses: true });
+  await outcome.connector.callTool(callOf());
+  const w = spendStore.get(SERVER);
+  return w !== undefined && w.spent === 0 && w.calls === 0;
+});
+await expectIt('MC-31', async () => {
+  const { outcome, server, spendStore } = await openWith();
+  server.silent = true;
+  const running = outcome.connector.callTool(callOf());
+  await tick(5);
+  const w = spendStore.get(SERVER);
+  await outcome.connector.close();
+  await running;
+  return w !== undefined && w.spent === 100 && w.calls === 1;
+});
+
+// MC-24: the start store is held to its contract, and arguments are digested as sent.
+await expectIt('MC-24', async () => {
+  const { outcome, server, timers, spendStore } = await openWith({ storeHangs: true });
+  const running = outcome.connector.callTool(callOf({ envelope: envelopeOf() }));
+  await tick(5);
+  timers.advance(2000);
+  const result = await running;
+  const w = spendStore.get(SERVER);
+  return result.admitted === false && result.code === 'START_NOT_RECORDED' && sentCalls(server) === 0 && w.spent === 0;
+});
+await expectIt('MC-24', async () => {
+  for (const answer of ['yes', 1, {}, null]) {
+    const { outcome, server } = await openWith({ storeAnswer: answer });
+    const result = await outcome.connector.callTool(callOf());
+    if (!(result.admitted === false && result.code === 'START_NOT_RECORDED' && sentCalls(server) === 0)) return false;
+  }
+  return true;
+});
+await expectIt('MC-24', async () => {
+  const starts = new Set();
+  const a = await openWith({ starts });
+  const b = await openWith({ starts, timers: a.timers });
+  const shared = envelopeOf();
+  const first = await a.outcome.connector.callTool(callOf({ envelope: shared }));
+  const second = await b.outcome.connector.callTool(callOf({ envelope: shared }));
+  return first.admitted === true && second.admitted === false && second.code === 'START_DUPLICATE' && sentCalls(b.server) === 0 && core.spendOf(b.outcome.connector.tally(), SERVER) === 0;
+});
+await expectIt('MC-24', async () => {
+  const server = new FakeServer();
+  const { outcome, spendStore } = await openWith({ server, onRecord: () => server.push({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' }) });
+  const result = await outcome.connector.callTool(callOf());
+  return result.admitted === false && result.code === 'TOOLS_STALE' && sentCalls(server) === 0 && spendStore.get(SERVER).spent === 0;
+});
+await expectIt('MC-24', async () => {
+  const server = new FakeServer();
+  const { outcome, records } = await openWith({ server });
+  server.listFails = true;
+  const result = await outcome.connector.callTool(callOf());
+  return result.admitted === false && result.code === 'TOOL_DESCRIPTOR_CHANGED' && !('started' in result) && records.length === 0 && sentCalls(server) === 0;
+});
+await expectIt('MC-24', async () => {
+  const { outcome, server, records } = await openWith();
+  const awkward = () => ({ when: new Date(0), nested: { toJSON: () => ({ a: 1 }) }, skipped: undefined, plain: 'x' });
+  const wire = { when: '1970-01-01T00:00:00.000Z', nested: { a: 1 }, plain: 'x' };
+  await outcome.connector.callTool(callOf({ arguments: awkward() }));
+  const sent = server.sent.find((m) => m.method === 'tools/call');
+  return JSON.stringify(sent.params.arguments) === JSON.stringify(wire) && records[0].argumentsDigest === core.argumentsDigestOf(wire) && records[0].argumentsDigest !== core.argumentsDigestOf(awkward());
+});
+await expectIt('MC-24', async () => {
+  const { outcome } = await openWith();
+  return (await outcome.connector.callTool(callOf({ arguments: new Date(0) }))).code === 'ARGUMENTS_INVALID';
+});
+
+// MC-26: a call waiting on the owner is not timed, and is timed afresh once the answer is in.
+await expectIt('MC-26', async () => {
+  let release = () => undefined;
+  const { outcome, server, timers } = await openWith({ ownerHook: () => new Promise((resolve) => { release = resolve; }) });
+  server.silent = true;
+  const running = outcome.connector.callTool(callOf());
+  await tick(5);
+  const callId = server.sent.find((m) => m.method === 'tools/call').id;
+  server.push({ jsonrpc: '2.0', id: 'srv-e1', method: 'elicitation/create', params: formParams() });
+  await tick(5);
+  timers.advance(2000);
+  let settled = false;
+  running.then(() => { settled = true; });
+  await tick(5);
+  const heldOpen = settled === false;
+  release({ action: 'accept', content: { mailbox: 'info' } });
+  await tick(5);
+  server.push({ jsonrpc: '2.0', id: callId, result: { content: [{ type: 'text', text: 'late' }] } });
+  const result = await running;
+  return heldOpen && result.admitted === true && result.outcome === 'succeeded';
+});
+await expectIt('MC-26', async () => {
+  let release = () => undefined;
+  const { outcome, server, timers } = await openWith({ ownerHook: () => new Promise((resolve) => { release = resolve; }) });
+  server.silent = true;
+  const running = outcome.connector.callTool(callOf());
+  await tick(5);
+  server.push({ jsonrpc: '2.0', id: 'srv-e2', method: 'elicitation/create', params: formParams() });
+  await tick(5);
+  release({ action: 'decline' });
+  await tick(5);
+  timers.advance(1000);
+  const result = await running;
+  return result.admitted === true && result.outcome === 'unknown';
+});
+
+// MC-25: everything but the name is pinned, and a number that cannot be kept is refused.
+await expectIt('MC-25', () => {
+  const base = core.toolDescriptorHashOf(SEARCH_TOOL);
+  return [{ title: 'Mail' }, { outputSchema: { type: 'object' } }, { _meta: { a: 1 } }, { execution: { taskSupport: 'required' } }, { somethingNew: 1 }].every((extra) => core.toolDescriptorHashOf({ ...SEARCH_TOOL, ...extra }) !== base);
+});
+await expectIt('MC-25', () => core.toolDescriptorHashOf({ ...SEARCH_TOOL, inputSchema: { maximum: 2 ** 60 } }) === null && core.toolDescriptorHashOf({ ...SEARCH_TOOL, inputSchema: { maximum: Number.NaN } }) === null && core.toolDescriptorHashOf({ ...SEARCH_TOOL, inputSchema: { maximum: 0.5 } }) !== null && core.argumentsDigestOf({ n: 2 ** 60 }) === null);
+
+// MC-27: the secret names, and the ordinary ones that are not.
+await expectIt('MC-27', () => ['passphrase', 'pass', 'pwd', 'pin', 'otp', 'passcode', 'cvv', 'cvc', 'ssn', 'mfa', '2fa', 'seed', 'mnemonic', 'bearer', 'cookie', 'session', 'sessionId', 'user_pin', 'mfaCode'].every((name) => decide(form({ requestedSchema: { type: 'object', properties: { [name]: { type: 'string' } } } })).decision.code === 'ELICITATION_SECRET_FIELD'));
+await expectIt('MC-27', () => ['passenger_count', 'bypassed', 'compass', 'spinner', 'mailbox', 'description'].every((name) => decide(form({ requestedSchema: { type: 'object', properties: { [name]: { type: 'string' } } } })).decision.kind === 'owner-queue'));
+
+// MC-28: absolute paths only, no launcher wrapper, no inline program in any spelling, no loader or proxy variable.
+await expectIt('MC-28', () => manifestRefused({ command: 'mail-reader' }) && manifestRefused({ command: './mail-reader.exe' }) && manifestRefused({ command: '../tools/mail-reader.exe' }) && manifestOk({ command: '/opt/mcp/mail-reader' }) && manifestOk({ command: 'C:\\tools\\mcp\\mail-reader.exe' }) && manifestOk({ command: '\\\\server\\share\\mail-reader.exe' }));
+await expectIt('MC-28', () => ['env', 'xargs', 'nohup', 'busybox', 'wsl', 'nice', 'timeout', 'sudo', 'doas', 'start', 'cmd'].every((name) => manifestRefused({ command: '/usr/bin/' + name, args: ['x'] }) && manifestRefused({ command: 'C:/Windows/System32/' + name + '.exe', args: ['x'] }) && manifestRefused({ command: 'C:/Windows/System32/' + name + '.EXE.', args: ['x'] }) && manifestRefused({ command: 'C:/Windows/System32/' + name + '. ', args: ['x'] })));
+await expectIt('MC-28', () => manifestRefused({ command: '/bin/bash', args: ['-lc', 'x'] }) && manifestRefused({ command: '/bin/zsh', args: ['-ic', 'x'] }) && manifestRefused({ command: '/bin/sh', args: ['-c', 'x'] }) && manifestRefused({ command: '/bin/ksh', args: ['-c', 'x'] }));
+await expectIt('MC-28', () => manifestRefused({ command: NODE_EXE, args: ['-e', 'x'] }) && manifestRefused({ command: NODE_EXE, args: ['--eval=x'] }) && manifestRefused({ command: NODE_EXE, args: ['-pe', '1'] }) && manifestRefused({ command: NODE_EXE, args: ['--print', '1'] }) && manifestRefused({ command: 'C:/tools/node18.exe', args: ['-e', 'x'] }) && manifestRefused({ command: NODE_EXE, args: [] }));
+await expectIt('MC-28', () => manifestRefused({ command: '/usr/bin/python3.11', args: ['-c', 'x'] }) && manifestRefused({ command: '/usr/bin/python', args: ['-m', 'x'] }) && manifestRefused({ command: '/usr/bin/python', args: ['-Ic', 'x'] }) && manifestRefused({ command: 'C:/Python/pythonw.exe', args: ['-c', 'x'] }) && manifestRefused({ command: 'C:/Windows/py.exe', args: ['-c', 'x'] }) && manifestRefused({ command: '/usr/bin/perl', args: ['-le', 'x'] }) && manifestRefused({ command: '/usr/bin/ruby', args: ['-e', 'x'] }) && manifestRefused({ command: '/usr/bin/php', args: ['-r', 'x'] }));
+await expectIt('MC-28', () => ['-Command', '-c', '-com', '-enc', '-EncodedCommand', '/c'].every((flag) => manifestRefused({ command: 'C:/Program Files/PowerShell/7/pwsh.exe', args: [flag, 'x'] })) && manifestRefused({ command: 'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe', args: ['-com', 'x'] }));
+await expectIt('MC-28', () => ['NODE_PATH', 'HTTP_PROXY', 'ALL_PROXY', 'SSL_CERT_FILE', 'PYTHONSTARTUP', 'PERL5OPT', 'RUBYOPT', 'BASH_ENV', 'ENV', 'JAVA_TOOL_OPTIONS', 'NPM_CONFIG_REGISTRY', 'GIT_SSH_COMMAND'].every((name) => manifestRefused({ envNames: [name] })) && manifestRefused({ envNames: ['http_proxy'] }) && manifestRefused({ envNames: ['_JAVA_OPTIONS'] }));
+await expectIt('MC-28', () => manifestOk({ command: NODE_EXE, args: ['C:/tools/mcp/server.js'] }) && manifestOk({ command: '/usr/bin/python3.11', args: ['/opt/mcp/server.py'] }) && manifestOk({ command: 'C:/tools/mcp/mail-reader2.exe', args: ['-c', 'config.json'] }));
+
 process.stdout.write(JSON.stringify({ count, failed: [...failed].sort() }) + '\n', () => process.exit(0));
 `;
 
@@ -1510,7 +1758,7 @@ const BEHAVIOUR_MUTATIONS = [
   B("a-hidden-character-is-an-argument", "MC-28", ALLOW, " && !HIDDEN_CHARACTER.test(item)", ""),
   B("a-shell-operator-is-an-argument", "MC-28", ALLOW, "!UNSAFE_ARG.test(item) && ", ""),
   B("a-denied-environment-name-is-passed", "MC-28", ALLOW, "ENV_NAME.test(item) && !DENIED_ENV_NAME.test(item)", "ENV_NAME.test(item)"),
-  B("an-interpreter-runs-text-from-the-command-line", "MC-28", ALLOW, "INTERPRETERS.includes(program) && (args.length === 0 || args.some((arg) => INLINE_PROGRAM_FLAG.test(arg)))", "false"),
+  B("an-interpreter-runs-text-from-the-command-line", "MC-28", ALLOW, "if (inline !== undefined && args.some((arg) => inline.test(arg))) return", "if (false) return"),
   B("a-floating-argument-is-passed", "MC-28", ALLOW, "if (args.some((arg) => FLOATING_ARG.test(arg))) return", "if (false) return"),
   B("sampling-is-answered-as-unsupported", "MC-9", REQUESTS, "  if (method === SAMPLING_METHOD) return refused('SAMPLING_OFF');\n", ""),
   B("the-client-declares-sampling", "MC-9", REQUESTS, "Object.freeze({ elicitation: Object.freeze({}) })", "Object.freeze({ elicitation: Object.freeze({}), sampling: Object.freeze({}) })"),
@@ -1522,50 +1770,49 @@ const BEHAVIOUR_MUTATIONS = [
   B("a-form-may-nest", "MC-10", REQUESTS, "!FLAT_TYPES.includes(type)", "false"),
   B("an-unsolicited-elicitation-is-heard", "MC-27", REQUESTS, "  if (!input.callInFlight) return { decision: refusal('ELICITATION_UNSOLICITED'), window: counted };\n", ""),
   B("an-unsolicited-elicitation-is-not-counted", "MC-27", REQUESTS, "if (!input.callInFlight) return { decision: refusal('ELICITATION_UNSOLICITED'), window: counted };", "if (!input.callInFlight) return { decision: refusal('ELICITATION_UNSOLICITED'), window };"),
-  B("a-form-may-ask-for-a-secret", "MC-27", REQUESTS, "  if (specs.some((spec) => SECRET_FIELD.test(spec.name))) return refusal('ELICITATION_SECRET_FIELD');\n", ""),
+  B("a-form-may-ask-for-a-secret", "MC-27", REQUESTS, "  if (specs.some((spec) => isSecretField(spec.name))) return refusal('ELICITATION_SECRET_FIELD');\n", ""),
   B("an-answer-need-not-be-typed", "MC-27", REQUESTS, "const typed = spec.type === 'integer' ? typeof value === 'number' && Number.isInteger(value) : typeof value === spec.type;", "const typed = true;"),
   B("an-answer-may-leave-the-enum", "MC-27", REQUESTS, "(spec.enum === null || spec.enum.includes(value))", "true"),
   B("an-answer-may-leave-a-field-out", "MC-27", REQUESTS, "const covers = item.specs.every((spec) => Object.hasOwn(content, spec.name));", "const covers = true;"),
   B("any-number-of-answers-may-wait", "MC-27", CONNECTOR, "    if (pendingElicitations >= MAX_PENDING_ELICITATIONS) return { error: { code: -32000, message: 'too many requests' } };\n", ""),
   B("an-elicitation-is-heard-with-no-call", "MC-27", CONNECTOR, "callInFlight: inFlight.size > 0", "callInFlight: true"),
   B("the-window-starts-again-on-a-reopen", "MC-27", CONNECTOR, "deps.elicitationWindows.get(entry.key) ?? []", "[]"),
-  B("an-owner-wait-has-no-timeout", "MC-26", CONNECTOR, "const cancel = timers.setTimer(ms, () => end(fallback));", "const cancel = () => undefined;"),
+  B("an-owner-wait-has-no-timeout", "MC-26", CONNECTOR, "const cancel = timers.setTimer(ms, () => end(fallback));", "const cancel = () => undefined;", ["MC-24"]),
   B("an-undeclared-tool-runs", "MC-11", COSTS, "  if (cost === undefined) return refused('TOOL_COST_UNDECLARED', 'this tool has no declared cost, so it has no budget and does not run');\n", "  if (cost === undefined) return { ok: true, charge: { serverKey, tool, cost: { low: 0, high: 0, note: '' }, limit: policy.limit }, tally, spentBefore: 0 };\n"),
   B("the-envelope-ceiling-is-ignored", "MC-11", COSTS, " || cost.high > envelopeBudget", ""),
-  B("the-spend-limit-is-ignored", "MC-11", COSTS, "if (open.spent + cost.high > policy.limit) {", "if (false) {"),
+  B("the-spend-limit-is-ignored", "MC-11", COSTS, "if (open.spent + cost.high > policy.limit) {", "if (false) {", ["MC-30", "MC-31"]),
   B("the-call-cap-is-ignored", "MC-11", COSTS, "if (open.calls + 1 > policy.callLimit) return refused('TOOL_OVER_CALL_LIMIT',", "if (false) return refused('TOOL_OVER_CALL_LIMIT',"),
   B("a-free-call-is-not-counted", "MC-11", COSTS, "calls: open.calls + 1", "calls: open.calls + (cost.high > 0 ? 1 : 0)"),
-  B("a-window-never-ends", "MC-11", COSTS, "nowMs - open.windowStart < windowMs", "true"),
+  B("a-window-never-ends", "MC-11", COSTS, "nowMs - open.windowStart < windowMs", "true", ["MC-30"]),
   B("a-clock-that-runs-backwards-opens-a-window", "MC-11", COSTS, "nowMs - open.windowStart < windowMs", "nowMs - open.windowStart >= 0 && nowMs - open.windowStart < windowMs"),
   B("a-zero-limit-means-no-limit", "MC-11", COSTS, "if (limit === null || limit < 1) problems.push(", "if (limit === null) problems.push("),
   B("a-zero-call-cap-is-read", "MC-11", COSTS, "if (callLimit === null || callLimit < 1) problems.push(", "if (callLimit === null) problems.push("),
   B("a-refund-goes-below-zero", "MC-11", COSTS, "spent: Math.max(0, open.spent - charge.cost.high)", "spent: open.spent - charge.cost.high"),
-  B("a-refund-leaves-the-call-counted", "MC-11", COSTS, "calls: Math.max(0, open.calls - 1)", "calls: open.calls"),
+  B("a-refund-leaves-the-call-counted", "MC-11", COSTS, "calls: Math.max(0, open.calls - 1)", "calls: open.calls", ["MC-31"]),
   B("a-fence-id-ignores-the-text", "MC-12", OUTPUT, "${output.isError}\\n${output.untrustedText}`", "${output.isError}`"),
   B("a-hand-made-output-is-rendered", "MC-12", OUTPUT, "if (output.trust !== 'untrusted-data' || !flagsAreFlags || !namesAreCitable(output.serverKey, output.tool)) {", "if (false) {"),
   B("an-image-is-passed-on", "MC-12", BLOCKS, "return textBlock(`[image ${mime}, ${data.length} characters of data not shown]`);", "return textBlock(`[image ${mime}] ${data}`);"),
   B("a-mime-type-is-text", "MC-12", BLOCKS, "const mime = MIME_TYPE.test(mimeType) ? mimeType : 'unknown';", "const mime = mimeType;"),
   B("a-result-has-no-block-cap", "MC-12", BLOCKS, ".slice(0, MAX_TOOL_BLOCKS)", ""),
   B("the-reply-is-returned-unfenced", "MC-12", CONNECTOR, "renderUntrustedToolOutput(output), outputDigestOf(output));", "JSON.stringify(reply), outputDigestOf(output));"),
-  B("a-refused-gate-is-ignored", "MC-14", CALL, "  if (!gate.admitted) return refused(gate.code, gate.reasons);\n", ""),
+  B("a-refused-gate-is-ignored", "MC-14", CALL, "  if (!gate.admitted) return refused(gate.code, gate.reasons);\n", "", ["MC-30"]),
   B("the-tool-pin-is-dropped", "MC-13", CALL, "  if (pinned === undefined) return refused('TOOL_NOT_ALLOWLISTED', ['the owner\\'s row for this server does not name this tool']);\n", ""),
   B("the-action-pin-is-dropped", "MC-13", CALL, "  if (pinned.action !== envelope.action) return refused('TOOL_ACTION_MISMATCH', ['this tool is pinned to a different action than the envelope carries']);\n", ""),
-  B("a-refused-call-is-sent-anyway", "MC-14", CONNECTOR, "    if (!admission.admitted) return { admitted: false, code: admission.code, reasons: admission.reasons };\n", ""),
+  B("a-refused-call-is-sent-anyway", "MC-14", CONNECTOR, "    if (!admission.admitted) return { admitted: false, code: admission.code, reasons: admission.reasons };\n", "", ["MC-30", "MC-31"]),
   B("a-success-marker-names-no-reply", "MC-14", CALL, "const marker = outcome === 'succeeded' && server !== null && replyDigest !== undefined && REPLY_DIGEST.test(replyDigest)", "const marker = outcome === 'succeeded' && server !== null"),
   B("the-tenant-is-taken-from-the-envelope", "MC-23", CALL, "  const tenant = splitServerKey(entry.key)?.tenant;\n  if (tenant === undefined || tenant !== server.manifest.tenant || tenant !== envelope.tenant) {\n    return refused('TENANT_MISMATCH', ['the server, its manifest and the envelope are not one tenant']);\n  }\n", "  const tenant = envelope.tenant;\n"),
-  B("a-refused-start-is-sent-anyway", "MC-24", CONNECTOR, "    if (!stored) {\n      giveBack();\n      return { admitted: false, code: 'START_NOT_RECORDED', reasons: ['the start of this call could not be stored, so it was not sent'] };\n    }\n", ""),
+  B("a-refused-start-is-sent-anyway", "MC-24", CONNECTOR, "    if (answer !== true) {\n      giveBack();\n      return { admitted: false, code: 'START_NOT_RECORDED', reasons: ['the start of this call could not be stored, so it was not sent'] };\n    }\n", "", ["MC-31"]),
   B("a-second-call-with-the-same-key-runs", "MC-24", CONNECTOR, "    if (inFlight.has(key)) return { admitted: false, code: 'CALL_IN_FLIGHT', reasons: ['a call with this idempotency key is already waiting for its reply'] };\n", ""),
   B("any-number-of-calls-may-run-at-once", "MC-24", CONNECTOR, "    if (inFlight.size >= MAX_CONCURRENT_CALLS) return { admitted: false, code: 'TOO_MANY_IN_FLIGHT', reasons: ['too many calls are waiting for a reply'] };\n", ""),
   B("the-start-record-holds-the-arguments", "MC-24", CALL, "    argumentsDigest,\n", "    argumentsDigest,\n    arguments: args,\n"),
   B("a-finished-call-keeps-its-key", "MC-26", CONNECTOR, "      inFlight.delete(key);\n", ""),
   B("a-changed-descriptor-is-offered", "MC-25", CONNECTOR, "seen.get(name) === pins[name]?.descriptorHash", "true"),
-  B("the-live-list-is-not-read-on-a-call", "MC-25", CONNECTOR, "      const live = await readTools(rpc, entry.tools);\n      offered = live.offered;\n      quarantinedNames = live.quarantined;\n", ""),
-  B("a-list-changed-notice-is-ignored", "MC-25", CONNECTOR, "      if (method === TOOLS_CHANGED_NOTICE) stale = true;\n", ""),
-  B("a-stale-list-is-called", "MC-25", CONNECTOR, "    if (stale) return { admitted: false, code: 'TOOLS_STALE', reasons: ['the server said its tools changed, and the list has not been read again'] };\n", ""),
-  B("the-descriptor-hash-leaves-out-the-schema", "MC-25", CANON, "    inputSchema: record['inputSchema'] ?? null,\n", ""),
-  B("the-descriptor-hash-leaves-out-the-description", "MC-25", CANON, "    description: record['description'] ?? null,\n", ""),
+  B("the-live-list-is-not-read-on-a-call", "MC-25", CONNECTOR, "      const live = await readTools(rpc, entry.tools);\n      offered = live.offered;\n      quarantinedNames = live.quarantined;\n", "", ["MC-15", "MC-24"]),
+  B("a-list-changed-notice-is-ignored", "MC-25", CONNECTOR, "      if (method === TOOLS_CHANGED_NOTICE) stale = true;\n", "", ["MC-24"]),
+  B("the-descriptor-hash-leaves-out-unknown-fields", "MC-25", CANON, ".filter(([key]) => key !== 'name')", ".filter(([key]) => ['description', 'inputSchema', 'annotations'].includes(key))"),
+  B("a-huge-number-collapses", "MC-25", CANON, " || (Number.isInteger(value) && !Number.isSafeInteger(value))", ""),
   B("a-hostile-schema-is-read-without-a-bound", "MC-25", CANON, "if (depth > MAX_CANONICAL_DEPTH || budget.nodes > MAX_CANONICAL_NODES) throw new RangeError('too large');", ""),
-  B("a-request-has-no-timeout", "MC-26", RPC, "      cancelTimer = options.timers.setTimer(options.requestTimeoutMs, () => settle(() => reject(new RequestTimeoutError())));\n", ""),
+  B("a-request-has-no-timeout", "MC-26", RPC, "        cancelTimer = options.timers.setTimer(options.requestTimeoutMs, () => settle(() => reject(new RequestTimeoutError())));\n", ""),
   B("a-large-line-is-parsed", "MC-26", RPC, "if (typeof line !== 'string' || !withinCap(line)) return;", "if (typeof line !== 'string') return;"),
   B("the-cap-counts-characters-and-not-bytes", "MC-26", RPC, " && new TextEncoder().encode(line).length <= MAX_RPC_MESSAGE_CHARS", ""),
   B("a-settled-request-keeps-its-timer", "MC-26", RPC, "        cancelTimer();\n        run();", "        run();"),
@@ -1573,6 +1820,31 @@ const BEHAVIOUR_MUTATIONS = [
   B("a-throwing-send-escapes-the-request", "MC-26", RPC, "      return Promise.reject(error);\n", "      throw error;\n"),
   B("the-spawn-port-is-called-without-its-limits", "MC-29", CONNECTOR, "transport = await deps.spawn.open(manifest, SPAWN_CONFINEMENT);", "transport = await deps.spawn.open(manifest, {} as never);"),
   B("the-environment-is-inherited", "MC-29", CONNECTOR, "inheritEnvironment: false as const,", "inheritEnvironment: true as never,"),
+  B("the-clock-readings-need-not-agree", "MC-30", CALL, " || Date.parse(request.now) !== request.nowMs", ""),
+  B("the-clock-can-step-backwards", "MC-30", CONNECTOR, "if (Number.isSafeInteger(reading) && reading > clockHigh) clockHigh = reading;", "if (Number.isSafeInteger(reading)) clockHigh = reading;"),
+  B("a-refund-goes-to-the-wrong-window", "MC-11", COSTS, "open === undefined || open.windowStart !== charge.windowStart", "open === undefined"),
+  B("a-missing-spend-store-is-a-fresh-budget", "MC-31", CONNECTOR, "  if (!(deps.spendStore instanceof Map)) return { ok: false, code: 'SPEND_STORE_MISSING', reasons: ['no spend store was given, and a connection without one would start from a fresh budget'] };\n", ""),
+  B("a-booking-is-not-written-to-the-store", "MC-31", CONNECTOR, "    if (booked !== undefined) deps.spendStore.set(entry.key, booked);\n", "", ["MC-15", "MC-24", "MC-26", "MC-30"]),
+  B("a-refund-is-not-written-to-the-store", "MC-31", CONNECTOR, "      if (returned !== undefined) deps.spendStore.set(entry.key, returned);\n", "", ["MC-15", "MC-24", "MC-25"]),
+  B("a-truthy-answer-is-a-stored-start", "MC-24", CONNECTOR, "if (answer !== true) {", "if (!answer) {"),
+  B("a-duplicate-start-is-sent", "MC-24", CONNECTOR, "    if (answer === 'duplicate') {\n      giveBack();\n      return { admitted: false, code: 'START_DUPLICATE', reasons: ['the store already holds the start of this call, so it was not sent a second time'] };\n    }\n", ""),
+  B("the-start-store-has-no-timeout", "MC-24", CONNECTOR, "await withTimeout<unknown>(deps.startStore.record(record), startStoreTimeoutMs, deps.timers, false, ownerWaits)", "await deps.startStore.record(record)"),
+  B("a-list-that-went-stale-during-the-store-is-sent", "MC-24", CONNECTOR, "    if (stale) {\n      giveBack();\n      return { admitted: false, code: 'TOOLS_STALE', reasons: ['the server said its tools changed while the start was being stored, so the call was not sent'] };\n    }\n", ""),
+  B("a-failed-list-is-an-admitted-call", "MC-24", CONNECTOR, "      return { admitted: false, code: 'TOOL_DESCRIPTOR_CHANGED', reasons: ['the server\\'s tool list could not be verified, so the call was not sent'] };\n", "      return finish('failed', 'upstream_unavailable', null);\n"),
+  B("the-call-runs-on-the-unwritten-arguments", "MC-24", CONNECTOR, "return await runCall(input, wire.value);", "return await runCall(input, input.arguments as never);"),
+  B("a-relative-command-is-launched", "MC-28", ALLOW, "if (!ABSOLUTE_PATH.test(command)) return", "if (false) return"),
+  B("a-launcher-wrapper-is-a-command", "MC-28", ALLOW, "if (LAUNCHER_WRAPPERS.includes(program)) return", "if (false) return"),
+  B("a-trailing-dot-hides-the-launcher", "MC-28", ALLOW, ".trim().replace(/[. ]+$/, '')", ".trim()"),
+  B("a-version-suffix-hides-the-launcher", "MC-28", ALLOW, String.raw`return name.replace(/[-_]?\d+(?:\.\d+)*$/, '');`, "return name;"),
+  B("a-shell-cluster-is-not-a-c-flag", "MC-28", ALLOW, "  sh: /^-[a-z]*c[a-z]*$/i,\n  bash: /^-[a-z]*c[a-z]*$/i,\n  zsh: /^-[a-z]*c[a-z]*$/i,", "  sh: /^-c$/i,\n  bash: /^-c$/i,\n  zsh: /^-c$/i,"),
+  B("a-powershell-abbreviation-is-not-inline", "MC-28", ALLOW, "'command'.startsWith(rest) || 'encodedcommand'.startsWith(rest)", "rest === 'command' || rest === 'encodedcommand'"),
+  B("python-m-and-i-clusters-are-not-inline", "MC-28", ALLOW, "  python: /^-[a-z]*[cm][a-z]*$/i,", "  python: /^-c$/i,"),
+  B("a-proxy-variable-is-passed", "MC-28", ALLOW, "(?:[A-Z0-9_]*_)?PROXY|", ""),
+  B("node-eval-equals-is-not-inline", "MC-28", ALLOW, "(?:eval|print|require|import|input-type)(?:=.*)?", "(?:eval|print)"),
+  B("a-pin-is-not-a-secret-name", "MC-27", REQUESTS, "'pass', 'pwd', 'pin', ", "'pass', 'pwd', "),
+  B("a-camel-case-secret-name-is-not-split", "MC-27", REQUESTS, ".replace(/([a-z0-9])([A-Z])/g, '$1_$2')", ""),
+  B("an-elicited-call-is-timed-while-the-owner-decides", "MC-26", CONNECTOR, "    control.suspendTimeouts();\n", ""),
+  B("the-timers-never-start-again", "MC-26", RPC, "        if (suspended === 0) for (const entry of pending.values()) entry.arm();\n", ""),
   B("a-closing-session-accepts-work", "MC-15", LIFECYCLE, "    if (closing !== undefined) return Promise.reject(new SessionClosedError());\n", ""),
   B("a-second-close-runs-the-transport-again", "MC-15", LIFECYCLE, "    if (closing !== undefined) return closing;\n", ""),
   B("close-does-not-wait-for-accepted-work", "MC-15", LIFECYCLE, "        await drain(scope, failures);\n", ""),
@@ -1580,7 +1852,7 @@ const BEHAVIOUR_MUTATIONS = [
   B("a-transport-failure-is-swallowed", "MC-15", LIFECYCLE, "      } catch (error) {\n        failures.push(error);\n      } finally {", "      } catch {\n      } finally {"),
   B("several-failures-are-thrown-as-the-first", "MC-15", LIFECYCLE, "      if (failures.length > 1) throw new AggregateError(failures, 'MCP session close failed');\n", ""),
   B("a-lost-reply-reads-as-a-call-that-never-left", "MC-15", CONNECTOR, "error instanceof SessionClosedError && !(error instanceof ReplyLostError)", "error instanceof SessionClosedError", ["MC-26"]),
-  B("a-call-that-never-left-keeps-its-cost", "MC-15", CONNECTOR, "    } catch (error) {\n      giveBack();\n      if (error instanceof SessionClosedError) return finish(", "    } catch (error) {\n      if (error instanceof SessionClosedError) return finish("),
+  B("a-call-that-never-left-keeps-its-cost", "MC-15", CONNECTOR, "    } catch (error) {\n      giveBack();\n      if (error instanceof SessionClosedError) return { admitted: false, code: 'CONNECTION_CLOSED',", "    } catch (error) {\n      if (error instanceof SessionClosedError) return { admitted: false, code: 'CONNECTION_CLOSED',"),
   B("a-failed-handshake-leaves-the-server-running", "MC-15", CONNECTOR, "    await rpc.close().catch(() => undefined);\n", ""),
 ];
 

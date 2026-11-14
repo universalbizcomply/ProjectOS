@@ -56,6 +56,30 @@ describe('the tool descriptor hash: a rug pull changes it', () => {
     expect(toolDescriptorHashOf({ annotations: tool.annotations, inputSchema: tool.inputSchema, description: tool.description, name: 'other' })).toBe(toolDescriptorHashOf(tool));
   });
 
+  it.each([
+    ['a title', { title: 'Mail search' }],
+    ['an output schema', { outputSchema: { type: 'object' } }],
+    ['a _meta block', { _meta: { source: 'x' } }],
+    ['an execution block', { execution: { taskSupport: 'required' } }],
+    ['a field nobody has heard of', { somethingNew: 1 }],
+  ])('changes when the server adds %s: everything it sends except the name is pinned (N4)', (_label, extra) => {
+    expect(toolDescriptorHashOf({ ...tool, ...extra })).not.toBe(toolDescriptorHashOf(tool));
+  });
+
+  it('changes when an unknown field changes value, or is added as null (N4)', () => {
+    expect(toolDescriptorHashOf({ ...tool, x: 1 })).not.toBe(toolDescriptorHashOf({ ...tool, x: 2 }));
+    expect(toolDescriptorHashOf({ ...tool, x: null })).not.toBe(toolDescriptorHashOf(tool));
+  });
+
+  it('refuses a tool that carries a number it cannot keep exactly, rather than collapsing it (N4)', () => {
+    expect(toolDescriptorHashOf({ ...tool, inputSchema: { maximum: 2 ** 60 } })).toBeNull();
+    expect(toolDescriptorHashOf({ ...tool, inputSchema: { maximum: Number.MAX_SAFE_INTEGER + 2 } })).toBeNull();
+    expect(toolDescriptorHashOf({ ...tool, inputSchema: { maximum: Number.POSITIVE_INFINITY } })).toBeNull();
+    expect(toolDescriptorHashOf({ ...tool, inputSchema: { maximum: Number.NaN } })).toBeNull();
+    expect(toolDescriptorHashOf({ ...tool, inputSchema: { maximum: Number.MAX_SAFE_INTEGER } })).toMatch(/^sha256:/);
+    expect(toolDescriptorHashOf({ ...tool, inputSchema: { maximum: 0.5 } })).toMatch(/^sha256:/);
+  });
+
   it('a missing description, schema or annotations is a value of its own, not an error', () => {
     expect(toolDescriptorHashOf({ name: 'x' })).toMatch(/^sha256:/);
     expect(toolDescriptorHashOf({ name: 'x' })).not.toBe(toolDescriptorHashOf({ name: 'x', description: '' }));
@@ -68,6 +92,10 @@ describe('the tool descriptor hash: a rug pull changes it', () => {
 });
 
 describe('the argument digest', () => {
+  it('refuses arguments that hold a number it cannot keep exactly (N4)', () => {
+    expect(argumentsDigestOf({ n: 2 ** 60 })).toBeNull();
+  });
+
   it('is the same for the same arguments in any key order, and differs when one value differs', () => {
     expect(argumentsDigestOf({ a: 1, b: 2 })).toBe(argumentsDigestOf({ b: 2, a: 1 }));
     expect(argumentsDigestOf({ a: 1 })).not.toBe(argumentsDigestOf({ a: 2 }));

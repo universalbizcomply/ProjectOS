@@ -128,6 +128,8 @@ export interface Charge {
   readonly tool: string;
   readonly cost: ToolCost;
   readonly limit: number;
+  /** The window this was booked in. A refund goes back to that window, and to no other. */
+  readonly windowStart: number;
 }
 
 export type SpendRefusalCode = 'SPEND_KEY_INVALID' | 'SPEND_CLOCK_INVALID' | 'TOOL_COST_UNDECLARED' | 'TOOL_OVER_ENVELOPE_BUDGET' | 'TOOL_OVER_SPEND_LIMIT' | 'TOOL_OVER_CALL_LIMIT';
@@ -174,13 +176,16 @@ export function reserveToolSpend(request: SpendRequest): SpendDecision {
   }
   const next = new Map(tally);
   next.set(serverKey, { windowStart: open.windowStart, spent: open.spent + cost.high, calls: open.calls + 1 });
-  return { ok: true, charge: Object.freeze({ serverKey, tool, cost, limit: policy.limit }), tally: next, spentBefore: open.spent };
+  return { ok: true, charge: Object.freeze({ serverKey, tool, cost, limit: policy.limit, windowStart: open.windowStart }), tally: next, spentBefore: open.spent };
 }
 
-/** Give back what a charge took, for a call that never ran. Neither the money nor the count goes below zero. */
+/**
+ * Give back what a charge took, for a call that never ran. Neither the money nor the count goes below zero. It goes back to the
+ * window the charge was booked in: if that window has ended, the refund is dropped with it, and the window now open is untouched.
+ */
 export function refundCharge(tally: SpendTally, charge: Charge): SpendTally {
   const open = tally.get(charge.serverKey);
-  if (open === undefined) return tally;
+  if (open === undefined || open.windowStart !== charge.windowStart) return tally;
   const next = new Map(tally);
   next.set(charge.serverKey, { windowStart: open.windowStart, spent: Math.max(0, open.spent - charge.cost.high), calls: Math.max(0, open.calls - 1) });
   return next;

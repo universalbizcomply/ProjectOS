@@ -126,8 +126,12 @@ describe('an elicitation goes to the owner queue', () => {
     expect(out.window).toEqual([1_000_000]);
   });
 
-  it.each(['password', 'passwd', 'secret', 'client_secret', 'token', 'access_token', 'api_key', 'apiKey', 'api-key', 'credential', 'credentials', 'private_key', 'privateKey'])('refuses a form that asks for the field %s (M2)', (name) => {
+  it.each(['password', 'passwd', 'secret', 'client_secret', 'token', 'access_token', 'api_key', 'apiKey', 'api-key', 'credential', 'credentials', 'private_key', 'privateKey', 'passphrase', 'pass', 'pwd', 'pin', 'otp', 'passcode', 'cvv', 'cvc', 'ssn', 'mfa', '2fa', 'seed', 'mnemonic', 'bearer', 'cookie', 'session', 'sessionId', 'user_pin', 'mfaCode', 'oneTimeSeed'])('refuses a form that asks for the field %s (M2)', (name) => {
     expect(decide(elicitation({ requestedSchema: { type: 'object', properties: { [name]: { type: 'string' } } } })).decision).toMatchObject({ kind: 'refused', code: 'ELICITATION_SECRET_FIELD' });
+  });
+
+  it.each(['passenger_count', 'bypassed', 'compass', 'spinner', 'mailbox', 'count', 'urgent', 'description'])('does not mistake the ordinary field %s for a secret (N6)', (name) => {
+    expect(decide(elicitation({ requestedSchema: { type: 'object', properties: { [name]: { type: 'string' } } } })).decision.kind).toBe('owner-queue');
   });
 
   it('counts a malformed request in the window, so a server cannot flood with bad ones for free (M2)', () => {

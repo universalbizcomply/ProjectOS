@@ -11,6 +11,11 @@
  * `JSON.parse` sees it, and so is a line that is not JSON. A reply with no id this client issued is dropped. A
  * server's notification is handed on by its method name alone, and never its content.
  *
+ * A REQUEST WAITING ON THE OWNER IS NOT TIMED. While a handler is deciding a request of the server's, and it has said so through
+ * `control.suspendTimeouts`, no pending request's timer runs; when the answer has been sent, every pending request starts a fresh
+ * full timeout. A call that is waiting on a question put to the owner is not reported as lost because the owner took a while. The
+ * handler's own wait has its own timeout, so a suspended request is never held for ever.
+ *
  * EVERY REQUEST HAS A TIMEOUT. One that is not answered in time is forgotten, its timer is gone, its caller is told the
  * reply was lost (the call may have run), and a close that was waiting on it is released. A send that fails, at once
  * or later, leaves no entry and no timer behind.
@@ -23,8 +28,14 @@ export const MAX_RPC_MESSAGE_CHARS = 1_048_576;
 
 export type ServerRequestAnswer = { readonly result: unknown } | { readonly error: RpcError };
 
+/** What a handler may do to the client while it decides. */
+export interface RequestControl {
+  /** Stop the pending requests' timers until the answer to this request has been sent. */
+  suspendTimeouts(): void;
+}
+
 /** Decides a request the SERVER made. It is the only way a server's request is ever answered. */
-export type ServerRequestHandler = (request: unknown) => Promise<ServerRequestAnswer>;
+export type ServerRequestHandler = (request: unknown, control: RequestControl) => Promise<ServerRequestAnswer>;
 
 /** The server answered a request with an error. It carries the code and none of the server's text. */
 export class RpcFailure extends Error {
@@ -76,6 +87,10 @@ export interface RpcClient {
 interface Pending {
   readonly resolve: (value: unknown) => void;
   readonly reject: (reason: unknown) => void;
+  /** Start a full timeout. */
+  readonly arm: () => void;
+  /** Stop the timer. */
+  readonly disarm: () => void;
 }
 
 function asRecord(value: unknown): Readonly<Record<string, unknown>> | null {
@@ -92,6 +107,8 @@ export function createRpcClient(transport: McpTransport, onServerRequest: Server
   let nextId = 1;
   /** A client is closed for good. Unlike the lifecycle, which may be reused, a closed connection is not reopened. */
   let closed = false;
+  /** How many handlers have asked for the timers to stop. */
+  let suspended = 0;
 
   const failPending = (reason: unknown): void => {
     // Each entry removes itself, and its timer, when it settles.
@@ -108,13 +125,29 @@ export function createRpcClient(transport: McpTransport, onServerRequest: Server
 
   const answerServer = async (request: Readonly<Record<string, unknown>>): Promise<void> => {
     const id = request['id'];
+    let held = false;
+    const control: RequestControl = {
+      suspendTimeouts: () => {
+        if (held) return;
+        held = true;
+        suspended += 1;
+        for (const entry of pending.values()) entry.disarm();
+      },
+    };
     let answer: ServerRequestAnswer;
     try {
-      answer = await onServerRequest(request);
+      answer = await onServerRequest(request, control);
     } catch {
       answer = { error: { code: -32603, message: 'internal error' } };
     }
-    await transport.send({ jsonrpc: '2.0', id, ...('result' in answer ? { result: answer.result } : { error: answer.error }) });
+    try {
+      await transport.send({ jsonrpc: '2.0', id, ...('result' in answer ? { result: answer.result } : { error: answer.error }) });
+    } finally {
+      if (held) {
+        suspended -= 1;
+        if (suspended === 0) for (const entry of pending.values()) entry.arm();
+      }
+    }
   };
 
   const receive = (record: Readonly<Record<string, unknown>>): void => {
@@ -164,8 +197,12 @@ export function createRpcClient(transport: McpTransport, onServerRequest: Server
         cancelTimer();
         run();
       };
-      pending.set(id, { resolve: (value) => settle(() => resolve(value)), reject: (reason) => settle(() => reject(reason)) });
-      cancelTimer = options.timers.setTimer(options.requestTimeoutMs, () => settle(() => reject(new RequestTimeoutError())));
+      const arm = (): void => {
+        cancelTimer();
+        cancelTimer = options.timers.setTimer(options.requestTimeoutMs, () => settle(() => reject(new RequestTimeoutError())));
+      };
+      pending.set(id, { resolve: (value) => settle(() => resolve(value)), reject: (reason) => settle(() => reject(reason)), arm, disarm: () => cancelTimer() });
+      if (suspended === 0) arm();
       send({ jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) }).catch((error: unknown) => settle(() => reject(error)));
     });
 

@@ -22,7 +22,9 @@ function write(value: unknown, depth: number, budget: { nodes: number }): string
   if (depth > MAX_CANONICAL_DEPTH || budget.nodes > MAX_CANONICAL_NODES) throw new RangeError('too large');
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new TypeError('not JSON');
+    // A number that is not finite is not JSON, and an integer past 2^53 is not kept exactly: JSON.parse has already
+    // rounded it, so two different texts would hash alike. Refuse both, rather than collapse them.
+    if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) throw new TypeError('not JSON');
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) return `[${(value as readonly unknown[]).map((item) => write(item, depth + 1, budget)).join(',')}]`;
@@ -43,15 +45,15 @@ export function canonicalJsonOf(value: unknown): string | null {
   }
 }
 
-/** The hash of what a tool says it is. The name is left out: the owner's row already pins it. */
+/**
+ * The hash of what a tool says it is: EVERYTHING the server sent for it except the name, which the owner's row already
+ * pins. That is the description, the input and output schemas, the annotations, a title, `_meta`, an execution block, and
+ * any field this code has never heard of, because a field nobody listed is the one a rug pull would use.
+ */
 export function toolDescriptorHashOf(tool: unknown): string | null {
   if (typeof tool !== 'object' || tool === null || Array.isArray(tool)) return null;
-  const record = tool as Readonly<Record<string, unknown>>;
-  const canonical = canonicalJsonOf({
-    description: record['description'] ?? null,
-    inputSchema: record['inputSchema'] ?? null,
-    annotations: record['annotations'] ?? null,
-  });
+  const rest = Object.fromEntries(Object.entries(tool as Readonly<Record<string, unknown>>).filter(([key]) => key !== 'name'));
+  const canonical = canonicalJsonOf(rest);
   return canonical === null ? null : `sha256:${sha256Hex(`${DESCRIPTOR_DOMAIN}\n${canonical}`)}`;
 }
 

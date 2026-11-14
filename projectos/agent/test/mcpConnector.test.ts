@@ -29,7 +29,9 @@ import {
   type McpStartRecord,
   type OwnerQueueItem,
   type ServerAllowlist,
+  type SpendWindow,
   type TaskEnvelope,
+  argumentsDigestOf,
 } from '@projectos/core';
 import {
   MAX_CONCURRENT_CALLS,
@@ -136,7 +138,7 @@ function allowlist(over: Raw = {}): ServerAllowlist {
 
 class FakeTimers implements TimerPort {
   private readonly timers: { at: number; fn: () => void; live: boolean }[] = [];
-  now = 1_000_000;
+  now = Date.parse(NOW);
   setTimer(ms: number, fn: () => void): () => void {
     const timer = { at: this.now + ms, fn, live: true };
     this.timers.push(timer);
@@ -163,6 +165,8 @@ class FakeServer implements McpTransport {
   toolsList: unknown[] = [SEARCH_TOOL, EVIL_TOOL];
   callReply: (params: Message) => unknown = () => ({ content: [{ type: 'text', text: 'two enquiries' }] });
   callFails = false;
+  /** When set, a tools/list is answered with an error. */
+  listFails = false;
   /** When set, a tools/call is never answered, so the reply is lost. */
   silent = false;
   /** The tools/call messages that had reached the server when the start record was stored. */
@@ -185,6 +189,7 @@ class FakeServer implements McpTransport {
         case 'initialize':
           return this.push({ jsonrpc: '2.0', id, result: { protocolVersion: '2025-06-18', capabilities: { tools: { listChanged: true } }, serverInfo: { name: 'fake', version: '1' } } });
         case 'tools/list':
+          if (this.listFails) return this.push({ jsonrpc: '2.0', id, error: { code: -32000, message: 'down' } });
           return this.push({ jsonrpc: '2.0', id, result: { tools: this.toolsList } });
         case 'tools/call':
           if (this.silent) return undefined;
@@ -220,17 +225,34 @@ class FakeOwner implements OwnerQueuePort {
   }
 }
 
+/** The starts a store holds, shared between stores that stand for one durable file. */
+class SharedStarts {
+  readonly keys = new Set<string>();
+}
+
 class FakeStore implements StartStorePort {
   readonly records: McpStartRecord[] = [];
   /** What the server had been sent, in message count, when each record was stored. */
   readonly serverMessagesAtRecord: number[] = [];
   refuse = false;
   throws = false;
-  constructor(readonly server: FakeServer) {}
-  async record(entry: McpStartRecord): Promise<boolean> {
+  /** When set, the answer is this, whatever it is. */
+  answerWith: unknown = undefined;
+  /** When set, the store never answers. */
+  hangs = false;
+  /** Called as the record arrives, before the answer. */
+  onRecord: () => void = () => undefined;
+  constructor(readonly server: FakeServer, readonly starts: SharedStarts = new SharedStarts()) {}
+  async record(entry: McpStartRecord): Promise<true | false | 'duplicate'> {
     this.serverMessagesAtRecord.push(this.server.sent.filter((message) => message['method'] === 'tools/call').length);
+    this.onRecord();
+    if (this.hangs) return new Promise(() => undefined);
     if (this.throws) throw new Error('disk full');
+    if (this.answerWith !== undefined) return this.answerWith as never;
     if (this.refuse) return false;
+    const key = `${entry.started.tenant}|${entry.started.connector}|${entry.started.idempotencyKey}|${entry.started.attempt}`;
+    if (this.starts.keys.has(key)) return 'duplicate';
+    this.starts.keys.add(key);
     this.records.push(entry);
     return true;
   }
@@ -243,13 +265,17 @@ interface OpenOver {
   manifest?: unknown;
   windows?: Map<string, readonly number[]>;
   timers?: FakeTimers;
+  spendStore?: Map<string, SpendWindow> | undefined;
+  starts?: SharedStarts;
+  noSpendStore?: boolean;
 }
 
 async function open(over: OpenOver = {}) {
   const spawn = over.spawn ?? new FakeSpawn();
   const owner = over.owner ?? new FakeOwner();
   const timers = over.timers ?? new FakeTimers();
-  const store = new FakeStore(spawn.server);
+  const store = new FakeStore(spawn.server, over.starts);
+  const spendStore = over.spendStore ?? new Map<string, SpendWindow>();
   const windows = over.windows ?? new Map<string, readonly number[]>();
   const outcome = await openMcpConnector({
     allowlist: over.list ?? allowlist(),
@@ -260,13 +286,15 @@ async function open(over: OpenOver = {}) {
     timers,
     nowMs: () => timers.now,
     elicitationWindows: windows,
+    spendStore: over.noSpendStore === true ? (undefined as never) : spendStore,
     requestTimeoutMs: 1_000,
     elicitationTimeoutMs: 5_000,
+    startStoreTimeoutMs: 2_000,
   });
-  return { spawn, owner, store, timers, windows, outcome };
+  return { spawn, owner, store, timers, windows, spendStore, outcome };
 }
 
-async function opened(over: OpenOver = {}): Promise<{ connector: McpConnector; spawn: FakeSpawn; owner: FakeOwner; store: FakeStore; timers: FakeTimers; windows: Map<string, readonly number[]> }> {
+async function opened(over: OpenOver = {}): Promise<{ connector: McpConnector; spawn: FakeSpawn; owner: FakeOwner; store: FakeStore; timers: FakeTimers; windows: Map<string, readonly number[]>; spendStore: Map<string, SpendWindow> }> {
   const { outcome, ...rest } = await open(over);
   if (!outcome.ok) throw new Error(`${outcome.code}: ${outcome.reasons.join('; ')}`);
   return { connector: outcome.connector, ...rest };
@@ -280,7 +308,6 @@ const call = (over: Partial<ToolCallInput> = {}): ToolCallInput => ({
   envelope: envelope(),
   history: [],
   facts: { reauthenticated: false, approved: false },
-  now: NOW,
   ...over,
 });
 
@@ -500,11 +527,12 @@ describe('a tool call', () => {
     if (result.admitted) expect(result.receipt).toMatchObject({ outcome: 'unknown', errorCode: 'outcome_unknown' });
   });
 
-  it('a call after close never reaches the server, and gives its cost back', async () => {
+  it('a call after close never reaches the server, gives its cost back, and is not reported as admitted with a start that was never stored', async () => {
     const { connector, spawn } = await opened();
     await connector.close();
     const result = await connector.callTool(call());
-    expect(result).toMatchObject({ admitted: true, outcome: 'failed' });
+    expect(result).toMatchObject({ admitted: false, code: 'CONNECTION_CLOSED' });
+    expect('started' in result).toBe(false);
     expect(callsSent(spawn.server)).toHaveLength(0);
     expect(spendOf(connector.tally(), 'agency-business/mail-reader')).toBe(0);
   });
@@ -579,6 +607,234 @@ describe('the start record comes before the call (H3)', () => {
     expect(await connector.callTool(call({ envelope: envelope() }))).toMatchObject({ admitted: false, code: 'TOO_MANY_IN_FLIGHT' });
     await connector.close();
     await Promise.all(running);
+  });
+});
+
+describe('one clock, the connector clock (N1)', () => {
+  const farEnvelope = () => envelope({ expiry: '2026-11-09T00:00:00.000Z' });
+
+  it('opens a new spend window by the connector clock and by nothing a caller says: the limit holds until a day has passed on it', async () => {
+    const { connector, timers } = await opened({ list: allowlist({ spendLimit: 100 }) });
+    expect(await connector.callTool(call({ envelope: farEnvelope() }))).toMatchObject({ admitted: true });
+    timers.advance(86_400_000 - 1);
+    expect(await connector.callTool(call({ envelope: farEnvelope() }))).toMatchObject({ admitted: false, code: 'TOOL_OVER_SPEND_LIMIT' });
+    timers.advance(1);
+    expect(await connector.callTool(call({ envelope: farEnvelope() }))).toMatchObject({ admitted: true });
+  });
+
+  it('a call has no time of its own: handing one in changes nothing', async () => {
+    const { connector } = await opened({ list: allowlist({ spendLimit: 100 }) });
+    expect(await connector.callTool(call({ envelope: farEnvelope() }))).toMatchObject({ admitted: true });
+    const withTime = call({ envelope: farEnvelope(), ...({ now: '2027-01-01T00:00:00.000Z', nowMs: Date.parse('2027-01-01T00:00:00.000Z') } as object) });
+    expect(await connector.callTool(withTime)).toMatchObject({ admitted: false, code: 'TOOL_OVER_SPEND_LIMIT' });
+  });
+
+  it('the window starts at the connector\'s own reading', async () => {
+    const { connector, timers } = await opened();
+    await connector.callTool(call());
+    expect(connector.tally().get('agency-business/mail-reader')?.windowStart).toBe(timers.now);
+  });
+
+  it('a clock that steps backwards un-expires nothing and opens no window: the highest reading is kept', async () => {
+    const { connector, timers } = await opened();
+    const start = timers.now;
+    timers.advance(2 * 3_600_000);
+    expect(await connector.callTool(call())).toMatchObject({ admitted: false, code: 'CONNECTOR_ENVELOPE_EXPIRED' });
+    timers.now = start;
+    expect(await connector.callTool(call())).toMatchObject({ admitted: false, code: 'CONNECTOR_ENVELOPE_EXPIRED' });
+  });
+});
+
+describe('the spend lives outside the connection (N2)', () => {
+  it('a connection opened later continues from what was spent: close and reopen is no fresh budget', async () => {
+    const spendStore = new Map<string, SpendWindow>();
+    const first = await opened({ list: allowlist({ spendLimit: 100 }), spendStore });
+    expect(await first.connector.callTool(call())).toMatchObject({ admitted: true });
+    await first.connector.close();
+    const second = await opened({ list: allowlist({ spendLimit: 100 }), spendStore, timers: first.timers });
+    expect(await second.connector.callTool(call())).toMatchObject({ admitted: false, code: 'TOOL_OVER_SPEND_LIMIT' });
+    expect(callsSent(second.spawn.server)).toHaveLength(0);
+  });
+
+  it('a store of its own is the contrast: a fresh store does start fresh', async () => {
+    const first = await opened({ list: allowlist({ spendLimit: 100 }) });
+    await first.connector.callTool(call());
+    await first.connector.close();
+    const second = await opened({ list: allowlist({ spendLimit: 100 }), timers: first.timers });
+    expect(await second.connector.callTool(call())).toMatchObject({ admitted: true });
+  });
+
+  it('writes the booking to the store while the call is still in flight', async () => {
+    const { connector, spawn, spendStore } = await opened();
+    spawn.server.silent = true;
+    const running = connector.callTool(call());
+    await tick();
+    expect(spendStore.get('agency-business/mail-reader')).toMatchObject({ spent: 100, calls: 1 });
+    await connector.close();
+    await running;
+  });
+
+  it('writes a refund to the store too', async () => {
+    const { connector, store, spendStore } = await opened();
+    store.refuse = true;
+    await connector.callTool(call());
+    expect(spendStore.get('agency-business/mail-reader')).toMatchObject({ spent: 0, calls: 0 });
+  });
+
+  it('refuses to open without a spend store, and never starts the server', async () => {
+    const { outcome, spawn } = await open({ noSpendStore: true });
+    expect(outcome).toMatchObject({ ok: false, code: 'SPEND_STORE_MISSING' });
+    expect(spawn.opened).toBe(0);
+  });
+});
+
+describe('the start store is held to its contract (N3)', () => {
+  it('a store that never answers is a refusal after its timeout: nothing is sent, the booking and the key are released', async () => {
+    const { connector, spawn, store, timers, spendStore } = await opened();
+    store.hangs = true;
+    const shared = envelope();
+    const running = connector.callTool(call({ envelope: shared }));
+    await tick();
+    timers.advance(2_000);
+    expect(await running).toMatchObject({ admitted: false, code: 'START_NOT_RECORDED' });
+    expect(callsSent(spawn.server)).toHaveLength(0);
+    expect(spendStore.get('agency-business/mail-reader')).toMatchObject({ spent: 0, calls: 0 });
+    store.hangs = false;
+    expect(await connector.callTool(call({ envelope: shared }))).not.toMatchObject({ code: 'CALL_IN_FLIGHT' });
+  });
+
+  it.each([['the string yes', 'yes'], ['the number 1', 1], ['an object', {}], ['undefined', null]])('reads only a true as stored: %s is a refusal', async (_label, answer) => {
+    const { connector, spawn, store } = await opened();
+    store.answerWith = answer;
+    expect(await connector.callTool(call())).toMatchObject({ admitted: false, code: 'START_NOT_RECORDED' });
+    expect(callsSent(spawn.server)).toHaveLength(0);
+  });
+
+  it('a start the store already holds is refused, so two connections cannot run one call', async () => {
+    const starts = new SharedStarts();
+    const a = await opened({ starts });
+    const b = await opened({ starts, timers: a.timers });
+    const shared = envelope();
+    expect(await a.connector.callTool(call({ envelope: shared }))).toMatchObject({ admitted: true, outcome: 'succeeded' });
+    const second = await b.connector.callTool(call({ envelope: shared }));
+    expect(second).toMatchObject({ admitted: false, code: 'START_DUPLICATE' });
+    expect(callsSent(b.spawn.server)).toHaveLength(0);
+    expect(spendOf(b.connector.tally(), 'agency-business/mail-reader')).toBe(0);
+  });
+
+  it('the store contract is real in the fake: the same start is stored once, and answered duplicate after', async () => {
+    const { store } = await opened();
+    const admission = (await store.record({ started: { tenant: 'agency-business', connector: 'fixture-mail', action: 'bridge-read', idempotencyKey: `sha256:${'a'.repeat(64)}`, attempt: 1, envelopeId: `ENV-${'a'.repeat(24)}` }, serverKey: 'agency-business/mail-reader', tool: 'search_mail', argumentsDigest: 'a'.repeat(64), bookedMicroUsd: 1, spentAfter: 1, callsAfter: 1 }));
+    expect(admission).toBe(true);
+    expect(await store.record(store.records[0] as McpStartRecord)).toBe('duplicate');
+  });
+
+  it('checks again after the store: a tools-changed notice that came in while it was waited on stops the call', async () => {
+    const { connector, spawn, store, spendStore } = await opened();
+    store.onRecord = () => spawn.server.push({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+    expect(await connector.callTool(call())).toMatchObject({ admitted: false, code: 'TOOLS_STALE' });
+    expect(callsSent(spawn.server)).toHaveLength(0);
+    expect(spendStore.get('agency-business/mail-reader')).toMatchObject({ spent: 0, calls: 0 });
+  });
+
+  it('a tools/list that fails is a refusal with no started line, never an admitted call whose start was not stored', async () => {
+    const { connector, spawn, store } = await opened();
+    spawn.server.listFails = true;
+    const result = await connector.callTool(call());
+    expect(result).toMatchObject({ admitted: false, code: 'TOOL_DESCRIPTOR_CHANGED' });
+    expect('started' in result).toBe(false);
+    expect(store.records).toHaveLength(0);
+    expect(callsSent(spawn.server)).toHaveLength(0);
+  });
+});
+
+describe('the arguments are digested as they are sent (N7)', () => {
+  const awkward = () => ({ when: new Date(0), nested: { toJSON: () => ({ a: 1 }) }, skipped: undefined, plain: 'x' });
+  const onTheWire = { when: '1970-01-01T00:00:00.000Z', nested: { a: 1 }, plain: 'x' };
+
+  it('sends the written-and-read form, and the digest in the start record is of that same value', async () => {
+    const { connector, spawn, store } = await opened();
+    await connector.callTool(call({ arguments: awkward() }));
+    const sent = callsSent(spawn.server)[0] as Message;
+    expect((sent['params'] as Message)['arguments']).toEqual(onTheWire);
+    expect(store.records[0]?.argumentsDigest).toBe(argumentsDigestOf(onTheWire));
+  });
+
+  it('is not the digest of the object before it was written', async () => {
+    const { connector, store } = await opened();
+    await connector.callTool(call({ arguments: awkward() }));
+    expect(store.records[0]?.argumentsDigest).not.toBe(argumentsDigestOf(awkward()));
+  });
+
+  it('refuses arguments that are not an object once written out', async () => {
+    const { connector } = await opened();
+    expect(await connector.callTool(call({ arguments: new Date(0) as never }))).toMatchObject({ admitted: false, code: 'ARGUMENTS_INVALID' });
+  });
+});
+
+describe('a call waiting on the owner is not timed (N6)', () => {
+  const askForm = (id: string) => ({ jsonrpc: '2.0', id, method: 'elicitation/create', params: { message: 'Which mailbox?', requestedSchema: { type: 'object', properties: { mailbox: { type: 'string' } } } } });
+
+  it('is not reported as lost while the owner decides, and is timed afresh once the answer has been delivered', async () => {
+    let release: (value: unknown) => void = () => undefined;
+    const owner = new FakeOwner();
+    owner.enqueue = (item) => {
+      owner.items.push(item);
+      return new Promise((resolve) => { release = resolve; });
+    };
+    const { connector, spawn, timers } = await opened({ owner });
+    spawn.server.silent = true;
+    const running = connector.callTool(call());
+    await tick();
+    const callId = callsSent(spawn.server)[0]?.['id'];
+    spawn.server.push(askForm('srv-e1'));
+    await tick();
+    timers.advance(2_000);
+    let settled = false;
+    void running.then(() => { settled = true; });
+    await tick();
+    expect(settled).toBe(false);
+    release({ action: 'accept', content: { mailbox: 'info' } });
+    await tick();
+    timers.advance(999);
+    await tick();
+    expect(settled).toBe(false);
+    spawn.server.push({ jsonrpc: '2.0', id: callId, result: { content: [{ type: 'text', text: 'late but not lost' }] } });
+    expect(await running).toMatchObject({ admitted: true, outcome: 'succeeded' });
+  });
+
+  it('after the answer, the call has its full timeout and then ends as unknown', async () => {
+    let release: (value: unknown) => void = () => undefined;
+    const owner = new FakeOwner();
+    owner.enqueue = (item) => {
+      owner.items.push(item);
+      return new Promise((resolve) => { release = resolve; });
+    };
+    const { connector, spawn, timers } = await opened({ owner });
+    spawn.server.silent = true;
+    const running = connector.callTool(call());
+    await tick();
+    spawn.server.push(askForm('srv-e2'));
+    await tick();
+    release({ action: 'decline' });
+    await tick();
+    timers.advance(1_000);
+    expect(await running).toMatchObject({ admitted: true, outcome: 'unknown' });
+  });
+
+  it('an owner who never answers is a cancel after the owner timeout, and the call is then timed again', async () => {
+    const owner = new FakeOwner();
+    owner.silent = true;
+    const { connector, spawn, timers } = await opened({ owner });
+    spawn.server.silent = true;
+    const running = connector.callTool(call());
+    await tick();
+    spawn.server.push(askForm('srv-e3'));
+    await tick();
+    timers.advance(5_000);
+    await tick();
+    timers.advance(1_000);
+    expect(await running).toMatchObject({ admitted: true, outcome: 'unknown' });
   });
 });
 

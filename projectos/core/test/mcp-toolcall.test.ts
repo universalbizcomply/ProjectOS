@@ -114,6 +114,7 @@ function admit(over: Record<string, unknown> = {}): McpToolAdmission {
     history: [],
     facts: { reauthenticated: false, approved: false },
     now: NOW,
+    nowMs: Date.parse(NOW),
     ...over,
   } as never);
 }
@@ -207,6 +208,28 @@ describe('the tenant is one tenant all the way (H1)', () => {
 
   it('admits when the server, the connector and the envelope are the same tenant: the positive control', () => {
     expect(admit()).toMatchObject({ admitted: true });
+  });
+});
+
+describe('the clock is the connector clock, and the two readings must agree (N1)', () => {
+  it('refuses a call whose ISO time and whose millisecond clock are not the same instant', () => {
+    expect(admit({ nowMs: Date.parse(NOW) + 5 * 86_400_000 })).toMatchObject({ admitted: false, code: 'CLOCK_MISMATCH' });
+  });
+
+  it('refuses a clock that is not a whole number, and books nothing', () => {
+    const admission = admit({ nowMs: Number.NaN });
+    expect(admission).toMatchObject({ admitted: false, code: 'CLOCK_MISMATCH' });
+    expect('tally' in admission).toBe(false);
+  });
+
+  it('admits when they agree: the positive control', () => {
+    expect(admit({ nowMs: Date.parse(NOW) })).toMatchObject({ admitted: true });
+  });
+
+  it('books the window at the millisecond clock it was given', () => {
+    const admission = admit();
+    if (!admission.admitted) throw new Error('control');
+    expect(admission.tally.get('agency-business/mail-reader')?.windowStart).toBe(Date.parse(NOW));
   });
 });
 

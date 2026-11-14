@@ -70,11 +70,17 @@ export interface OwnerQueuePort {
 }
 
 /**
- * The durable record of a call that is about to be sent. The connector awaits it BEFORE it sends, and sends nothing
- * when it resolves false or throws, so a crash after the send leaves a start the retry rule can see.
+ * The durable record of a call that is about to be sent. The connector awaits it BEFORE it sends, under a timeout, and sends
+ * nothing unless it resolves to exactly `true`: `false`, `'duplicate'`, anything else that is truthy, a throw and a timeout
+ * are all a refusal.
+ *
+ * THE STORE MUST REFUSE A DUPLICATE, ATOMICALLY. A start whose tenant, connector, idempotency key and attempt the store
+ * already holds is answered `'duplicate'` and not stored again. That is what stops two connections, or two processes, from
+ * running the same call: the connector's own in-flight check sees only its own calls. A store that cannot tell is a store that
+ * must answer `false`.
  */
 export interface StartStorePort {
-  record(entry: McpStartRecord): Promise<boolean>;
+  record(entry: McpStartRecord): Promise<true | false | 'duplicate'>;
 }
 
 /** A timer, injected, so nothing here owns a clock. `setTimer` returns the function that cancels it. */
