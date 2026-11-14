@@ -18,8 +18,8 @@ import {
 
 const SERVER = 'agency-business/mail-reader';
 
-function decide(request: unknown, window: readonly number[] = [], nowMs = 1_000_000): { decision: ServerRequestDecision; window: readonly number[] } {
-  return decideServerRequest({ serverKey: SERVER, request, window, nowMs });
+function decide(request: unknown, window: readonly number[] = [], nowMs = 1_000_000, callInFlight = true): { decision: ServerRequestDecision; window: readonly number[] } {
+  return decideServerRequest({ serverKey: SERVER, request, window, nowMs, callInFlight });
 }
 
 const elicitation = (over: Record<string, unknown> = {}) => ({
@@ -103,7 +103,7 @@ describe('an elicitation goes to the owner queue', () => {
     let window: readonly number[] = [];
     const results: string[] = [];
     for (let n = 0; n < 8; n += 1) {
-      const out = decideServerRequest({ serverKey: SERVER, request: { ...elicitation(), id: n + 1 }, window, nowMs: 1_000_000 + n, maxPerWindow: 5 });
+      const out = decideServerRequest({ serverKey: SERVER, request: { ...elicitation(), id: n + 1 }, window, nowMs: 1_000_000 + n, maxPerWindow: 5, callInFlight: true });
       window = out.window;
       results.push(out.decision.kind === 'refused' ? out.decision.code : out.decision.kind);
     }
@@ -113,8 +113,41 @@ describe('an elicitation goes to the owner queue', () => {
 
   it('lets the window slide: after a minute the server may ask again', () => {
     const full = [1_000_000, 1_000_001, 1_000_002, 1_000_003, 1_000_004];
-    expect(decideServerRequest({ serverKey: SERVER, request: elicitation(), window: full, nowMs: 1_000_100, maxPerWindow: 5 }).decision).toMatchObject({ code: 'ELICITATION_RATE_LIMITED' });
-    expect(decideServerRequest({ serverKey: SERVER, request: elicitation(), window: full, nowMs: 1_061_000, maxPerWindow: 5 }).decision.kind).toBe('owner-queue');
+    expect(decideServerRequest({ serverKey: SERVER, request: elicitation(), window: full, nowMs: 1_000_100, maxPerWindow: 5, callInFlight: true }).decision).toMatchObject({ code: 'ELICITATION_RATE_LIMITED' });
+    expect(decideServerRequest({ serverKey: SERVER, request: elicitation(), window: full, nowMs: 1_061_000, maxPerWindow: 5, callInFlight: true }).decision.kind).toBe('owner-queue');
+  });
+
+  it('refuses an elicitation when no tool call is in flight: a server may not ask the owner unprompted (M2)', () => {
+    expect(decide(elicitation(), [], 1_000_000, false).decision).toMatchObject({ kind: 'refused', code: 'ELICITATION_UNSOLICITED' });
+  });
+
+  it('an unsolicited elicitation is counted in the window too, so it cannot be used to probe for free (M2)', () => {
+    const out = decide(elicitation(), [], 1_000_000, false);
+    expect(out.window).toEqual([1_000_000]);
+  });
+
+  it.each(['password', 'passwd', 'secret', 'client_secret', 'token', 'access_token', 'api_key', 'apiKey', 'api-key', 'credential', 'credentials', 'private_key', 'privateKey'])('refuses a form that asks for the field %s (M2)', (name) => {
+    expect(decide(elicitation({ requestedSchema: { type: 'object', properties: { [name]: { type: 'string' } } } })).decision).toMatchObject({ kind: 'refused', code: 'ELICITATION_SECRET_FIELD' });
+  });
+
+  it('counts a malformed request in the window, so a server cannot flood with bad ones for free (M2)', () => {
+    let window: readonly number[] = [];
+    for (let n = 0; n < 5; n += 1) {
+      const out = decideServerRequest({ serverKey: SERVER, request: { ...elicitation({ message: 5 }), id: n + 1 }, window, nowMs: 1_000_000 + n, maxPerWindow: 5, callInFlight: true });
+      expect(out.decision).toMatchObject({ code: 'ELICITATION_MALFORMED' });
+      window = out.window;
+    }
+    expect(decideServerRequest({ serverKey: SERVER, request: elicitation(), window, nowMs: 1_000_010, maxPerWindow: 5, callInFlight: true }).decision).toMatchObject({ code: 'ELICITATION_RATE_LIMITED' });
+  });
+
+  it('carries the type and the allowed values of each field into the item, for the owner to be held to (M2)', () => {
+    const item = (decide(elicitation({ requestedSchema: { type: 'object', properties: { mailbox: { type: 'string', enum: ['info', 'sales'] }, count: { type: 'integer' } } } })).decision as { item: OwnerQueueItem }).item;
+    expect(item.specs).toEqual([{ name: 'mailbox', type: 'string', enum: ['info', 'sales'] }, { name: 'count', type: 'integer', enum: null }]);
+  });
+
+  it('refuses an enum that is not a short list of plain values (M2)', () => {
+    expect(decide(elicitation({ requestedSchema: { type: 'object', properties: { a: { type: 'string', enum: [{ x: 1 }] } } } })).decision).toMatchObject({ code: 'ELICITATION_MALFORMED' });
+    expect(decide(elicitation({ requestedSchema: { type: 'object', properties: { a: { type: 'string', enum: Array.from({ length: 100 }, (_, i) => String(i)) } } } })).decision).toMatchObject({ code: 'ELICITATION_MALFORMED' });
   });
 
   it('a refused request does not use a slot', () => {
@@ -125,6 +158,8 @@ describe('an elicitation goes to the owner queue', () => {
 
 describe('the owner answers, and only the owner', () => {
   const item = (decide(elicitation()).decision as { item: OwnerQueueItem }).item;
+
+  const twoFields = (decide(elicitation({ requestedSchema: { type: 'object', properties: { mailbox: { type: 'string', enum: ['info', 'sales'] }, count: { type: 'integer' }, urgent: { type: 'boolean' } } } })).decision as { item: OwnerQueueItem }).item;
 
   it('accepts an answer for the fields that were asked: the positive control', () => {
     expect(parseOwnerAnswer({ action: 'accept', content: { mailbox: 'info' } }, item)).toMatchObject({ ok: true });
@@ -141,6 +176,20 @@ describe('the owner answers, and only the owner', () => {
     ['an accept with no content', { action: 'accept' }],
   ])('refuses %s', (_label, raw) => {
     expect(parseOwnerAnswer(raw, item)).toMatchObject({ ok: false });
+  });
+
+  it('an accept must cover every field that was asked, not some of them (M2)', () => {
+    expect(parseOwnerAnswer({ action: 'accept', content: { mailbox: 'info', count: 2, urgent: true } }, twoFields)).toMatchObject({ ok: true });
+    expect(parseOwnerAnswer({ action: 'accept', content: { mailbox: 'info', count: 2 } }, twoFields)).toMatchObject({ ok: false });
+  });
+
+  it.each([
+    ['a number where text was asked', { mailbox: 5, count: 2, urgent: true }],
+    ['a value outside the enum', { mailbox: 'support', count: 2, urgent: true }],
+    ['a fraction where an integer was asked', { mailbox: 'info', count: 2.5, urgent: true }],
+    ['text where a boolean was asked', { mailbox: 'info', count: 2, urgent: 'yes' }],
+  ])('refuses %s (M2)', (_label, content) => {
+    expect(parseOwnerAnswer({ action: 'accept', content }, twoFields)).toMatchObject({ ok: false });
   });
 });
 

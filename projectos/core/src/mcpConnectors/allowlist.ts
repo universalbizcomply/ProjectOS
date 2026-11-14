@@ -12,10 +12,20 @@
  * action it is pinned to and what it costs. A tool the server offers and the row does not list has no action and
  * no budget, so it is never called.
  *
+ * EACH TOOL IS PINNED TWICE: by the action it runs under, and by a hash of what it said it was, its description, input
+ * schema and annotations, when the owner approved it. A server that describes a tool differently later (a rug pull) no
+ * longer hashes to the pin, and the tool is not called.
+ *
+ * THE LAUNCH IS THE THING APPROVED. A manifest is refused if its command is a package runner (npx, uvx and the like), if
+ * an interpreter is asked to run text from the command line, if an argument confirms by itself or names a version that
+ * moves, if a name carries a hidden character or a shell operator, if an argument looks like a credential, or if the
+ * environment names include one that changes what a program loads (PATH, NODE_OPTIONS, LD_PRELOAD and the like).
+ *
  * A REFUSAL SHOWS NONE OF THE MANIFEST. It names the rule and the field, not the value. Pure: the hash is computed
  * in this module, and nothing is read, run or fetched.
  */
 import { isActionName } from '../actionRegistry.js';
+import { holdsSecretShape } from '../context/redact.js';
 import { sha256Hex } from '../execution/evidence.js';
 import { isTenantId } from '../tenant.js';
 import { isServerId, isToolName, serverKeyOf, type ServerKey } from './serverKeys.js';
@@ -39,8 +49,21 @@ const MAX_ARGS = 32;
 const MAX_ARG_CHARS = 512;
 const MAX_ENV_NAMES = 32;
 /** A shell operator, a quote or a control character. A path may hold a space, and nothing here is run by a shell. */
-const UNSAFE_TEXT = /[;&|<>$`"'*?\u0000-\u001f\u007f]/;
+const UNSAFE_TEXT = /[;&|<>$`"'*?^%()\u0000-\u001f\u007f]/;
+/** What cmd.exe and a shell read as more than text, in an argument. Quotes and a dollar sign are plain in an argument. */
+const UNSAFE_ARG = /[&|^%()]/;
+/** A control or format character, which is how a name is made to look like another: a right-to-left override, a zero-width space. */
+const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}]/u;
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
+/** Names that change what a program loads or finds, whatever the program is. The value is never in a record, but the name would be enough. */
+const DENIED_ENV_NAME = /^(?:PATH|PATHEXT|COMSPEC|NODE_OPTIONS|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_[A-Z0-9_]*|PYTHONPATH|PYTHONHOME)$/;
+/** Programs whose job is to fetch and run something else, by name or from the network. */
+const PACKAGE_RUNNERS = ['npx', 'npm', 'pnpm', 'pnpx', 'yarn', 'bunx', 'bun', 'uvx', 'uv', 'pipx', 'deno'];
+const INTERPRETERS = ['node', 'nodejs', 'python', 'python2', 'python3', 'py', 'ruby', 'perl', 'php', 'bash', 'sh', 'zsh', 'dash', 'cmd', 'powershell', 'pwsh'];
+/** A flag that makes an interpreter run text from the command line instead of a file. */
+const INLINE_PROGRAM_FLAG = /^(?:-e|-c|-p|-r|--eval|--print|\/c|\/k|-command|-encodedcommand|-ec)$/i;
+/** An auto-confirm flag, or a version that moves: the thing launched is not the thing that was approved. */
+const FLOATING_ARG = /^(?:-y|--yes)$|@(?:latest|next|beta|canary)$/i;
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const CONNECTOR_ID = /^[a-z][a-z0-9-]{1,63}$/;
 const HASH_DOMAIN = 'projectos-mcp-manifest-v1';
@@ -55,6 +78,21 @@ function textList(value: unknown, max: number, maxChars: number, accepts: (item:
   return items.every((item) => typeof item === 'string' && item.length <= maxChars && accepts(item)) ? (items as readonly string[]) : null;
 }
 
+/** The program's own name, lower case, with its directory and its extension off. */
+function launcherOf(command: string): string {
+  const name = command.replace(/\\/g, '/').split('/').pop() ?? '';
+  return name.toLowerCase().replace(/\.(?:exe|cmd|bat|com|ps1)$/, '');
+}
+
+/** Why this command and these arguments launch something other than the thing that was approved, or `null`. */
+function launchProblem(command: string, args: readonly string[]): string | null {
+  const program = launcherOf(command);
+  if (PACKAGE_RUNNERS.includes(program)) return 'the command is a package runner, which fetches what it runs';
+  if (args.some((arg) => FLOATING_ARG.test(arg))) return 'an argument confirms by itself or names a version that moves';
+  if (INTERPRETERS.includes(program) && (args.length === 0 || args.some((arg) => INLINE_PROGRAM_FLAG.test(arg)))) return 'an interpreter must run a named script, never text from the command line';
+  return null;
+}
+
 /** The manifest, or the names of the fields that are wrong. The values are not repeated. */
 export function parseManifest(raw: unknown): ManifestResult {
   const record = asRecord(raw);
@@ -65,11 +103,17 @@ export function parseManifest(raw: unknown): ManifestResult {
   if (!isTenantId(record['tenant'])) problems.push('tenant is not a tenant id');
   if (record['transport'] !== 'stdio') problems.push('transport must be stdio');
   const command = record['command'];
-  if (typeof command !== 'string' || command.trim() === '' || command.length > MAX_COMMAND_CHARS || UNSAFE_TEXT.test(command)) problems.push('command is empty, too long or holds a shell operator');
-  const args = textList(record['args'], MAX_ARGS, MAX_ARG_CHARS, (item) => !/[\u0000-\u001f\u007f]/.test(item));
-  if (args === null) problems.push('args must be a short list of plain text');
-  const envNames = textList(record['envNames'], MAX_ENV_NAMES, 64, (item) => ENV_NAME.test(item));
-  if (envNames === null) problems.push('envNames must be a list of variable names, with no value');
+  if (typeof command !== 'string' || command.trim() === '' || command.length > MAX_COMMAND_CHARS || UNSAFE_TEXT.test(command) || HIDDEN_CHARACTER.test(command) || holdsSecretShape(command)) {
+    problems.push('command is empty, too long, holds a shell operator or a hidden character, or looks like a credential');
+  }
+  const args = textList(record['args'], MAX_ARGS, MAX_ARG_CHARS, (item) => !UNSAFE_ARG.test(item) && !HIDDEN_CHARACTER.test(item) && !holdsSecretShape(item));
+  if (args === null) problems.push('args must be a short list of plain text, with no shell operator, hidden character or credential');
+  const envNames = textList(record['envNames'], MAX_ENV_NAMES, 64, (item) => ENV_NAME.test(item) && !DENIED_ENV_NAME.test(item));
+  if (envNames === null) problems.push('envNames must be a list of variable names, with no value and none that changes what a program loads');
+  if (typeof command === 'string' && args !== null) {
+    const launch = launchProblem(command, args);
+    if (launch !== null) problems.push(launch);
+  }
   if (problems.length > 0 || args === null || envNames === null) return { ok: false, problems };
   return {
     ok: true,
@@ -90,12 +134,18 @@ export function manifestHashOf(manifest: ServerManifest): string {
   return `sha256:${sha256Hex(`${HASH_DOMAIN}\n${JSON.stringify([serverId, tenant, transport, command, args, envNames])}`)}`;
 }
 
+export interface PinnedTool {
+  readonly action: string;
+  /** The hash of the tool's description, input schema and annotations. A tool that no longer hashes to it is not called. */
+  readonly descriptorHash: string;
+}
+
 export interface AllowlistEntry {
   readonly key: ServerKey;
   readonly manifestHash: string;
   readonly connectorId: string;
-  /** Tool name to the action it is pinned to. */
-  readonly tools: Readonly<Record<string, string>>;
+  /** Tool name to the action it is pinned to and the hash of what it said it was when the owner approved it. */
+  readonly tools: Readonly<Record<string, PinnedTool>>;
   readonly costPolicy: CostPolicy;
 }
 
@@ -107,7 +157,7 @@ export const EMPTY_ALLOWLIST: ServerAllowlist = Object.freeze({ servers: Object.
 
 export type AllowlistResult = { readonly ok: true; readonly allowlist: ServerAllowlist } | { readonly ok: false; readonly problems: readonly string[] };
 
-const ROW_FIELDS = ['tenant', 'serverId', 'manifestHash', 'connectorId', 'spendLimit', 'tools'] as const;
+const ROW_FIELDS = ['tenant', 'serverId', 'manifestHash', 'connectorId', 'spendLimit', 'callLimit', 'spendWindowMs', 'tools'] as const;
 
 function rowProblems(row: unknown, index: number): { readonly entry?: AllowlistEntry; readonly problems: readonly string[] } {
   const where = `servers[${index}]`;
@@ -122,25 +172,26 @@ function rowProblems(row: unknown, index: number): { readonly entry?: AllowlistE
   if (typeof record['manifestHash'] !== 'string' || !HASH.test(record['manifestHash'])) problems.push(`${where} manifestHash is not a sha256 pin`);
   if (typeof record['connectorId'] !== 'string' || !CONNECTOR_ID.test(record['connectorId'])) problems.push(`${where} names no connector`);
   const tools = asRecord(record['tools']);
-  const actionOf: Record<string, string> = Object.create(null) as Record<string, string>;
+  const pinned: Record<string, PinnedTool> = Object.create(null) as Record<string, PinnedTool>;
   const costs: Record<string, unknown> = {};
   if (tools === null || Object.keys(tools).length === 0) problems.push(`${where} lists no tool`);
   for (const [name, spec] of Object.entries(tools ?? {})) {
     const tool = asRecord(spec);
     const action = tool?.['action'];
-    if (!isToolName(name) || tool === null || !isActionName(action) || !Object.hasOwn(tool, 'cost')) {
-      problems.push(`${where} lists a tool with no plain name, no action or no cost`);
+    const descriptorHash = tool?.['descriptorHash'];
+    if (!isToolName(name) || tool === null || !isActionName(action) || !Object.hasOwn(tool, 'cost') || typeof descriptorHash !== 'string' || !HASH.test(descriptorHash)) {
+      problems.push(`${where} lists a tool with no plain name, no action, no cost or no descriptor pin`);
       continue;
     }
-    actionOf[name] = action;
+    pinned[name] = Object.freeze({ action, descriptorHash });
     costs[name] = tool['cost'];
   }
-  const policy = parseCostPolicy(costs, record['spendLimit'], where);
+  const policy = parseCostPolicy(costs, record['spendLimit'], where, { callLimit: record['callLimit'], windowMs: record['spendWindowMs'] });
   if (!policy.ok) problems.push(...policy.problems);
   if (problems.length > 0 || key === null || !policy.ok) return { problems };
   return {
     problems,
-    entry: Object.freeze({ key, manifestHash: record['manifestHash'] as string, connectorId: record['connectorId'] as string, tools: Object.freeze(actionOf), costPolicy: policy.policy }),
+    entry: Object.freeze({ key, manifestHash: record['manifestHash'] as string, connectorId: record['connectorId'] as string, tools: Object.freeze(pinned), costPolicy: policy.policy }),
   };
 }
 

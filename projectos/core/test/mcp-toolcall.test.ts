@@ -12,6 +12,7 @@ import {
   EMPTY_TALLY,
   manifestHashOf,
   mcpReceiptOf,
+  mcpStartRecordOf,
   parseManifest,
   parseServerAllowlist,
   spendOf,
@@ -65,19 +66,21 @@ function connectors(rows: readonly unknown[] = [entry()]): ConnectorRegistry {
 
 const AGENCY: CheckoutFacts = { projectId: 'seo-agency', repository: '127.0.0.1:47900/SEOAgency-remote/seo-agency', root: 'C:/dev/SEOAgency', worktrees: null };
 
-function binding(): TenantBinding {
+const OWNER: CheckoutFacts = { projectId: 'polygo', repository: 'github.com/polygonia-apres/polygo', root: 'C:/dev/Polygo/polygo', worktrees: null };
+
+function binding(facts: CheckoutFacts = AGENCY): TenantBinding {
   const tenants = parseTenantRegistry(record('security/tenant-registry.json'));
   if (!tenants.ok) throw new Error('tenants');
-  const resolved = resolveTenant(tenants.registry, AGENCY);
+  const resolved = resolveTenant(tenants.registry, facts);
   if (!resolved.ok) throw new Error(resolved.reasons.join('; '));
   return resolved.binding;
 }
 
 let nextEnvelope = 1;
-function envelope(request: Partial<EnvelopeRequest> = {}): TaskEnvelope {
+function envelope(request: Partial<EnvelopeRequest> = {}, facts: CheckoutFacts = AGENCY): TaskEnvelope {
   const base: EnvelopeRequest = { action: 'bridge-read', subjectHash: 'a'.repeat(40), scope: ['mail'], budget: 500, expiry: LATER, intentScope: 'RUN-1' };
   const minted = mintEnvelope(
-    { binding: binding(), registry: actions(), principal: 'implementer', actor: { agent: 'claude-code-cli', provider: 'anthropic', model: 'claude-opus-5-5' }, envelopeId: `ENV-${String(nextEnvelope++).padStart(24, '0')}` },
+    { binding: binding(facts), registry: actions(), principal: 'implementer', actor: { agent: 'claude-code-cli', provider: 'anthropic', model: 'claude-opus-5-5' }, envelopeId: `ENV-${String(nextEnvelope++).padStart(24, '0')}` },
     { ...base, ...request },
   );
   const admission = admitEnvelope(minted, NOW, () => true, () => true);
@@ -87,11 +90,13 @@ function envelope(request: Partial<EnvelopeRequest> = {}): TaskEnvelope {
 
 const MANIFEST = { serverId: 'mail-reader', tenant: 'agency-business', transport: 'stdio', command: 'C:/tools/mcp/mail-reader.exe', args: ['--readonly'], envNames: ['MAIL_TOKEN_REF'] };
 
+const DESCRIPTOR = `sha256:${'d'.repeat(64)}`;
+
 function allowlist(over: Raw = {}): ServerAllowlist {
   const manifest = parseManifest(MANIFEST);
   if (!manifest.ok) throw new Error('manifest');
   const parsed = parseServerAllowlist({
-    servers: [{ tenant: 'agency-business', serverId: 'mail-reader', manifestHash: manifestHashOf(manifest.manifest), connectorId: 'fixture-mail', spendLimit: 1_000, tools: { search_mail: { action: 'bridge-read', cost: 100 }, other_tool: { action: 'bridge-read', cost: 100 } }, ...over }],
+    servers: [{ tenant: 'agency-business', serverId: 'mail-reader', manifestHash: manifestHashOf(manifest.manifest), connectorId: 'fixture-mail', spendLimit: 1_000, tools: { search_mail: { action: 'bridge-read', cost: 100, descriptorHash: DESCRIPTOR }, other_tool: { action: 'bridge-read', cost: 100, descriptorHash: DESCRIPTOR } }, ...over }],
   });
   if (!parsed.ok) throw new Error(parsed.problems.join('; '));
   return parsed.allowlist;
@@ -102,7 +107,6 @@ function admit(over: Record<string, unknown> = {}): McpToolAdmission {
     allowlist: allowlist(),
     manifest: MANIFEST,
     tool: 'search_mail',
-    sessionKey: 'RUN-1',
     tally: EMPTY_TALLY,
     registry: connectors(),
     actions: actions(),
@@ -120,7 +124,7 @@ describe('a tool call passes every gate: the positive control', () => {
     expect(admission).toMatchObject({ admitted: true });
     if (!admission.admitted) return;
     expect(admission.started).toMatchObject({ connector: 'fixture-mail', action: 'bridge-read', attempt: 1 });
-    expect(spendOf(admission.tally, 'agency-business/mail-reader', 'RUN-1')).toBe(100);
+    expect(spendOf(admission.tally, 'agency-business/mail-reader')).toBe(100);
   });
 });
 
@@ -172,6 +176,57 @@ describe('the gates, in order', () => {
 
   it('refuses a malformed manifest as a manifest problem, not as a hash mismatch', () => {
     expect(admit({ manifest: { ...MANIFEST, url: 'https://example.invalid' } })).toMatchObject({ admitted: false, code: 'MANIFEST_INVALID' });
+  });
+});
+
+describe('the tenant is one tenant all the way (H1)', () => {
+  const calendarConnector = (): Raw =>
+    entry({
+      connectorId: 'fixture-calendar',
+      tenant: 'owner-personal',
+      domain: 'develop',
+      secretReference: 'ProjectOS/tenant.owner-personal/production/google/calendar-refresh',
+      releaseRecord: { ...(entry()['releaseRecord'] as Raw), connectorId: 'fixture-calendar', tenant: 'owner-personal' },
+    });
+
+  it('refuses a row for tenant A that names the connector of tenant B, even with an envelope of tenant B', () => {
+    const crossed = allowlist({ connectorId: 'fixture-calendar' });
+    const admission = admit({ allowlist: crossed, registry: connectors([calendarConnector()]), envelope: envelope({}, OWNER) });
+    expect(admission).toMatchObject({ admitted: false, code: 'TENANT_MISMATCH' });
+  });
+
+  it('refuses an envelope of another tenant than the server, before the connector gate is asked', () => {
+    expect(admit({ envelope: envelope({}, OWNER) })).toMatchObject({ admitted: false, code: 'TENANT_MISMATCH' });
+  });
+
+  it('books nothing for either refusal', () => {
+    const crossed = allowlist({ connectorId: 'fixture-calendar' });
+    const admission = admit({ allowlist: crossed, registry: connectors([calendarConnector()]), envelope: envelope({}, OWNER) });
+    expect('tally' in admission).toBe(false);
+  });
+
+  it('admits when the server, the connector and the envelope are the same tenant: the positive control', () => {
+    expect(admit()).toMatchObject({ admitted: true });
+  });
+});
+
+describe('the start record, before the call (H3)', () => {
+  it('holds the started line, what was booked and a digest of the arguments, and none of the arguments', () => {
+    const admission = admit();
+    if (!admission.admitted) throw new Error('control');
+    const record = mcpStartRecordOf(admission, { query: 'private-argument-text' });
+    expect(record).toMatchObject({ serverKey: 'agency-business/mail-reader', bookedMicroUsd: 100, spentAfter: 100, callsAfter: 1 });
+    expect(record?.started).toMatchObject({ connector: 'fixture-mail', attempt: 1 });
+    expect(record?.argumentsDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(record)).not.toContain('private-argument-text');
+  });
+
+  it('is null for arguments that cannot be read, so a call with none that can be digested is not sent', () => {
+    const admission = admit();
+    if (!admission.admitted) throw new Error('control');
+    const loop: Record<string, unknown> = {};
+    loop['self'] = loop;
+    expect(mcpStartRecordOf(admission, loop)).toBeNull();
   });
 });
 

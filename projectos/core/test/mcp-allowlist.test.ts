@@ -31,13 +31,15 @@ function manifestOf(over: Record<string, unknown> = {}): ServerManifest {
   return parsed.manifest;
 }
 
+const DESCRIPTOR = `sha256:${'d'.repeat(64)}`;
+
 const serverRow = (over: Record<string, unknown> = {}) => ({
   tenant: 'agency-business',
   serverId: 'mail-reader',
   manifestHash: manifestHashOf(manifestOf()),
   connectorId: 'fixture-mail',
   spendLimit: 5_000,
-  tools: { search_mail: { action: 'bridge-read', cost: 100 } },
+  tools: { search_mail: { action: 'bridge-read', cost: 100, descriptorHash: DESCRIPTOR } },
   ...over,
 });
 
@@ -75,6 +77,67 @@ describe('the manifest', () => {
     expect(manifestHashOf(manifestOf({ args: ['--readonly', '--write'] }))).not.toBe(manifestHashOf(manifestOf()));
     expect(manifestHashOf(manifestOf({ envNames: [] }))).not.toBe(manifestHashOf(manifestOf()));
     expect(manifestHashOf(manifestOf())).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+});
+
+describe('manifest hygiene (M3)', () => {
+  const FAKE_KEY = ['sk', 'ant', 'api03', 'abcdefghij', 'klmnopqrst', 'uvwxyz0123'].join('-');
+
+  it.each([
+    ['PATH', ['PATH']],
+    ['PATHEXT', ['PATHEXT']],
+    ['COMSPEC', ['COMSPEC']],
+    ['NODE_OPTIONS', ['NODE_OPTIONS']],
+    ['LD_PRELOAD', ['LD_PRELOAD']],
+    ['LD_LIBRARY_PATH', ['LD_LIBRARY_PATH']],
+    ['DYLD_INSERT_LIBRARIES', ['DYLD_INSERT_LIBRARIES']],
+    ['PYTHONPATH', ['PYTHONPATH']],
+    ['PYTHONHOME', ['PYTHONHOME']],
+  ])('refuses the environment name %s, which changes what a program loads', (_name, envNames) => {
+    expect(parseManifest({ ...MANIFEST, envNames })).toMatchObject({ ok: false });
+  });
+
+  it.each([
+    ['a caret in the command', { command: 'C:/tools/a^b.exe' }],
+    ['a percent sign in the command', { command: 'C:/tools/%TEMP%/a.exe' }],
+    ['an ampersand in an argument', { args: ['a&b'] }],
+    ['a pipe in an argument', { args: ['a|b'] }],
+    ['a parenthesis in an argument', { args: ['(a)'] }],
+    ['a caret in an argument', { args: ['a^b'] }],
+    ['a right-to-left override in an argument', { args: ['--name=‮gpj.exe'] }],
+    ['a zero-width space in the command', { command: 'C:/tools/mcp/mail​-reader.exe' }],
+    ['a control character above 0x7f in an argument', { args: ['ab'] }],
+    ['a credential in an argument', { args: [`--key=${FAKE_KEY}`] }],
+  ])('refuses %s', (_label, over) => {
+    expect(parseManifest({ ...MANIFEST, ...over })).toMatchObject({ ok: false });
+  });
+
+  it.each([
+    ['npx', { command: 'npx', args: ['some-mcp-server'] }],
+    ['an npx path with an extension', { command: 'C:/Program Files/nodejs/npx.cmd', args: ['x'] }],
+    ['uvx', { command: 'uvx', args: ['some-server'] }],
+    ['pnpm dlx style runners', { command: 'pnpm', args: ['dlx', 'x'] }],
+    ['bunx', { command: 'bunx', args: ['x'] }],
+    ['an auto-yes flag', { command: 'C:/tools/mcp/mail-reader.exe', args: ['-y'] }],
+    ['a --yes flag', { command: 'C:/tools/mcp/mail-reader.exe', args: ['--yes'] }],
+    ['a floating version', { command: 'C:/tools/mcp/mail-reader.exe', args: ['server@latest'] }],
+    ['node -e', { command: 'node', args: ['-e', 'run()'] }],
+    ['node --eval', { command: 'C:/Program Files/nodejs/node.exe', args: ['--eval', 'run()'] }],
+    ['python -c', { command: 'python3', args: ['-c', 'import x'] }],
+    ['powershell -Command', { command: 'powershell.exe', args: ['-Command', 'x'] }],
+    ['cmd /c', { command: 'cmd', args: ['/c', 'x'] }],
+    ['sh -c', { command: '/bin/sh', args: ['-c', 'x'] }],
+  ])('refuses a launch that is a package runner or an inline program: %s', (_label, over) => {
+    expect(parseManifest({ ...MANIFEST, ...over })).toMatchObject({ ok: false });
+  });
+
+  it('allows an interpreter that runs a named script, and a plain pinned binary: the positive control', () => {
+    expect(parseManifest({ ...MANIFEST, command: 'node', args: ['C:/tools/mcp/server.js'] })).toMatchObject({ ok: true });
+    expect(parseManifest(MANIFEST)).toMatchObject({ ok: true });
+  });
+
+  it('an environment name that is not on the list, still passes', () => {
+    expect(parseManifest({ ...MANIFEST, envNames: ['MAIL_TOKEN_REF', 'LOG_LEVEL'] })).toMatchObject({ ok: true });
   });
 });
 
@@ -120,12 +183,16 @@ describe('the allowlist file', () => {
     ['an unknown field', serverRow({ autoInstall: true })],
     ['a hash that is not sha256', serverRow({ manifestHash: 'abc' })],
     ['a wildcard server id', serverRow({ serverId: 'mail-*' })],
-    ['a tool with no cost', serverRow({ tools: { search_mail: { action: 'bridge-read' } } })],
-    ['a tool with a negative cost', serverRow({ tools: { search_mail: { action: 'bridge-read', cost: -1 } } })],
+    ['a tool with no cost', serverRow({ tools: { search_mail: { action: 'bridge-read', descriptorHash: DESCRIPTOR } } })],
+    ['a tool with a negative cost', serverRow({ tools: { search_mail: { action: 'bridge-read', cost: -1, descriptorHash: DESCRIPTOR } } })],
+    ['a tool with no descriptor pin, which would leave it open to a rug pull', serverRow({ tools: { search_mail: { action: 'bridge-read', cost: 1 } } })],
+    ['a tool whose descriptor pin is not a sha256', serverRow({ tools: { search_mail: { action: 'bridge-read', cost: 1, descriptorHash: 'abc' } } })],
+    ['a call cap of zero', serverRow({ callLimit: 0 })],
+    ['a spend window under a minute', serverRow({ spendWindowMs: 1000 })],
     ['a spend limit of zero, which would mean no limit upstream', serverRow({ spendLimit: 0 })],
     ['a missing spend limit', serverRow({ spendLimit: undefined })],
-    ['a tool mapped to no action', serverRow({ tools: { search_mail: { action: '', cost: 1 } } })],
-    ['a wildcard tool name', serverRow({ tools: { '*': { action: 'bridge-read', cost: 1 } } })],
+    ['a tool mapped to no action', serverRow({ tools: { search_mail: { action: '', cost: 1, descriptorHash: DESCRIPTOR } } })],
+    ['a wildcard tool name', serverRow({ tools: { '*': { action: 'bridge-read', cost: 1, descriptorHash: DESCRIPTOR } } })],
     ['no connector', serverRow({ connectorId: undefined })],
   ])('refuses %s', (_label, row) => {
     expect(parseServerAllowlist({ servers: [row] })).toMatchObject({ ok: false });

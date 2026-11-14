@@ -16,11 +16,13 @@ export {
   type AllowlistEntry,
   type AllowlistResult,
   type ManifestResult,
+  type PinnedTool,
   type ServerAdmission,
   type ServerAdmissionCode,
   type ServerAllowlist,
   type ServerManifest,
 } from './allowlist.js';
+export { argumentsDigestOf, canonicalJsonOf, MAX_CANONICAL_DEPTH, MAX_CANONICAL_NODES, toolDescriptorHashOf } from './canonicalJson.js';
 export { MAX_TOOL_BLOCKS, toToolContentBlock, toToolResult, type ToolContentBlock, type ToolResult } from './contentBlocks.js';
 export { isServerId, isToolName, resolveServerKey, serverKeyOf, splitServerKey, type ServerKey } from './serverKeys.js';
 export {
@@ -34,6 +36,8 @@ export {
   MCP_CLIENT_CAPABILITIES,
   parseOwnerAnswer,
   SAMPLING_METHOD,
+  type AnswerValue,
+  type FieldSpec,
   type OwnerAnswer,
   type OwnerAnswerResult,
   type OwnerQueueItem,
@@ -43,21 +47,25 @@ export {
   type ServerRequestInput,
 } from './serverRequests.js';
 export { createSessionLifecycle, SessionClosedError, type SessionLifecycle } from './sessionLifecycle.js';
-export { admitMcpToolCall, mcpReceiptOf, type AdmittedMcpToolCall, type McpToolAdmission, type McpToolCallRequest, type McpToolRefusalCode } from './toolCall.js';
+export { admitMcpToolCall, mcpReceiptOf, mcpStartRecordOf, type AdmittedMcpToolCall, type McpStartRecord, type McpToolAdmission, type McpToolCallRequest, type McpToolRefusalCode } from './toolCall.js';
 export {
+  callsOf,
+  DEFAULT_CALL_LIMIT,
+  DEFAULT_SPEND_WINDOW_MS,
   EMPTY_TALLY,
   parseCostPolicy,
   refundCharge,
   reserveToolSpend,
   spendOf,
-  transferSession,
   type Charge,
   type CostPolicy,
+  type CostPolicyOptions,
   type CostPolicyResult,
   type SpendDecision,
   type SpendRefusalCode,
   type SpendRequest,
   type SpendTally,
+  type SpendWindow,
   type ToolCost,
 } from './toolCosts.js';
 export {
