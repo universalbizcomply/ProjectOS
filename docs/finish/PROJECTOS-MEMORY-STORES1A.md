@@ -278,10 +278,37 @@ were updated, not loosened: `val-projectos-port-search1a` pins the new `sensitiv
 
 ### Fix-round checks, with counts
 
-FIX_CHECKS_PLACEHOLDER
+| Check | Result |
+|---|---|
+| core `npm run -s build` | exit 0 |
+| core `npx vitest run` | 103 files, 4,308 tests, all pass |
+| core tests and `src` type-checked (alias tsconfig) | exit 0, no output |
+| agent typecheck, **alias**, over `agent/src` | exit 0, no output |
+| agent new and changed tests type-checked through the alias | exit 0, no output |
+| agent tests, **alias** | 117 files; 116 pass, 3,664 tests pass, 10 skipped. The one failing file is `tenantSidecar.test.ts`, for the same reason as in the first round: it runs the agent's own `tsc` against the junction'd old core. Its 10 tests are skipped, not failed |
+| `val-projectos-memory-stores1a` | PASS: 9 new and 12 changed files judged; 178 text and 77 behavioural mutations killed; `Array.isArray(run())` is `true` |
+| `val-projectos-port-search1a` | PASS: 22 real files; 113 text and 26 behavioural mutations killed |
+| `val-projectos-port-memory1a` | PASS: 20 rules; 199 named mutations killed |
+| `val-projectos-port-credit1a` | PASS: 178 real files judged |
+| `validate-no-secrets` | PASS |
+| `val-projectos-port-skills1a`, `val-projectos-port-context1a` (they read the scan and the memory barrel) | PASS (440 and 320 mutations) |
+
+`validate-all` was not run. The 20 other validators that read a touched file were run after the first round and are unchanged
+by this one, except that the two above were re-run because the scan and the renderer changed.
+
+### Converge after the fix round
+
+- **Unbuilt on purpose, now also:** the digest is not taken by the loop (item 1a above), the rename arrow is judged by the
+  check but `porcelainPaths` still drops the old side (item 1), and the credential vocabulary is two lists asked together.
+- **Drift:** none. Every item stayed in `core/src/{memory,search}`, `agent/src/{memory,search}`, their tests, the three
+  validators, the finish doc and the two runners (not touched this round).
+- **PROTECTED files untouched:** `git diff --stat 841f3286..HEAD` still lists no PROTECTED file, no `observation.ts`,
+  `session.ts`, `runner.ts`, `system.ts`, `.gitignore`, `THIRD_PARTY_NOTICES` or `docs/06_Plan.md`.
 
 ## Commits
 
 - `f720153c` feat(memory): core rules for the proposal door, direct-write refusal, rendered cap and index key
 - `5d9876bd` feat(memory): per-project index files, ports for the clock and file system, one agent door
 - The commit that adds the validator, the two validator updates, the runners, the classes doc and this file.
+- `fb3af05d` docs(finish): state exactly which validators were run
+- `d37aa323` fix(memory): ECC security review round 1 for MEMORY-STORES1A
