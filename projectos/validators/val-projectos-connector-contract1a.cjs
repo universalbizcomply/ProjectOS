@@ -1352,8 +1352,8 @@ const MUTATIONS = [
   T("idempotency-shape-drifts", "CC-26", ENVELOPE, "const IDEMPOTENCY_KEY = /^sha256:[0-9a-f]{64}$/;", "const IDEMPOTENCY_KEY = /^sha512:[0-9a-f]{128}$/;"),
   // CC-27
   T("barrel-omits-the-contract", "CC-27", BARREL, "export * from './connectorContract.js';\n", GONE),
-  T("validate-all-omits-this-validator", "CC-27", VA, `,\n  // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.\n  "${THIS_VALIDATOR}"\n`, "\n"),
-  T("cached-runner-omits-this-validator", "CC-27", CR, `,\n  // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.\n  "${THIS_VALIDATOR}"\n`, "\n"),
+  T("validate-all-omits-this-validator", "CC-27", VA, `  // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.\n  "${THIS_VALIDATOR}",\n`, ""),
+  T("cached-runner-omits-this-validator", "CC-27", CR, `  // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.\n  "${THIS_VALIDATOR}",\n`, ""),
   // CC-28
   T("a-proof-skipped", "CC-28", TEST_FILE, "it('a retry after outcome_unknown is refused until reconciled'", "it.skip('a retry after outcome_unknown is refused until reconciled'"),
   T("a-proof-isolated", "CC-28", TEST_FILE, "it('a receipt whose tenant differs from the envelope is refused'", "it.only('a receipt whose tenant differs from the envelope is refused'"),
