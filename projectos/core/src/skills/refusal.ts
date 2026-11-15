@@ -31,6 +31,7 @@ export const SKILL_REFUSAL_CODES = [
   'SKILL_NOT_THIS_CHECKOUT',
   'SKILL_NOT_COMMITTED',
   'SKILL_NOT_MINTED',
+  'SKILL_RECORD_TOO_LARGE',
 ] as const;
 
 export type SkillRefusalCode = (typeof SKILL_REFUSAL_CODES)[number];

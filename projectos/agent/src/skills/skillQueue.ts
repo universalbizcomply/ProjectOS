@@ -35,6 +35,7 @@
  * asserts until owner proof exists, so independence holds only as far as that does.
  */
 import {
+  MAX_COMMITTED_SKILL_RECORD_BYTES,
   attestSkillReview,
   buildSkillProposal,
   checkPromotedSkill,
@@ -298,7 +299,7 @@ function decided(sys: System, root: string, caller: SkillActor, request: SkillRe
     return skillRefused('SKILL_BINDING_INVALID', 'The checkout names no tenant and project, so no one is asked and nothing is promoted. Fix: the owner runs ProjectOS from the registered checkout of the project.');
   }
   if (outcome === 'approved' && (ports === undefined || !isSkillMinted(sys, ports, proposal.value.proposalHash))) {
-    return skillRefused('SKILL_NOT_MINTED', `Proposal ${request.id} was not minted by the kernel for this checkout, so it is not reviewed. Fix: the owner re-proposes it through the door (proposeSkill or importSkill, given this checkout), so the kernel records it.`);
+    return skillRefused('SKILL_NOT_MINTED', `Proposal ${request.id} was not minted by the kernel for this checkout, so it is not reviewed. Fix: the owner re-proposes it through the door (proposeSkill or importSkill, given this checkout), so the kernel records it. If this checkout names no tenant and project, the owner first runs ProjectOS from the registered checkout of the project.`);
   }
   // A rejection changes nothing the active skill holds, so a corrupt active record must not stop one.
   const active = outcome === 'approved' ? activeHash(sys, root, proposal.value.name) : skillOk(proposal.value.supersedes);
@@ -311,7 +312,14 @@ function land(sys: System, root: string, approved: SkillProposal): SkillResult<P
   if (!active.ok) return active;
   const promoted = promoteSkill(approved, active.value);
   if (!promoted.ok) return promoted;
-  if (!writeWhole(sys, promotedSkillPath(root, approved.name), asFile(promoted.value))) {
+  // A RECORD THE LOADER WOULD NEVER READ IS NOT PROMOTED. A package may be 1 MiB, but a committed record may be MAX_COMMITTED_SKILL_RECORD_BYTES: a
+  // promoted package whose JSON record is over that is `COMMITTED_TOO_LARGE` forever. It is refused here, before anything is written, and stays pending.
+  const record = asFile(promoted.value);
+  const recordBytes = new TextEncoder().encode(record).length;
+  if (recordBytes > MAX_COMMITTED_SKILL_RECORD_BYTES) {
+    return skillRefused('SKILL_RECORD_TOO_LARGE', `Skill ${approved.name} would be a ${recordBytes}-byte record, and a committed record is read only up to ${MAX_COMMITTED_SKILL_RECORD_BYTES} bytes, so it could never load. Nothing was promoted and the proposal stays pending. Fix: the author shrinks the package (shorter references, fewer files) or splits it into two skills, and proposes again.`);
+  }
+  if (!writeWhole(sys, promotedSkillPath(root, approved.name), record)) {
     return skillRefused('SKILL_WRITE_FAILED', 'The promoted skill could not be written. The proposal stays pending.');
   }
   // THE SKILL HAS LANDED. From here "failed" and "pending" would both be false.

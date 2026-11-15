@@ -13,9 +13,13 @@
  * KEYED BY TENANT AND PROJECT, as a collision-proof hash of the JSON pair, so another project's mint is not this one's. The proposal hash itself
  * covers the tenant and project, so a mint for one project's proposal names no other's.
  *
- * NOTHING LANDS IN THE PROJECT TREE. The mint is made before the proposal file and is never removed. It is created with an exclusive create, which
- * does not follow a link that someone put at the name, and what is read back must equal what would have been written, byte for byte: a truncated
- * file, a link's target and a planted file are each "not minted".
+ * NOTHING LANDS IN THE PROJECT TREE. The mint is made before the proposal file and is never removed. It is created with an exclusive create (it
+ * never replaces a file that is there), and what is read back must equal what would have been written, byte for byte: a truncated file and a planted
+ * file of other bytes are each "not minted".
+ *
+ * A LINK IS READ THROUGH (review round 2, L-4). The `System` port has no way to ask whether a path is a link or a hard link, so a link at the mint path
+ * whose target holds exactly the mint's bytes is read as the mint. That needs someone who can already write the installation's state directory (to
+ * plant the link) and who knows the bytes: the same trust as writing the mint itself. It is named here and in the finish doc, not closed.
  *
  * WHAT THIS DOES NOT PROVE. Anyone who can write the installation's state directory can mint (the ledger has the same limit), and an owner's
  * proposal door that passes no `SkillStatePorts` records no mint, so its proposals cannot be reviewed until it does.
@@ -69,7 +73,7 @@ export function recordSkillMint(sys: Pick<System, 'createExclusive' | 'readText'
   return skillRefused('SKILL_WRITE_FAILED', `The mint record ${path} could not be written, so nothing was proposed. Fix: the owner checks the installation state directory (permissions, disk), then proposes again.`);
 }
 
-/** Whether the kernel minted this proposal for THIS checkout. A file that is not exactly what the queue writes, a link and an absent file are all no. */
+/** Whether the kernel minted this proposal for THIS checkout. A file that is not exactly what the queue writes and an absent file are both no (a link to the right bytes is read through: see the header). */
 export function isSkillMinted(sys: Pick<System, 'readText'>, ports: SkillStatePorts, proposalHash: string): boolean {
   const binding = bindingOf(ports);
   if (binding === null) return false;

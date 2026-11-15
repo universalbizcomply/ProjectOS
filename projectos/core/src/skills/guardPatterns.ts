@@ -80,22 +80,21 @@ const OTHER_AGENT_FILES = String.raw`\.(?:claude/settings|codex/config)[\w.]{0,6
 const SED_IN_PLACE = String.raw`(?:-[A-Za-z]{0,8}i[A-Za-z]{0,8}|--in-place)(?![A-Za-z-])`;
 
 /**
- * What a `sed` scan may cross: a character that does not start another `sed` word. A scan that did not stop there cost 100 ms on 262 KB of `sed `
- * repeated (every start scanned 512 characters twice), and one that scanned back from each flag 200 ms on `-i ` repeated. Stopping at the next `sed`
- * makes the cost linear: the starts of a hostile file are dense, so each scan is short.
+ * `sed` is judged per LINE, from the start of the line, with three independent lookaheads: the word `sed`, an in-place flag after whitespace, and the
+ * file, each within the line a skill file may hold (4,096 characters: a longer line is refused unread). Nothing is chained, so no word between them
+ * can hide the write (`'s,sed,x,'`, `-e sed` and `sed -i sed CLAUDE.md` were each caught at the base and are caught again), no count of arguments
+ * matters, and the cost is three linear scans per line from one start per line. The earlier forms were a scan from every `sed` (quadratic on a file
+ * of them) and a scan that stopped at the next `sed` word (which let that word hide the write).
+ * TRADED, NOT FREE: the three need not come in that order, so a line that holds `sed`, an in-place flag and the file in any order is a finding. That
+ * is a false positive (a line that mentions all three) and never a miss. It needs the multiline flag, which the guard compiles with.
  */
-const BEFORE_NEXT_SED = String.raw`(?:(?!\bsed\b(?!/))[^\n])`;
+const sedLineWrite = (file: string): string =>
+  String.raw`^(?=[^\n]{0,${LINE}}\bsed\b)(?=[^\n]{0,${LINE}}(?<=\s)${SED_IN_PLACE})(?=[^\n]{0,${LINE}}${file}(?!\.?\w))`;
 
-/**
- * `sed` is judged from `sed`, with two lookaheads that stop at the next `sed` word: an in-place flag within 256 characters (some twenty arguments) and
- * the file within 512, so no count of arguments and no script up to those reaches can hide it. A `sed` followed by a `/` is the word inside a
- * substitution (`s/sed/x/`) and does not stop the scan. KNOWN GAP: a script that spells the word otherwise between the flag and the file
- * (`'s,sed,x,'`) stops the scan and is not caught, which the pattern before this one caught when the file was within 64 characters.
- */
 function shellWrite(file: string): string {
   return [
     String.raw`(?:>>|[\w"'${TICK})\]]\s*>)\s*[~\w./-]{0,${LINE}}${file}(?!\.?\w)`,
-    String.raw`\bsed\s+(?=${BEFORE_NEXT_SED}{0,256}(?<=\s)${SED_IN_PLACE})(?=${BEFORE_NEXT_SED}{0,512}${file}(?!\.?\w))`,
+    sedLineWrite(file),
     String.raw`\btee\s+(?:-a\s+)?[~\w./"'-]{0,${LINE}}${file}(?!\.?\w)`,
     String.raw`\b(?:cp|mv)\s+[^\s|;&]{1,64}\s+[^\n|;&]{0,40}?${file}(?!\.?\w)`,
   ].join('|');

@@ -195,6 +195,22 @@ describe('skill-load reads committed, pinned, vouched skills and shows them as d
     expect(small.result.shown.length).toBeLessThan(names.length);
   });
 
+  it('one run reads at most MAX_SKILL_RUN_WORK_CHARS of record text: the rest are withheld by their own code, and the fix is true (review round 2, L-2)', () => {
+    const line = 'Lorem ipsum dolor sit amet consectetur adipiscing elit.\n';
+    const reference = { path: 'references/long.md', text: line.repeat(3600) };
+    const names = ['skill-a', 'skill-b', 'skill-c', 'skill-d'];
+    const skills = Object.fromEntries(names.map((name) => [name, recordText(promotedOf(packageOf(name, undefined, reference)))]));
+    expect(skills['skill-a']?.length).toBeGreaterThan(190_000);
+    expect(skills['skill-a']?.length).toBeLessThan(262_144);
+    const { result } = section({ skills });
+    // The first two records (about 400,000 characters) are read; the third would take the run past MAX_SKILL_RUN_WORK_CHARS.
+    expect(result.shown.map((one) => one.name)).toEqual(['skill-a', 'skill-b']);
+    expect(codes(result)).toEqual([`${recordPath('skill-c')}|SKILL_CONTEXT_WORK_CAP`, `${recordPath('skill-d')}|SKILL_CONTEXT_WORK_CAP`]);
+    expect(codes(result).join(' ')).not.toContain('SKILL_CONTEXT_OVER_BUDGET');
+    expect(result.advice.join(' ')).toContain('Fix: the owner retires the promoted skills the project does not use');
+    expect(result.advice.join(' ')).not.toContain('raises the context window');
+  });
+
   it('only SKILL.md is shown: other files are named, scripts are never read, and nothing is run', () => {
     const skill = promotedOf(packageOf('release-notes', undefined, { path: 'scripts/build.py', text: 'print("SCRIPT-BODY-MARKER")\n' }, { path: 'references/guide.md', text: 'REFERENCE-BODY-MARKER\n' }));
     const { result, reads, calls } = section({ skills: { 'release-notes': recordText(skill) } });

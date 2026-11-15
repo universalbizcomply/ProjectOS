@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { COMMITTED_SKILL_CODES, SKILL_REFUSAL_CODES, buildSkillProposal, importedSkillOrigin, type SkillActor, type SkillFile, type SkillProposal, type SkillRefusalCode, type SkillResult } from '@projectos/core';
+import { COMMITTED_SKILL_CODES, MAX_COMMITTED_SKILL_RECORD_BYTES, SKILL_REFUSAL_CODES, buildSkillProposal, importedSkillOrigin, type SkillActor, type SkillFile, type SkillProposal, type SkillRefusalCode, type SkillResult } from '@projectos/core';
 import type { System } from '../src/system.js';
 import { nodeSystem } from '../src/system.js';
 import { SKILL_FIX_CODES, skillAdviceOf, skillFixOf } from '../src/context/skillContext.js';
@@ -182,6 +182,32 @@ describe('M1: a file is not a mint (review round 1)', () => {
   });
 });
 
+describe('L-1 (review round 2): a record the loader would never read is not promoted', () => {
+  const line = 'Lorem ipsum dolor sit amet consectetur adipiscing elit.\n';
+  const reference = (name: string): SkillFile => ({ path: `references/${name}.md`, text: line.repeat(2700) });
+  const packageOf = (...refs: readonly SkillFile[]): readonly SkillFile[] => [{ path: 'SKILL.md', text: SKILL_MD }, ...refs];
+
+  it('two 150 KB references make a record over the loader cap: refused with the fix named, nothing written, the proposal still pending', () => {
+    const sys = fakeSystem();
+    const proposal = value(proposeSkill(sys, ROOT, WORKER, { files: packageOf(reference('a'), reference('b')) }, STATE));
+    const result = review(sys, proposal);
+    expect(code(result)).toBe('SKILL_RECORD_TOO_LARGE');
+    const message = result.ok ? '' : result.refusal.message;
+    expect(message).toContain('Fix: the author shrinks the package');
+    expect(message).toContain(String(MAX_COMMITTED_SKILL_RECORD_BYTES));
+    expect([...sys.files.keys()].some((path) => path.includes('/promoted/'))).toBe(false);
+    expect(listPendingSkillProposals(sys, ROOT).pending.map((one) => one.id)).toEqual([proposal.id]);
+  });
+
+  it('one 150 KB reference is promoted, and the record it makes is one the loader reads: the control', () => {
+    const sys = fakeSystem();
+    const proposal = value(proposeSkill(sys, ROOT, WORKER, { files: packageOf(reference('a')) }, STATE));
+    expect(code(review(sys, proposal))).toBe('ok');
+    const record = sys.files.get(`${skillsDir(ROOT)}/promoted/${NAME}.json`) as string;
+    expect(new TextEncoder().encode(record).length).toBeLessThanOrEqual(MAX_COMMITTED_SKILL_RECORD_BYTES);
+  });
+});
+
 describe('L6: a request that is not a package is a refusal, never a throw (review round 1)', () => {
   it.each([[null], [undefined], ['x'], [42], [[]], [{}], [{ files: undefined }]])('%j', (request) => {
     const sys = fakeSystem();
@@ -221,9 +247,9 @@ describe('L5: the way to a prompt is the committed loader (review round 1)', () 
 
 describe('L1: every code a skill can be withheld with has a fix that says who does what (review round 1)', () => {
   const GATE_CODES = ['CONTEXT_ITEM_NOT_TEXT', 'CONTEXT_ITEM_EMPTY', 'CONTEXT_ITEM_TOO_LARGE', 'CONTEXT_ITEM_HIDDEN_TEXT', 'CONTEXT_ITEM_THREAT', 'CONTEXT_ITEM_CREDENTIAL', 'CONTEXT_ITEM_SCREEN_MISSING'];
-  const LOADER_CODES = ['SKILL_LISTING_UNAVAILABLE', 'SKILL_TOO_LARGE_FOR_CONTEXT', 'SKILL_CONTEXT_OVER_BUDGET', 'SKILL_RECORD_NOT_A_RECORD', 'SKILL_RECORD_UNLISTABLE', 'SKILL_RECORD_OVER_LIMIT', 'SKILL_NOT_THIS_CHECKOUT', 'SKILL_STALE'];
+  const LOADER_CODES = ['SKILL_LISTING_UNAVAILABLE', 'SKILL_TOO_LARGE_FOR_CONTEXT', 'SKILL_CONTEXT_OVER_BUDGET', 'SKILL_CONTEXT_WORK_CAP', 'SKILL_RECORD_NOT_A_RECORD', 'SKILL_RECORD_UNLISTABLE', 'SKILL_RECORD_OVER_LIMIT', 'SKILL_NOT_THIS_CHECKOUT', 'SKILL_STALE'];
   /** The refusal codes that only the queue gives; the loader cannot, so they need no sentence about a run. */
-  const QUEUE_ONLY: readonly string[] = ['SKILL_CREDENTIAL', 'SKILL_PROVENANCE', 'SKILL_NOT_OWNER', 'SKILL_NOT_APPROVED', 'SKILL_ALREADY_DECIDED', 'SKILL_LOCKED', 'SKILL_WRITE_FAILED', 'SKILL_LANDED_INCOMPLETE', 'SKILL_QUEUE_FULL', 'SKILL_ORIGIN_NOT_KERNEL'];
+  const QUEUE_ONLY: readonly string[] = ['SKILL_CREDENTIAL', 'SKILL_PROVENANCE', 'SKILL_NOT_OWNER', 'SKILL_NOT_APPROVED', 'SKILL_ALREADY_DECIDED', 'SKILL_LOCKED', 'SKILL_WRITE_FAILED', 'SKILL_LANDED_INCOMPLETE', 'SKILL_QUEUE_FULL', 'SKILL_ORIGIN_NOT_KERNEL', 'SKILL_RECORD_TOO_LARGE'];
 
   it('walks the committed reader\'s codes, the gate\'s, the listing\'s and every refusal the loader can give', () => {
     const wanted = [...COMMITTED_SKILL_CODES, ...GATE_CODES, ...LOADER_CODES, ...SKILL_REFUSAL_CODES.filter((one) => !QUEUE_ONLY.includes(one))];

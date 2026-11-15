@@ -107,6 +107,7 @@ const SKILL_FIXES: Readonly<Record<string, { readonly reason: string; readonly f
   SKILL_NOT_FOUND: { reason: 'there is no such record', fix: 'the owner checks the name under .projectops/skills/promoted and commits the record' },
   SKILL_LISTING_UNAVAILABLE: { reason: 'git could not list the committed records', fix: 'the owner checks that git runs in this checkout (git status), then runs again' },
   SKILL_TOO_LARGE_FOR_CONTEXT: { reason: 'its block is larger than a context file may hold, and an excerpt of a reviewed skill is never shown', fix: 'shorten SKILL.md (the body and the description) and promote the shorter skill through the review' },
+  SKILL_CONTEXT_WORK_CAP: { reason: 'this run already read the most record text it reads, so the rest are not read', fix: 'the owner retires the promoted skills the project does not use (fewer promoted skills per project), then runs again' },
   SKILL_CONTEXT_OVER_BUDGET: { reason: 'the skills already shown use the share of the window skills may take', fix: 'the owner promotes fewer or shorter skills, or raises the context window in the installation' },
   SKILL_RECORD_NOT_A_RECORD: { reason: 'something other than a record sits in .projectops/skills/promoted', fix: 'the owner removes it from HEAD, or renames a record to <name>.json' },
   SKILL_RECORD_UNLISTABLE: { reason: 'an entry in .projectops/skills/promoted could not be read as a name', fix: 'the owner renames it to an ordinary <name>.json, or removes it from HEAD' },
@@ -190,9 +191,10 @@ export function loadSkillSection(ports: ContextManagerPorts, key: ContextRetriev
       continue;
     }
     // THE WORK A RUN SPENDS ON RECORD TEXT IS BOUNDED: a record's package is read through the validator once a verifier vouches for it.
+    // The text is counted when it is handed to the loader, whatever the loader then answers: that hand-over is the work that is bounded.
     work += judged.read.text.length;
     if (work > MAX_SKILL_RUN_WORK_CHARS) {
-      withheld.push({ id, code: 'SKILL_CONTEXT_OVER_BUDGET' });
+      withheld.push({ id, code: 'SKILL_CONTEXT_WORK_CAP' });
       continue;
     }
     const loaded = loadCommittedSkill(judged.read, { tenant: key.tenant, project: key.project }, skills.reviewVerifier, head);

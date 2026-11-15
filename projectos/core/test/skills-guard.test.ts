@@ -192,14 +192,20 @@ describe('the bounded-repeat evasions PORT-SKILLS1A carried, closed (PROJECTOS-S
   describe('agent_config_mod_shell', () => {
     const args = (count: number): string => Array.from({ length: count }, (_, index) => `-e s/x${index}/y/`).join(' ');
 
-    it.each([0, 1, 4, 5, 6, 12, 20])('sed with %i arguments before -i is still a write', (count) => {
+    it.each([0, 1, 4, 5, 6, 12, 20, 60, 200])('sed with %i arguments before -i is still a write', (count) => {
       expect(blockedBy('agent_config_mod_shell', `sed ${count === 0 ? '' : `${args(count)} `}-i CLAUDE.md`)).toBe(true);
     });
 
-    it('a script that says sed inside a substitution is still a write, and a script that spells it otherwise is the named gap', () => {
-      expect(blockedBy('agent_config_mod_shell', "sed -i 's/sed/x/' CLAUDE.md")).toBe(true);
-      // KNOWN GAP (see guardPatterns.ts): the scan stops at a `sed` word that is not followed by a slash.
-      expect(blockedBy('agent_config_mod_shell', "sed -i 's/ sed /x/' CLAUDE.md")).toBe(false);
+    it('a bare sed word between sed and the file hides nothing (review round 2: the stop at the next sed word let it)', () => {
+      for (const line of ["sed -i 's/sed/x/' CLAUDE.md", "sed -i 's,sed,x,' CLAUDE.md", "sed -i -e 's/a/b/' -e 'sed' CLAUDE.md", 'sed -i sed CLAUDE.md', "sed -i 's/ sed /x/' CLAUDE.md", 'sed sed -i s/a/b/ CLAUDE.md', "sed -i --expression=sed CLAUDE.md"]) {
+        expect(blockedBy('agent_config_mod_shell', line), line).toBe(true);
+      }
+    });
+
+    it('the three conditions are asked independently, so the order is traded: a line that holds all three, in any order, is a finding', () => {
+      expect(blockedBy('agent_config_mod_shell', 'CLAUDE.md is not for sed -i')).toBe(true);
+      expect(quiet('agent_config_mod_shell', 'CLAUDE.md is not for sed')).toBe(true);
+      expect(quiet('agent_config_mod_shell', 'sed -i x\nCLAUDE.md')).toBe(true);
     });
 
     it('a long script between -i and the file is still a write', () => {
@@ -269,7 +275,7 @@ describe('the bounded-repeat evasions PORT-SKILLS1A carried, closed (PROJECTOS-S
         ['sed ', 'sed  ', 'sed\t'],
         ['', '-n ', '-e a ', '-E ', '-s -n -e a '],
         ['-i', '-ni', '--in-place', '-i.bak', '-Ei', '-i '],
-        [' ', " 's/a/b/' ", " 's/sed/x/' ", ' s/a/b/ ', ' -e p '],
+        [' ', " 's/a/b/' ", " 's/sed/x/' ", " 's,sed,x,' ", " -e 'sed' ", ' sed ', ' s/a/b/ ', ' -e p '],
         ['CLAUDE.md', 'AGENTS.md', '.cursorrules', '.clinerules', './CLAUDE.md', '~/CLAUDE.md', 'x/CLAUDE.md', 'CLAUDE.md.bak', 'CLAUDE.mdx'],
         ['', ' x', ';'],
       );
