@@ -93,6 +93,11 @@ const TESTS = {
     "lists the loop lifecycle records it is handed (the plan state file, the gatekeeper files) as such, and refuses a tracked file that is not one",
     "says commit, stash or ignore (not \"check git runs\") when git failed because its list was past the bound",
     "does not show an evidence record that names another phase",
+    "refuses a changed file whose number of names cannot be read, and never hashes it",
+    "a hard-linked findings record is not read either",
+    "the manager refuses a run whose ports carry no link count at all",
+    "says to replace or delete the record AND commit that change, because the record is a committed file",
+    "is the same refusal as a reader that says no, not a TypeError",
   ],
   "projectos/agent/test/resumeRun.test.ts": [
     "runs a second worker, started fresh with no session, and hands it what the timed-out attempt left",
@@ -210,11 +215,13 @@ function textProblems(raw, tracked) {
   if (count(state, /the owner /g) < 9) E("RS-3", "a fix does not say who must act");
   if (!state.includes("code: 'RESUME_DIRTY_PATHS_UNOBSERVED',") || !state.includes("if (dirty === 'unreadable') return { ok: false, outcome: refusedUnobservable('git could not list the changed paths') };")) E("RS-3", "a run whose changes cannot be listed goes on");
   if (!state.includes("if (isLink) return 'link';") || !state.includes("if (own.kind === 'link') return 'link';") || !state.includes("if (own.kind !== 'file') return 'not-regular';")) E("RS-3", "a link, or a path that is not an ordinary file, is accepted");
-  if (!state.includes("return linkCountOf(ports, `${root}/${path}`) > 1 ? 'link' : null;") || !state.includes("const count = ports.linkCount === undefined ? 1 : ports.linkCount(path);")) E("RS-3", "a file with a second name (a hard link to a file outside the project) is accepted, hashed and read");
+  if (!state.includes("const names = linkCountOf(ports, `${root}/${path}`);\n  if (names === null) return 'link-count-unobserved';\n  return names > 1 ? 'link' : null;")) E("RS-3", "a file with a second name (a hard link to a file outside the project) is accepted, hashed and read, or one whose number of names cannot be read is not refused");
+  if (!state.includes("const count: unknown = ports.linkCount(path);") || !state.includes("return typeof count === 'number' && Number.isSafeInteger(count) && count >= 1 ? count : null;") || !state.includes("} catch {\n    return null;\n  }\n}\n\ninterface Hashed")) E("RS-3", "a link count that is missing, null, thrown or not a count is taken for one name (it fails OPEN): the bytes of a file outside the project are hashed");
+  if (!state.includes("'link-count-unobserved': 'RESUME_LINK_COUNT_UNOBSERVED',") || !state.includes("the owner checks each path with the operating system tools (fsutil hardlink list on Windows, stat on Unix) and commits or removes it")) E("RS-3", "a path whose number of names cannot be read is refused with no code of its own, or names no fix");
   if (!state.includes("${contextResumeDisplayName(problem.path)} (${REASON_WORDS[problem.reason]})")) E("RS-3", "a refusal does not name each path, as a safe name, with why");
   if (!state.includes("const named = problems.slice(0, MAX_REFUSAL_PATHS_NAMED).map(")) E("RS-3", "a refusal names no paths");
   if (!state.includes("isLink = ports.fs.stat(`${root}/${prefix}`)?.kind === 'link';")) E("RS-3", "a directory above a path is not asked whether it is a link");
-  if (!state.includes("if (onDiskProblem(ports, root, rel, new Map()) === 'link') return { kind: 'problem', code: 'RESUME_FILE_NOT_REGULAR' };")) E("RS-3", "an earlier attempt's record is read through a link");
+  if (!state.includes("const onDisk = onDiskProblem(ports, root, rel, new Map());\n    if (onDisk === 'link' || onDisk === 'link-count-unobserved') return { kind: 'problem', code: 'RESUME_FILE_NOT_REGULAR' };")) E("RS-3", "an earlier attempt's record is read through a link, a second name, or a path whose names cannot be counted");
   if (!state.includes("const onDisk = onDiskProblem(ports, root, verdict.path, parents);\n    if (onDisk !== null) {")) E("RS-3", "the file system is not asked what a path is");
   if (!paths.includes("return { kind: 'refused', path, reason: 'outside-write-paths' };")) E("RS-3", "a path outside the grant is not refused");
   if (!paths.includes("if (grants.some((pattern) => grantCovers(path, pattern, true))) return { kind: 'refused', path, reason: 'case-variant' };")) E("RS-3", "a case or width variant of a granted path is not refused as one");
@@ -274,7 +281,7 @@ function textProblems(raw, tracked) {
   // The link-count port: lstat only, never a write, the one node:fs of this phase, and handed to the manager as an optional port.
   const nodePort = code(raw[NODE_PORT]);
   if (!nodePort.includes("import { lstatSync } from 'node:fs';") || !nodePort.includes("return lstatSync(path).nlink;") || count(nodePort, /from 'node:/g) !== 1 || WRITES.test(nodePort)) E("RS-3", `${NODE_PORT} is not one lstat of a path`);
-  if (!code(raw[PORTS]).includes("linkCount: resumeNodeLinkCount,") || !code(raw[PORTS]).includes("readonly linkCount?: (path: string) => number | null;")) E("RS-3", "the real ports do not give the manager a link count");
+  if (!code(raw[PORTS]).includes("linkCount: resumeNodeLinkCount,") || !code(raw[PORTS]).includes("readonly linkCount: (path: string) => number | null;") || !code(raw[PORTS]).includes("if (!isFunction(ports.linkCount)) return 'linkCount';")) E("RS-3", "the link count is not a REQUIRED port, or the real ports do not give it");
 
   // RS-7: non-authority, and selection and run.ts routing unchanged.
   for (const rel of [...CORE_FILES, ...AGENT_FILES]) {
@@ -343,7 +350,8 @@ function textProblems(raw, tracked) {
   if (!(recordAt >= 0 && belongsAt > recordAt && observeAt > belongsAt)) E("RS-10", "git is asked what changed before the record is known to be this project's and this phase's");
   if (!state.includes("if (read.belongsTo.projectId !== request.projectId) return refusedRecord('RESUME_WORK_RECORD_NOT_THIS_PROJECT', 'it names another project');") || !state.includes("if (read.belongsTo.phaseId !== request.phaseId || !read.cutOff) return NOTHING;")) E("RS-10", "another project's record is used or is taken for no record, or another phase's is used");
   if (!state.includes("if (!record.ok) return refusedRecord('RESUME_WORK_RECORD_UNREADABLE',") || !state.includes("    return refusedRecord('RESUME_WORK_RECORD_UNREADABLE', 'it could not be read');") || !state.includes("if (!read.ok) return refusedRecord(read.code === 'RESUME_RECORD_NOT_PLAIN' ? 'RESUME_WORK_RECORD_NOT_PLAIN' : 'RESUME_WORK_RECORD_STATE_UNKNOWN',")) E("RS-10", "a work record that is corrupt, unreadable, not plain or of an unknown state is taken for an absent one, which is how a cut-off attempt is hidden by editing a file a worker can write");
-  if (!state.includes("Fix: the owner restores ${WORK_RECORD_REL} from git (git checkout -- ${WORK_RECORD_REL}) or, if git does not track it, deletes it, then runs again.")) E("RS-10", "a refusal for a record that cannot be used names no fix");
+  if (!state.includes("Fix: the owner replaces ${WORK_RECORD_REL} with a good copy, or deletes it, and COMMITS that change (the record is a committed file here, so restoring it from git brings the same bytes back), then runs again.") || state.includes("git checkout")) E("RS-10", "a refusal for a record that cannot be used names no fix, or sends the owner to restore the same bad committed bytes");
+  if (!state.includes("if (record === null || typeof record !== 'object' || typeof (record as { ok?: unknown }).ok !== 'boolean') return refusedRecord('RESUME_WORK_RECORD_UNREADABLE', 'the reader gave no answer');")) E("RS-10", "a work record reader that gives no usable answer is a TypeError, or an absent record, instead of a refusal");
   if (!state.includes("if (record.value === null) return NOTHING;")) E("RS-10", "an absent record is not the one case that is let through");
 
   // RS-11: bounded before parsed, and capped.
@@ -515,11 +523,17 @@ const MUTATIONS = [
   M("a-run-whose-changes-cannot-be-listed-goes-on", "RS-3", STATE, "if (dirty === 'unreadable') return { ok: false, outcome: refusedUnobservable('git could not list the changed paths') };", "if (dirty === null) return { ok: true, entries: [] };"),
   M("a-link-is-accepted", "RS-3", STATE, "  if (own.kind === 'link') return 'link';\n", GONE),
   M("a-link-above-a-path-is-accepted", "RS-3", STATE, "    if (isLink) return 'link';\n", GONE),
-  M("an-attempt-record-is-read-through-a-link", "RS-3", STATE, "    if (onDiskProblem(ports, root, rel, new Map()) === 'link') return { kind: 'problem', code: 'RESUME_FILE_NOT_REGULAR' };\n", GONE),
+  M("an-attempt-record-is-read-through-a-link", "RS-3", STATE, "    if (onDisk === 'link' || onDisk === 'link-count-unobserved') return { kind: 'problem', code: 'RESUME_FILE_NOT_REGULAR' };\n", GONE),
+  M("an-attempt-record-with-no-countable-names-is-read", "RS-3", STATE, "if (onDisk === 'link' || onDisk === 'link-count-unobserved') return", "if (onDisk === 'link') return"),
   M("a-directory-above-a-path-is-not-asked", "RS-3", STATE, "isLink = ports.fs.stat(`${root}/${prefix}`)?.kind === 'link';", "isLink = false;"),
   M("a-directory-entry-is-listed-as-a-file", "RS-3", STATE, "  if (own.kind !== 'file') return 'not-regular';\n", GONE),
-  M("a-file-with-a-second-name-is-accepted", "RS-3", STATE, "return linkCountOf(ports, `${root}/${path}`) > 1 ? 'link' : null;", "return null;"),
-  M("a-link-count-that-cannot-be-read-is-two", "RS-3", STATE, "const count = ports.linkCount === undefined ? 1 : ports.linkCount(path);", "const count = 1;"),
+  M("a-file-with-a-second-name-is-accepted", "RS-3", STATE, "return names > 1 ? 'link' : null;", "return null;"),
+  M("a-link-count-that-cannot-be-read-is-accepted", "RS-3", STATE, "  if (names === null) return 'link-count-unobserved';\n", GONE),
+  M("a-link-count-that-cannot-be-read-is-one", "RS-3", STATE, "return typeof count === 'number' && Number.isSafeInteger(count) && count >= 1 ? count : null;", "return typeof count === 'number' && Number.isSafeInteger(count) && count >= 1 ? count : 1;"),
+  M("a-throwing-link-count-port-is-one", "RS-3", STATE, "  } catch {\n    return null;\n  }\n}\n\ninterface Hashed", "  } catch {\n    return 1;\n  }\n}\n\ninterface Hashed"),
+  M("a-missing-link-count-port-is-not-a-missing-port", "RS-3", PORTS, "  if (!isFunction(ports.linkCount)) return 'linkCount';\n", GONE),
+  M("the-link-count-port-is-optional-again", "RS-3", PORTS, "readonly linkCount: (path: string) => number | null;", "readonly linkCount?: (path: string) => number | null;"),
+  M("an-unobserved-link-count-has-no-code-of-its-own", "RS-3", STATE, "'link-count-unobserved': 'RESUME_LINK_COUNT_UNOBSERVED',", "'link-count-unobserved': 'RESUME_DIRTY_PATH_LINK',"),
   M("a-refusal-names-no-path", "RS-3", STATE, "${contextResumeDisplayName(problem.path)} (${REASON_WORDS[problem.reason]})", "${REASON_WORDS[problem.reason]}"),
   M("a-refusal-names-the-path-raw", "RS-3", STATE, "${contextResumeDisplayName(problem.path)} (${REASON_WORDS[problem.reason]})", "${problem.path} (${REASON_WORDS[problem.reason]})"),
   M("the-real-ports-give-no-link-count", "RS-3", PORTS, "    linkCount: resumeNodeLinkCount,\n", GONE),
@@ -610,7 +624,9 @@ const MUTATIONS = [
   M("an-unreadable-record-is-an-absent-one", "RS-10", STATE, "if (!record.ok) return refusedRecord('RESUME_WORK_RECORD_UNREADABLE',", "if (!record.ok) return NOTHING; const ignored = refusedRecord('RESUME_WORK_RECORD_UNREADABLE',"),
   M("a-throwing-record-reader-is-an-absent-record", "RS-10", STATE, "    return refusedRecord('RESUME_WORK_RECORD_UNREADABLE', 'it could not be read');", "    return NOTHING;"),
   M("a-record-of-a-state-the-loop-does-not-have-is-an-absent-one", "RS-10", STATE, "if (!read.ok) return refusedRecord(read.code === 'RESUME_RECORD_NOT_PLAIN'", "if (!read.ok) return NOTHING; const ignoredRead = refusedRecord(read.code === 'RESUME_RECORD_NOT_PLAIN'"),
-  M("a-record-refusal-names-no-fix", "RS-10", STATE, "Fix: the owner restores ${WORK_RECORD_REL} from git", "the owner restores ${WORK_RECORD_REL} from git"),
+  M("a-record-refusal-names-no-fix", "RS-10", STATE, "Fix: the owner replaces ${WORK_RECORD_REL} with a good copy", "the owner replaces ${WORK_RECORD_REL} with a good copy"),
+  M("a-record-refusal-sends-the-owner-to-git-checkout", "RS-10", STATE, "and COMMITS that change (the record is a committed file here, so restoring it from git brings the same bytes back)", "(git checkout -- ${WORK_RECORD_REL})"),
+  M("a-reader-with-no-answer-is-a-type-error", "RS-10", STATE, "if (record === null || typeof record !== 'object' || typeof (record as { ok?: unknown }).ok !== 'boolean') return refusedRecord(", "if (false) return refusedRecord("),
   M("an-absent-record-is-refused-too", "RS-10", STATE, "  if (record.value === null) return NOTHING;\n", GONE),
   // RS-11
   M("a-record-file-is-read-without-its-size", "RS-11", STATE, "    if (stat.size > MAX_RESUME_FILE_BYTES) return { kind: 'problem', code: 'RESUME_FILE_TOO_LARGE' };\n", GONE),

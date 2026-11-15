@@ -73,8 +73,8 @@ export interface ContextManagerPorts {
   readonly registry: ActionRegistry | null;
   readonly window?: ContextWindow;
   readonly drafter?: (plan: CompactionPlan) => ContextDraftOffer;
-  /** How many names a file has (PROJECTOS-RESUME1A), or null. Absent counts as one. A changed path with a second name is refused. */
-  readonly linkCount?: (path: string) => number | null;
+  /** How many names a file has (PROJECTOS-RESUME1A), or null. REQUIRED: a changed path with a second name is refused, and one whose count cannot be read is refused too (it fails closed). */
+  readonly linkCount: (path: string) => number | null;
 }
 
 const isFunction = (value: unknown): boolean => typeof value === 'function';
@@ -89,6 +89,7 @@ export function portsProblem(ports: Partial<ContextManagerPorts> | null | undefi
   if (!isFunction(ports.isProxy)) return 'isProxy';
   if (!isFunction(ports.readMemoryStore)) return 'readMemoryStore';
   if (!isFunction(ports.checkout)) return 'checkout';
+  if (!isFunction(ports.linkCount)) return 'linkCount';
   if (ports.openIndex !== null && !isFunction(ports.openIndex)) return 'openIndex';
   return null;
 }

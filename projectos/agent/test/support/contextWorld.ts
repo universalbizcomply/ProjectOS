@@ -163,6 +163,8 @@ export interface WorldOptions {
   readonly registry?: ActionRegistry | null;
   readonly drafter?: ContextManagerPorts['drafter'];
   readonly checkout?: ContextManagerPorts['checkout'];
+  /** How many names a file has; every file has one unless a test says otherwise. */
+  readonly linkCount?: ContextManagerPorts['linkCount'];
 }
 
 export function worldPorts(options: WorldOptions = {}) {
@@ -176,6 +178,7 @@ export function worldPorts(options: WorldOptions = {}) {
     readMemoryStore: (target) => ({ ok: true, value: options.stores?.[target] ?? { entries: [], provenance: new Map() } }),
     openIndex: options.openIndex ?? null,
     registry: options.registry === undefined ? null : options.registry,
+    linkCount: options.linkCount ?? (() => 1),
     checkout: options.checkout ?? (() => ({ tenant: admittedRun().tenant, project: admittedRun().project })),
     ...(options.drafter === undefined ? {} : { drafter: options.drafter }),
   };

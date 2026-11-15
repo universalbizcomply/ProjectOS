@@ -63,7 +63,8 @@ interface Setup {
   readonly loopRecords?: ContextResumeRequest['loopRecords'];
   /** Files with more than one name, by project-relative path. */
   readonly hardLinks?: readonly string[];
-  readonly linkCountPort?: boolean;
+  /** Replaces the link-count port outright: absent, null, throwing, or not a count. */
+  readonly linkCountOverride?: ContextManagerPorts['linkCount'];
 }
 
 function resumeRequest(setup: Setup): ContextResumeRequest {
@@ -83,7 +84,7 @@ function portsOf(setup: Setup): ContextManagerPorts {
   const hard = new Set((setup.hardLinks ?? []).map((path) => `${ROOT}/${path}`));
   return {
     ...base,
-    ...(setup.hardLinks === undefined ? {} : { linkCount: (path: string) => (hard.has(path) ? 2 : 1) }),
+    linkCount: setup.linkCountOverride ?? ((path: string) => (hard.has(path) ? 2 : 1)),
     git: (args) => {
       setup.calls?.push(args.join(' '));
       if (args[0] === 'status') {
@@ -166,8 +167,22 @@ describe('a run with nothing to resume is exactly the run it was', () => {
     const result = assemble({ record: given as never, work: cutOffWork, status: ['?? docs/notes.md'] });
     expect(result).toMatchObject({ kind: 'refused', code });
     const message = (result as { message: string }).message;
-    expect(message).toMatch(/Fix: the owner restores [^ ]+ from git/);
+    expect(message).toMatch(/Fix: the owner replaces [^ ]+ with a good copy/);
     expect(message).toMatch(/Nothing was sent and no worker was started/);
+    expect(message).not.toContain(INJECTION);
+  });
+
+  it.each([undefined, null, 'ok', 3, {}, { value: null }])('a work record reader that gives no usable answer (%j) is the same refusal as a reader that says no, not a TypeError', (answer) => {
+    const result = assemble({ record: (() => answer) as never, work: cutOffWork, status: ['?? docs/notes.md'] });
+    expect(result).toMatchObject({ kind: 'refused', code: 'RESUME_WORK_RECORD_UNREADABLE' });
+    expect((result as { message: string }).message).toMatch(/Fix: the owner replaces/);
+  });
+
+  it('says to replace or delete the record AND commit that change, because the record is a committed file: restoring it from git brings the same bytes back', () => {
+    const message = (assemble({ record: record({ state: INJECTION }) }) as { message: string }).message;
+    expect(message).toMatch(/Fix: the owner replaces [^ ]+ with a good copy, or deletes it, and COMMITS that change/);
+    expect(message).toContain('.projectops/work.v1.json');
+    expect(message).not.toMatch(/git checkout/);
     expect(message).not.toContain(INJECTION);
   });
 
@@ -392,6 +407,36 @@ describe('the dirty paths and hashes are the loop own observation', () => {
     expect((refused as { message: string }).message).toMatch(/hard link/);
     expect(JSON.stringify(refused)).not.toContain(sha256Hex('TOPSECRET'));
     expect(ready(assemble({ work: { ...cutOffWork, 'src/widget/one.txt': 'x' }, status: ['?? src/widget/one.txt'], hardLinks: [] })).kind).toBe('ready');
+  });
+
+  it.each([
+    ['a port that throws', () => { throw new Error('boom'); }],
+    ['a port that answers null', () => null],
+    ['a port that answers something that is not a count', () => 'two' as never],
+    ['a port that answers NaN', () => Number.NaN],
+    ['a port that answers zero', () => 0],
+    ['a port that answers a fraction', () => 1.5],
+  ])('refuses a changed file whose number of names cannot be read, and never hashes it (%s)', (_name, linkCountOverride) => {
+    const refused = assemble({ work: { ...cutOffWork, 'src/widget/hard.txt': 'TOPSECRET' }, status: ['?? src/widget/hard.txt'], linkCountOverride });
+    expect(refused).toMatchObject({ kind: 'refused', code: 'RESUME_LINK_COUNT_UNOBSERVED' });
+    const message = (refused as { message: string }).message;
+    expect(message).toMatch(/Fix: the owner checks each path with the operating system tools/);
+    expect(message).toContain('src/widget/hard.txt');
+    expect(JSON.stringify(refused)).not.toContain(sha256Hex('TOPSECRET'));
+  });
+
+  it('a hard-linked findings record is not read either: its content lands nowhere when the count is unreadable', () => {
+    const result = ready(assemble({ work: { ...cutOffWork, [FINDINGS_FILE]: findingsFile([{ id: 'F1', severity: 'LOW', category: 'x', summary: 'SECRET-SUMMARY', resolved: false }]) }, linkCountOverride: (path) => (path.endsWith('.findings.json') ? 2 : 1) }));
+    expect(result.fileText).not.toContain('SECRET-SUMMARY');
+    expect(result.withheld).toContainEqual({ id: FINDINGS_FILE, code: 'RESUME_FILE_NOT_REGULAR' });
+    const unreadable = ready(assemble({ work: cutOffWork, linkCountOverride: () => { throw new Error('boom'); } }));
+    expect(unreadable.withheld).toContainEqual({ id: FINDINGS_FILE, code: 'RESUME_FILE_NOT_REGULAR' });
+    expect(unreadable.fileText).not.toContain('the guard is missing');
+  });
+
+  it('the manager refuses a run whose ports carry no link count at all', () => {
+    const ports = { ...portsOf({ work: cutOffWork }), linkCount: undefined as never };
+    expect(assembleRunContext(ports, request({ work: cutOffWork }))).toMatchObject({ kind: 'refused', code: 'CONTEXT_MANAGER_PORTS_MISSING' });
   });
 
   it('hashes at most 32 MiB in all: the budget is spent, and the files past it are listed with no hash', () => {

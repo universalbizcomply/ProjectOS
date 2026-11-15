@@ -217,7 +217,7 @@ behaviour they had.
 | **L1** hard-link hash oracle | A changed regular file with `nlink > 1` is refused as `RESUME_DIRTY_PATH_LINK` ("a link, a file with more than one name, or under a link") and is never hashed or read. The count comes from a new port (`resumeNode.ts`, one `lstatSync`) because `EntryStat` is in `search/`, outside this phase's write paths. A real hard-link test. | Fixed. The stat-then-read race stays (L1b below). |
 | **L2** mirror drift | `findings` and `effects` are no longer called loop records: they are listed as `worker-record` ("named like the worker own findings or effects record"). `effects` is NOT dropped (see below). The `.context.md` stem is capped at 64, the sweep's own bound. The label no longer says "a record the loop wrote": it says "named like a record the loop writes". RS-6 compares the execution alternatives, the decision-name regex, the gatekeeper constants and the exact fixed paths with the text of `run.ts`. | Fixed, with one disagreement, below |
 | **L3** git output past 1 MiB said "check git runs" | A failed `git status` whose output is at the reader's bound is `RESUME_TOO_MANY_DIRTY_PATHS` with "commit or stash the finished work, and add an ignore rule for generated trees (for example an un-ignored node_modules)". Real-git test with 5,000 long names under `node_modules`. | Fixed |
-| **L4** assume-unchanged, skip-worktree, git-ignored paths, NTFS alternate data streams and submodule internals are invisible to `git status` | No code. A worker needs git access, or a file system feature, to hide a change this way; the write grant is judged on the candidate, not here. | Residual |
+| **L4** assume-unchanged, skip-worktree, git-ignored paths, NTFS alternate data streams and submodule internals are invisible to `git status` | No code. A worker needs git access, or a file system feature, to hide a change this way; the second layers are the ones named under "Final round" below. | Residual |
 | **L5** the stale mark can be forged (the record's `subjectCommit` and the evidence heads are worker-writable) | No code. The items are labelled worker-authored and the mark says only what the record claims. | Residual |
 | **L6** another phase's session | The M2 shape carries this phase's id as a prefix, which covers it; the evidence record also carries a `phaseId` and a mismatch is dropped (`RESUME_SESSION_NOT_THIS_PHASE`). The findings record has no phase field. | Fixed |
 | **L7** the observed note claimed "never taken from a worker" | The note now says the path list and the hashes were read by the loop and that the names are whatever whoever made the files chose. | Fixed |
@@ -225,13 +225,42 @@ behaviour they had.
 
 ### Where I did not do what the review asked, and why
 
-- **M1, another PHASE's record, and the inactive states.** `run.ts` starts a fresh work record whenever the phase changes, so a record for another phase is what EVERY new phase finds. Refusing it would block every phase after the first. It stays "nothing to resume", as do `QUEUED`, `COMPLETE`, `AWAITING_GATE`, `GATE_APPROVED`, `WAITING_OWNER` and an absent file. **Say plainly: the dirty-path refusal is ADVISORY against a worker that forges its own record to one of those. The write grant judged on the candidate at capture remains the real gate.** What M1 closes is damage and a wrong-project record, not a deliberate forgery of an inactive state.
+- **M1, another PHASE's record, and the inactive states.** `run.ts` starts a fresh work record whenever the phase changes, so a record for another phase is what EVERY new phase finds. Refusing it would block every phase after the first. It stays "nothing to resume", as do `QUEUED`, `COMPLETE`, `AWAITING_GATE`, `GATE_APPROVED`, `WAITING_OWNER` and an absent file. **Say plainly: the dirty-path refusal is ADVISORY against a worker that forges its own record to one of those; see "Final round" for what the real second layers are (this paragraph earlier claimed the write grant at candidate capture, which was wrong).** What M1 closes is damage and a wrong-project record, not a deliberate forgery of an inactive state.
 - **L2, `effects`.** The review asked to drop `effects` because `run.ts` does not fold it. It is not folded because it is worker-written, which is also why it is dirty after a cut-off: the worker's own grant covers its findings and effects files. Refusing it would make a cut-off attempt that wrote one unresumable with a fix nobody can apply (it is in no phase's `writePaths`). It is listed as the worker's, with a hash, not as the loop's.
 - **L1b, re-lstat after open / read through the fd.** The `DocumentFs` port has `stat` and `readText` only, in `search/`, outside this phase's write paths. The window between the stat and the read is a residual, documented: a path swapped for a link or a second name in that window is hashed as what it then is.
 - **L8, RS-14.** It checks that a titled test exists and that its body holds an `expect(`; it does not run the tests (the validators here do not run vitest). A test whose assertions are vacuous still passes it.
 
 ### New residuals from this round
 
-- A work record forged to an inactive state, another phase, or deleted switches the refusal off (above). The grant at candidate capture is the gate.
+- A work record forged to an inactive state, another phase, or deleted switches the refusal off (above), exactly as it behaved before this phase: the refusal is an added advisory layer, not a regression.
 - A corrupt work record now stops every admitted-envelope run until the owner restores or deletes it; the refusal names the file and the command.
 - `resumeLoopRecordsOf` copies one regex (the decision-file name) from `run.ts`; the validator fails if the two differ.
+
+## Final round (ECC recheck of `49e6f13d`: no CRITICAL or HIGH; fixed in the commit after it)
+
+| Item | What changed |
+|---|---|
+| **LOW-1** the link count failed OPEN: with the port absent, null or throwing, a hard link to a file outside the project was hashed and a hard-linked findings record was read | `linkCount` is a REQUIRED port on `ContextManagerPorts` (`portsProblem` names it, so a manager with none refuses the run). A count that is missing, null, thrown, not an integer or below one makes the path unobservable and the run REFUSES with `RESUME_LINK_COUNT_UNOBSERVED` ("the owner checks each path with the operating system tools (fsutil hardlink list on Windows, stat on Unix) and commits or removes it"). A record file (findings, evidence) with an unreadable count is not read. Every test port supplies the port; tests cover absent, null, throw, `'two'`, NaN, 0 and 1.5, and a real hard link (earlier round). |
+| **LOW-2** the record-refusal text sent the owner to `git checkout`, which restores the same committed bad file | The text now says the owner replaces the record with a good copy, or deletes it, AND commits that change, naming the path, and says why. Nothing from the record is in it. A test checks the text and that it never says `git checkout`. |
+| **INFO** a work-record reader that returned `undefined` (or any non-answer) threw a `TypeError` | A non-object, or an object whose `ok` is not a boolean, is the same refusal as a reader that says no (`RESUME_WORK_RECORD_UNREADABLE`, "the reader gave no answer"), with the named fix. Tested for `undefined`, `null`, a string, a number, `{}` and `{ value: null }`. |
+| **LOW-3** (doc) | Corrected below. |
+| Validator | `val-projectos-resume1a`: 14 rules, 171 named mutations, all applied and killed by their own rule. New mutations: link-count failures taken for one name (throw, non-count), the null count not refused, the port optional again or its absence not a missing port, no code of its own for the unobserved count, an attempt record read when its names cannot be counted, the record refusal with no fix or sending the owner to `git checkout`, and a reader with no answer not refused. |
+
+### What the second layers really are (LOW-3 correction)
+
+An earlier paragraph said a path outside `writePaths` is judged by "the write grant at candidate capture". **That is wrong: there is no automatic refusal of a changed path outside `writePaths` at candidate capture, and no clean-tree check at the start of a run.** What stands behind the resume's dirty-path refusal is:
+
+1. the dispatch-time tool grant (`--allowedTools`, `runner.ts` near the dispatch), which limits what a worker may write;
+2. the ignored-content scan (`gitIgnoredUnder`), which sees git-ignored content only; and
+3. the independent reviewer, who is shown the changed paths together with the write grant (`workerScopeWriteGrant.paths`).
+
+A work record forged to an inactive state, another phase, or deleted behaves exactly as it did before this phase. The refusal is an added advisory layer, not a regression.
+
+### More residuals (INFO)
+
+- **Session-prefix collision.** A phase id that ends in 12 hex characters collides with a longer phase id: phase `A` accepts `A-aaaaaaaaaaaa-<12 hex>` although it belongs to phase `A-aaaaaaaaaaaa`. Only the evidence record's own `phaseId` check protects against showing it.
+- **Names are not proof.** A worker-planted `x.session.json` or `x.reviewer.json` is admitted as "named like a record the loop writes".
+- **Untracked unrelated files refuse every resume.** Any untracked file in the checkout that is not in the phase's `writePaths` and not named like a loop record (for example `.playwright-mcp/`, `graphify-out/`, `p.html`) refuses every resume of a cut-off phase until the owner commits, removes or git-ignores it. This is the intended behaviour of the spec, and it is an owner-facing consequence: say so before relying on it.
+- **Killed-run leftovers.** A leftover `.projectops/gatekeeper-ledger.json.tmp` or `.lock` from a killed run is not a loop record by name and also refuses until the owner removes it.
+
+Final-round counts (read from the output): core 112 files, 4,782 tests passed; agent (alias) 132 files, 131 passed and `tenantSidecar.test.ts` failed to load (the alias artefact), 4,112 tests passed and 10 skipped; agent `tsc` clean for the source and for the tests; `val-projectos-resume1a` 14 rules and 171 named mutations; `val-projectos-context-manager1a` on a scratch copy with only the CM-15 neighbour pin changed: 285 mutations killed; work-record-not-authority1a, boot-continue1a, validate-no-secrets, port-credit1a, memory-provenance1a, memory-stores1a, port-memory1a, port-skills1a, port-approvals1a and port-context1a all PASS.

@@ -135,15 +135,16 @@ const NOTHING: ContextResumeOutcome = Object.freeze({ kind: 'ok', reads: Object.
 const failure = (id: string, code: string): ContextFailure => ({ id, code, blocking: false });
 
 /** A dirty-path problem: a core reason, or one only the file system can see. */
-type DirtyReason = ContextResumePathReason | 'link' | 'not-regular';
+type DirtyReason = ContextResumePathReason | 'link' | 'link-count-unobserved' | 'not-regular';
 interface DirtyProblem {
   readonly path: string;
   readonly reason: DirtyReason;
 }
 
-const REASON_ORDER: readonly DirtyReason[] = ['link', 'not-regular', 'absolute', 'traversal', 'odd-form', 'case-variant', 'outside-write-paths'];
+const REASON_ORDER: readonly DirtyReason[] = ['link', 'link-count-unobserved', 'not-regular', 'absolute', 'traversal', 'odd-form', 'case-variant', 'outside-write-paths'];
 const REASON_CODE: Readonly<Record<DirtyReason, string>> = {
   link: 'RESUME_DIRTY_PATH_LINK',
+  'link-count-unobserved': 'RESUME_LINK_COUNT_UNOBSERVED',
   'not-regular': 'RESUME_DIRTY_PATH_NOT_REGULAR',
   absolute: 'RESUME_DIRTY_PATH_ODD_FORM',
   traversal: 'RESUME_DIRTY_PATH_ODD_FORM',
@@ -153,6 +154,7 @@ const REASON_CODE: Readonly<Record<DirtyReason, string>> = {
 };
 const REASON_WORDS: Readonly<Record<DirtyReason, string>> = {
   link: 'a link, a file with more than one name, or under a link',
+  'link-count-unobserved': 'a file whose number of names could not be read',
   'not-regular': 'not an ordinary file',
   absolute: 'an absolute path',
   traversal: 'a path that climbs out of the project',
@@ -162,6 +164,7 @@ const REASON_WORDS: Readonly<Record<DirtyReason, string>> = {
 };
 const REASON_FIX: Readonly<Record<DirtyReason, string>> = {
   link: 'the owner replaces each link, or each file with a second name (a hard link), with an ordinary file, or removes it',
+  'link-count-unobserved': 'the owner checks each path with the operating system tools (fsutil hardlink list on Windows, stat on Unix) and commits or removes it',
   'not-regular': 'the owner removes each, or replaces it with an ordinary file',
   absolute: 'the owner removes each, or renames it to an ordinary path inside the project',
   traversal: 'the owner removes each, or renames it to an ordinary path inside the project',
@@ -205,7 +208,7 @@ function refusedRecord(code: string, why: string): ContextResumeOutcome {
   return {
     kind: 'refused',
     code,
-    message: `the work record could not be used (${why}), so whether an attempt before this one was cut off cannot be judged. Nothing was sent and no worker was started. Fix: the owner restores ${WORK_RECORD_REL} from git (git checkout -- ${WORK_RECORD_REL}) or, if git does not track it, deletes it, then runs again.`,
+    message: `the work record could not be used (${why}), so whether an attempt before this one was cut off cannot be judged. Nothing was sent and no worker was started. Fix: the owner replaces ${WORK_RECORD_REL} with a good copy, or deletes it, and COMMITS that change (the record is a committed file here, so restoring it from git brings the same bytes back), then runs again.`,
   };
 }
 
@@ -245,16 +248,18 @@ function onDiskProblem(ports: ContextManagerPorts, root: string, path: string, p
   if (own.kind === 'link') return 'link';
   if (own.kind !== 'file') return 'not-regular';
   // A file with a second name can be another file's bytes under this path (a hard link to something outside the project): never hashed or read.
-  return linkCountOf(ports, `${root}/${path}`) > 1 ? 'link' : null;
+  const names = linkCountOf(ports, `${root}/${path}`);
+  if (names === null) return 'link-count-unobserved';
+  return names > 1 ? 'link' : null;
 }
 
-/** How many names a file has. A port that is missing, or that cannot say, answers one: the lstat above already refused a link. */
-function linkCountOf(ports: ContextManagerPorts, path: string): number {
+/** How many names a file has, or null when the port cannot say (it throws, answers null, or answers something that is not a count): that FAILS CLOSED, because a hard link to a file outside the project is hashed as that file. */
+function linkCountOf(ports: ContextManagerPorts, path: string): number | null {
   try {
-    const count = ports.linkCount === undefined ? 1 : ports.linkCount(path);
-    return typeof count === 'number' && Number.isFinite(count) ? count : 1;
+    const count: unknown = ports.linkCount(path);
+    return typeof count === 'number' && Number.isSafeInteger(count) && count >= 1 ? count : null;
   } catch {
-    return 1;
+    return null;
   }
 }
 
@@ -317,7 +322,8 @@ type FileRead = { readonly kind: 'absent' } | { readonly kind: 'text'; readonly 
 function recordText(ports: ContextManagerPorts, root: string, rel: string): FileRead {
   try {
     // A link at the file or above it (the execution folder itself) is never followed.
-    if (onDiskProblem(ports, root, rel, new Map()) === 'link') return { kind: 'problem', code: 'RESUME_FILE_NOT_REGULAR' };
+    const onDisk = onDiskProblem(ports, root, rel, new Map());
+    if (onDisk === 'link' || onDisk === 'link-count-unobserved') return { kind: 'problem', code: 'RESUME_FILE_NOT_REGULAR' };
     const stat = ports.fs.stat(`${root}/${rel}`);
     if (stat === null) return { kind: 'absent' };
     if (stat.kind !== 'file') return { kind: 'problem', code: 'RESUME_FILE_NOT_REGULAR' };
@@ -420,6 +426,7 @@ export function resumeReadsOf(ports: ContextManagerPorts, input: ContextResumeIn
     return refusedRecord('RESUME_WORK_RECORD_UNREADABLE', 'it could not be read');
   }
   // A record that is there and cannot be used is NOT an absent one: it is how a cut-off attempt would be hidden. Its own words are never quoted.
+  if (record === null || typeof record !== 'object' || typeof (record as { ok?: unknown }).ok !== 'boolean') return refusedRecord('RESUME_WORK_RECORD_UNREADABLE', 'the reader gave no answer');
   if (!record.ok) return refusedRecord('RESUME_WORK_RECORD_UNREADABLE', 'it is not readable JSON, or is a version this runtime does not read, or names a state this runtime does not know');
   if (record.value === null) return NOTHING;
   const read = contextResumeFieldsOf(record.value, vocabularyOf(request.phaseId));
