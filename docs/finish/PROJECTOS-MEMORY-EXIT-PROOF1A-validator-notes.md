@@ -54,7 +54,7 @@ The validator also runs four self-tests whose results it prints:
 
 - Dead-rule control: for every mutation, the judge with that mutation's rule body replaced by `return []` must not fire the rule (276 runs).
 - Regex timing: every log-reading rule is run on seven 256 KiB hostile logs (blank lines, CRLF blank lines, space-only lines, one very
-  long line, and three shapes of lines that start like real ones); each run must take under 200 ms (35 runs). A copy with the old
+  long line, and three shapes of lines that start like real ones); each run must take under 3,000 ms (a quadratic pattern takes 16 s or more at this size and a linear one tens of milliseconds, so the bound is wide to survive load) (35 runs). A copy with the old
   leading-`\s*` pattern restored fails this test (EP-6 took 17-38 s), so the test does catch the defect it was added for.
 - Crash resistance: every JSON evidence file in turn holding `null`, a list, a string, a number or `{}`, and the notes, runner lists
   and manifest missing, empty or a list: no rule may throw (112 runs). A rule that does throw is reported as that rule's problem.

@@ -1270,7 +1270,8 @@ const MUTATIONS = [
 
 // ---------------------------------------------------------------------------------------------------------
 
-const MAX_RULE_MS = 200;
+// Wide on purpose: a quadratic pattern needs 16 s or more at this size, while a linear one needs tens of milliseconds, so 3 s tells them apart and does not flake under load (the recheck saw 270 ms at 72 busy loops).
+const MAX_RULE_MS = 3000;
 const HOSTILE_BYTES = 262144;
 
 /** Hostile logs, each 256 KiB: a rule that reads a log must stay linear on all of them. */
