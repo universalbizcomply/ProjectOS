@@ -1,0 +1,8 @@
+# PROJECTOS-CONTEXT-MANAGER1A — awaiting closure
+
+**Phase:** PROJECTOS-CONTEXT-MANAGER1A, phase 44 of 47 of plan v1.36
+**Closure route:** owner-direct, under the owner's full-authority grant. No gatekeeper closure ruling was obtained, and none is claimed.
+
+V4 Stage 3, plan 3.4. The loop now retrieves stored memory only for the tenant, domain and project of the admitted run envelope (bound to the checkout; a forged or foreign envelope is refused), ranks it by provenance (committed decisions first, approved memory decisions loaded with no authority), and records the retrieval in a loop-written hash-chained ledger kept in installation state, outside the project tree. The runner places a fenced, untrusted, secret-screened and capped file .projectops/execution/<session>.context.md, names it in the brief as records.contextPath, retires it before anything asks what changed so it never counts toward the candidate, and the run evidence names every stored item shown. Compaction is deterministic (no model call), approved decisions are always loaded, a partial summary is refused and an over-limit context stops the run with a named fix. An unreadable decision source stops the run. The direct-write refusal and store digest are wired in the runner on one baseline taken before the first dispatch and judged after the worker, after the checks and at candidate capture. The only edit to protected run.ts is the import and one runLoop option, runEnvelope: admittedRunEnvelopeOf(ctx). PX-17, AP-29, PM-16 and PK-16 are narrowed to the new call sites with named mutations.
+
+Full record: `docs/finish/PROJECTOS-CONTEXT-MANAGER1A.md`.
