@@ -172,6 +172,8 @@ const MODULES = [
   "val-projectos-memory-provenance1a",
   // PROJECTOS-CONTEXT-MANAGER1A - retrieval is keyed on the admitted run envelope and recorded in a loop-written ledger; stored text reaches the worker only as a fenced, scanned, capped file named by the brief and gone before the checks; approved decisions are always loaded; compaction is deterministic and stops on overLimit; the evidence names what the worker was shown; run.ts changes by exactly one option.
   "val-projectos-context-manager1a",
+  // PROJECTOS-RESUME1A - a new worker continues a half-done phase from retrieved state: the work record read for four closed fields; earlier findings and evidence labelled worker-authored and ranked below every decision; the dirty paths and hashes the loop observed, a path outside the phase write paths refusing the run; evidence marked stale after HEAD moves; the work record stays non-authority.
+  "val-projectos-resume1a",
   // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
   "val-projectos-connector-contract1a"
 ];

@@ -693,6 +693,9 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
           query: brief.phase.description,
           dependsOn: brief.phase.dependsOn,
           planMemoryPaths: planMemoryPathsOf(context),
+          // CONTINUING A HALF-DONE PHASE (PROJECTOS-RESUME1A): the manager reads what a cut-off attempt left only after it has bound the checkout,
+          // and refuses a changed path this phase's grant does not cover. The record is read for four closed values and decides nothing.
+          resume: { phaseId, projectId: context.projectId, writePaths: writeGrant.paths, workRecord: () => readWorkRecord(sys, root) },
           ports: contextPorts,
           ledgerRoot: options.contextStateDir === undefined ? nodeInstallationStateDir() : options.contextStateDir,
         });
