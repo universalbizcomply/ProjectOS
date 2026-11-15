@@ -1,7 +1,7 @@
 # PROJECTOS-SKILLS-ADOPT1A — skill adoption: validator, independent review, hash pin (plan 3.2)
 
 **Phase:** PROJECTOS-SKILLS-ADOPT1A, plan v1.36 item 3.2, Delta spec rev 2 row 10. Depends on CONTEXT-MANAGER1A and PORT-SKILLS1A.
-**Branch:** `projectos-skills-adopt1a`, worktree `C:/dev/ProjectOS-worktrees/skills-adopt1a-v136`, based on `e269e5c5`. One commit, not pushed, not
+**Branch:** `projectos-skills-adopt1a`, worktree `C:/dev/ProjectOS-worktrees/skills-adopt1a-v136`, based on `e269e5c5`. Two commits (`959973f4`, then the review-round-1 commit), not pushed, not
 merged. `docs/06_Plan.md` is not edited. No phase record. `validate-all` was not run (the lead's).
 
 ## Existing code found (B1) and what was extended
@@ -52,8 +52,8 @@ Both listed evasions were reproduced first, then closed.
 
 | Evasion | Fix |
 |---|---|
-| A 70-character path before `.env` evaded `py_read_secrets_file` and `js_read_secrets_file` (the bound was 64, before and after the name) | The path bound is the line cap (4,096: a longer line is refused unread, so no path hides). The name's tail is asked in a lookaround (1,024, far past a file name), so it adds and does not multiply. The write exemption (`'w'`, `mode='a'`) is kept and tested at 300 characters |
-| `sed` with 5 or more arguments before `-i` evaded the critical `agent_config_mod_shell` | `sed` is judged by two lookaheads from its own start: an in-place flag within 512 characters and the file within 512. No count of arguments matters. `-i.bak`, `-ni`, `--in-place=.bak` are now in place too (the old pattern needed whitespace after the flag) |
+| A 70-character path before `.env` evaded `py_read_secrets_file` and `js_read_secrets_file` (the bound was 64, before and after the name) | The path bound is the line cap (4,096: a longer line is refused unread, so no path hides). The name's tail is asked in a lookaround. (Review round 1 took the tail back from 1,024 to the original 64: see M3a below.) The write exemption (`'w'`, `mode='a'`) is kept and tested at 300 characters |
+| `sed` with 5 or more arguments before `-i` evaded the critical `agent_config_mod_shell` | `sed` is judged by two lookaheads from its own start that stop at the next `sed` word: an in-place flag within 256 characters and the file within 512 (review round 1 shortened the first from 512 for cost). Up to about 18 short arguments are covered; no count matters below that. `-i.bak`, `-ni`, `--in-place=.bak` are now in place too (the old pattern needed whitespace after the flag) |
 
 Also widened with one wide repeat and no product: the redirect and `tee` path bound 256 to 4,096. Costs, measured: the worst case is `Path('` followed by `.env` repeated, 94 ms on 262 KB; both new shapes are in the clock tests and in SA-10.
 `the-fix-is-quadratic` (two wide repeats in `sed`) is killed by the clock.
@@ -84,6 +84,8 @@ EXISTING FILES TOUCHED (the lead merges these):
 - `projectos/validators/val-projectos-port-skills1a.cjs`, `validate-all.cjs`, `projectos/speed/cached-runner.cjs`
 - tests: `core/test/skillFixtures.ts`, `skills-promotion.test.ts`, `skills-prompt.test.ts`, `skills-guard.test.ts`, `agent/test/skillsQueue.test.ts`
 
+REVIEW ROUND 1 added: `agent/src/skills/skillMint.ts`, `core/test/skills-round1.test.ts`, `agent/test/skillRound1.test.ts`, and changed `skillOrigin.ts`, `skillReview.ts`, `promotion.ts`, `prompt.ts`, `committedSkill.ts`, `hiddenText.ts`, `guardPatterns.ts`, `refusal.ts`, `index.ts` (core and agent), `skillQueue.ts`, `skillContext.ts`, both validators and the finish doc.
+
 ADDED: `core/src/skills/{skillOrigin,skillReview,committedSkill}.ts`, `agent/src/context/{skillContext,skillCommitted}.ts`, `core/test/{skills-review,skills-committed}.test.ts`, `agent/test/skillLoad.test.ts`, `agent/test/support/skillWorld.ts`, `validators/val-projectos-skills-adopt1a.cjs`, this doc.
 
 ## Narrowing of `val-projectos-port-skills1a` (truthful, none loosened)
@@ -103,7 +105,7 @@ ADDED: `core/src/skills/{skillOrigin,skillReview,committedSkill}.ts`, `agent/src
 `val-projectos-context-manager1a` CM-15 pins its successor. Registering this validator immediately after it, in both lists, makes CM-15 fail with
 "not between ... and val-projectos-connector-contract1a". The one-line change in `projectos/validators/val-projectos-context-manager1a.cjs`
 (line 449): the successor `"val-projectos-connector-contract1a"` becomes `"val-projectos-skills-adopt1a"` (and the message text with it). This validator's own SA-13 pins
-the same neighbours (`PREVIOUS_VALIDATOR`, `NEXT_VALIDATOR` at its top), and the lead moves `NEXT_VALIDATOR` if RESUME1A registers between them. The CM validator was not edited, and it otherwise passes (21 rules, 285 mutations) with this branch.
+the same neighbours (`PREVIOUS_VALIDATOR`, `NEXT_VALIDATORS` at its top). SA-13 now accepts `val-projectos-connector-contract1a` OR `val-projectos-resume1a` as the successor, so the lead moves nothing here whichever registers next. The CM validator was not edited, and it otherwise passes (21 rules, 285 mutations) with this branch.
 
 ## Converge (B9)
 
@@ -112,6 +114,36 @@ the same neighbours (`PREVIOUS_VALIDATOR`, `NEXT_VALIDATOR` at its top), and the
 - **PROTECTED untouched:** `git diff --stat` lists no file of `docs/00_Baseline_State.md` §4 and none of the delta spec; `docs/06_Plan.md` is not edited.
 - **No model call, no new dependency:** SA-12 compares `dependencies` and `devDependencies` of core and agent with `e269e5c5`.
 - **Browser purity:** core's barrel bundled for the browser with esbuild (platform browser, tree-shaking off, `node:crypto` and `node:buffer` stubbed as control-center does) and evaluated with no Node global: OK. The only `node:` import in the new core files is `node:crypto`.
+
+## Review round 1 (ECC security review of `959973f4`)
+
+Fixed in one new commit on top of `959973f4` (not amended). Each finding has its own rule and named mutations in `val-projectos-skills-adopt1a` (SA-16 to SA-22) and tests in `core/test/skills-round1.test.ts` and `agent/test/skillRound1.test.ts`.
+
+| Finding | What changed | Proof |
+|---|---|---|
+| **M1** a forged stored proposal file was promoted | A file is not a mint. The queue records the hash of every proposal it makes in the INSTALLATION state, `<state>/skill-mint/mint-<hash of tenant and project>/<proposal hash hex>.json` (`agent/src/skills/skillMint.ts`), created exclusively and BEFORE the proposal file. A review of a proposal whose hash the kernel did not record is refused with the new code `SKILL_NOT_MINTED` and the fix "the owner re-proposes it through the door". What is read back must equal the bytes the queue writes. Nothing lands in the project tree, and the mint functions are not on the agent barrel | the reviewer's `t1b` forgery as an agent test, a positive control, a mint keyed by tenant and project, a truncated or planted file, a real `nodeSystem` plus real `git init` showing the mint adds nothing to `git status`; SA-16, 8 mutations |
+| **M2** a getter defeats the mark | Every field is read once. An actor (and a reviewer) is snapshotted by own data descriptors into a frozen copy: an accessor, an inherited field, a class instance, a list and a throwing Proxy are refused (`SKILL_PROVENANCE`), and the doors mint from the snapshot. `buildSkillProposal` destructures its input once, and the queue reads `request.files` once from its data property | tests: role `implementer` then `owner`, origin read once, a reviewer that is a getter or is changed after the decision; SA-17, 6 mutations |
+| **M3a** the guard was slow | The `sed` alternative stops each lookahead at the next `sed` word, and the in-place flag lookahead is 256, not 512. The name tail is back to 64 (`959973f4` made it 1,024). Re-timed cold (first execution, which is what a run pays) on 262 KB of the reviewer's shapes; the guard tests hold every pattern this phase changed to 100 ms, and a regression test over a fragment corpus shows nothing blocked before now passes | `skills-guard.test.ts`; SA-18 (a 262 KB clock probe, 250 ms bound, because the validator runs loaded) |
+| **M3b** the validator ran before the verifier | `loadCommittedSkill` is staged: shape, pin shape, caps and the package hash, then the name, the binding, THEN the verifier, then the validator, then the render. No verifier means no regex work. One run reads at most 524,288 characters of record text through the loader (`MAX_SKILL_RUN_WORK_CHARS`); the rest are placeholders by code | tests: a record that would fail the validator is refused for the missing verifier first, a hostile 200 KB record costs almost nothing without one; SA-18 |
+| **M4** the record named no project | Tenant and project are in the proposal hash and the pin, and the claim carries origin, rules version and the time of the review (frozen). At load the pin is compared with the checkout's binding (`SKILL_NOT_THIS_CHECKOUT`, fix named) BEFORE anyone is asked; the proposal hash is worked out again from the pin, the record and the validator's advisories (a mismatch is `SKILL_TAMPERED`); a rules version that moved is `SKILL_STALE`. A proposal made with no checkout is pending and readable but cannot be reviewed or promoted | tests: a record promoted in project A and committed into B, an edit of the author or the time of proposal; SA-19, 8 mutations |
+| **L1** codes with no fix | `SKILL_FIXES` in `skillContext.ts` has a who-does-what sentence for every code a skill can be withheld with (the committed reader's, the gate's, the listing's, the loader's, and the queue's refusals the loader can give); `skillAdviceOf` reads it | a test walks every closed list; SA-20 reads the lists from source, 4 mutations |
+| **L2** "a person reviewed" | The section note and the block say a skill is "recorded as reviewed and promoted, and a verifier answered true". Nothing asserts a person | tests; SA-21 |
+| **L3** the fence and the headings | The fence-tag check reads the NFKC fold, any dash, space or full-width bracket, and covers all four fences; a line that starts as a heading of the context file is a blocking finding (`section-heading-forgery`); a listed file name is shown at most 48 characters long | tests (12 spellings of the tag, 9 headings); SA-21, 5 mutations |
+| **L5** | `renderSkillBlock`, `renderCheckedSkill`, `checkPromotedSkillCheaply` and `finishPromotedSkill` are not on core's barrel, and `loadPromotedSkill` is not on the agent's. SA-22 also scans every product source and refuses either name outside `prompt.ts` and `skillQueue.ts` | tests; SA-22, 5 mutations |
+| **L6** | `proposeSkill(sys, root, caller, null)` (and `undefined`, a string, a list, a getter `files`) is `SKILL_FAILED_VALIDATION` named `not-a-package`, never a throw | tests; SA-22 |
+
+### Not fixed, and why
+
+- **The name tail is 64 again.** `open('.env.<more than 64 characters>')` evades `py_read_secrets_file` once more. `959973f4` raised the tail to 1,024, and that was a large part of why the guard was slow; no cheap form kept both. On this one input the guard is as narrow as it was before this phase.
+- **A skill that writes an inner `sed` word that is not `sed/`** inside a `sed` script (`'s,sed,x,'`) stops the lookahead and evades. `s/sed/x/` is still caught. Stopping at the next `sed` word is what keeps the pattern linear.
+- **Still slow, and not changed by this phase (carried):** `env_exfil_curl`, `curl_pipe_*` and `read_secrets_file` take about 150 to 190 ms cold on 262 KB of their worst shape. They were slow before. A 262 KB hostile `sed -i ` package costs about 267 ms over every pattern together, against 173 ms before this phase; the three `sed` patterns are each under 100 ms.
+- **L4, carried, and the guard is advisory.** `ANY` is 512 elsewhere (`curl ... $SECRET` and `cat ... .env` with 513 or more characters between), `cp` and `mv` to a config file keep their 64 and 40, a `sed` script of more than 256 characters before the flag evades, `open('.env').read()` is not matched, and `mode='a'` later on a line is exempted. The denylist misses `perl -pi`, `awk -i inplace` and `gsed`. None of this is a boundary. The guard is a screen that a determined author evades; the boundary is the review, the verifier and the committed pin.
+- **L7.** `judgeCommittedSkillRead` is attestation by its caller. That the text is the blob at HEAD is established by the git blob hash check (`blobNameOf` in `agent/src/installation/projectAllowlist.ts`) in the agent's reader; core's judge trusts the facts it is handed.
+- **L8.** HEAD is read twice in a run (the manager's read, then the skill listing's). The listing refuses a HEAD that moved between them (`SKILL_STALE`), so a move is refused and not mixed, but they are two reads, not one.
+- **L9.** The proposal queue writes `.projectops/skills/proposals/<id>.json` into the PROJECT tree. That is not this phase's change and it was not moved. A run that happens after a proposal is written sees an untracked file that `isFoldableRunRecord` in the protected `run.ts` does not list (Stage 4.1). The mint this round adds is NOT in the project tree; the real `git init` test shows it adds nothing beside the proposal file.
+- **The proposal door** (`projectos/agent/src/memory/proposalDoor.ts`, outside the write paths) still calls `proposeSkill` with four arguments. A worker's skill proposal through it is therefore pending, names no project and cannot be promoted until the door passes a `SkillStatePorts` (`{ checkout, stateDir }`, the values the context manager already has). That fails closed. The lead makes the one-line change when the door is next opened.
+- **A transparent Proxy** as an actor is read through its traps; core has no port to prove otherwise (named in `skillOrigin.ts`).
+- Residual 1 (no production verifier, so no production state directory wiring for the review command) is unchanged.
 
 ## Residuals and carry-forwards
 
@@ -137,15 +169,15 @@ After: the same files, **515 core and 95 agent skill tests pass** (see below). T
 
 | Check | Result |
 |---|---|
-| core `npx vitest run` | 113 files, **4,858 passed** (skills: 10 files, **515** passed; PORT-SKILLS1A left 376) |
+| core `npx vitest run` (after review round 1) | 114 files, **4,913 passed**. One timing test, `research-fixround` "unterminated tags with attributes", failed once under the load of the full run and **passed alone** (43 tests in 595 ms); it is not a skill test |
 | core `npm run -s build` | clean |
 | agent `tsc` through the alias config (`@projectos/core` to this worktree's `core/dist`) | clean |
-| agent `vitest run`, alias config, the whole suite | 131 files: 130 passed, **1 failed: `tenantSidecar.test.ts`, the known alias artefact**; **4,055 passed**, 10 skipped |
-| agent `skillsQueue` 56 passed, `skillLoad` 39 passed | 95 |
-| `val-projectos-skills-adopt1a` | PASS, 15 rules, **171 named mutations killed** (about 80 s) |
-| `val-projectos-port-skills1a` | PASS, 21 rules, **448 named mutations killed** (was 440) |
+| agent `vitest run`, alias config, the whole suite (after review round 1) | 132 files: 131 passed, **1 failed to load: `tenantSidecar.test.ts`, the known alias artefact** (it runs `tsc` on the agent without the alias); **4,081 passed**, 10 skipped; no timing test failed |
+| agent `skillsQueue`, `skillLoad`, `skillRound1` | the round-1 file has 26 tests; the three pass |
+| `val-projectos-skills-adopt1a` | PASS, **22 rules, 216 named mutations killed** (15 and 171 before review round 1); about 150 s |
+| `val-projectos-port-skills1a` | PASS, 21 rules, **448 named mutations killed** (10 mutations repaired for the new text, one probe added, none removed) |
 | `val-projectos-context-manager1a` | 21 rules and 285 mutations hold; the only failure is CM-15 (successor pin), which is the lead's one-line change above |
-| `val-projectos-port-credit1a` | PASS, 192 real files judged (after `git add`: it judges tracked files) |
+| `val-projectos-port-credit1a` | PASS, 193 real files judged (after `git add`: it judges tracked files) |
 | `val-projectos-memory-provenance1a`, `memory-stores1a`, `port-memory1a`, `port-context1a`, `port-approvals1a`, `port-mcp1a`, `port-providers1a`, `port-research1a`, `port-search1a`, `tenant-contract1a`, `tenant-principal1a`, `validate-no-secrets` | all PASS |
 | browser purity of core's barrel | OK (esbuild, platform browser, tree-shaking off, no Node global) |
 | `validate-all` | **not run** (the lead's) |

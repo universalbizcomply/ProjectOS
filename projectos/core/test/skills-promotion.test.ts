@@ -18,7 +18,7 @@ import {
   type SkillRefusalCode,
   type SkillResult,
 } from '../src/skills/index.js';
-import { AT, LATER, OWNER, REVIEWER, WORKER, approvedAndVouched, buildWith, markOf, pkg, promotedOf, proposalOf, skillMd, withFrontmatter } from './skillFixtures.js';
+import { AT, BINDING, LATER, OWNER, REVIEWER, WORKER, approvedAndVouched, buildWith, markOf, pkg, promotedOf, proposalOf, skillMd, withFrontmatter } from './skillFixtures.js';
 
 const code = <T>(result: SkillResult<T>): SkillRefusalCode | 'ok' => (result.ok ? 'ok' : result.refusal.code);
 const decide = (proposal: SkillProposal, reviewer: SkillActor = REVIEWER, hash: string = proposal.proposalHash, active: string | null = proposal.supersedes) =>
@@ -31,7 +31,7 @@ const promoted = (proposal: SkillProposal = proposalOf()): PromotedSkill => prom
 /** What a process that can write the queue can do: the hash detects a change, and it is not a signature. */
 function resealed(proposal: SkillProposal): SkillProposal {
   const { provenance: v } = proposal;
-  const fields = ['projectos.skill-proposal/1', proposal.name, proposal.description, proposal.version, proposal.packageHash, proposal.supersedes, proposal.advisories, proposal.rulesVersion, proposal.origin, v.author, v.authorRole, v.session, v.proposedAt];
+  const fields = ['projectos.skill-proposal/1', proposal.name, proposal.description, proposal.version, proposal.packageHash, proposal.supersedes, proposal.advisories, proposal.rulesVersion, proposal.origin, v.author, v.authorRole, v.session, v.proposedAt, proposal.tenant, proposal.project];
   const hex = createHash('sha256').update(JSON.stringify(fields), 'utf8').digest('hex');
   return { ...proposal, proposalHash: `sha256:${hex}`, id: `skl-${hex.slice(0, 24)}` };
 }
@@ -217,7 +217,7 @@ describe('where a skill came from', () => {
 
   it('an origin the caller supplies is refused: the kernel sets it', () => {
     const files = pkg();
-    const plain = (origin: unknown) => buildSkillProposal({ files, origin, proposedAt: AT } as never, null);
+    const plain = (origin: unknown) => buildSkillProposal({ files, origin, proposedAt: AT, binding: BINDING } as never, null);
     expect(code(plain('proposed'))).toBe('SKILL_ORIGIN_NOT_KERNEL');
     expect(code(plain('imported'))).toBe('SKILL_ORIGIN_NOT_KERNEL');
     expect(code(plain('hub'))).toBe('SKILL_ORIGIN_NOT_KERNEL');
@@ -228,13 +228,13 @@ describe('where a skill came from', () => {
   it('a copy of a minted mark is not a mark, and the legacy fields beside it change nothing', () => {
     const mark = markOf();
     const files = pkg();
-    const forged = (origin: unknown) => code(buildSkillProposal({ files, origin, proposedAt: AT } as never, null));
+    const forged = (origin: unknown) => code(buildSkillProposal({ files, origin, proposedAt: AT, binding: BINDING } as never, null));
     expect(forged({ ...mark })).toBe('SKILL_ORIGIN_NOT_KERNEL');
     expect(forged(JSON.parse(JSON.stringify(mark)) as unknown)).toBe('SKILL_ORIGIN_NOT_KERNEL');
     expect(forged(structuredClone(mark))).toBe('SKILL_ORIGIN_NOT_KERNEL');
     expect(forged(Object.create(mark) as unknown)).toBe('SKILL_ORIGIN_NOT_KERNEL');
     expect(forged(mark)).toBe('ok');
-    const built = buildSkillProposal({ files, origin: mark, proposedAt: AT, author: 'owner', authorRole: 'owner', session: 'x' } as never, null);
+    const built = buildSkillProposal({ files, origin: mark, proposedAt: AT, binding: BINDING, author: 'owner', authorRole: 'owner', session: 'x' } as never, null);
     expect(built.ok && built.value.provenance.author).toBe(WORKER.actor);
     expect(built.ok && built.value.origin).toBe('proposed');
   });

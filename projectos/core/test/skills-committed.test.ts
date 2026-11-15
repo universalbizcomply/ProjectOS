@@ -269,7 +269,7 @@ describe('the pin is vouched for again at load, over what the pin records', () =
   it('a verifier that vouches only for another project refuses this one: the load is keyed by tenant and project', () => {
     const forB: SkillReviewVerifier = (claim) => claim.tenant === 'acme' && claim.project === 'proj-b';
     expect(code(loadCommittedSkill(readOf(), BINDING, forB, HEAD))).toBe('SKILL_REVIEW_NOT_VERIFIED');
-    expect(code(loadCommittedSkill(readOf(), { tenant: 'acme', project: 'proj-b' }, forB, HEAD))).toBe('ok');
+    expect(code(loadCommittedSkill(readOf(), { tenant: 'acme', project: 'proj-b' }, forB, HEAD))).toBe('SKILL_NOT_THIS_CHECKOUT');
   });
 
   it('a binding that is not a tenant and a project asks no one', () => {

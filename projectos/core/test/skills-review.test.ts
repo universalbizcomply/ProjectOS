@@ -68,6 +68,7 @@ describe('the verifier answers exactly true', () => {
     const made = skillReviewClaimOf('promotion', BINDING, {
       name: proposal.name, packageHash: proposal.packageHash, proposalHash: proposal.proposalHash,
       author: WORKER.actor, authorSession: WORKER.session, reviewer: REVIEWER.actor, reviewerRole: 'owner', reviewerSession: REVIEWER.session,
+      origin: 'proposed', rulesVersion: 'projectos.skill-rules/1', reviewedAt: LATER,
     });
     if (!made.ok) throw new Error(made.refusal.code);
     return made.value;
@@ -120,7 +121,7 @@ describe('the claim is bound, and a bad binding asks no one', () => {
     const proposal = proposalOf();
     return {
       name: proposal.name, packageHash: proposal.packageHash, proposalHash: proposal.proposalHash,
-      author: WORKER.actor, authorSession: WORKER.session, reviewer: REVIEWER.actor, reviewerRole: 'owner', reviewerSession: REVIEWER.session, ...over,
+      author: WORKER.actor, authorSession: WORKER.session, reviewer: REVIEWER.actor, reviewerRole: 'owner', reviewerSession: REVIEWER.session, origin: 'proposed', rulesVersion: 'projectos.skill-rules/1', reviewedAt: LATER, ...over,
     };
   };
   const never: SkillReviewVerifier = () => { throw new Error('must not be asked'); };

@@ -20,11 +20,11 @@
  * A refusal is a value with a code and quotes none of the bytes. Pure: no I/O.
  */
 import { isGitObjectId, memoryPathShapeProblem, plainRecordOf, type MemoryPathShapeProblem } from '../memory/memoryShapes.js';
-import { checkPromotedSkill, isSkillPin, type PromotedSkill } from './promotion.js';
+import { checkPromotedSkillCheaply, finishPromotedSkill, isSkillPin, type PromotedSkill } from './promotion.js';
 import { SKILL_MD } from './linter.js';
-import { renderSkillBlock, type SkillPromptBlock } from './prompt.js';
+import { renderCheckedSkill, type SkillPromptBlock } from './prompt.js';
 import { skillOk, skillRefused, type SkillResult } from './refusal.js';
-import { askSkillReviewVerifier, skillReviewClaimOf, type SkillReviewClaim } from './skillReview.js';
+import { askSkillReviewVerifier, skillBindingOf, skillReviewClaimOf, type SkillReviewClaim } from './skillReview.js';
 
 export const SKILL_RECORD_DIR = '.projectops/skills/promoted';
 /** A record is one package's JSON. Over this it cannot be shown in a context file anyway, so it is refused unread. */
@@ -182,10 +182,31 @@ function parsedRecord(text: string): unknown {
 
 const isObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+/** Every code the judge can give, so a caller can prove it has a fix for each. */
+export const COMMITTED_SKILL_CODES: readonly CommittedSkillCode[] = [
+  'COMMITTED_PATH_INVALID',
+  'COMMITTED_PATH_ESCAPES',
+  'COMMITTED_PATH_NOT_NORMAL',
+  'COMMITTED_PATH_NOT_A_SKILL_RECORD',
+  'COMMITTED_FACTS_INVALID',
+  'COMMITTED_NO_HEAD',
+  'COMMITTED_NOT_IN_HEAD',
+  'COMMITTED_SYMLINK',
+  'COMMITTED_NOT_REGULAR',
+  'COMMITTED_BYTES_UNREADABLE',
+  'COMMITTED_TOO_LARGE',
+  'COMMITTED_WORKING_TREE_ABSENT',
+  'COMMITTED_WORKING_TREE_LINK',
+  'COMMITTED_WORKING_TREE_NOT_FILE',
+  'COMMITTED_WORKING_TREE_UNREADABLE',
+  'COMMITTED_WORKING_TREE_DIFFERS',
+];
+
 /**
- * One committed record, loaded or refused by code. Asked in this order, so a cheap refusal never reaches a verifier:
- * minted read, the head it was minted at, JSON, a whole independent pin, the package hashed again, the same name as the path,
- * the verifier, then the block.
+ * One committed record, loaded or refused by code. Asked in this order, so the cheap refusals come first and NO REGEX WORK IS SPENT ON TEXT NOBODY
+ * VOUCHED FOR: minted read, the head it was minted at, JSON, a whole independent pin, the package's caps and hash, the name the path gives, the
+ * tenant and project the pin was made for, the verifier (no verifier, no validator), and only then today's validator, the proposal hash worked
+ * out again, and the block. A hostile 212 KB record used to cost 800 ms before a missing verifier was noticed.
  */
 export function loadCommittedSkill(read: unknown, binding: unknown, verifier: unknown, headCommit: unknown): SkillResult<LoadedSkill> {
   if (!isCommittedSkillRead(read)) return skillRefused('SKILL_NOT_COMMITTED', 'That text did not come from a committed read of a skill record, so it is not read as a skill.');
@@ -197,11 +218,17 @@ export function loadCommittedSkill(read: unknown, binding: unknown, verifier: un
   if (!isSkillPin(raw['pin'])) {
     return skillRefused('SKILL_NOT_PINNED', `The record for ${read.name} has no whole, independent hash pin, so it is not loaded. The owner promotes it through the review, then commits the record.`);
   }
-  const checked = checkPromotedSkill(raw);
-  if (!checked.ok) return checked;
-  const skill: PromotedSkill = checked.value;
-  if (skill.pin.name !== read.name) return skillRefused('SKILL_TAMPERED', `The file named ${read.name} holds another skill.`);
+  const cheap = checkPromotedSkillCheaply(raw);
+  if (!cheap.ok) return cheap;
+  const skill: PromotedSkill = cheap.value;
   const { pin } = skill;
+  if (pin.name !== read.name) return skillRefused('SKILL_TAMPERED', `The file named ${read.name} holds another skill.`);
+  const bound = skillBindingOf(binding);
+  if (bound === null) return skillRefused('SKILL_BINDING_INVALID', 'The load names no tenant and project of this checkout, so no one is asked.');
+  // A RECORD IS FOR ONE TENANT AND PROJECT. One promoted for project A and committed into project B's checkout is not B's skill.
+  if (pin.tenant !== bound.tenant || pin.project !== bound.project) {
+    return skillRefused('SKILL_NOT_THIS_CHECKOUT', `The record for ${read.name} was promoted for another tenant or project than this checkout's, so it is not loaded. Fix: the owner removes it from this checkout, or promotes the skill here through the review.`);
+  }
   const claim = skillReviewClaimOf('load', binding, {
     name: pin.name,
     packageHash: pin.packageHash,
@@ -211,11 +238,16 @@ export function loadCommittedSkill(read: unknown, binding: unknown, verifier: un
     reviewer: pin.reviewedBy,
     reviewerRole: pin.reviewerRole,
     reviewerSession: pin.reviewerSession,
+    origin: pin.origin,
+    rulesVersion: pin.rulesVersion,
+    reviewedAt: pin.reviewedAt,
   });
   if (!claim.ok) return claim;
   const vouched = askSkillReviewVerifier(verifier, claim.value);
   if (!vouched.ok) return vouched;
-  const block = renderSkillBlock(skill);
+  const finished = finishPromotedSkill(skill);
+  if (!finished.ok) return finished;
+  const block = renderCheckedSkill(finished.value);
   if (!block.ok) return block;
   return skillOk({
     name: pin.name,

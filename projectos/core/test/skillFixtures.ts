@@ -49,13 +49,15 @@ export interface ProposalOver {
   readonly authorRole?: string;
   readonly session?: string;
   readonly proposedAt?: string;
+  /** The checkout's tenant and project. Absent, the fixtures' own. */
+  readonly binding?: unknown;
 }
 
 /** The door a proposal comes through, then the proposal, as a result. */
 export function buildWith(files: readonly SkillFile[] = pkg(), over: ProposalOver = {}, active: string | null = null): SkillResult<SkillProposal> {
   const actor = { actor: over.author ?? WORKER.actor, role: (over.authorRole ?? WORKER.role) as SkillActor['role'], session: over.session ?? WORKER.session };
   const mark = over.imported === true ? importedSkillOrigin(actor) : proposedSkillOrigin(actor);
-  return mark.ok ? buildSkillProposal({ files, origin: mark.value, proposedAt: over.proposedAt ?? AT }, active) : mark;
+  return mark.ok ? buildSkillProposal({ files, origin: mark.value, proposedAt: over.proposedAt ?? AT, binding: Object.hasOwn(over, 'binding') ? over.binding : BINDING }, active) : mark;
 }
 
 export const markOf = (actor: SkillActor = WORKER): SkillOriginMark => {

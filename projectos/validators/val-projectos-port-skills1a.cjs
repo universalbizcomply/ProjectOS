@@ -75,6 +75,7 @@ const COMMITTED = `${CORE}/committedSkill.ts`;
 const CORE_BARREL = `${CORE}/index.ts`;
 const QUEUE = `${AGENT}/skillQueue.ts`;
 const AGENT_BARREL = `${AGENT}/index.ts`;
+const SKILL_MINT = `${AGENT}/skillMint.ts`;
 const TYPES = "projectos/core/src/types.ts";
 const CONTEXT = "projectos/agent/src/context.ts";
 const MEMORY_FILES = "projectos/agent/src/memory/memoryFiles.ts";
@@ -85,7 +86,7 @@ const VA = "projectos/validators/validate-all.cjs";
 const CR = "projectos/speed/cached-runner.cjs";
 const SAMPLES = "projectos/core/test/skill-threat-samples.json";
 
-const SKILL_SOURCES = [REFUSAL, FRONTMATTER, HIDDEN, PATTERNS, GUARD, AUDIT, LINTER, PACKAGE, PROMOTION, PROMPT, SKILL_ORIGIN, SKILL_REVIEW, COMMITTED, CORE_BARREL, QUEUE, AGENT_BARREL];
+const SKILL_SOURCES = [REFUSAL, FRONTMATTER, HIDDEN, PATTERNS, GUARD, AUDIT, LINTER, PACKAGE, PROMOTION, PROMPT, SKILL_ORIGIN, SKILL_REVIEW, COMMITTED, CORE_BARREL, QUEUE, SKILL_MINT, AGENT_BARREL];
 const CORE_SOURCES = SKILL_SOURCES.filter((rel) => rel.startsWith(CORE));
 const LOADED = [...SKILL_SOURCES, TYPES, CONTEXT, MEMORY_SHAPES];
 
@@ -196,7 +197,7 @@ const TESTS = {
     "proposing touches nothing that is read as a skill",
     "an independent review promotes it: the positive control",
     "a promoted skill changed by one byte on disk is stale, and nothing reaches a prompt",
-    "an instruction inside a skill grants nothing: the block is fenced and closed",
+    "an instruction inside a skill is kept as text in the record and grants nothing",
     "refused at promotion for a proposal that reached the queue around the check",
     "says the skill landed when the proposal cannot be marked, and never that it is pending",
     "a temporary path that is a link is not followed",
@@ -302,9 +303,10 @@ function load(dir, sources) {
   fs.writeFileSync(path.join(base, "agent", "authoringEvidence.mts"), EVIDENCE_STUB);
   fs.mkdirSync(path.join(base, "agent", "memory"), { recursive: true });
   fs.writeFileSync(path.join(base, "agent", "memory", "memoryFiles.mts"), ATOMIC_WRITE.exec(sources[MEMORY_FILES])[0]);
+  /** The renderer and the record loader are module-only now (review round 1, L5): the barrels do not offer them, so the probes reach them in their own modules. */
   return {
-    core: require(path.join(base, "core", "skills", "index.mts")),
-    queue: require(path.join(base, "agent", "skills", "index.mts")),
+    core: { ...require(path.join(base, "core", "skills", "index.mts")), renderSkillBlock: require(path.join(base, "core", "skills", "prompt.mts")).renderSkillBlock },
+    queue: { ...require(path.join(base, "agent", "skills", "index.mts")), loadPromotedSkill: require(path.join(base, "agent", "skills", "skillQueue.mts")).loadPromotedSkill, recordSkillMint: require(path.join(base, "agent", "skills", "skillMint.mts")).recordSkillMint },
   };
 }
 
@@ -404,13 +406,14 @@ const blocked = (core, files) => core.validateSkillPackage(files).blocking.map((
 const advised = (core, files) => core.validateSkillPackage(files).advisory.map((finding) => finding.rule);
 /** The tenant and project of the checkout, and the kernel's two answers: which project this is, and the fake verifier that vouches. There is no production verifier. */
 const BINDING = { tenant: "acme", project: "proj-a" };
-const PORTS = { checkout: () => BINDING, reviewVerifier: () => true };
+const STATE = { checkout: () => BINDING, stateDir: "/state" };
+const PORTS = { ...STATE, reviewVerifier: () => true };
 const vouching = () => true;
 
 /** What a process that can write the queue can do: the hash detects a change, and it is not a signature. */
 function resealed(p) {
   const { provenance: v } = p;
-  const fields = ["projectos.skill-proposal/1", p.name, p.description, p.version, p.packageHash, p.supersedes, p.advisories, p.rulesVersion, p.origin, v.author, v.authorRole, v.session, v.proposedAt];
+  const fields = ["projectos.skill-proposal/1", p.name, p.description, p.version, p.packageHash, p.supersedes, p.advisories, p.rulesVersion, p.origin, v.author, v.authorRole, v.session, v.proposedAt, p.tenant, p.project];
   const hex = crypto.createHash("sha256").update(JSON.stringify(fields), "utf8").digest("hex");
   return { ...p, proposalHash: `sha256:${hex}`, id: `skl-${hex.slice(0, 24)}` };
 }
@@ -423,7 +426,7 @@ function harness({ core, queue }) {
   };
   const build = (files = pkg(), active = null, over = {}) => {
     const mark = originFor(over);
-    return mark.ok ? core.buildSkillProposal({ files, origin: mark.value, proposedAt: over.proposedAt ?? AT }, active) : mark;
+    return mark.ok ? core.buildSkillProposal({ files, origin: mark.value, proposedAt: over.proposedAt ?? AT, binding: BINDING }, active) : mark;
   };
   const proposal = (files = pkg(), active = null) => {
     const built = build(files, active);
@@ -443,7 +446,7 @@ function harness({ core, queue }) {
     if (!result.ok) throw new Error(`could not promote: ${result.refusal.code}`);
     return result.value;
   };
-  const propose = (sys, files = pkg(), caller = WORKER, request = {}) => queue.proposeSkill(sys, ROOT_DIR, caller, { files, ...request });
+  const propose = (sys, files = pkg(), caller = WORKER, request = {}) => queue.proposeSkill(sys, ROOT_DIR, caller, { files, ...request }, STATE);
   const review = (sys, p, caller = REVIEWER, hash = p.proposalHash, ports = PORTS) => queue.reviewAndPromoteSkill(sys, ROOT_DIR, caller, { id: p.id, reviewedHash: hash }, ports);
   const landed = (sys, files = pkg()) => {
     const p = propose(sys, files);
@@ -859,6 +862,14 @@ function integrityProbes(check, { core, queue }, h) {
     const skill = h.promoted();
     return codeOf(core.checkPromotedSkill(null)) === "SKILL_TAMPERED" && codeOf(core.checkPromotedSkill({ ...skill, schema: "x" })) === "SKILL_TAMPERED" && codeOf(core.checkPromotedSkill({ ...skill, pin: { ...skill.pin, name: "other" } })) === "SKILL_TAMPERED" && codeOf(core.checkPromotedSkill({ ...skill, description: "other" })) === "SKILL_TAMPERED";
   });
+  check("PK-11", "a promoted record whose pin was resealed under another name is refused for the name, not only for the hash", () => {
+    const p = h.proposal();
+    const skill = h.promoted(p);
+    const pin = { ...skill.pin, name: "other" };
+    const fields = ["projectos.skill-proposal/1", pin.name, skill.description, skill.version, pin.packageHash, pin.supersedes, p.advisories, pin.rulesVersion, pin.origin, pin.author, pin.authorRole, pin.authorSession, pin.proposedAt, pin.tenant, pin.project];
+    const hex = crypto.createHash("sha256").update(JSON.stringify(fields), "utf8").digest("hex");
+    return codeOf(core.checkPromotedSkill({ ...skill, pin: { ...pin, proposalHash: `sha256:${hex}`, proposalId: `skl-${hex.slice(0, 24)}` } })) === "SKILL_TAMPERED";
+  });
   check("PK-11", "a promoted record failing today's rules is refused", () => {
     const skill = h.promoted();
     const bad = pkg(body(THREAT));
@@ -1096,6 +1107,8 @@ function credentialProbes(check, { core, queue }, h, sources) {
     const sys = fakeSystem();
     const forged = h.build(secret).value;
     sys.files.set(`${SKILLS_DIR}/proposals/${forged.id}.json`, JSON.stringify(forged));
+    // The kernel minted it (the screen at proposal is what this proves was got around), so the credential check at promotion is what answers.
+    queue.recordSkillMint(sys, STATE, forged.proposalHash);
     return codeOf(h.review(sys, forged)) === "SKILL_CREDENTIAL" && !sys.files.has(PROMOTED_FILE);
   });
   check("PK-15", "ordinary text is not a credential", () => h.propose(fakeSystem()).ok);
@@ -1390,8 +1403,8 @@ const MUTATIONS = [
   M("hidden-element-admitted", "PK-3", HIDDEN, "...(markdown && HIDDEN_ELEMENT.test(line) ?", "...(false ?"),
   M("hidden-text-not-run", "PK-3", PACKAGE, "...hiddenTextFindings(path, folded), ", GONE),
   M("only-skill-md-is-judged", "PK-3", PACKAGE, "const written = folded.flatMap(", "const written = folded.filter((file) => file.path === SKILL_MD).flatMap(", ["PK-6", "PK-7"]),
-  M("fence-tag-admitted", "PK-3", HIDDEN, "...(FENCE_FORGERY.test(line) ?", "...(false ?", ["PK-13"]),
-  M("fence-tag-needs-a-closing-slash", "PK-3", HIDDEN, "const FENCE_FORGERY = /<\\s*\\/?\\s*untrusted", "const FENCE_FORGERY = /<\\s*\\/\\s*untrusted"),
+  M("fence-tag-admitted", "PK-3", HIDDEN, "...(FENCE_FORGERY.test(line) || FENCE_FORGERY.test(line.normalize('NFKC')) ?", "...(false ?", ["PK-13"]),
+  M("fence-tag-needs-a-closing-slash", "PK-3", HIDDEN, "const FENCE_FORGERY = /[<＜][^a-z0-9\\n]{0,4}untrusted", "const FENCE_FORGERY = /[<＜]\\s{0,4}\\/[^a-z0-9\\n]{0,4}untrusted"),
   M("crlf-not-folded-in-the-pass", "PK-3", PACKAGE, "text: foldSkillLines(file.text) }));", "text: file.text }));"),
   T("a-raw-invisible-in-the-source", "PK-3", PROMPT, "const NOT_AUTHORITY =", `const SPACE = '${String.fromCodePoint(0x200b)}';\nconst NOT_AUTHORITY =`),
   // PK-4
@@ -1505,7 +1518,7 @@ const MUTATIONS = [
   M("rejection-needs-no-independence", "PK-9", PROMOTION, "if (independent !== null) return skillRefused('SKILL_NOT_INDEPENDENT', independent);", "if (outcome === 'approved' && independent !== null) return skillRefused('SKILL_NOT_INDEPENDENT', independent);"),
   M("pin-needs-no-independence", "PK-9", PROMOTION, "return independenceProblem({ actor: reviewedBy, role: reviewerRole, session: reviewerSession }, { author, session: authorSession }) === null;", "return true;"),
   M("queue-assumes-a-reviewer", "PK-9", QUEUE, "decideSkillProposal(proposal.value, outcome, caller, sys.now(), request.reviewedHash, active.value)", "decideSkillProposal(proposal.value, outcome, { actor: 'reviewer', role: 'owner', session: 'elsewhere' }, sys.now(), request.reviewedHash, active.value)", [], [["attestSkillReview(approved.value, caller, bindingOf(ports), ports.reviewVerifier)", "attestSkillReview(approved.value, { actor: 'reviewer', role: 'owner', session: 'elsewhere' }, bindingOf(ports), ports.reviewVerifier)"]]),
-  M("identity-read-from-the-request", "PK-9", QUEUE, "  const mark = proposedSkillOrigin(caller);\n  return mark.ok ? recordProposal(sys, root, mark.value, request.files) : mark;", "  const asked = request as unknown as { author?: string; authorRole?: SkillActor['role']; session?: string };\n  const mark = proposedSkillOrigin({ actor: asked.author ?? caller.actor, role: asked.authorRole ?? caller.role, session: asked.session ?? caller.session });\n  return mark.ok ? recordProposal(sys, root, mark.value, request.files) : mark;"),
+  M("identity-read-from-the-request", "PK-9", QUEUE, "  const mark = proposedSkillOrigin(caller);\n  return mark.ok ? recordProposal(sys, root, mark.value, files, state) : mark;", "  const asked = request as unknown as { author?: string; authorRole?: SkillActor['role']; session?: string };\n  const mark = proposedSkillOrigin({ actor: asked.author ?? caller.actor, role: asked.authorRole ?? caller.role, session: asked.session ?? caller.session });\n  return mark.ok ? recordProposal(sys, root, mark.value, files, state) : mark;"),
   // PK-10
   M("reviewed-hash-optional", "PK-10", PROMOTION, "if (reviewedHash !== proposal.proposalHash) {", "if (false) {"),
   M("staleness-not-checked", "PK-10", PROMOTION, "if (skillPackageHash(files) !== pin.packageHash) {", "if (false) {", ["PK-13"]),
@@ -1516,7 +1529,7 @@ const MUTATIONS = [
   M("hash-depends-on-order", "PK-10", PACKAGE, "const pairs = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).map(", "const pairs = [...files].map("),
   M("hash-runs-files-together", "PK-10", PACKAGE, ".map((file) => [file.path, sha256(file.text)]);", ".map((file) => [file.path, file.text].join(''));", [], [["sha256(JSON.stringify([PACKAGE_HASH_DOMAIN, pairs]))", "sha256(pairs.join(''))"]]),
   M("active-package-not-compared", "PK-10", PROMOTION, "if (activeHash !== proposal.supersedes) {", "if (false) {", ["PK-14"]),
-  M("decided-can-be-decided-again", "PK-10", PROMOTION, "if (proposal.state !== 'pending') return skillRefused('SKILL_ALREADY_DECIDED', `Proposal ${proposal.id} is already ${proposal.state}.`);\n  if (!isActor", "if (!isActor"),
+  M("decided-can-be-decided-again", "PK-10", PROMOTION, "if (proposal.state !== 'pending') return skillRefused('SKILL_ALREADY_DECIDED', `Proposal ${proposal.id} is already ${proposal.state}.`);\n  // The reviewer is read once", "// The reviewer is read once"),
   M("promotion-skips-the-recheck", "PK-10", PROMOTION, "  const checked = checkSkillProposal(proposal, activeHash);\n  if (!checked.ok) return checked;\n  if (claim.proposalHash", "  if (claim.proposalHash"),
   M("queue-reads-without-the-check", "PK-10", QUEUE, "  const checked = checkPromotedSkill(raw);\n  if (!checked.ok) return checked;\n", "  const checked = skillOk(raw as PromotedSkill);\n"),
   M("block-sent-without-the-check", "PK-13", PROMPT, "const checked = checkPromotedSkill(raw);", "const checked = { ok: true, value: raw as never } as ReturnType<typeof checkPromotedSkill> & { ok: true };"),
@@ -1544,7 +1557,7 @@ const MUTATIONS = [
   M("advisories-not-recomputed", "PK-11", PROMOTION, "if (JSON.stringify(advisoriesOf(validation)) !== JSON.stringify(proposal.advisories) || validation.rulesVersion !== proposal.rulesVersion) {", "if (false) {"),
   M("promoted-schema-not-checked", "PK-11", PROMOTION, "if (!isRecord(raw) || raw['schema'] !== PROMOTED_SKILL_SCHEMA) return refuse('it is not a promoted skill');", "if (!isRecord(raw)) return refuse('it is not a promoted skill');"),
   M("promoted-rules-not-rerun", "PK-11", PROMOTION, "  const validation = validateSkillPackage(files);\n  if (!validation.passed) return validationRefusal(validation);\n  if (validation.name !== pin.name", "  const validation = validateSkillPackage(files);\n  if (validation.name !== pin.name"),
-  M("promoted-name-not-compared", "PK-11", PROMOTION, "  if (validation.name !== pin.name || validation.description !== description || validation.version !== version) {\n    return refuse('its name or description is not the one in its SKILL.md');\n  }\n", GONE),
+  M("promoted-name-not-compared", "PK-11", PROMOTION, "  if (validation.name !== pin.name || validation.description !== description || validation.version !== version) {\n    return skillRefused('SKILL_TAMPERED', 'That promoted skill is not valid: its name or description is not the one in its SKILL.md.');\n  }\n", GONE),
   M("id-reaches-the-path", "PK-11", QUEUE, "  if (!PROPOSAL_ID.test(id)) return skillRefused('SKILL_NOT_FOUND', 'That is not a skill proposal id.');\n", GONE),
   M("name-reaches-the-path", "PK-11", QUEUE, "  if (skillNameProblem(name) !== null) return skillRefused('SKILL_NOT_FOUND', 'That is not a skill name.');\n", GONE),
   M("device-name-reaches-the-path", "PK-11", QUEUE, "if (skillNameProblem(name) !== null) return", "if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) return"),
@@ -1570,12 +1583,12 @@ const MUTATIONS = [
   M("pin-loses-its-origin", "PK-12", PROMOTION, "      origin: proposal.origin,\n", "      origin: 'proposed',\n"),
   M("pin-origin-not-checked", "PK-12", PROMOTION, "    !isOrigin(origin) ||\n    !(origin !== 'imported' || authorRole === 'owner') ||\n", "    !(origin !== 'imported' || authorRole === 'owner') ||\n"),
   M("pin-import-needs-no-owner", "PK-12", PROMOTION, "    !(origin !== 'imported' || authorRole === 'owner') ||\n", GONE),
-  M("queue-takes-the-origin-from-the-request", "PK-12", QUEUE, "  if (suppliesOrigin(request)) return originSuppliedRefusal();\n  const mark = proposedSkillOrigin(caller);", "  const mark = proposedSkillOrigin(caller);"),
-  M("the-import-door-takes-the-origin-from-the-request", "PK-12", QUEUE, "  if (suppliesOrigin(request)) return originSuppliedRefusal();\n  const mark = importedSkillOrigin(caller);", "  const mark = importedSkillOrigin(caller);"),
-  M("a-mark-is-not-asked-for", "PK-12", PROMOTION, "  if (!isSkillOriginMark(input.origin)) return skillRefused('SKILL_ORIGIN_NOT_KERNEL', 'The origin of a skill is set by the kernel, not by the caller. Nothing was proposed.');\n  const { origin, author, authorRole, session } = input.origin;", "  const { origin, author, authorRole, session } = input.origin;"),
-  M("the-author-is-read-from-the-input", "PK-12", PROMOTION, "  const missing = provenanceProblem({ author, authorRole, session, proposedAt: input.proposedAt });", "  const missing = provenanceProblem({ author: (input as unknown as { author: string }).author ?? author, authorRole, session, proposedAt: input.proposedAt });", [], [["    provenance: { author, authorRole, session, proposedAt: input.proposedAt },", "    provenance: { author: (input as unknown as { author?: string }).author ?? author, authorRole, session, proposedAt: input.proposedAt },"]]),
+  M("queue-takes-the-origin-from-the-request", "PK-12", QUEUE, "  if (suppliesOrigin(request)) return originSuppliedRefusal();\n  const files = filesOf(request);\n  if (files === null) return notAPackageRefusal();\n  const mark = proposedSkillOrigin(caller);", "  const files = filesOf(request);\n  if (files === null) return notAPackageRefusal();\n  const mark = proposedSkillOrigin(caller);"),
+  M("the-import-door-takes-the-origin-from-the-request", "PK-12", QUEUE, "  if (suppliesOrigin(request)) return originSuppliedRefusal();\n  const files = filesOf(request);\n  if (files === null) return notAPackageRefusal();\n  const mark = importedSkillOrigin(caller);", "  const files = filesOf(request);\n  if (files === null) return notAPackageRefusal();\n  const mark = importedSkillOrigin(caller);"),
+  M("a-mark-is-not-asked-for", "PK-12", PROMOTION, "  if (!isSkillOriginMark(offered)) return skillRefused('SKILL_ORIGIN_NOT_KERNEL', 'The origin of a skill is set by the kernel, not by the caller. Nothing was proposed.');\n  const { origin, author, authorRole, session } = offered;", "  const { origin, author, authorRole, session } = offered as never;"),
+  M("the-author-is-read-from-the-input", "PK-12", PROMOTION, "  const missing = provenanceProblem({ author, authorRole, session, proposedAt });", "  const missing = provenanceProblem({ author: (input as unknown as { author: string }).author ?? author, authorRole, session, proposedAt });", [], [["    provenance: { author, authorRole, session, proposedAt },", "    provenance: { author: (input as unknown as { author?: string }).author ?? author, authorRole, session, proposedAt },"]]),
   M("a-mark-is-minted-from-any-object", "PK-12", SKILL_ORIGIN, "  return typeof value === 'object' && value !== null && MINTED.has(value);", "  return typeof value === 'object' && value !== null;"),
-  M("time-from-the-caller", "PK-12", QUEUE, "const input = { files, origin: mark, proposedAt: sys.now() };", "const input = { files, origin: mark, proposedAt: '2020-01-01T00:00:00Z' };"),
+  M("time-from-the-caller", "PK-12", QUEUE, "const input = { files, origin: mark, proposedAt: sys.now(), binding: bindingFor(state) };", "const input = { files, origin: mark, proposedAt: '2020-01-01T00:00:00Z', binding: bindingFor(state) };"),
   // PK-13
   M("block-claims-authority", "PK-13", PROMPT, "text, authority: 'none', grants: [] }", "text, authority: 'owner' as never, grants: [] }"),
   M("block-reads-grants-from-the-skill", "PK-13", PROMPT, "grants: [] }", "grants: (frontmatterList(parsed.value.frontmatter, 'grants') as never) }", [], [["import { parseSkillFrontmatter } from './frontmatter.js';", "import { frontmatterList, parseSkillFrontmatter } from './frontmatter.js';"]]),

@@ -45,12 +45,29 @@ export interface SkillOriginMark {
 
 const MINTED: WeakSet<object> = new WeakSet();
 
-/** Whether the actor names itself, its role and its session as text. The closed label shapes are asked where a proposal is built, once, for every door. */
-const isWholeActor = (actor: unknown): actor is SkillOriginActor => {
-  if (actor === null || typeof actor !== 'object') return false;
-  const { actor: name, role, session } = actor as Partial<Record<keyof SkillOriginActor, unknown>>;
-  return typeof name === 'string' && typeof role === 'string' && typeof session === 'string';
-};
+/**
+ * THE ACTOR IS READ ONCE, FROM DATA, INTO A FROZEN COPY. A getter answers differently the second time it is read (an actor whose role is
+ * `implementer` on the first read and `owner` on the second passed the import door's owner check and was minted as whatever it said last),
+ * so an accessor property, an inherited property and anything that is not a plain object are refused, and the door works from the copy alone.
+ * A transparent Proxy needs a port core does not have (named residual). Null is a refusal. Not exported from the barrel.
+ */
+export function snapshotSkillActor(value: unknown): SkillOriginActor | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype: unknown = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const read = (key: string): unknown => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor !== undefined && 'value' in descriptor ? (descriptor.value as unknown) : undefined;
+    };
+    const name = read('actor');
+    const role = read('role');
+    const session = read('session');
+    return typeof name === 'string' && typeof role === 'string' && typeof session === 'string' ? Object.freeze({ actor: name, role: role as Role, session }) : null;
+  } catch {
+    return null;
+  }
+}
 
 function mint(origin: SkillOrigin, actor: SkillOriginActor): SkillOriginMark {
   const mark: SkillOriginMark = Object.freeze({ origin, author: actor.actor, authorRole: actor.role, session: actor.session });
@@ -59,14 +76,16 @@ function mint(origin: SkillOrigin, actor: SkillOriginActor): SkillOriginMark {
 }
 
 /** The mark for a proposal a worker or an advisor made. */
-export function proposedSkillOrigin(actor: unknown): SkillResult<SkillOriginMark> {
-  if (!isWholeActor(actor)) return skillRefused('SKILL_PROVENANCE', 'A skill origin is minted for an actor that names itself, its role and its session.');
+export function proposedSkillOrigin(raw: unknown): SkillResult<SkillOriginMark> {
+  const actor = snapshotSkillActor(raw);
+  if (actor === null) return skillRefused('SKILL_PROVENANCE', 'A skill origin is minted for a plain actor that names itself, its role and its session as data.');
   return skillOk(mint('proposed', actor));
 }
 
 /** The mark for text the owner brings in from outside. Anyone else is refused. */
-export function importedSkillOrigin(actor: unknown): SkillResult<SkillOriginMark> {
-  if (!isWholeActor(actor)) return skillRefused('SKILL_PROVENANCE', 'A skill origin is minted for an actor that names itself, its role and its session.');
+export function importedSkillOrigin(raw: unknown): SkillResult<SkillOriginMark> {
+  const actor = snapshotSkillActor(raw);
+  if (actor === null) return skillRefused('SKILL_PROVENANCE', 'A skill origin is minted for a plain actor that names itself, its role and its session as data.');
   if (actor.role !== 'owner') return skillRefused('SKILL_NOT_OWNER', 'Only the owner brings a skill in from outside.');
   return skillOk(mint('imported', actor));
 }

@@ -29,6 +29,7 @@
  */
 import type { Role } from '../types.js';
 import { skillOk, skillRefused, type SkillResult } from './refusal.js';
+import { SKILL_ORIGINS, snapshotSkillActor, type SkillOrigin } from './skillOrigin.js';
 
 /** The registry's `approve`, P5: what a promotion is. Pinned against `security/action-registry.json` by the validator. */
 export const SKILL_APPROVE_ACTION = Object.freeze({ id: 'approve', class: 'P5' } as const);
@@ -54,6 +55,11 @@ export interface SkillReviewFacts {
   readonly reviewer: string;
   readonly reviewerRole: Role;
   readonly reviewerSession: string;
+  /** Where the text came from, and the rules it passed: the verifier sees both (PROJECTOS-SKILLS-ADOPT1A, review round 1, M4). */
+  readonly origin: SkillOrigin;
+  readonly rulesVersion: string;
+  /** When the review was recorded. */
+  readonly reviewedAt: string;
 }
 
 export interface SkillReviewClaim extends SkillReviewFacts, SkillBinding {
@@ -69,6 +75,8 @@ const LABEL = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
 const SCOPE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SKILL_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const HASH = /^sha256:[0-9a-f]{64}$/;
+const RULES_VERSION = /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,63}$/;
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 const ROLE_NAMES: readonly string[] = ['owner', 'advisor', 'implementer'];
 
 const isText = (value: unknown): value is string => typeof value === 'string';
@@ -105,7 +113,11 @@ export function skillReviewClaimOf(purpose: SkillReviewPurpose, rawBinding: unkn
     is(LABEL, facts.reviewer) &&
     is(LABEL, facts.reviewerSession) &&
     isText(facts.reviewerRole) &&
-    ROLE_NAMES.includes(facts.reviewerRole);
+    ROLE_NAMES.includes(facts.reviewerRole) &&
+    isText(facts.origin) &&
+    (SKILL_ORIGINS as readonly string[]).includes(facts.origin) &&
+    is(RULES_VERSION, facts.rulesVersion) &&
+    is(INSTANT, facts.reviewedAt);
   if (!whole) return skillRefused('SKILL_BINDING_INVALID', 'The review does not name the skill, its hashes, its author and its reviewer, each as a closed shape, so no one is asked.');
   if (same(facts.reviewer, facts.author) || same(facts.reviewerSession, facts.authorSession)) {
     return skillRefused('SKILL_NOT_INDEPENDENT', 'The author of a skill, or the session that wrote it, does not review it.');
@@ -125,6 +137,9 @@ export function skillReviewClaimOf(purpose: SkillReviewPurpose, rawBinding: unkn
       reviewer: facts.reviewer,
       reviewerRole: facts.reviewerRole,
       reviewerSession: facts.reviewerSession,
+      origin: facts.origin,
+      rulesVersion: facts.rulesVersion,
+      reviewedAt: facts.reviewedAt,
     }),
   );
 }
@@ -156,6 +171,11 @@ export interface SkillReviewSubject {
   readonly name: string;
   readonly packageHash: string;
   readonly proposalHash: string;
+  readonly tenant: string | null;
+  readonly project: string | null;
+  readonly origin: SkillOrigin;
+  readonly rulesVersion: string;
+  readonly decision: { readonly at: string } | null;
   readonly provenance: { readonly author: string; readonly session: string };
 }
 
@@ -169,7 +189,10 @@ export interface SkillReviewer {
  * Ask the verifier about one approved proposal and, only when it answers `true`, register that object as attested. The claim is
  * built from the proposal's own hashes and the checkout's binding, never from anything the reviewer or the proposal text says.
  */
-export function attestSkillReview(subject: SkillReviewSubject, reviewer: SkillReviewer, binding: unknown, verifier: unknown): SkillResult<SkillReviewClaim> {
+export function attestSkillReview(subject: SkillReviewSubject, rawReviewer: unknown, binding: unknown, verifier: unknown): SkillResult<SkillReviewClaim> {
+  // The reviewer is read once, from data: a getter that answers twice differently is no one.
+  const reviewer = snapshotSkillActor(rawReviewer);
+  if (reviewer === null) return skillRefused('SKILL_PROVENANCE', 'A review names a plain reviewer, role and session as data, so no one is asked.');
   const claim = skillReviewClaimOf('promotion', binding, {
     name: subject.name,
     packageHash: subject.packageHash,
@@ -179,8 +202,18 @@ export function attestSkillReview(subject: SkillReviewSubject, reviewer: SkillRe
     reviewer: reviewer.actor,
     reviewerRole: reviewer.role,
     reviewerSession: reviewer.session,
+    origin: subject.origin,
+    rulesVersion: subject.rulesVersion,
+    reviewedAt: subject.decision?.at ?? '',
   });
   if (!claim.ok) return claim;
+  // THE PROPOSAL WAS MADE FOR ONE TENANT AND PROJECT, and only the checkout of that project may review it.
+  if (subject.tenant === null || subject.project === null) {
+    return skillRefused('SKILL_BINDING_INVALID', 'This proposal was made with no tenant and project, so no one is asked. Fix: the owner re-proposes it through a door that is given the checkout.');
+  }
+  if (claim.value.tenant !== subject.tenant || claim.value.project !== subject.project) {
+    return skillRefused('SKILL_NOT_THIS_CHECKOUT', 'This proposal was made for another tenant or project than this checkout. Fix: the owner re-proposes it from the checkout of the project it is for.');
+  }
   const answered = askSkillReviewVerifier(verifier, claim.value);
   if (answered.ok) ATTESTED.set(subject, answered.value);
   return answered;

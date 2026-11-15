@@ -52,8 +52,12 @@ const CRED_FILE = String.raw`(?:\.ssh[/\\]id_(?:rsa|ed25519|ecdsa|dsa)(?!\.pub)|
 const LINE = 4096;
 /** An opening quote, a path of any length a line holds, and the credential file's name. Nothing after the name is required to be short. */
 const CRED_FILE_OPEN = String.raw`["'][^"'\n]{0,${LINE}}${CRED_FILE}`;
-/** A file name is at most 255 characters on every file system ProjectOS runs on, so this is far past any suffix after the credential file's name. */
-const TAIL = 1024;
+/**
+ * How far a suffix after the credential file's name is looked for, to its closing quote (`.env.local`, `credentials.json.bak`). It is 64, as it was: a
+ * lookahead at each `.env` of a hostile line costs its reach times the number of names, and at 255 that was 126 ms on 262 KB. KNOWN GAP: a suffix of
+ * more than 64 characters hides a `Path(...).read_text()` of the file (an `open` that is not a write is still caught whatever follows).
+ */
+const TAIL = 64;
 /** The rest of that string, to its closing quote. Used only inside a lookaround, so it is asked where a name matched and never multiplied. */
 const CRED_FILE_TAIL = String.raw`[^"'\n]{0,${TAIL}}["']`;
 const PY_EXPANDUSER = String.raw`(?:os\.path\.expanduser\s*\(\s*)?`;
@@ -76,14 +80,22 @@ const OTHER_AGENT_FILES = String.raw`\.(?:claude/settings|codex/config)[\w.]{0,6
 const SED_IN_PLACE = String.raw`(?:-[A-Za-z]{0,8}i[A-Za-z]{0,8}|--in-place)(?![A-Za-z-])`;
 
 /**
- * `sed` is judged by two lookaheads from its own start, so no count of arguments before the flag and no length of script between the flag
- * and the file can push either out of reach: the flag is somewhere within the next 512 characters, and so is the file. They are
- * asked once per `sed`, so they add and do not multiply.
+ * What a `sed` scan may cross: a character that does not start another `sed` word. A scan that did not stop there cost 100 ms on 262 KB of `sed `
+ * repeated (every start scanned 512 characters twice), and one that scanned back from each flag 200 ms on `-i ` repeated. Stopping at the next `sed`
+ * makes the cost linear: the starts of a hostile file are dense, so each scan is short.
+ */
+const BEFORE_NEXT_SED = String.raw`(?:(?!\bsed\b(?!/))[^\n])`;
+
+/**
+ * `sed` is judged from `sed`, with two lookaheads that stop at the next `sed` word: an in-place flag within 256 characters (some twenty arguments) and
+ * the file within 512, so no count of arguments and no script up to those reaches can hide it. A `sed` followed by a `/` is the word inside a
+ * substitution (`s/sed/x/`) and does not stop the scan. KNOWN GAP: a script that spells the word otherwise between the flag and the file
+ * (`'s,sed,x,'`) stops the scan and is not caught, which the pattern before this one caught when the file was within 64 characters.
  */
 function shellWrite(file: string): string {
   return [
     String.raw`(?:>>|[\w"'${TICK})\]]\s*>)\s*[~\w./-]{0,${LINE}}${file}(?!\.?\w)`,
-    String.raw`\bsed\s+(?=${ANY}(?<=\s)${SED_IN_PLACE})(?=${ANY}${file}(?!\.?\w))`,
+    String.raw`\bsed\s+(?=${BEFORE_NEXT_SED}{0,256}(?<=\s)${SED_IN_PLACE})(?=${BEFORE_NEXT_SED}{0,512}${file}(?!\.?\w))`,
     String.raw`\btee\s+(?:-a\s+)?[~\w./"'-]{0,${LINE}}${file}(?!\.?\w)`,
     String.raw`\b(?:cp|mv)\s+[^\s|;&]{1,64}\s+[^\n|;&]{0,40}?${file}(?!\.?\w)`,
   ].join('|');

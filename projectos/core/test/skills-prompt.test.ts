@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   deliveredSkillText,
   parseSkillFrontmatter,
-  renderSkillBlock,
   skillPackageHash,
   type PromotedSkill,
   type SkillFile,
   type SkillPromptBlock,
   type SkillProposal,
 } from '../src/skills/index.js';
+import { renderSkillBlock } from '../src/skills/prompt.js';
 import { buildWith, pkg, promotedOf, proposalOf, skillMd, withFrontmatter } from './skillFixtures.js';
 
 function promote(files: readonly SkillFile[] = pkg()): PromotedSkill {

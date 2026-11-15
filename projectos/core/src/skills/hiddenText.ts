@@ -37,7 +37,12 @@ const HIDDEN_CHARACTER = new RegExp(
 );
 const HTML_COMMENT = /<!--/;
 /** The tags that fence untrusted text in a prompt. Text that quotes one is trying to leave its fence. */
-const FENCE_FORGERY = /<\s*\/?\s*untrusted-(?:skill|memory)\b/i;
+const FENCE_FORGERY = /[<＜][^a-z0-9\n]{0,4}untrusted[^a-z0-9\n]{0,8}(?:skill|memory|turn|summary)/i;
+/**
+ * The section headings of the file the context manager writes. A skill's line that starts as one is a heading the reader could take for the
+ * file's own, so it is refused (a heading inside a fence is still text the reader sees).
+ */
+const SECTION_HEADING_FORGERY = /^[ \t]{0,3}#{1,3}[ \t]+(?:committed decisions|approved memory decisions|promoted skills|items left out|other stored items|stored context)\b/i;
 const MARKDOWN_COMMENT_ANYWHERE = /\[\/\/\]:/;
 const RENDERER_DROPS = /<\?|<!\[|<![A-Za-z]/;
 /** `[label]: <>` and `[label]: #`, the comment idiom, with or without text after it. */
@@ -60,7 +65,9 @@ function hiddenInLine(path: string, line: string, lineNumber: number, markdown: 
   const character = HIDDEN_CHARACTER.exec(line)?.[0];
   return [
     ...(character === undefined ? [] : [blockingFinding('hidden-character', path, lineNumber, `Line ${lineNumber} holds U+${hex(character)}, which a reviewer would not see.`)]),
-    ...(FENCE_FORGERY.test(line) ? [blockingFinding('fence-forgery', path, lineNumber, 'This text writes the tag that fences untrusted text in a prompt.')] : []),
+    // The tag is looked for as written and as the NFKC fold reads it, with any dash or space between its words: a non-breaking hyphen or a full-width `<` is the same tag to a reader.
+    ...(FENCE_FORGERY.test(line) || FENCE_FORGERY.test(line.normalize('NFKC')) ? [blockingFinding('fence-forgery', path, lineNumber, 'This text writes the tag that fences untrusted text in a prompt.')] : []),
+    ...(markdown && SECTION_HEADING_FORGERY.test(line.normalize('NFKC')) ? [blockingFinding('section-heading-forgery', path, lineNumber, 'This line starts as a section heading of the file the context manager writes.')] : []),
     ...(HTML_COMMENT.test(line) ? [blockingFinding('hidden-html-comment', path, lineNumber, 'An HTML comment holds text a rendered view does not show.')] : []),
     ...(MARKDOWN_COMMENT_ANYWHERE.test(line) || (markdown && REFERENCE_AS_COMMENT.test(line))
       ? [blockingFinding('hidden-markdown-comment', path, lineNumber, 'A link reference used as a comment holds text a rendered view does not show.')]

@@ -27,7 +27,7 @@ export {
   type SkillProposalState,
   type SkillProvenance,
 } from './promotion.js';
-export { renderSkillBlock, type SkillPromptBlock } from './prompt.js';
+export { type SkillPromptBlock } from './prompt.js';
 export { SKILL_ORIGINS, importedSkillOrigin, isSkillOriginMark, proposedSkillOrigin, type SkillOrigin, type SkillOriginActor, type SkillOriginMark } from './skillOrigin.js';
 export {
   SKILL_APPROVE_ACTION,
@@ -51,6 +51,7 @@ export {
   committedSkillPathProblem,
   isCommittedSkillRead,
   isSkillRecordName,
+  COMMITTED_SKILL_CODES,
   judgeCommittedSkillRead,
   loadCommittedSkill,
   skillRecordPathOf,

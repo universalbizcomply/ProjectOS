@@ -3,7 +3,6 @@
 export {
   importSkill,
   listPendingSkillProposals,
-  loadPromotedSkill,
   loadSkillProposal,
   promotedSkillPath,
   proposeSkill,
@@ -15,3 +14,4 @@ export {
   type SkillProposalRequest,
   type SkillReviewRequest,
 } from './skillQueue.js';
+export { type SkillStatePorts } from './skillMint.js';

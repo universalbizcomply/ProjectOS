@@ -39,7 +39,7 @@ export const packageOf = (name = 'release-notes', body?: string, ...more: readon
 export function promotedOf(files: readonly SkillFile[] = packageOf()): PromotedSkill {
   const mark = proposedSkillOrigin(AUTHOR);
   if (!mark.ok) throw new Error(mark.refusal.code);
-  const proposal = buildSkillProposal({ files, origin: mark.value, proposedAt: SKILL_AT }, null);
+  const proposal = buildSkillProposal({ files, origin: mark.value, proposedAt: SKILL_AT, binding: identity() }, null);
   if (!proposal.ok) throw new Error(`proposal: ${proposal.refusal.code} ${proposal.refusal.named ?? ''}`);
   const decided = decideSkillProposal(proposal.value, 'approved', REVIEWER, SKILL_LATER, proposal.value.proposalHash, null);
   if (!decided.ok) throw new Error(`decision: ${decided.refusal.code}`);
