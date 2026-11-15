@@ -15,7 +15,7 @@ A governed phase run was cut off partway. A fresh process, started with one `pro
 | Cut-off | 22:37:48 | The worker had written `site/humans.txt` (1 of the 3 phase files). A script killed the whole process tree (`taskkill /T /F`). The child exited 1. The work record stayed `WAITING_AI` ("dispatched claude-local"); the phase record stayed before review. No reviewer record, evidence or session record exists for run 1. |
 | Run 2 | 22:38:05 – 22:39:53 (108 s) | ONE fresh process (pid 33112, a different parent): `continue --execute`, no `--session`, no `--objective`, no note. Claude was dispatched again, exited 0 on its first attempt; both `validate-site` copies passed; Codex reviewed by reading: **APPROVE**, no findings, `providerDistinct: true`; the gatekeeper approved (`GKREQ-e5a7c9115a9034d3a7830ecf`, 384 micro-USD); ProjectOS committed and pushed the work (`98f5c6b`), its run records (`5e2b5ac`), the closure records (`5138b5f`); the closure authority (`CLREQ-6aa39ed6a15776a0890777ff`, 6,196 micro-USD, ChatGPT) decided to close; the decision was committed (`583c078`) and the close persisted (`a121158`). Plan 5/5 complete, `work` = `origin/work`. Exit code 0. |
 
-**Spend: 6,580 micro-USD (about $0.0066)** against the committed $1.50 phase cap. The ledger records only broker calls; Codex ran on the owner's ChatGPT sign-in, which ProjectOS neither meters nor caps.
+**Metered broker spend: 6,580 micro-USD (about $0.0066)** (the gatekeeper and closure calls) against the committed $1.50 phase cap. The ledger records only broker calls. Two things are NOT metered by ProjectOS: Codex, which ran on the owner's ChatGPT sign-in, and the Claude worker, which ran twice (the killed run and the resumed one) on the owner's Claude login.
 
 ### What the new worker was shown (the loop's ledger, hash-chained, 4 entries)
 
@@ -27,10 +27,10 @@ Run 2 (seq 3, 4: retrieved, then placed for attempt 1; the evidence record's `st
 |---|---|---|---|---|
 | 1 | `.projectops/closure/decisions/SEO-AGENCY-SITE-CHECK3A.json` | committed-decision | 0 | committed |
 | 2 | `.projectops/plan-f3614f2ecf63116f-82af6c940086.json` (truncated) | plan-memory | 1 | committed |
-| 3 | `resume:cut-off-attempt` (state, last stop code, subject commit, session: four closed values) | execution-record | 2 | working-tree |
-| 4 | `resume:dirty-paths` (`site/humans.txt` and its hash, read by the loop) | execution-record | 2 | loop-observed |
+| 3 | `resume:cut-off-attempt` (by RESUME1A's design: the work record's four closed values; 319 bytes) | execution-record | 2 | working-tree |
+| 4 | `resume:dirty-paths` (by RESUME1A's design: the changed paths and hashes the loop observed; 1,346 bytes) | execution-record | 2 | loop-observed |
 
-Withheld: the current-state file, `COMMITTED_WORKING_TREE_DIFFERS` (the loop's own run had rewritten it, so the committed bytes were not what the tree held: it fails closed). `taintsRun: true`. Both resume items rank below every committed decision and plan-memory item and are execution records, never decisions: worker-authored text did not rank as a decision.
+The committed evidence holds the ids, sizes, ranks and content hashes of these items, not their text: run 2's context file was retired by the loop before the checks, as designed, and is not kept. Run 1's placed file IS kept (`agency-records/run1.context.md`; its sha256 equals the ledger's `fileHash` for seq 1 and 2), so the file format and the retrieval of committed decisions can be read. Withheld: the current-state file, `COMMITTED_WORKING_TREE_DIFFERS` (the loop's own run had rewritten it, so the committed bytes were not what the tree held: it fails closed). `taintsRun` is true in both runs (it is true for run 1's committed-only set too, so it is not a resume signal). Both resume items rank below every committed decision and plan-memory item and are execution records, never decisions: worker-authored text did not rank as a decision.
 
 ## Acceptance criteria
 
@@ -38,7 +38,7 @@ Withheld: the current-state file, `COMMITTED_WORKING_TREE_DIFFERS` (the loop's o
 |---|---|---|
 | One `continue --execute` from a fresh process carries the cut-off phase to closed, with no `--session` and no human-written text, recorded | Yes | `run2.invocation.json` argv is `[node, projectos.js, continue, --execute]`; log has one `projectos continue: run` line and none of `--session`, `--objective`, `--note`; closure `a121158`. Validator rules EP-2, EP-3, EP-6. |
 | The ledger proves which retrieved items the new worker was shown and that none was worker-authored text ranked as a decision | Yes, for what was SHOWN and POINTED AT | Ledger seq 3, 4 and `run2.evidence.json`; validator rules EP-4, EP-5. See *What this does not prove*. |
-| Phase spend under the committed $1.50 cap | Yes | 384 + 6,196 = 6,580 micro-USD; rule EP-7. |
+| Phase spend under the committed $1.50 cap | Yes, for the metered broker calls | 384 + 6,196 = 6,580 micro-USD; rule EP-7. Codex and the Claude worker are unmetered (see above). |
 | Validator pin and named mutations, each named after the rule body and killed by its own rule | Yes | `val-projectos-memory-exit-proof1a`: 9 rules, 226 named mutations (see `PROJECTOS-MEMORY-EXIT-PROOF1A-validator-notes.md`). |
 
 ## What this does not prove — said plainly
@@ -48,7 +48,8 @@ Withheld: the current-state file, `COMMITTED_WORKING_TREE_DIFFERS` (the loop's o
 - **The cut-off was a deliberate kill** by a script the lead wrote, not a natural crash. Run 1's own console output was lost with the process. Run 1's context file was kept only outside the evidence folder.
 - **Not zero owner involvement across the exercise.** Before run 1 the lead, committing under the owner's git identity (Murad) with a Claude `Co-Authored-By`, did the setup under the owner's words above: the plan source (`243d21c`), the plan decision recorded as "Murad approved" (`e3b264b`), the objective (`25b267d`), the activation (`8f873fc`) and the phase's `secrets-handling` receipt (`0ade0a9`, transcribed from the owner's message, `MANUAL_GOVERNANCE_APPROVAL, tamperProof false`); it also started the local git server and made the temporary allowlist commit on the throwaway branch. "Zero manual context relay" is claimed for run 2 only.
 - The reviewer ran on the owner's ChatGPT login with text tripwires only (owner-accepted in Stage 1; revisit before untrusted code).
-- The evidence is copied into this repository by the lead from the agency checkout and the installation state; a person who edits those copies defeats the validator, as with every record in the programme. The manifest and the pinned log hashes make a later change visible, not impossible.
+- The closure decision file in the evidence is the later version committed at `a121158` (it carries `consumedAt`); the log prints the hash of the earlier version presented at closure (`6a61c…`), so the two differ by that field.
+- The evidence is copied into this repository by the lead from the agency checkout and the installation state; a person who edits those copies defeats the validator, as with every record in the programme. The manifest and the pinned log hashes make an accidental or careless change fail the validator; a person who re-seals the manifest and the notes hashes together with consistent edits passes every rule, and only the git history would show it.
 
 ## Existing code found (B1)
 
