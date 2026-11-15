@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-CONTEXT-MANAGER1A",
+  "project": "ProjectOS",
+  "objective": "Plan 3.4. The owner approved one edit to PROTECTED run.ts in the v1.36 delta: one added runLoop option, runEnvelope: admittedRunEnvelopeOf(ctx), and no other line. Retrieval is keyed on that envelope and recorded in a loop-written ledger. The runner writes .projectops/execution/<session>.context.md (fenced, untrusted, secret-scanned, capped) and the brief names it as records.contextPath. Compaction is deterministic. The evidence names the stored context read. PX-17, AP-29, PM-16 and PK-16 are narrowed to the new call sites.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-15T00:24:43.177Z",
+      "note": "Owner-approved plan v1.36 and delta rev 2 (row 9). Built by an agent under the lead (Claude) in a parallel worktree after MEMORY-PROVENANCE1A; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-15T00:24:43.923Z",
+      "note": "context manager: envelope-keyed retrieval bound to the checkout, loop-written ledger in installation state, fenced context file by reference, deterministic compaction, wired store guard"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-15T00:24:44.703Z",
+      "note": "core 4719/4719 (111 files), agent 4017/4017 (130 files), control-center 952/952 (69 files) on the merged stack f0d253d9 after a rebuild of core then agent. val-projectos-context-manager1a (21 rules, 285 named mutations killed), the four narrowed validators val-projectos-port-context1a, port-approvals1a, port-memory1a and port-skills1a, val-projectos-memory-provenance1a (MP-12 pin updated by the lead in 46d66e08, none loosened), val-projectos-memory-stores1a, val-projectos-port-search1a, val-projectos-port-credit1a, val-projectos-boot-continue1a, val-projectos-work-record-not-authority1a and validate-no-secrets PASS. validate-all on the stack head f0d253d9: 175 PASS, 1 FAIL, 2 retired (176 registered). The one failure is val-cd-b4-sealed-expected-window-facts1a: AdmittedRequest::session_digest is public in dormant Host code, carried to Stage 4."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-15T00:24:45.386Z",
+      "note": "Evidence: docs/finish/PROJECTOS-CONTEXT-MANAGER1A.md (branch head 0a50a319, stacked at f0d253d9)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-15T00:24:46.051Z",
+      "note": "closure tail only - no implementation. Reviews: ECC security-reviewer, Agency multi-agent-systems-architect, fix round 1, one ECC recheck and a final round, re-verified by the lead."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-15T00:24:46.746Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
