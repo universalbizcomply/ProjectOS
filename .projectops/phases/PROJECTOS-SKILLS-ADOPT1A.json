@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-SKILLS-ADOPT1A",
   "project": "ProjectOS",
   "objective": "Plan 3.2. Lands the PORT-SKILLS1A binding carry-forwards: the kernel sets origin; promotion needs the skill validator, an independent review and a hash pin; the loader (skill-load) adds promoted skills to the context file and refuses an unpinned or changed skill; the bounded-repeat evasions are closed; nothing runs from a skill's scripts/.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-15T05:13:35.643Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-15T05:13:37.204Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-SKILLS-ADOPT1A:owner-closure:1edb76ca"
     }
   ]
 }
