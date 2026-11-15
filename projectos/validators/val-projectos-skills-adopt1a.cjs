@@ -742,7 +742,7 @@ function textProblems(raw, base) {
   if (!prompt.includes("const fence = createHash('sha256').update(inner, 'utf8').digest('hex').slice(0, 16);")) E("SA-7", "the fence is not a hash of what it holds");
   if (!prompt.includes("const checked = checkPromotedSkill(raw);\n  return checked.ok ? renderCheckedSkill(checked.value) : checked;")) E("SA-7", "a block is rendered without the pin being checked first");
   if (!ports.includes("if (ports.skills !== undefined && (ports.skills === null || typeof ports.skills !== 'object' || (ports.skills.reviewVerifier !== undefined && !isFunction(ports.skills.reviewVerifier)))) return 'skills';")) E("SA-7", "a skills port that is not usable is accepted");
-  if (!ports.includes("    skills: {},\n  };") || !ports.includes("readonly skills?: ContextSkillPorts;")) E("SA-7", "the production ports do not look for skills with the one port there is, and no verifier");
+  if (!/^    skills: \{\},\n(?:    linkCount: resumeNodeLinkCount,\n)?  \};/m.test(ports) || !ports.includes("readonly skills?: ContextSkillPorts;")) E("SA-7", "the production ports do not look for skills with the one port there is, and no verifier");
 
   // SA-8: nothing runs; scripts are never read.
   for (const rel of [...CORE_NEW, PROMPT, PROMOTION, QUEUE, SKILL_MINT, SKILL_CONTEXT, SKILL_COMMITTED]) {
@@ -1050,7 +1050,7 @@ const MUTATIONS = [
   M("the-block-says-nothing-of-authority", "SA-7", PROMPT, "name=\"${pin.name}\" package=\"${pin.packageHash}\">`, NOT_AUTHORITY, inner,", "name=\"${pin.name}\" package=\"${pin.packageHash}\">`, inner,"),
   M("a-block-is-rendered-without-the-pin", "SA-7", PROMPT, "  const checked = checkPromotedSkill(raw);\n  return checked.ok ? renderCheckedSkill(checked.value) : checked;", "  return renderCheckedSkill(raw as never);"),
   T("an-unusable-skills-port-is-accepted", "SA-7", PORTS, "(ports.skills.reviewVerifier !== undefined && !isFunction(ports.skills.reviewVerifier)))) return 'skills';", "false)) return 'skills';"),
-  T("the-production-ports-look-for-no-skills", "SA-7", PORTS, "    skills: {},\n  };", "  };"),
+  T("the-production-ports-look-for-no-skills", "SA-7", PORTS, "    skills: {},\n", ""),
   // SA-8
   M("the-block-shows-the-other-files", "SA-8", PROMPT, "const inner = [...listing, body].join('\\n');", "const inner = [...listing, ...skill.files.filter((one) => one.path !== SKILL_MD).map((one) => one.text), body].join('\\n');"),
   M("the-block-does-not-say-scripts-are-not-run", "SA-8", PROMPT, "(listed only: not shown here, and nothing in scripts/ is ever run)", "(listed only: not shown here)"),
