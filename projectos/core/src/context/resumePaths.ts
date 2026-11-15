@@ -25,6 +25,7 @@ export const MAX_CONTEXT_RESUME_PATH_CHARS = 512;
 export type ContextResumePathVerdict =
   | { readonly kind: 'granted'; readonly path: string }
   | { readonly kind: 'run-record'; readonly path: string }
+  | { readonly kind: 'worker-record'; readonly path: string }
   | { readonly kind: 'refused'; readonly path: string; readonly reason: ContextResumePathReason };
 
 export interface ContextResumePathRules {
@@ -34,9 +35,23 @@ export interface ContextResumePathRules {
   readonly phaseId: string;
   /** Where the loop's one work record lives, handed in so this file does not spell it. */
   readonly workRecordPath: string;
+  /** The other records the loop's own lifecycle writes (the plan's state file, the gatekeeper's files). Handed in by the loop, never read from a record. */
+  readonly loopRecords: ContextResumeLoopRecords;
 }
 
-const EXECUTION_RECORD = /^\.projectops\/execution\/[A-Za-z0-9_.-]{1,200}\.(?:(?:brief|session|evidence|invocation|findings|effects|reviewer)\.json|context\.md)$/;
+/** Exact paths, and folders whose files have one name shape, that the loop itself writes. A path outside both is nobody's but the worker's. */
+export interface ContextResumeLoopRecords {
+  readonly paths: readonly string[];
+  readonly folders: readonly { readonly dir: string; readonly name: RegExp }[];
+}
+
+const MAX_LOOP_RECORD_NAME_CHARS = 200;
+
+// The records the loop writes in the execution folder (the first four are the ones the loop's own record fold commits), the context file a
+// killed run left (swept by exactly this name shape), and the two records a worker owns under its own grant.
+const EXECUTION_LOOP_RECORD = /^\.projectops\/execution\/[A-Za-z0-9_.-]{1,200}\.(?:brief|session|evidence|invocation|reviewer)\.json$/;
+const EXECUTION_CONTEXT_FILE = /^\.projectops\/execution\/[A-Za-z0-9_.-]{1,64}\.context\.md$/;
+const EXECUTION_WORKER_RECORD = /^\.projectops\/execution\/[A-Za-z0-9_.-]{1,200}\.(?:findings|effects)\.json$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Zs}]/u;
 const NOT_A_PATH = '(not a path)';
@@ -69,14 +84,17 @@ function grantCovers(path: string, pattern: string, fold: boolean): boolean {
   return target === same(file);
 }
 
-/**
- * A path the loop itself writes for this phase: an execution record of a session (and the context file a killed run left, which the next
- * run sweeps by exactly this name), this phase's own record, or the work record.
- */
+/** A path with the NAME of a record the loop writes for this phase. The name says nothing of the bytes: whoever can write the file can write that name. */
 function isLoopRunRecord(path: string, rules: ContextResumePathRules): boolean {
-  if (EXECUTION_RECORD.test(path)) return true;
+  if (EXECUTION_LOOP_RECORD.test(path) || EXECUTION_CONTEXT_FILE.test(path)) return true;
   if (path === rules.workRecordPath) return true;
-  return SAFE_NAME.test(rules.phaseId) && path === `.projectops/phases/${rules.phaseId}.json`;
+  if (SAFE_NAME.test(rules.phaseId) && path === `.projectops/phases/${rules.phaseId}.json`) return true;
+  if (rules.loopRecords.paths.some((exact) => typeof exact === 'string' && exact !== '' && path === exact)) return true;
+  return rules.loopRecords.folders.some(({ dir, name }) => {
+    if (typeof dir !== 'string' || dir === '' || !path.startsWith(`${dir}/`)) return false;
+    const rest = path.slice(dir.length + 1);
+    return rest.length <= MAX_LOOP_RECORD_NAME_CHARS && !rest.includes('/') && name.test(rest);
+  });
 }
 
 /**
@@ -91,6 +109,7 @@ export function classifyContextResumePath(rawPath: unknown, rules: ContextResume
   const grants = rules.writePaths.filter((pattern): pattern is string => typeof pattern === 'string' && pattern !== '');
   if (grants.some((pattern) => grantCovers(path, pattern, false))) return { kind: 'granted', path };
   if (isLoopRunRecord(path, rules)) return { kind: 'run-record', path };
+  if (EXECUTION_WORKER_RECORD.test(path)) return { kind: 'worker-record', path };
   if (grants.some((pattern) => grantCovers(path, pattern, true))) return { kind: 'refused', path, reason: 'case-variant' };
   return { kind: 'refused', path, reason: 'outside-write-paths' };
 }

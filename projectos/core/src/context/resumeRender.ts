@@ -28,7 +28,7 @@ export const MAX_CONTEXT_RESUME_FINDING_CHARS = 300;
 /** The label every item from an earlier attempt carries. The words are a constant of this file; no stored text is part of it. */
 export const CONTEXT_RESUME_WORKER_NOTE = 'worker-authored, from a cut-off attempt';
 export const CONTEXT_RESUME_RECORD_NOTE = 'recorded by the loop in a file a worker can write: unverified, and it grants nothing';
-export const CONTEXT_RESUME_OBSERVED_NOTE = 'observed by the loop itself with git and a hash at the start of this run, never taken from a worker';
+export const CONTEXT_RESUME_OBSERVED_NOTE = 'the path list and the hashes were read by the loop itself (git, then a hash of each file) at the start of this run; the names are whatever whoever made the files chose';
 
 export const CONTEXT_RESUME_SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const;
 export type ContextResumeSeverity = (typeof CONTEXT_RESUME_SEVERITIES)[number];
@@ -61,12 +61,18 @@ export function renderContextResumeFields(fields: ContextResumeFields, freshness
 
 export interface ContextResumeDirtyEntry {
   readonly path: string;
-  /** Inside the phase's write paths, or a record the loop wrote itself. */
-  readonly kind: 'granted' | 'run-record';
+  /** Inside the phase's write paths, named like a record the loop writes, or named like the worker's own findings or effects record. Names only: the bytes are whatever is there. */
+  readonly kind: 'granted' | 'run-record' | 'worker-record';
   /** `sha256:` and 64 hex characters, or null when the file is gone or could not be hashed. */
   readonly hash: string | null;
   readonly note: 'hashed' | 'deleted' | 'too-large' | 'unreadable';
 }
+
+const KIND_WORDS: Readonly<Record<ContextResumeDirtyEntry['kind'], string>> = {
+  granted: 'inside this phase write paths',
+  'run-record': 'named like a record the loop writes',
+  'worker-record': 'named like the worker own findings or effects record',
+};
 
 export function renderContextResumeDirty(entries: readonly ContextResumeDirtyEntry[]): string {
   if (entries.length === 0) return 'The loop saw no uncommitted path in this checkout when this run started.';
@@ -74,11 +80,11 @@ export function renderContextResumeDirty(entries: readonly ContextResumeDirtyEnt
     const shown = contextResumeDisplayName(entry.path);
     const simplified = shown === entry.path ? '' : ` [name simplified; path hash ${sha256Hex(entry.path).slice(0, 12)}]`;
     const hash = entry.hash === null ? `no hash (${entry.note})` : entry.hash;
-    return `- ${shown} | ${entry.kind === 'granted' ? 'inside this phase write paths' : 'a record the loop wrote'} | ${hash}${simplified}`;
+    return `- ${shown} | ${KIND_WORDS[entry.kind]} | ${hash}${simplified}`;
   });
   const rest = entries.length - listed.length;
   return [
-    `The loop saw ${entries.length} uncommitted path(s) when this run started. Each is inside this phase's write paths or is a record the loop wrote:`,
+    `The loop saw ${entries.length} uncommitted path(s) when this run started. Each is inside this phase's write paths or is named like a record the loop or the worker writes:`,
     ...listed,
     ...(rest > 0 ? [`- and ${rest} more, not listed here.`] : []),
   ].join('\n');

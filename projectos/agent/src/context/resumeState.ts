@@ -56,6 +56,7 @@ import {
   type ContextResumeDirtyEntry,
   type ContextResumeFields,
   type ContextResumeFinding,
+  type ContextResumeLoopRecords,
   type ContextResumePathReason,
   type ContextResumeSeverity,
 } from '@projectos/core';
@@ -64,6 +65,7 @@ import type { LoopStopCode } from '../loop/outcome.js';
 import type { ContextManagerPorts } from './contextPorts.js';
 import type { ContextFailure, ContextRead } from './contextRetrieval.js';
 import { porcelainZPaths } from './contextStoreGuard.js';
+import { MAX_GIT_OUTPUT_BYTES } from '../search/ports.js';
 
 /** A record file is a few kilobytes: past this it is not read, and the run goes on without it. */
 export const MAX_RESUME_FILE_BYTES = 65_536;
@@ -75,6 +77,7 @@ export const MAX_RESUME_DIRTY_PATHS = 2_000;
 const MAX_FINDINGS_READ = 200;
 const MAX_CHECKS_READ = 200;
 const MAX_REFUSAL_PATHS_NAMED = 8;
+const OUTPUT_BOUND_SLACK = 4096;
 const CHECK_ID = /^[A-Za-z0-9_.:-]{1,120}$/;
 const STATUS_ARGS: readonly string[] = ['status', '--porcelain', '-z', '--untracked-files=all'];
 
@@ -94,13 +97,14 @@ const STOP_CODES: Readonly<Record<LoopStopCode, true>> = {
 };
 
 /** The loop's own vocabularies, handed to core, which keeps no copy. */
-const VOCABULARY = {
+const vocabularyOf = (phaseId: string) => ({
   states: WORK_STATES as readonly string[],
   stopCodes: Object.keys(STOP_CODES),
   // Nothing was dispatched, the work finished, or the run is waiting on a gate or the owner: none of these is an attempt that was cut off,
   // and the owner-wait and gate routes keep exactly the behaviour they have.
   inactiveStates: ['QUEUED', 'COMPLETE', 'AWAITING_GATE', 'GATE_APPROVED', 'WAITING_OWNER'] as readonly string[],
-};
+  phaseId,
+});
 
 export interface ContextResumeRequest {
   /** The phase this run selected, from the governed plan. */
@@ -109,6 +113,8 @@ export interface ContextResumeRequest {
   readonly projectId: string;
   /** The write grant the loop built from the approved plan: `dir/**`, `./file` or `dir/file`. */
   readonly writePaths: readonly string[];
+  /** The other records the loop's own lifecycle writes: the plan's state file and the gatekeeper's files. Built by the loop from its own constants. */
+  readonly loopRecords: ContextResumeLoopRecords;
   /** Reads the work record. A port, so this file spells no location and a test supplies its own. */
   readonly workRecord: () => WorkReadResult;
 }
@@ -146,7 +152,7 @@ const REASON_CODE: Readonly<Record<DirtyReason, string>> = {
   'outside-write-paths': 'RESUME_DIRTY_PATH_OUTSIDE_WRITE_PATHS',
 };
 const REASON_WORDS: Readonly<Record<DirtyReason, string>> = {
-  link: 'a link or under one',
+  link: 'a link, a file with more than one name, or under a link',
   'not-regular': 'not an ordinary file',
   absolute: 'an absolute path',
   traversal: 'a path that climbs out of the project',
@@ -155,7 +161,7 @@ const REASON_WORDS: Readonly<Record<DirtyReason, string>> = {
   'outside-write-paths': 'outside this phase write paths',
 };
 const REASON_FIX: Readonly<Record<DirtyReason, string>> = {
-  link: 'the owner replaces each link with an ordinary file, or removes it',
+  link: 'the owner replaces each link, or each file with a second name (a hard link), with an ordinary file, or removes it',
   'not-regular': 'the owner removes each, or replaces it with an ordinary file',
   absolute: 'the owner removes each, or renames it to an ordinary path inside the project',
   traversal: 'the owner removes each, or renames it to an ordinary path inside the project',
@@ -187,19 +193,37 @@ function refusedUnobservable(why: string): ContextResumeOutcome {
   };
 }
 
+function refusedTooMany(what: string): ContextResumeOutcome {
+  return {
+    kind: 'refused',
+    code: 'RESUME_TOO_MANY_DIRTY_PATHS',
+    message: `the attempt before this one was cut off, and ${what}. Nothing was sent and no worker was started. Fix: the owner commits or stashes the work that is finished, and adds an ignore rule for generated trees (for example an un-ignored node_modules), then runs again.`,
+  };
+}
+
+function refusedRecord(code: string, why: string): ContextResumeOutcome {
+  return {
+    kind: 'refused',
+    code,
+    message: `the work record could not be used (${why}), so whether an attempt before this one was cut off cannot be judged. Nothing was sent and no worker was started. Fix: the owner restores ${WORK_RECORD_REL} from git (git checkout -- ${WORK_RECORD_REL}) or, if git does not track it, deletes it, then runs again.`,
+  };
+}
+
 function normalisedRoot(root: string): string {
   return root.replace(/\\/g, '/').replace(/\/+$/, '');
 }
 
-/** The changed paths git lists, in order and without repeats, or null when git cannot say or the list is not complete. */
-function dirtyPathsOf(ports: ContextManagerPorts): readonly string[] | null {
+/** The changed paths git lists, in order and without repeats; or why not: git cannot say, or it said more than a bounded reader takes. */
+function dirtyPathsOf(ports: ContextManagerPorts): readonly string[] | 'unreadable' | 'too-much-output' {
   try {
     const result = ports.git(STATUS_ARGS);
-    if (result.code !== 0 || typeof result.stdout !== 'string') return null;
+    if (typeof result.stdout !== 'string') return 'unreadable';
+    // A run that failed with its output at the reader's bound is a list that was too long, not a git that does not run.
+    if (result.code !== 0) return result.stdout.length >= MAX_GIT_OUTPUT_BYTES - OUTPUT_BOUND_SLACK ? 'too-much-output' : 'unreadable';
     const paths = porcelainZPaths(result.stdout);
-    return paths === null ? null : [...new Set(paths)];
+    return paths === null ? 'unreadable' : [...new Set(paths)];
   } catch {
-    return null;
+    return 'unreadable';
   }
 }
 
@@ -219,7 +243,19 @@ function onDiskProblem(ports: ContextManagerPorts, root: string, path: string, p
   const own = ports.fs.stat(`${root}/${path}`);
   if (own === null) return null;
   if (own.kind === 'link') return 'link';
-  return own.kind === 'file' ? null : 'not-regular';
+  if (own.kind !== 'file') return 'not-regular';
+  // A file with a second name can be another file's bytes under this path (a hard link to something outside the project): never hashed or read.
+  return linkCountOf(ports, `${root}/${path}`) > 1 ? 'link' : null;
+}
+
+/** How many names a file has. A port that is missing, or that cannot say, answers one: the lstat above already refused a link. */
+function linkCountOf(ports: ContextManagerPorts, path: string): number {
+  try {
+    const count = ports.linkCount === undefined ? 1 : ports.linkCount(path);
+    return typeof count === 'number' && Number.isFinite(count) ? count : 1;
+  } catch {
+    return 1;
+  }
 }
 
 interface Hashed {
@@ -247,18 +283,12 @@ type Observed = { readonly ok: true; readonly entries: readonly ContextResumeDir
 /** Every changed path, judged, then hashed: the loop's own observation. */
 function observeDirty(ports: ContextManagerPorts, request: ContextResumeRequest, root: string): Observed {
   const dirty = dirtyPathsOf(ports);
-  if (dirty === null) return { ok: false, outcome: refusedUnobservable('git could not list the changed paths') };
+  if (dirty === 'too-much-output') return { ok: false, outcome: refusedTooMany('git listed more changed paths than a bounded reader takes') };
+  if (dirty === 'unreadable') return { ok: false, outcome: refusedUnobservable('git could not list the changed paths') };
   if (dirty.length > MAX_RESUME_DIRTY_PATHS) {
-    return {
-      ok: false,
-      outcome: {
-        kind: 'refused',
-        code: 'RESUME_TOO_MANY_DIRTY_PATHS',
-        message: `the attempt before this one was cut off and left ${dirty.length} changed paths, more than the ${MAX_RESUME_DIRTY_PATHS} a half-done phase is read from. Nothing was sent and no worker was started. Fix: the owner commits or stashes the work that is finished, then runs again.`,
-      },
-    };
+    return { ok: false, outcome: refusedTooMany(`left ${dirty.length} changed paths, more than the ${MAX_RESUME_DIRTY_PATHS} a half-done phase is read from`) };
   }
-  const rules = { writePaths: request.writePaths, phaseId: request.phaseId, workRecordPath: WORK_RECORD_REL };
+  const rules = { writePaths: request.writePaths, phaseId: request.phaseId, workRecordPath: WORK_RECORD_REL, loopRecords: request.loopRecords };
   const problems: DirtyProblem[] = [];
   const entries: ContextResumeDirtyEntry[] = [];
   const parents = new Map<string, boolean>();
@@ -346,7 +376,7 @@ function workerRead(id: string, kind: ContextRead['kind'], text: string, freshne
 }
 
 /** The earlier attempt's own findings and evidence, by the session the record names. A file that is absent or unusable is skipped and named. */
-function attemptRecords(ports: ContextManagerPorts, root: string, fields: ContextResumeFields, head: string, reads: ContextRead[], failures: ContextFailure[]): void {
+function attemptRecords(ports: ContextManagerPorts, root: string, phaseId: string, fields: ContextResumeFields, head: string, reads: ContextRead[], failures: ContextFailure[]): void {
   if (fields.sessionId === null) return;
   const findingsId = `.projectops/execution/${fields.sessionId}.findings.json`;
   const evidenceId = `.projectops/execution/${fields.sessionId}.evidence.json`;
@@ -367,6 +397,8 @@ function attemptRecords(ports: ContextManagerPorts, root: string, fields: Contex
   else if (evidence.kind === 'text') {
     const object = jsonObjectOf(evidence.text);
     if (object === null) failures.push(failure(evidenceId, 'RESUME_FILE_NOT_JSON'));
+    // The session id already carries this phase's name; the evidence also names its phase, and a record that names another is not shown.
+    else if (object['phaseId'] !== undefined && object['phaseId'] !== phaseId) failures.push(failure(evidenceId, 'RESUME_SESSION_NOT_THIS_PHASE'));
     else {
       const summary = evidenceOf(object);
       reads.push(workerRead(evidenceId, 'execution-record', renderContextResumeEvidence(summary), freshnessOf(summary.currentHead ?? summary.baseHead ?? fields.subjectCommit, head)));
@@ -385,14 +417,17 @@ export function resumeReadsOf(ports: ContextManagerPorts, input: ContextResumeIn
   try {
     record = request.workRecord();
   } catch {
-    return { kind: 'ok', reads: [], failures: [failure('resume:work-record', 'RESUME_WORK_RECORD_UNREADABLE')] };
+    return refusedRecord('RESUME_WORK_RECORD_UNREADABLE', 'it could not be read');
   }
-  if (!record.ok) return { kind: 'ok', reads: [], failures: [failure('resume:work-record', 'RESUME_WORK_RECORD_UNREADABLE')] };
+  // A record that is there and cannot be used is NOT an absent one: it is how a cut-off attempt would be hidden. Its own words are never quoted.
+  if (!record.ok) return refusedRecord('RESUME_WORK_RECORD_UNREADABLE', 'it is not readable JSON, or is a version this runtime does not read, or names a state this runtime does not know');
   if (record.value === null) return NOTHING;
-  const read = contextResumeFieldsOf(record.value, VOCABULARY);
-  if (!read.ok) return { kind: 'ok', reads: [], failures: [failure('resume:work-record', read.code)] };
-  // Another project's checkpoint or another phase's is nobody's to continue, and a work item that never started or finished is not cut off.
-  if (read.belongsTo.projectId !== request.projectId || read.belongsTo.phaseId !== request.phaseId || !read.cutOff) return NOTHING;
+  const read = contextResumeFieldsOf(record.value, vocabularyOf(request.phaseId));
+  if (!read.ok) return refusedRecord(read.code === 'RESUME_RECORD_NOT_PLAIN' ? 'RESUME_WORK_RECORD_NOT_PLAIN' : 'RESUME_WORK_RECORD_STATE_UNKNOWN', read.code === 'RESUME_RECORD_NOT_PLAIN' ? 'it is not plain data' : 'its state is not one of the loop states');
+  // Another project's checkpoint cannot be this project's: it is refused. Another PHASE's is what every new phase finds (the entrypoint starts
+  // a fresh record when the phase changes), so it is not a cut-off attempt of this one; a work item that never started or finished is not either.
+  if (read.belongsTo.projectId !== request.projectId) return refusedRecord('RESUME_WORK_RECORD_NOT_THIS_PROJECT', 'it names another project');
+  if (read.belongsTo.phaseId !== request.phaseId || !read.cutOff) return NOTHING;
 
   const root = normalisedRoot(input.root);
   const observed = observeDirty(ports, request, root);
@@ -411,7 +446,7 @@ export function resumeReadsOf(ports: ContextManagerPorts, input: ContextResumeIn
       note: CONTEXT_RESUME_RECORD_NOTE,
     },
   ];
-  if (fields.sessionId !== input.sessionId) attemptRecords(ports, root, fields, input.head, reads, failures);
+  if (fields.sessionId !== input.sessionId) attemptRecords(ports, root, request.phaseId, fields, input.head, reads, failures);
   reads.push({ id: 'resume:dirty-paths', kind: 'execution-record', text: renderContextResumeDirty(observed.entries), proof: null, source: 'loop-observed', freshness: null, note: CONTEXT_RESUME_OBSERVED_NOTE });
   return { kind: 'ok', reads, failures };
 }

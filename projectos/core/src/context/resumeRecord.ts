@@ -28,6 +28,8 @@ export interface ContextResumeVocabulary {
   readonly stopCodes: readonly string[];
   /** States that describe no cut-off attempt: nothing was started, or the work finished. */
   readonly inactiveStates: readonly string[];
+  /** The phase this run selected. A session is accepted only in the shape the loop mints for THIS phase: its name, 12 hex characters of the head, and an optional run discriminator. */
+  readonly phaseId: string;
 }
 
 export interface ContextResumeFields {
@@ -52,6 +54,13 @@ export type ContextResumeFieldsResult =
   | { readonly ok: false; readonly code: 'RESUME_RECORD_NOT_PLAIN' | 'RESUME_RECORD_STATE_UNKNOWN' };
 
 const SESSION_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
+/** What follows the phase name in a session id the loop mints (`sessionIdFor`): a head prefix, then the first characters of the invocation id. */
+const SESSION_TAIL = /^[0-9a-f]{12}(?:-[0-9a-f]{1,16})?$/;
+
+/** A session id of exactly the shape this phase's runs get. Anything else is free text, whatever its characters. */
+function isMintedSession(session: string, phaseId: string): boolean {
+  return SESSION_NAME.test(session) && phaseId !== '' && session.startsWith(`${phaseId}-`) && SESSION_TAIL.test(session.slice(phaseId.length + 1));
+}
 const MAX_IDENTITY_CHARS = 200;
 
 /** One own data property, read once. An accessor, an inherited name and a missing one are all `undefined`. */
@@ -97,7 +106,7 @@ export function contextResumeFieldsOf(raw: unknown, vocabulary: ContextResumeVoc
 
   const session = dataField(raw, 'sessionId');
   let sessionId: string | null = null;
-  if (typeof session === 'string' && SESSION_NAME.test(session)) sessionId = session;
+  if (typeof session === 'string' && isMintedSession(session, vocabulary.phaseId)) sessionId = session;
   else if (session !== null && session !== undefined) dropped.push('RESUME_SESSION_NOT_A_SAFE_NAME');
 
   return Object.freeze({

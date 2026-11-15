@@ -31,6 +31,7 @@ import {
 } from '@projectos/core';
 import { types } from 'node:util';
 import { storedTextSecretScreen } from './contextScreen.js';
+import { resumeNodeLinkCount } from './resumeNode.js';
 import { readMemoryStore } from '../memory/memoryFiles.js';
 import { nodeEntryProbe } from '../search/nodeHost.js';
 import { documentFsOver, gitRunnerOver, searchClockOver, searchHeadOver, type DocumentFs, type GitRunner, type SearchClock } from '../search/ports.js';
@@ -72,6 +73,8 @@ export interface ContextManagerPorts {
   readonly registry: ActionRegistry | null;
   readonly window?: ContextWindow;
   readonly drafter?: (plan: CompactionPlan) => ContextDraftOffer;
+  /** How many names a file has (PROJECTOS-RESUME1A), or null. Absent counts as one. A changed path with a second name is refused. */
+  readonly linkCount?: (path: string) => number | null;
 }
 
 const isFunction = (value: unknown): boolean => typeof value === 'function';
@@ -118,5 +121,6 @@ export function nodeContextPorts(sys: System, root: string, indexDirectory: Cont
       return opened.ok ? opened.index : null;
     },
     registry: null,
+    linkCount: resumeNodeLinkCount,
   };
 }

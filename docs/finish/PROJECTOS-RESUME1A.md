@@ -46,7 +46,7 @@ Everything below was read first and extended; nothing is a parallel copy except 
 
 ## ADDED / MODIFIED / PROTECTED
 
-ADDED: `core/src/context/resumePaths.ts`, `resumeRecord.ts`, `resumeRender.ts`; `agent/src/context/resumeState.ts`; tests
+ADDED: `core/src/context/resumePaths.ts`, `resumeRecord.ts`, `resumeRender.ts`; `agent/src/context/resumeState.ts`, `resumeLoopRecords.ts` (review round 1), `resumeNode.ts` (review round 1); tests
 `core/test/context-resume.test.ts`, `agent/test/resumeState.test.ts`, `agent/test/resumeRun.test.ts`,
 `agent/test/support/resumeLoopWorld.ts`; `validators/val-projectos-resume1a.cjs`; this document.
 
@@ -56,8 +56,9 @@ MODIFIED (existing files touched, for the merge; every edit is minimal and behav
 |---|---|
 | `projectos/agent/src/context/contextManager.ts` | `import` of `resumeReadsOf`; optional `resume` on `RunContextRequest`; one header mark for the label; one call after the decisions are readable; the resumed reads and failures merged into the existing ranking and withheld list |
 | `projectos/agent/src/context/contextRetrieval.ts` | `ContextRead.source` widened by `working-tree` and `loop-observed`; optional `note` |
+| `projectos/agent/src/context/contextPorts.ts` (review round 1) | optional `linkCount` port, and the real ports give it (`resumeNodeLinkCount`) |
 | `projectos/agent/src/context/contextRun.ts` | optional `resume` on `PrepareRunContextInput`, passed to the manager |
-| `projectos/agent/src/loop/runner.ts` | one `resume: { ... }` line in the existing `prepareRunContext` call (3 lines with its comment) |
+| `projectos/agent/src/loop/runner.ts` | one `resume: { ... }` line in the existing `prepareRunContext` call (3 lines with its comment) and one import (the loop record set, review round 1) |
 | `projectos/core/src/context/managerLedger.ts` | `CONTEXT_LEDGER_SOURCES` gains `working-tree`, `loop-observed` (one line) |
 | `projectos/core/src/index.ts` | three barrel lines |
 | `projectos/validators/validate-all.cjs`, `projectos/speed/cached-runner.cjs` | one registration each, immediately before `val-projectos-connector-contract1a`, after `val-projectos-context-manager1a` |
@@ -95,7 +96,7 @@ prints nothing.
 
 ## Rules, tests, mutations
 
-Each acceptance criterion is a rule of `val-projectos-resume1a` (14 rules, 122 named mutations; a mutation counts only when its own
+Each acceptance criterion is a rule of `val-projectos-resume1a` (14 rules, 163 named mutations after review round 1; a mutation counts only when its own
 rule fires, and it must fire exactly the rules its row names). Mutations are named after the body of the rule they break.
 
 | Criterion | Rule | Test (file: title) | Named mutations |
@@ -135,12 +136,12 @@ Agent tests were run through an alias config (vitest `resolve.alias` and a `tsco
 
 | Check | Result |
 |---|---|
-| core `npx vitest run` | 112 files, 4,765 tests passed |
+| core `npx vitest run` | 112 files, 4,782 tests passed (after review round 1; 4,765 before it). `context-resume.test.ts` is 63 tests |
 | core `npm run -s build`, `tsc --noEmit` | clean |
 | agent typecheck (alias), agent typecheck of the tests (alias) | clean |
-| agent `npx vitest run` (alias) | 132 files: 131 passed, 1 failed to load; 4,074 tests passed, 10 skipped. The one file is `tenantSidecar.test.ts`, which runs `tsc -p agent/tsconfig.json` against the agent's `@projectos/core` junction (another worktree) and fails only under the alias, as the brief says. The 67 resume tests in `resumeState.test.ts` and `resumeRun.test.ts` are in the passing set, with the existing 744-test context and loop subset |
+| agent `npx vitest run` (alias) | 132 files: 131 passed, 1 failed to load; 4,097 tests passed, 10 skipped (after review round 1; 4,074 before it). The one file is `tenantSidecar.test.ts`, which runs `tsc -p agent/tsconfig.json` against the agent's `@projectos/core` junction (another worktree) and fails only under the alias, as the brief says. The 90 resume tests in `resumeState.test.ts` (71) and `resumeRun.test.ts` (19) are in the passing set; `contextReviewRound2` "stays linear" failed once under a heavy load in the lead's battery and passes alone (43 of 43), with the existing 744-test context and loop subset |
 | core browser load (esbuild, platform browser, tree-shaking off, evaluated with no Node global; the way `coreBrowserLoad.test.ts` does) | loads; `grep "from 'node:'" core/src/context/resume*.ts` lists nothing |
-| `val-projectos-resume1a` | PASS (14 rules; 122 named mutations killed); `run()` is synchronous and returns an array |
+| `val-projectos-resume1a` | PASS (14 rules; 163 named mutations killed); `run()` is synchronous and returns an array |
 | `val-projectos-work-record-not-authority1a` | PASS, unchanged |
 | `val-projectos-context-manager1a` | 285 mutations killed; its CM-15 fails by design, see below |
 | `val-projectos-boot-continue1a`, `-agent-workforce1a`, `-kernel-followup1a`, `-kernel-platform-stop1a`, `-kernel-role-review1a`, `-technical-continuation1a`, `-tenant-contract1a`, `-worker-lifecycle-bounded1a` | PASS |
@@ -160,9 +161,9 @@ scratch copy, the validator passes (21 rules, 285 mutations killed), so no other
 +      else if (names[at - 1] !== "val-projectos-memory-provenance1a" || names[at + 1] !== "val-projectos-resume1a") E("CM-15", ...
 ```
 
-When the sibling's registration is merged between them, the pin names whichever of the two is first. `val-projectos-resume1a` RS-13
-pins only "immediately before `connector-contract1a`, after `context-manager1a`", so the sibling must sit before this validator or
-RS-13's neighbour check must be widened at the merge.
+With the final order context-manager1a, skills-adopt1a, resume1a, connector-contract1a the CM-15 successor is `val-projectos-skills-adopt1a`
+(the lead's merge). `val-projectos-resume1a` RS-13 accepts EITHER `val-projectos-context-manager1a` or `val-projectos-skills-adopt1a`
+immediately before it, and requires `val-projectos-connector-contract1a` immediately after.
 
 ## B9 - Converge
 
@@ -181,17 +182,16 @@ PROTECTED untouched: `git diff --stat` above, and the empty diff for the protect
 
 A run with an admitted envelope on a phase whose work record says an attempt was started and not finished (any state except `QUEUED`,
 `COMPLETE`, `AWAITING_GATE`, `GATE_APPROVED`, `WAITING_OWNER`) now refuses when `git status` shows a path outside the phase's write paths
-that is not a record the loop wrote. This is the spec. It means the owner's unrelated uncommitted edits block a resume of an unfinished
+that is not named like a record the loop (or the worker's own grant) writes. This is the spec. It means the owner's unrelated uncommitted edits block a resume of an unfinished
 phase until committed, stashed or removed; the refusal names each path and the fix. Owner-wait and gate states keep exactly the
 behaviour they had.
 
 ## Residuals
 
-1. `isFoldableRunRecord` (protected `run.ts`) is mirrored, not imported, in `core/src/context/resumePaths.ts`: execution records
-   `<session>.(brief|session|evidence|invocation|findings|effects|reviewer).json` and a killed run's `<session>.context.md`, this
-   phase's own record and the work record. Gatekeeper decision, thread and ledger records, memory proposals under
-   `.projectops/memory`, and the plan's state-tail files are NOT listed as loop records, so a resume after a run that wrote them refuses
-   naming them until the owner commits them. A later phase may export one predicate from a module `loop/` can import.
+1. `isFoldableRunRecord` (protected `run.ts`) is mirrored, not imported (it cannot be imported from `loop/` without a cycle): the execution
+   record shapes live in `core/src/context/resumePaths.ts` and the lifecycle set in `agent/src/context/resumeLoopRecords.ts`. Since review
+   round 1 the validator compares both with the text of `run.ts` (rule RS-6), so a change there fails here. Memory proposals under
+   `.projectops/memory` are still NOT loop records, so a resume after a run that wrote them refuses naming them until the owner commits them.
 2. The findings and evidence are parsed here by a tolerant reader (closed severity list, bounded lengths, check ids by shape) rather than
    by `readFindings`, which needs a whole `System`. The two can drift.
 3. A hash is of the file as the fs port reads it (UTF-8 text): deterministic, but not git's blob id for a binary file. A file over 1 MiB,
@@ -205,4 +205,33 @@ behaviour they had.
 7. The work record can be rewritten by a worker (it is in the project tree); that is why only closed values are read from it, they are
    labelled unverified, and nothing the record says selects, advances or widens anything. A forged `EXECUTING` record can make a run
    refuse on a dirty path (a nuisance, not an authority) and can show a worker a fake "last stop".
-8. No ECC security review was run by this builder (the lead dispatches it); the validator's mutations are this phase's own proof.
+8. (Superseded: the ECC security review was run on `4d706267`; see "Review round 1" below.)
+
+## Review round 1 (ECC security-reviewer, reproduced against `4d706267`; fixed in the commit after it)
+
+| Finding | What changed | Status |
+|---|---|---|
+| **H1** a retry after a cut-off was refused on every real governed project: the loop's own lifecycle rewrites the TRACKED plan state file and writes gatekeeper files, none in any `writePaths` | `agent/src/context/resumeLoopRecords.ts` builds the loop record set from the loop's own constants (`programmeStateTailPaths`, `GATEKEEPER_THREAD_REL`, `_LEDGER_REL`, `_DECISIONS_REL`, `_INTERACTIVE_REL`, `INTERACTIVE_RECORD_FILENAME`, imported from where `run.ts` imports them; the decision-name regex is copied and compared with `run.ts` by the validator). The runner passes it as `loopRecords`; core matches exact paths and folder-plus-name shapes. Real-git tests: the first run's lifecycle is the REAL `createLifecycleRecorder`, which dirties the tracked `.projectops/current-state-x.json`; the retry is refused without the set (the defect, reproduced) and admitted with it; a tracked `README.md` the worker changed, and a second state-looking file the loop was not told about, still refuse. A runner-level test covers the same through `runLoop`. | Fixed |
+| **M1** the refusal could be switched off by editing the worker-writable work record | An unreadable, corrupt, non-plain or unknown-state record, one that names another project, a reader that throws: all REFUSE, with a named fix (the owner restores the file from git or deletes it), quoting nothing the record said. | Fixed, with two cases left as they were, below |
+| **M2** `sessionId` was a free-text channel | A session is accepted only as `<this phase id>-<12 hex>[-<1..16 hex>]`, the shape `sessionIdFor` mints; anything else is dropped with `RESUME_SESSION_NOT_A_SAFE_NAME`. Planted-phrase cases are in the core and agent RS-1 tests. | Fixed |
+| **L1** hard-link hash oracle | A changed regular file with `nlink > 1` is refused as `RESUME_DIRTY_PATH_LINK` ("a link, a file with more than one name, or under a link") and is never hashed or read. The count comes from a new port (`resumeNode.ts`, one `lstatSync`) because `EntryStat` is in `search/`, outside this phase's write paths. A real hard-link test. | Fixed. The stat-then-read race stays (L1b below). |
+| **L2** mirror drift | `findings` and `effects` are no longer called loop records: they are listed as `worker-record` ("named like the worker own findings or effects record"). `effects` is NOT dropped (see below). The `.context.md` stem is capped at 64, the sweep's own bound. The label no longer says "a record the loop wrote": it says "named like a record the loop writes". RS-6 compares the execution alternatives, the decision-name regex, the gatekeeper constants and the exact fixed paths with the text of `run.ts`. | Fixed, with one disagreement, below |
+| **L3** git output past 1 MiB said "check git runs" | A failed `git status` whose output is at the reader's bound is `RESUME_TOO_MANY_DIRTY_PATHS` with "commit or stash the finished work, and add an ignore rule for generated trees (for example an un-ignored node_modules)". Real-git test with 5,000 long names under `node_modules`. | Fixed |
+| **L4** assume-unchanged, skip-worktree, git-ignored paths, NTFS alternate data streams and submodule internals are invisible to `git status` | No code. A worker needs git access, or a file system feature, to hide a change this way; the write grant is judged on the candidate, not here. | Residual |
+| **L5** the stale mark can be forged (the record's `subjectCommit` and the evidence heads are worker-writable) | No code. The items are labelled worker-authored and the mark says only what the record claims. | Residual |
+| **L6** another phase's session | The M2 shape carries this phase's id as a prefix, which covers it; the evidence record also carries a `phaseId` and a mismatch is dropped (`RESUME_SESSION_NOT_THIS_PHASE`). The findings record has no phase field. | Fixed |
+| **L7** the observed note claimed "never taken from a worker" | The note now says the path list and the hashes were read by the loop and that the names are whatever whoever made the files chose. | Fixed |
+| **L8** validator survivors | Each of the six now has a named mutation killed by its own rule: hash budget not spent (RS-11), a refusal that names no path or names it raw (RS-3), a cut-off attempt's session equal to this run's being read (RS-1), the display name shown raw (RS-8), `.projectops` widened to any path (RS-6), the path-hash note gone (RS-8). A test spends the 32 MiB budget (40 files of 1,000,000 bytes: 33 hashed, 7 listed with no hash). RS-14 now also requires an assertion in each titled test body. | Fixed, limit below |
+
+### Where I did not do what the review asked, and why
+
+- **M1, another PHASE's record, and the inactive states.** `run.ts` starts a fresh work record whenever the phase changes, so a record for another phase is what EVERY new phase finds. Refusing it would block every phase after the first. It stays "nothing to resume", as do `QUEUED`, `COMPLETE`, `AWAITING_GATE`, `GATE_APPROVED`, `WAITING_OWNER` and an absent file. **Say plainly: the dirty-path refusal is ADVISORY against a worker that forges its own record to one of those. The write grant judged on the candidate at capture remains the real gate.** What M1 closes is damage and a wrong-project record, not a deliberate forgery of an inactive state.
+- **L2, `effects`.** The review asked to drop `effects` because `run.ts` does not fold it. It is not folded because it is worker-written, which is also why it is dirty after a cut-off: the worker's own grant covers its findings and effects files. Refusing it would make a cut-off attempt that wrote one unresumable with a fix nobody can apply (it is in no phase's `writePaths`). It is listed as the worker's, with a hash, not as the loop's.
+- **L1b, re-lstat after open / read through the fd.** The `DocumentFs` port has `stat` and `readText` only, in `search/`, outside this phase's write paths. The window between the stat and the read is a residual, documented: a path swapped for a link or a second name in that window is hashed as what it then is.
+- **L8, RS-14.** It checks that a titled test exists and that its body holds an `expect(`; it does not run the tests (the validators here do not run vitest). A test whose assertions are vacuous still passes it.
+
+### New residuals from this round
+
+- A work record forged to an inactive state, another phase, or deleted switches the refusal off (above). The grant at candidate capture is the gate.
+- A corrupt work record now stops every admitted-envelope run until the owner restores or deletes it; the refusal names the file and the command.
+- `resumeLoopRecordsOf` copies one regex (the decision-file name) from `run.ts`; the validator fails if the two differ.
