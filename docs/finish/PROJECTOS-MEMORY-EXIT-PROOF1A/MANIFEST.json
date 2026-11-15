@@ -1,0 +1,30 @@
+{
+  "schema": "projectos.memory-exit-proof-manifest/1",
+  "files": {
+    "agency-records/closure-decision.json": "sha256:89bf85f22fdc04e18ef8fbba8d5b828ad6c4ce0b4229e30a860c8b312901be9f",
+    "agency-records/cutoff-humans.txt": "sha256:4cf8e64fb0b598a2db84add0d686597207d99e5173ef022418e66b039a042bf2",
+    "agency-records/cutoff-phase-record.json": "sha256:ad3a5d172b8ae36924188e8b138e73ec09a1743b8c78113cca589444901a8cf7",
+    "agency-records/cutoff-work.v1.json": "sha256:7152aefacf0bfb9deb4f57969eb231f4734dbe7b85390ecb80cc14bd64963db6",
+    "agency-records/final-humans.txt": "sha256:4cf8e64fb0b598a2db84add0d686597207d99e5173ef022418e66b039a042bf2",
+    "agency-records/final-phase-record.json": "sha256:7242c1d4c24d23a1fd330a38fe1a696fa49148c5dfd5c811fcdf307305767313",
+    "agency-records/final-work.v1.json": "sha256:6a58b72ee7e6029af22880bc08662f223353f7a87a048852b823b48eb1f2c505",
+    "agency-records/gatekeeper-decision.json": "sha256:10ec884faa6e79c69425a17d4d0ddfb3a853a1a4d501c8fcb2b4efaf6157ddbc",
+    "agency-records/gatekeeper-ledger.json": "sha256:09e2f56ca92c204e3d88a6d255763d07747ab8b59f47441db7b443e22f7bb52c",
+    "agency-records/run1.brief.json": "sha256:11b4ac4279c86396116d48a5ac68448f1ab3f024cc83680f917581792ade00cc",
+    "agency-records/run1.invocation.json": "sha256:6e2162fcfbc7c090bad6228aa3691dba941c4c33edb4e7d1536a390dedde9610",
+    "agency-records/run2.brief.json": "sha256:f030ea81288b79352acfc5a3ef5d59a7034c6a078b65927f08ebbc4852a6b731",
+    "agency-records/run2.effects.json": "sha256:395ccc50ae59801088461594d8b4ea31dbf0464630a785ce657d194558f2571f",
+    "agency-records/run2.evidence.json": "sha256:176cbc1826f753c7042dd9996c4a782067e029a8beead1874ed92cfc6b81b840",
+    "agency-records/run2.findings.json": "sha256:14e0d59f1de9daef65f3fbf936dd1ee02bb110f1aa9ccd937ff26e7b8070eadf",
+    "agency-records/run2.invocation.json": "sha256:479c8006d12920b5be4231408f161e8d3049a7da5508cff5475530b67f77a994",
+    "agency-records/run2.reviewer.json": "sha256:205fbae69f9115db98a9ccfefe7a5aa6296df46218069aab21549681c91dd906",
+    "agency-records/run2.session.json": "sha256:b38dd8c1e6e833c76def489fa0124af3aa3fa71a092e3afcf119af284b0897d9",
+    "context-ledger/000001.json": "sha256:103304ae399b64f34dde57b6d51fafe940e091e391b9b62d6a2165b8ccd66f05",
+    "context-ledger/000002.json": "sha256:7105eb176de8d947c9590f5298f8f99e0ca3c381b4bcb237919effc641990f8a",
+    "context-ledger/000003.json": "sha256:ecd405249e16efeff0fa5ef66714bb3b62952ed2311743da2be7501a895a19aa",
+    "context-ledger/000004.json": "sha256:6450be8b34d30ec622bdbe2161df950be9b96568f2e84f6cab7b586e27c36250",
+    "run1-cutoff.log": "sha256:081699bf149831a7dd948fed65c5322641b8260dedcb465c5f5def23e617e014",
+    "run2-resume.log": "sha256:403c623df4c0f41d7198605a403a6fd3ae2e34428f1e67b21ca74616df539313",
+    "run2-times.txt": "sha256:e3713c7b7479a40d4f92386e764a3ecc2873a0a871f694d8869d300c931f106c"
+  }
+}
