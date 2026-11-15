@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-SKILLS-ADOPT1A",
+  "project": "ProjectOS",
+  "objective": "Plan 3.2. Lands the PORT-SKILLS1A binding carry-forwards: the kernel sets origin; promotion needs the skill validator, an independent review and a hash pin; the loader (skill-load) adds promoted skills to the context file and refuses an unpinned or changed skill; the bounded-repeat evasions are closed; nothing runs from a skill's scripts/.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-15T05:13:31.480Z",
+      "note": "Owner-approved plan v1.36 and delta rev 2 (row 10). Built by an agent under the lead (Claude) in a parallel worktree after MEMORY-PROVENANCE1A and CONTEXT-MANAGER1A; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-15T05:13:32.301Z",
+      "note": "skill adoption: kernel-set origin, verifier-backed independent review, kernel mint record, committed hash-pinned loader, fenced skill section"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-15T05:13:33.157Z",
+      "note": "core 5005/5005 (115 files), agent 4199/4199 (134 files), control-center 952/952 (69 files) on the merged stack 5cc1139d after a rebuild of core then agent; one validator-only commit 1edb76ca followed (the SA-7 pin moved truthfully for the merged ports) and val-projectos-skills-adopt1a, val-projectos-resume1a and val-projectos-context-manager1a were re-run and pass. val-projectos-skills-adopt1a (24 rules, 234 named mutations killed), val-projectos-port-skills1a (21 rules, 448 mutations; narrowed, none loosened), val-projectos-context-manager1a (CM-15 neighbour pin moved by the lead, none loosened), port-memory1a, port-context1a, port-approvals1a, port-credit1a, port-search1a, memory-provenance1a, memory-stores1a and validate-no-secrets. validate-all on the merged stack 5cc1139d: 176 PASS, 2 FAIL, 2 retired (178 registered). One failure is the known Stage 4 carry val-cd-b4-sealed-expected-window-facts1a (AdmittedRequest::session_digest is public in dormant Host code); the other was SA-7 in val-projectos-skills-adopt1a, which pinned the production ports without the link-count port the sibling phase added: the pin was moved truthfully in 1edb76ca and the validator now passes with the SA-7 mutation still killed."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-15T05:13:34.011Z",
+      "note": "Evidence: docs/finish/PROJECTOS-SKILLS-ADOPT1A.md (stacked at 1edb76ca)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-15T05:13:34.833Z",
+      "note": "closure tail only - no implementation. Reviews: ECC security-reviewer, fix round 1, one ECC recheck and a final round, re-verified by the lead."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-15T05:13:35.643Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
