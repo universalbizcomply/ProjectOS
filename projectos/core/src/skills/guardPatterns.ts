@@ -48,8 +48,19 @@ const SHELLS = String.raw`(?:bash|sh|zsh|ksh|dash)\b`;
 const SUDO = String.raw`(?:sudo\s+(?:-\S{1,16}\s+){0,4})?`;
 
 const CRED_FILE = String.raw`(?:\.ssh[/\\]id_(?:rsa|ed25519|ecdsa|dsa)(?!\.pub)|\.env\b|credentials\b|\.netrc\b|\.pgpass\b|\.npmrc\b|\.pypirc\b)`;
-const CRED_FILE_LITERAL = String.raw`["'][^"'\n]{0,64}${CRED_FILE}[^"'\n]{0,64}["']`;
-const PY_CRED_FILE_ARG = String.raw`(?:os\.path\.expanduser\s*\(\s*)?${CRED_FILE_LITERAL}\s*\)?`;
+/** A line is at most 4,096 characters (`line-too-long` refuses a longer one unread), so this reaches the whole line: no path is long enough to hide a credential file in. */
+const LINE = 4096;
+/** An opening quote, a path of any length a line holds, and the credential file's name. Nothing after the name is required to be short. */
+const CRED_FILE_OPEN = String.raw`["'][^"'\n]{0,${LINE}}${CRED_FILE}`;
+/**
+ * How far a suffix after the credential file's name is looked for, to its closing quote (`.env.local`, `credentials.json.bak`). It is 64, as it was: a
+ * lookahead at each `.env` of a hostile line costs its reach times the number of names, and at 255 that was 126 ms on 262 KB. KNOWN GAP: a suffix of
+ * more than 64 characters hides a `Path(...).read_text()` of the file (an `open` that is not a write is still caught whatever follows).
+ */
+const TAIL = 64;
+/** The rest of that string, to its closing quote. Used only inside a lookaround, so it is asked where a name matched and never multiplied. */
+const CRED_FILE_TAIL = String.raw`[^"'\n]{0,${TAIL}}["']`;
+const PY_EXPANDUSER = String.raw`(?:os\.path\.expanduser\s*\(\s*)?`;
 
 const DNS_FLAGS = String.raw`(?:[-+@]\S{0,16}(?:\s+[^\s$"'-][^\s$]{0,16})?\s+){0,8}`;
 const DNS_VAR = String.raw`\$(?:\{[^}\s]{0,16}\}|\([^\n]{0,64}?\)+|\w{1,64})`;
@@ -65,11 +76,26 @@ const AGENT_CONFIG_FILES = String.raw`(?:AGENTS\.md|CLAUDE\.md|\.cursorrules|\.c
 const AGENT_HOME_FILES = String.raw`\.(?:hermes|projectops)/(?:config\.yaml|SOUL\.md)`;
 const OTHER_AGENT_FILES = String.raw`\.(?:claude/settings|codex/config)[\w.]{0,64}`;
 
+/** sed's in-place flag, with or without a backup suffix: `-i`, `-i.bak`, `-ni`, `--in-place`, `--in-place=.bak`. */
+const SED_IN_PLACE = String.raw`(?:-[A-Za-z]{0,8}i[A-Za-z]{0,8}|--in-place)(?![A-Za-z-])`;
+
+/**
+ * `sed` is judged per LINE, from the start of the line, with three independent lookaheads: the word `sed`, an in-place flag after whitespace, and the
+ * file, each within the line a skill file may hold (4,096 characters: a longer line is refused unread). Nothing is chained, so no word between them
+ * can hide the write (`'s,sed,x,'`, `-e sed` and `sed -i sed CLAUDE.md` were each caught at the base and are caught again), no count of arguments
+ * matters, and the cost is three linear scans per line from one start per line. The earlier forms were a scan from every `sed` (quadratic on a file
+ * of them) and a scan that stopped at the next `sed` word (which let that word hide the write).
+ * TRADED, NOT FREE: the three need not come in that order, so a line that holds `sed`, an in-place flag and the file in any order is a finding. That
+ * is a false positive (a line that mentions all three) and never a miss. It needs the multiline flag, which the guard compiles with.
+ */
+const sedLineWrite = (file: string): string =>
+  String.raw`^(?=[^\n]{0,${LINE}}\bsed\b)(?=[^\n]{0,${LINE}}(?<=\s)${SED_IN_PLACE})(?=[^\n]{0,${LINE}}${file}(?!\.?\w))`;
+
 function shellWrite(file: string): string {
   return [
-    String.raw`(?:>>|[\w"'${TICK})\]]\s*>)\s*[~\w./-]{0,256}${file}(?!\.?\w)`,
-    String.raw`\bsed\s+(?:\S{1,64}\s+){0,4}?(?:-[A-Za-z]{0,8}i[A-Za-z]{0,8}|--in-place)\s+${NEAR}${file}(?!\.?\w)`,
-    String.raw`\btee\s+(?:-a\s+)?[~\w./"'-]{0,256}${file}(?!\.?\w)`,
+    String.raw`(?:>>|[\w"'${TICK})\]]\s*>)\s*[~\w./-]{0,${LINE}}${file}(?!\.?\w)`,
+    sedLineWrite(file),
+    String.raw`\btee\s+(?:-a\s+)?[~\w./"'-]{0,${LINE}}${file}(?!\.?\w)`,
     String.raw`\b(?:cp|mv)\s+[^\s|;&]{1,64}\s+[^\n|;&]{0,40}?${file}(?!\.?\w)`,
   ].join('|');
 }
@@ -109,12 +135,12 @@ export const SKILL_THREAT_PATTERNS: readonly SkillThreatPattern[] = [
   row('docker_dir_access', 'high', 'exfiltration', String.raw`(?:\$HOME|~)/\.docker`, 'references Docker config, which may hold registry credentials'),
   row('agent_home_env_access', 'critical', 'exfiltration', String.raw`(?:\$HOME|~)/\.(?:hermes|projectops)/\.env`, 'directly references an agent secrets file'),
   row('read_secrets_file', 'critical', 'exfiltration', String.raw`cat\s+(?!>)${ANY}(?:\.env|credentials|\.netrc|\.pgpass|\.npmrc|\.pypirc)`, 'reads a known secrets file'),
-  row('js_read_secrets_file', 'critical', 'exfiltration', String.raw`\b(?:readFile(?:Sync)?|readTextFile)\s*\(\s*${CRED_FILE_LITERAL}`, 'JavaScript reads a known credential file'),
+  row('js_read_secrets_file', 'critical', 'exfiltration', String.raw`\b(?:readFile(?:Sync)?|readTextFile)\s*\(\s*${CRED_FILE_OPEN}`, 'JavaScript reads a known credential file'),
   row(
     'py_read_secrets_file',
     'critical',
     'exfiltration',
-    String.raw`\bopen\s*\(\s*${PY_CRED_FILE_ARG}(?!\s*\)?\s*,\s*["'][^"'\n]{0,16}[wax][^"'\n]{0,16}["'])(?!${ANY}\bmode\s*=\s*["'][^"'\n]{0,16}[wax])|\bPath\s*\(\s*${PY_CRED_FILE_ARG}\s*\)\.(?:read_text|read_bytes|readlines|readline)\s*\(`,
+    String.raw`\bopen\s*\(\s*${PY_EXPANDUSER}${CRED_FILE_OPEN}(?!${CRED_FILE_TAIL}\s*\)?\s*,\s*["'][^"'\n]{0,16}[wax][^"'\n]{0,16}["'])(?!${ANY}\bmode\s*=\s*["'][^"'\n]{0,16}[wax])|\bPath\s*\(\s*${PY_EXPANDUSER}${CRED_FILE_OPEN}(?=${CRED_FILE_TAIL}\s*\)?\s*\)\.(?:read_text|read_bytes|readlines|readline)\s*\()`,
     'Python reads a known credential file',
   ),
   // Exfiltration: programmatic environment access.

@@ -88,6 +88,7 @@ import type { ContextCheckoutIdentity, ContextCheckoutProblem, ContextManagerPor
 import { portsProblem } from './contextPorts.js';
 import { MEMORY_ENTRY_NO_PROVENANCE, retrieveStoredContext, type ContextFailure, type ContextRead } from './contextRetrieval.js';
 import { storedContextTaintsRun } from './contextTaint.js';
+import { NO_SKILLS, SKILL_SECTION_HEADING, SKILL_SECTION_NOTE, loadSkillSection, skillAdviceOf, type ShownSkill } from './skillContext.js';
 
 /** What a context file is held to: about 5,000 tokens before it compacts, and a hard stop at 7,000. */
 export const CONTEXT_MANAGER_WINDOW: ContextWindow = Object.freeze({ limitTokens: 8_000, reservedOutputTokens: 1_000, triggerRatio: 0.75 });
@@ -142,6 +143,8 @@ export type RunContextResult =
       readonly withheld: readonly ContextLedgerWithheld[];
       readonly omitted: readonly string[];
       readonly decisions: readonly ContextLedgerDecision[];
+      /** The promoted skills shown, by name and hash (PROJECTOS-SKILLS-ADOPT1A). The ledger has no field for them; the run's evidence does. */
+      readonly skills: readonly ShownSkill[];
       readonly compactor: 'none' | 'deterministic-selection';
       readonly compactionId: string | null;
       readonly estimatedTokens: number;
@@ -258,7 +261,13 @@ function offerProblem(offer: unknown): boolean {
 }
 
 function sourcesOf(ports: ContextManagerPorts, key: ContextRetrievalKey, request: RunContextRequest) {
-  return retrieveStoredContext(ports, key, { root: request.root, query: request.query, dependsOn: request.dependsOn, planMemoryPaths: request.planMemoryPaths });
+  const stored = retrieveStoredContext(ports, key, { root: request.root, query: request.query, dependsOn: request.dependsOn, planMemoryPaths: request.planMemoryPaths });
+  // `skill-load`: committed, pinned, verified skills, in a section of their own. What they cost is taken out of the window the thread is
+  // compacted under. A skill that was withheld is a failure by id and code like any other (never blocking: it is not a decision), so the
+  // ledger's withheld list and the owner's advice carry it with no second path.
+  const skillHead = headOf(ports);
+  const skills = skillHead === null ? NO_SKILLS : loadSkillSection(ports, key, request.root, skillHead, ports.window ?? CONTEXT_MANAGER_WINDOW);
+  return { ...stored, skills, failures: [...stored.failures, ...skills.withheld.map((one) => ({ id: one.id, code: one.code, blocking: false }))] };
 }
 
 /**
@@ -397,7 +406,7 @@ interface FileParts {
 }
 
 /** Committed decisions first, then the approved memory decisions, then what was left out, then everything else by rank. */
-function fileTextOf(sessionId: string, thread: ContextThread, metaOfTurn: ReadonlyMap<string, Meta>, blocked: readonly string[], committedPlaceholders: readonly string[]): FileParts | Refused {
+function fileTextOf(sessionId: string, thread: ContextThread, metaOfTurn: ReadonlyMap<string, Meta>, blocked: readonly string[], committedPlaceholders: readonly string[], skillText: string | null): FileParts | Refused {
   const prompt = renderContextPrompt(thread);
   if (!prompt.ok) {
     if (prompt.refusal.code === 'CONTEXT_DECISIONS_REFUSED') {
@@ -421,6 +430,8 @@ function fileTextOf(sessionId: string, thread: ContextThread, metaOfTurn: Readon
     CONTEXT_MANAGER_NOTICE,
     ...(committed.length === 0 ? [] : ['## Committed decisions', committed.join('\n\n')]),
     ...(decisionBlocks.length === 0 ? [] : ['## Approved memory decisions (loaded, authority none)', decisionBlocks.join('\n\n')]),
+    // Promoted skills come AFTER every decision, in a section of their own, and are never ranked among them.
+    ...(skillText === null ? [] : [SKILL_SECTION_HEADING, SKILL_SECTION_NOTE, skillText]),
     ...(summary.length === 0 ? [] : ['## Items left out for room', LEFT_OUT_NOTE, summary.join('\n\n')]),
     ...(others.length === 0 ? [] : ['## Other stored items, highest provenance first', others.join('\n\n')]),
   ];
@@ -437,9 +448,11 @@ function unreadableFix(code: string): string {
 /** One sentence of advice for each kind of thing that was withheld without stopping the run. */
 function adviceOf(failures: readonly ContextFailure[]): readonly string[] {
   const unapproved = failures.filter((failure) => failure.code === MEMORY_ENTRY_NO_PROVENANCE).length;
-  return unapproved === 0
-    ? []
-    : [`${unapproved} committed memory entr${unapproved === 1 ? 'y has' : 'ies have'} no approval record, so ${unapproved === 1 ? 'it is' : 'they are'} not shown to the worker (${MEMORY_ENTRY_NO_PROVENANCE}). Fix: the owner approves each through the memory proposal flow so a record exists, or removes it from .projectops/memory.`];
+  const memory =
+    unapproved === 0
+      ? []
+      : [`${unapproved} committed memory entr${unapproved === 1 ? 'y has' : 'ies have'} no approval record, so ${unapproved === 1 ? 'it is' : 'they are'} not shown to the worker (${MEMORY_ENTRY_NO_PROVENANCE}). Fix: the owner approves each through the memory proposal flow so a record exists, or removes it from .projectops/memory.`];
+  return [...memory, ...skillAdviceOf(failures)];
 }
 
 /** The first failure that makes the run unsafe to go on, or null: a source that can hold a decision could not be read. */
@@ -523,6 +536,7 @@ export function assembleRunContext(ports: ContextManagerPorts, request: RunConte
   if (!Number.isFinite(nowMs) || nowMs < 0) return refuse('CONTEXT_MANAGER_CLOCK', 'No stored context: the clock did not give a time.', key);
 
   const retrieval = sourcesOf(ports, key, request);
+  const skills = retrieval.skills;
   const unreadable = blockingFailure(retrieval.failures);
   if (unreadable !== null) {
     return refuse(
@@ -540,9 +554,10 @@ export function assembleRunContext(ports: ContextManagerPorts, request: RunConte
 
   const built = threadOf(metas, decisions.held, request.sessionId);
   if ('kind' in built) return { ...built, key };
-  const fitted = compacted(ports, request, built, ports.window ?? CONTEXT_MANAGER_WINDOW, metaOfTurn);
+  const window = ports.window ?? CONTEXT_MANAGER_WINDOW;
+  const fitted = compacted(ports, request, built, skills.tokens === 0 ? window : { ...window, limitTokens: window.limitTokens - skills.tokens }, metaOfTurn);
   if ('kind' in fitted) return { ...fitted, key };
-  const file = fileTextOf(request.sessionId, fitted.thread, metaOfTurn, decisions.blocked, committedPlaceholders);
+  const file = fileTextOf(request.sessionId, fitted.thread, metaOfTurn, decisions.blocked, committedPlaceholders, skills.text);
   if ('kind' in file) return { ...file, key };
   const text = file.text;
   if (text.length > MAX_CONTEXT_FILE_CHARS || new TextEncoder().encode(text).length > MAX_CONTEXT_FILE_BYTES) return refuse('CONTEXT_MANAGER_FILE_TOO_LARGE', 'The context file would be over its size. Nothing was sent.', key);
@@ -561,9 +576,10 @@ export function assembleRunContext(ports: ContextManagerPorts, request: RunConte
     withheld: cappedWithheld([...withheld, ...decisions.withheld]),
     omitted: metas.filter((meta) => !shownIds.has(meta.read.id)).map((meta) => ledgerIdOf(meta.read.id)),
     decisions: decisions.named,
+    skills: skills.shown,
     compactor: fitted.compactionId === null ? 'none' : 'deterministic-selection',
     compactionId: fitted.compactionId,
-    estimatedTokens: estimateThreadTokens(fitted.thread),
+    estimatedTokens: estimateThreadTokens(fitted.thread) + skills.tokens,
     taintsRun: storedContextTaintsRun(ports.registry),
     hasContent: file.hasBody,
     advice: adviceOf(retrieval.failures),

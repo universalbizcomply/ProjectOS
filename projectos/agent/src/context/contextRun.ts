@@ -37,6 +37,7 @@ import { contextRetrievalKeyOf, sha256Hex, type ContextLedgerBody, type ContextL
 import { appendContextLedger, contextLedgerRepairOf } from './contextLedger.js';
 import { assembleRunContext, type RunContextRequest } from './contextManager.js';
 import type { ContextManagerPorts } from './contextPorts.js';
+import type { ShownSkill } from './skillContext.js';
 
 /** What the run touches. A real `System` has all of it. */
 export interface ContextRunSystem {
@@ -81,6 +82,8 @@ export interface StoredContextEvidence {
   readonly withheld: readonly ContextLedgerWithheld[];
   readonly omitted: readonly string[];
   readonly decisions: readonly ContextLedgerDecision[];
+  /** The promoted skills the file holds, by name, package hash and block hash (PROJECTOS-SKILLS-ADOPT1A). The ledger's own body has no field for them, and the file hash above covers their text. */
+  readonly skills: readonly ShownSkill[];
   readonly compactor: 'none' | 'deterministic-selection';
   readonly compactionId: string | null;
   readonly estimatedTokens: number;
@@ -274,6 +277,7 @@ export function prepareRunContext(sys: ContextRunSystem, root: string, input: Pr
         withheld: base.withheld,
         omitted: base.omitted,
         decisions: base.decisions,
+        skills: result.skills,
         compactor: base.compactor,
         compactionId: base.compactionId,
         estimatedTokens: base.estimatedTokens,

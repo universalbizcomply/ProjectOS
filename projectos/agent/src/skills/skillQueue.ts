@@ -35,12 +35,16 @@
  * asserts until owner proof exists, so independence holds only as far as that does.
  */
 import {
+  MAX_COMMITTED_SKILL_RECORD_BYTES,
+  attestSkillReview,
   buildSkillProposal,
   checkPromotedSkill,
   decideSkillProposal,
+  importedSkillOrigin,
   promoteSkill,
+  proposedSkillOrigin,
   readSkillProposal,
-  renderSkillBlock,
+  skillBindingOf,
   skillNameProblem,
   skillOk,
   skillRefused,
@@ -48,16 +52,17 @@ import {
   type SkillActor,
   type SkillDecisionOutcome,
   type SkillFile,
-  type SkillOrigin,
-  type SkillPromptBlock,
+  type SkillOriginMark,
   type SkillProposal,
   type SkillRefused,
   type SkillResult,
+  type SkillReviewVerifier,
 } from '@projectos/core';
 import { containsSecret } from '../authoringEvidence.js';
 import { join, projectopsDir } from '../context.js';
 import { writeFileAtomically } from '../memory/memoryFiles.js';
 import type { System } from '../system.js';
+import { isSkillMinted, recordSkillMint, type SkillStatePorts } from './skillMint.js';
 
 const LOCK_FILENAME = '.skills.lock';
 const PROPOSAL_ID = /^skl-[0-9a-f]{24}$/;
@@ -138,31 +143,98 @@ function activeHash(sys: System, root: string, name: string): SkillResult<string
 }
 
 export interface SkillProposalRequest {
-  /** The whole package, `SKILL.md` first or last. Imported text arrives the same way. */
+  /** The whole package, `SKILL.md` first or last. Imported text arrives the same way, through `importSkill`. */
   readonly files: readonly SkillFile[];
-  /** `imported` when the text came from outside, which only the owner may do. A proposal by default. */
-  readonly origin?: SkillOrigin;
 }
 
-/** Record a proposed skill for review. Nothing that is read as a skill is touched. */
-export function proposeSkill(sys: System, root: string, caller: SkillActor, request: SkillProposalRequest): SkillResult<SkillProposal> {
+/**
+ * A request that carries an `origin` is refused, whatever it says: THE KERNEL SETS THE ORIGIN (PROJECTOS-SKILLS-ADOPT1A). The door a
+ * request comes through decides it (`proposeSkill` is `proposed`, `importSkill` is `imported` and owner-only), and a field of the request
+ * has no say. A request read through a getter or a Proxy that throws counts as supplying one.
+ */
+function suppliesOrigin(request: unknown): boolean {
+  try {
+    return request !== null && typeof request === 'object' && Reflect.has(request, 'origin');
+  } catch {
+    return true;
+  }
+}
+
+const originSuppliedRefusal = (): SkillRefused => skillRefused('SKILL_ORIGIN_NOT_KERNEL', 'The origin of a skill is set by the kernel, not by the request. Nothing was proposed.');
+
+/**
+ * The package's files, read ONCE from the request's own data property. A request that is not an object (`null`, a string), one with no `files`, and one whose
+ * `files` is an accessor are each refused by code and never thrown at: a getter answers differently the second time it is read.
+ */
+function filesOf(request: unknown): readonly SkillFile[] | null {
+  try {
+    if (request === null || typeof request !== 'object') return null;
+    const descriptor = Object.getOwnPropertyDescriptor(request, 'files');
+    return descriptor !== undefined && 'value' in descriptor ? (descriptor.value as readonly SkillFile[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+const notAPackageRefusal = (): SkillRefused => skillRefused('SKILL_FAILED_VALIDATION', 'A request is an object that holds the package\'s files as data. Nothing was proposed.', 'not-a-package');
+
+/**
+ * Record a proposed skill for review. Nothing that is read as a skill is touched. The origin is `proposed`, always.
+ *
+ * `state` is what lets the proposal be REVIEWED: with it the proposal names this checkout's tenant and project and the kernel records its hash in the
+ * installation's state (`skillMint.ts`). Without it the proposal is pending and readable and cannot be promoted (the proposal door of MEMORY-STORES1A
+ * passes none, so a worker's skill proposals wait until it does).
+ */
+export function proposeSkill(sys: System, root: string, caller: SkillActor, request: SkillProposalRequest, state?: SkillStatePorts): SkillResult<SkillProposal> {
+  if (suppliesOrigin(request)) return originSuppliedRefusal();
+  const files = filesOf(request);
+  if (files === null) return notAPackageRefusal();
+  const mark = proposedSkillOrigin(caller);
+  return mark.ok ? recordProposal(sys, root, mark.value, files, state) : mark;
+}
+
+/** Bring text in from outside, as the owner and nobody else. It is reviewed like any other, by someone who did not bring it. */
+export function importSkill(sys: System, root: string, caller: SkillActor, request: SkillProposalRequest, state?: SkillStatePorts): SkillResult<SkillProposal> {
+  if (suppliesOrigin(request)) return originSuppliedRefusal();
+  const files = filesOf(request);
+  if (files === null) return notAPackageRefusal();
+  const mark = importedSkillOrigin(caller);
+  return mark.ok ? recordProposal(sys, root, mark.value, files, state) : mark;
+}
+
+/** The checkout's tenant and project, read once, or null, for a proposal that is to be reviewable; `undefined` for one that is not. */
+function bindingFor(state: SkillStatePorts | undefined): unknown {
+  if (state === undefined) return undefined;
+  try {
+    return state.checkout();
+  } catch {
+    return null;
+  }
+}
+
+function recordProposal(sys: System, root: string, mark: SkillOriginMark, files: readonly SkillFile[], state: SkillStatePorts | undefined): SkillResult<SkillProposal> {
   const { pending } = listPendingSkillProposals(sys, root);
   if (pending.length >= MAX_PENDING_PROPOSALS) {
     return skillRefused('SKILL_QUEUE_FULL', `${MAX_PENDING_PROPOSALS} proposals are already waiting for review. Nothing was proposed.`);
   }
-  const mine = pending.filter((proposal) => proposal.provenance.author.toLowerCase() === caller.actor.toLowerCase());
+  const mine = pending.filter((proposal) => proposal.provenance.author.toLowerCase() === mark.author.toLowerCase());
   if (mine.length >= MAX_PENDING_PER_AUTHOR) {
-    return skillRefused('SKILL_QUEUE_FULL', `${caller.actor} already has ${MAX_PENDING_PER_AUTHOR} proposals waiting for review. Nothing was proposed.`);
+    return skillRefused('SKILL_QUEUE_FULL', `${mark.author} already has ${MAX_PENDING_PER_AUTHOR} proposals waiting for review. Nothing was proposed.`);
   }
-  const input = { files: request.files, origin: request.origin ?? 'proposed', author: caller.actor, authorRole: caller.role, session: caller.session, proposedAt: sys.now() };
+  const input = { files, origin: mark, proposedAt: sys.now(), binding: bindingFor(state) };
   const probe = buildSkillProposal(input, null);
   if (!probe.ok) return probe;
-  const credential = credentialRefusal(request.files);
+  const credential = credentialRefusal(files);
   if (credential !== null) return credential;
   const active = activeHash(sys, root, probe.value.name);
   if (!active.ok) return active;
   const proposal = buildSkillProposal(input, active.value);
   if (!proposal.ok) return proposal;
+  // THE KERNEL RECORDS WHAT IT MINTED, before the file exists, in the installation's state and not in the project tree (`skillMint.ts`).
+  if (state !== undefined) {
+    const minted = recordSkillMint(sys, state, proposal.value.proposalHash);
+    if (!minted.ok) return minted;
+  }
   return sys.createExclusive(proposalPath(root, proposal.value.id), asFile(proposal.value))
     ? proposal
     : skillRefused('SKILL_WRITE_FAILED', `Proposal ${proposal.value.id} could not be recorded.`);
@@ -204,9 +276,31 @@ export interface SkillReviewRequest {
   readonly reviewedHash: string;
 }
 
-function decided(sys: System, root: string, caller: SkillActor, request: SkillReviewRequest, outcome: SkillDecisionOutcome): SkillResult<SkillProposal> {
+/** What a promotion asks of the kernel: which project this checkout is, and the verifier that answers for the review. */
+export interface SkillPromotionPorts extends SkillStatePorts {
+  /** Answers exactly `true` for one review of one package. Absent, nothing is promoted: there is no production one yet. */
+  readonly reviewVerifier?: SkillReviewVerifier;
+}
+
+function bindingOf(ports: SkillPromotionPorts): unknown {
+  try {
+    return ports.checkout();
+  } catch {
+    return null;
+  }
+}
+
+function decided(sys: System, root: string, caller: SkillActor, request: SkillReviewRequest, outcome: SkillDecisionOutcome, ports?: SkillPromotionPorts): SkillResult<SkillProposal> {
   const proposal = loadSkillProposal(sys, root, request.id);
   if (!proposal.ok) return proposal;
+  // A FILE IS NOT A MINT. An approval needs the proposal's hash in the kernel's own record, for this checkout: a worker that wrote a whole,
+  // self-consistent proposal file (an origin of `imported`, an owner as author) into the project tree has minted nothing.
+  if (outcome === 'approved' && ports !== undefined && skillBindingOf(bindingOf(ports)) === null) {
+    return skillRefused('SKILL_BINDING_INVALID', 'The checkout names no tenant and project, so no one is asked and nothing is promoted. Fix: the owner runs ProjectOS from the registered checkout of the project.');
+  }
+  if (outcome === 'approved' && (ports === undefined || !isSkillMinted(sys, ports, proposal.value.proposalHash))) {
+    return skillRefused('SKILL_NOT_MINTED', `Proposal ${request.id} was not minted by the kernel for this checkout, so it is not reviewed. Fix: the owner re-proposes it through the door (proposeSkill or importSkill, given this checkout), so the kernel records it. If this checkout names no tenant and project, the owner first runs ProjectOS from the registered checkout of the project.`);
+  }
   // A rejection changes nothing the active skill holds, so a corrupt active record must not stop one.
   const active = outcome === 'approved' ? activeHash(sys, root, proposal.value.name) : skillOk(proposal.value.supersedes);
   if (!active.ok) return active;
@@ -218,7 +312,14 @@ function land(sys: System, root: string, approved: SkillProposal): SkillResult<P
   if (!active.ok) return active;
   const promoted = promoteSkill(approved, active.value);
   if (!promoted.ok) return promoted;
-  if (!writeWhole(sys, promotedSkillPath(root, approved.name), asFile(promoted.value))) {
+  // A RECORD THE LOADER WOULD NEVER READ IS NOT PROMOTED. A package may be 1 MiB, but a committed record may be MAX_COMMITTED_SKILL_RECORD_BYTES: a
+  // promoted package whose JSON record is over that is `COMMITTED_TOO_LARGE` forever. It is refused here, before anything is written, and stays pending.
+  const record = asFile(promoted.value);
+  const recordBytes = new TextEncoder().encode(record).length;
+  if (recordBytes > MAX_COMMITTED_SKILL_RECORD_BYTES) {
+    return skillRefused('SKILL_RECORD_TOO_LARGE', `Skill ${approved.name} would be a ${recordBytes}-byte record, and a committed record is read only up to ${MAX_COMMITTED_SKILL_RECORD_BYTES} bytes, so it could never load. Nothing was promoted and the proposal stays pending. Fix: the author shrinks the package (shorter references, fewer files) or splits it into two skills, and proposes again.`);
+  }
+  if (!writeWhole(sys, promotedSkillPath(root, approved.name), record)) {
     return skillRefused('SKILL_WRITE_FAILED', 'The promoted skill could not be written. The proposal stays pending.');
   }
   // THE SKILL HAS LANDED. From here "failed" and "pending" would both be false.
@@ -227,11 +328,16 @@ function land(sys: System, root: string, approved: SkillProposal): SkillResult<P
     : skillRefused('SKILL_LANDED_INCOMPLETE', `The skill landed, but proposal ${approved.id} could not be marked. Do not review it again.`);
 }
 
-/** An independent reviewer approves one proposal, and it is promoted, or it is not promoted at all. */
-export function reviewAndPromoteSkill(sys: System, root: string, caller: SkillActor, request: SkillReviewRequest): SkillResult<PromotedSkill> {
+/**
+ * An independent reviewer approves one proposal, and it is promoted, or it is not promoted at all. PROMOTING IS AN ACTION: the
+ * approval is a proposal until the injected verifier answers exactly `true` for this review of this package, in this tenant and project.
+ */
+export function reviewAndPromoteSkill(sys: System, root: string, caller: SkillActor, request: SkillReviewRequest, ports: SkillPromotionPorts): SkillResult<PromotedSkill> {
   return underSkillLock(sys, root, () => {
-    const approved = decided(sys, root, caller, request, 'approved');
+    const approved = decided(sys, root, caller, request, 'approved', ports);
     if (!approved.ok) return approved;
+    const vouched = attestSkillReview(approved.value, caller, bindingOf(ports), ports.reviewVerifier);
+    if (!vouched.ok) return vouched;
     const credential = credentialRefusal(approved.value.files);
     return credential ?? land(sys, root, approved.value);
   });
@@ -246,13 +352,4 @@ export function rejectSkillProposal(sys: System, root: string, caller: SkillActo
       ? rejected
       : skillRefused('SKILL_WRITE_FAILED', `Proposal ${request.id} could not be marked rejected.`);
   });
-}
-
-/** The fenced block for one promoted skill. The only way skill text leaves this module for a prompt. */
-export function loadSkillBlock(sys: System, root: string, name: string): SkillResult<SkillPromptBlock> {
-  const loaded = loadPromotedSkill(sys, root, name);
-  if (!loaded.ok) return loaded;
-  if (loaded.value === null) return skillRefused('SKILL_NOT_FOUND', `There is no promoted skill ${name}.`);
-  // A record is only a file, and core cannot run this check. The memory review asked for it at the prompt too.
-  return credentialRefusal(loaded.value.files) ?? renderSkillBlock(loaded.value);
 }

@@ -28,6 +28,7 @@ import {
   type MemoryStoreState,
   type MemoryTarget,
   type SearchIndexOwner,
+  type SkillReviewVerifier,
 } from '@projectos/core';
 import { types } from 'node:util';
 import { storedTextSecretScreen } from './contextScreen.js';
@@ -44,6 +45,14 @@ export interface ContextDraftOffer {
   readonly text: string;
   readonly complete?: boolean;
   readonly stopReason?: string;
+}
+
+/**
+ * The skill-load action's one injected check (PROJECTOS-SKILLS-ADOPT1A). Present, skills are read from committed bytes; absent, none is
+ * read. `reviewVerifier` answers exactly `true` for a review of one skill, or the skill is withheld: there is no production one yet.
+ */
+export interface ContextSkillPorts {
+  readonly reviewVerifier?: SkillReviewVerifier;
 }
 
 /** What a checkout is governed as. */
@@ -70,6 +79,8 @@ export interface ContextManagerPorts {
   readonly checkout: () => ContextCheckoutIdentity | ContextCheckoutProblem | null;
   readonly openIndex: ((owner: SearchIndexOwner) => SearchIndex | null) | null;
   readonly registry: ActionRegistry | null;
+  /** Promoted skills (`skill-load`). Absent: no skill is looked for. */
+  readonly skills?: ContextSkillPorts;
   readonly window?: ContextWindow;
   readonly drafter?: (plan: CompactionPlan) => ContextDraftOffer;
 }
@@ -87,6 +98,7 @@ export function portsProblem(ports: Partial<ContextManagerPorts> | null | undefi
   if (!isFunction(ports.readMemoryStore)) return 'readMemoryStore';
   if (!isFunction(ports.checkout)) return 'checkout';
   if (ports.openIndex !== null && !isFunction(ports.openIndex)) return 'openIndex';
+  if (ports.skills !== undefined && (ports.skills === null || typeof ports.skills !== 'object' || (ports.skills.reviewVerifier !== undefined && !isFunction(ports.skills.reviewVerifier)))) return 'skills';
   return null;
 }
 
@@ -118,5 +130,7 @@ export function nodeContextPorts(sys: System, root: string, indexDirectory: Cont
       return opened.ok ? opened.index : null;
     },
     registry: null,
+    // Skills are looked for, and with no verifier (there is no production one) every committed skill is withheld by code and none is shown.
+    skills: {},
   };
 }
