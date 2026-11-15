@@ -1,0 +1,12 @@
+{
+  "reviews": ["Claude self-review"],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "LOW",
+      "category": "robustness",
+      "summary": "humans.txt first-line check is exact-match; a UTF-8 BOM would be refused, which is acceptable under the stated rule. Contact rule matches case-sensitively on 'Contact:' as specified.",
+      "resolved": true
+    }
+  ]
+}

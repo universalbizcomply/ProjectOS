@@ -1,0 +1,7 @@
+
+[cutoff] started pid 5704 at 2026-11-15T22:37:20.542Z
+
+[cutoff] worker wrote ["site/humans.txt"] at 2026-11-15T22:37:48.166Z; killing the tree
+[cutoff] killed at 2026-11-15T22:37:48.865Z
+
+[cutoff] child exited code 1 at 2026-11-15T22:37:48.869Z

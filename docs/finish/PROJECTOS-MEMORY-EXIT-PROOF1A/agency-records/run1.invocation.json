@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "27a8176ef17ae4d3",
+  "createdAt": "2026-11-15T22:37:21.707Z",
+  "projectId": "seo-agency",
+  "phaseId": "SEO-AGENCY-MEMORY-PROOF1A",
+  "sessionId": "SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-27a8176e",
+  "repository": {
+    "root": "C:\\dev\\SEOAgency",
+    "branch": "work",
+    "head": "0ade0a9a7195cc71a95e99cde43081bb9c4d9ab1"
+  },
+  "executionMode": "live",
+  "process": {
+    "pid": 5704,
+    "ppid": 35388,
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\dev\\ProjectOS-worktrees\\exit-proof-runtime-v136\\projectos\\agent\\bin\\projectos.js",
+      "continue",
+      "--execute"
+    ],
+    "cwd": "C:\\dev\\SEOAgency"
+  },
+  "workerId": "claude-local",
+  "workerKind": "claude-code-cli",
+  "brief": {
+    "path": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-27a8176e.brief.json",
+    "briefId": "SEO-AGENCY-MEMORY-PROOF1A@0ade0a9a7195cc71a95e99cde43081bb9c4d9ab1",
+    "digest": "sha256:ff0b3b7e2afd85b1a7c0e9e732a4a744f5b26d2f92e1b2c0bbadc7ec454582ee"
+  }
+}

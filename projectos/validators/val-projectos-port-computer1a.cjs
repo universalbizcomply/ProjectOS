@@ -2283,7 +2283,7 @@ const TEXT_MUTATIONS = [
   // CP-19: registered
   R("the-validator-is-not-in-validate-all", "CP-19", VA_REL, `  "${THIS_VALIDATOR}",\n`, ""),
   R("the-validator-is-not-in-the-cached-runner", "CP-19", CR_REL, `  "${THIS_VALIDATOR}",\n`, ""),
-  R("the-validator-is-after-the-connector-entry", "CP-19", CR_REL, `  "val-projectos-connector-contract1a"\n];`, `  "val-projectos-connector-contract1a",\n  "${THIS_VALIDATOR}"\n];`),
+  R("the-validator-is-after-the-connector-entry", "CP-19", CR_REL, `  "val-projectos-connector-contract1a",\n`, `  "val-projectos-connector-contract1a",\n  "${THIS_VALIDATOR}",\n`),
 
   // CP-20: tests exist and run
   R("a-path-test-is-dropped", "CP-20", testRel("paths"), "refuses a path with a .. segment", "refuses a path with a segment"),

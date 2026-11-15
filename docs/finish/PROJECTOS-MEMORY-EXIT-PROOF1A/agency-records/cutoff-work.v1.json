@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "seo-agency",
+  "phaseId": "SEO-AGENCY-MEMORY-PROOF1A",
+  "state": "WAITING_AI",
+  "sessionId": "SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-27a8176e",
+  "attempt": 1,
+  "subjectCommit": "0ade0a9a7195cc71a95e99cde43081bb9c4d9ab1",
+  "lastCompletedStep": "dispatched claude-local",
+  "lastStopCode": null,
+  "lastStopDetail": null,
+  "evidenceSessionId": null,
+  "gateDecisionId": null,
+  "nextCandidateAction": null,
+  "ownerRequired": false,
+  "updatedAt": "2026-11-15T22:37:22.992Z"
+}
