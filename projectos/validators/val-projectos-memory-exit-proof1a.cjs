@@ -16,9 +16,12 @@
  *   EP-4  "the retrieved state was used"        the ledger chain verifies; run 2 was shown the cut-off state, run 1 could not have been
  *   EP-5  "worker text is not a decision"       every resumed item ranks below every decision and plan memory, is never labelled committed
  *   EP-6  "it reached closed by itself"         validators, a different-provider APPROVE, the gatekeeper and the closure authority, no owner act
- *   EP-7  "it cost what it said"                the phase spend in the gatekeeper ledger equals the log and stays under the $1.50 cap
+ *   EP-7  "the broker meter says what it said"  the METERED BROKER spend (gatekeeper and closure calls) in the gatekeeper ledger equals the log and stays under the $1.50 cap; worker and reviewer CLI costs are not metered here
  *   EP-8  "this phase changes no product"       the notes say so, and this validator reads files and nothing else
  *   EP-9  "register it last"                    both runners run this file once, as the last entry, in the same order
+ *
+ * WHAT IT CANNOT CATCH. Someone who edits the logs and records consistently and re-seals the manifest and the notes hashes together passes
+ * every rule: the mutations hard-code the real pids and costs, which is a brake for accident, not a defence against a forger.
  *
  * Reads files only. A green proof does not lift D4.
  */
@@ -55,7 +58,7 @@ const EXPECTED_FILES = [
   ledgerFile(1), ledgerFile(2), ledgerFile(3), ledgerFile(4),
   ...[
     "closure-decision.json", "cutoff-humans.txt", "cutoff-phase-record.json", "cutoff-work.v1.json", "final-humans.txt", "final-phase-record.json",
-    "final-work.v1.json", "gatekeeper-decision.json", "gatekeeper-ledger.json", "run1.brief.json", "run1.invocation.json", "run2.brief.json",
+    "final-work.v1.json", "gatekeeper-decision.json", "gatekeeper-ledger.json", "run1.brief.json", "run1.context.md", "run1.invocation.json", "run2.brief.json",
     "run2.effects.json", "run2.evidence.json", "run2.findings.json", "run2.invocation.json", "run2.reviewer.json", "run2.session.json",
   ].map((name) => `${REC}${name}`),
 ];
@@ -101,7 +104,7 @@ const RULE_NAMES = {
   "EP-4": "the retrieval ledger does not show the cut-off state reached the new worker",
   "EP-5": "worker-authored text ranked or was labelled as a decision",
   "EP-6": "the phase did not reach closed through the validators, the review, the gatekeeper and the closure authority",
-  "EP-7": "the phase spend is not the logged spend or is over the cap",
+  "EP-7": "the metered broker spend (gatekeeper and closure calls) is not the logged spend or is over the cap",
   "EP-8": "this phase changed product code, or this validator does more than read files",
   "EP-9": "the validator is not registered once, last, in both runners",
 };
@@ -112,7 +115,7 @@ const RULE_FIXES = {
   "EP-4": "restore the ledger and the stored-context record; the ledger must chain, and run 2 must have been shown the cut-off state",
   "EP-5": "a resumed worker record must stay an execution record below every decision and plan memory; fix the retrieval ranking, not the evidence",
   "EP-6": "restore the log and the review, gatekeeper, closure and phase records; the phase must reach closed with no owner act",
-  "EP-7": "restore the gatekeeper ledger and the log; the two phase calls must equal what the log printed and stay under the cap",
+  "EP-7": "restore the gatekeeper ledger and the log; the two metered broker calls (gatekeeper and closure) must equal what the log printed and stay under the cap",
   "EP-8": "keep the notes' statements and keep this validator to the fs, path and crypto modules, reading only",
   "EP-9": "register the validator once, as the last entry, in validate-all.cjs and cached-runner.cjs, in the same order",
 };
@@ -128,47 +131,66 @@ const canon = (value) => {
   return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canon(value[key])}`).join(",")}}`;
 };
 const same = (a, b) => canon(a) === canon(b);
-const withoutComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
+const withoutComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^[ \t]*\/\/.*$/gm, "");
 const lines = (text) => text.replace(/\r\n/g, "\n").split("\n");
 
-function readText(rel) {
-  const abs = path.join(ROOT, ...rel.split("/"));
-  return fs.existsSync(abs) ? fs.readFileSync(abs) : null;
-}
-
+/** Walk without following a link: a symbolic link is recorded and never read through. */
 function walk(dir, base, found) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
     const rel = base === "" ? entry.name : `${base}/${entry.name}`;
-    if (entry.isDirectory()) walk(path.join(dir, entry.name), rel, found);
-    else found.push(rel);
+    if (entry.isSymbolicLink()) found.links.push(rel);
+    else if (entry.isDirectory()) walk(path.join(dir, entry.name), rel, found);
+    else found.files.push(rel);
   }
   return found;
 }
 
-function loadBundle() {
+/** The evidence as text. The bytes must be UTF-8; line endings are not evidence (a checkout that converts them must not change a hash). */
+function deriveFiles(raw) {
   const files = {};
+  const problems = [];
+  for (const rel of Object.keys(raw)) {
+    const bytes = Buffer.from(raw[rel], "latin1");
+    const text = bytes.toString("utf8");
+    if (!Buffer.from(text, "utf8").equals(bytes)) problems.push(`${rel} is not valid UTF-8 text`);
+    files[rel] = text.replace(/\r\n/g, "\n");
+  }
+  return { files, problems };
+}
+
+const TEXT_KEYS = ["notes", "validateAll", "cachedRunner", "selfSource"];
+function normaliseBundle(b) {
+  for (const key of TEXT_KEYS) if (typeof b[key] === "string") b[key] = b[key].replace(/\r\n/g, "\n");
+  return b;
+}
+
+function loadBundle() {
   const loadProblems = [];
+  const links = [];
+  const raw = {};
   const dir = path.join(ROOT, ...EVIDENCE.split("/"));
   if (!fs.existsSync(dir)) loadProblems.push(`${EVIDENCE}/ is missing`);
+  else if (fs.lstatSync(dir).isSymbolicLink()) links.push(EVIDENCE);
   else {
-    for (const rel of walk(dir, "", [])) {
-      if (rel === MANIFEST) continue;
-      const raw = fs.readFileSync(path.join(dir, ...rel.split("/")));
-      const text = raw.toString("utf8");
-      if (!Buffer.from(text, "utf8").equals(raw)) loadProblems.push(`${rel} is not valid UTF-8 text`);
-      // Line endings are not evidence: a checkout that converts them must not change a hash.
-      files[rel] = text.replace(/\r\n/g, "\n");
-    }
+    const found = walk(dir, "", { files: [], links: [] });
+    links.push(...found.links);
+    for (const rel of found.files) if (rel !== MANIFEST) raw[rel] = fs.readFileSync(path.join(dir, ...rel.split("/"))).toString("latin1");
   }
+  const derived = deriveFiles(raw);
+  loadProblems.push(...derived.problems);
   const asText = (rel) => {
-    const raw = readText(rel);
-    return raw === null ? null : raw.toString("utf8");
+    const abs = path.join(ROOT, ...rel.split("/"));
+    if (!fs.existsSync(abs)) return null;
+    if (fs.lstatSync(abs).isSymbolicLink()) {
+      links.push(rel);
+      return null;
+    }
+    return fs.readFileSync(abs).toString("utf8");
   };
-  const manifest = asText(`${EVIDENCE}/${MANIFEST}`);
-  return {
-    files, loadProblems, manifest, notes: asText(NOTES), validateAll: asText(VA), cachedRunner: asText(CR),
+  return normaliseBundle({
+    files: derived.files, loadProblems, links, manifest: asText(`${EVIDENCE}/${MANIFEST}`), notes: asText(NOTES), validateAll: asText(VA), cachedRunner: asText(CR),
     selfSource: fs.readFileSync(__filename, "utf8"),
-  };
+  });
 }
 
 function view(b) {
@@ -210,6 +232,7 @@ const slash = (value) => String(value).replace(/\\/g, "/");
 
 function ep1(b) {
   const out = [...b.loadProblems];
+  for (const rel of b.links) out.push(`${rel} is a symbolic link: the evidence is regular files only, and a link is never read through`);
   let m = null;
   try {
     m = JSON.parse(b.manifest ?? "");
@@ -314,8 +337,8 @@ function ep2(b) {
   else if (!same(lines(cutHumans).filter((line, i, all) => line !== "" || i < all.length - 1), HUMANS)) out.push("cutoff-humans.txt is not the five lines the worker was asked to write");
   if (reviewer !== null && inv1 !== null && reviewer.sessionId === inv1.sessionId) out.push("a reviewer record exists for run 1's session: run 1 reached review, so it was not cut off");
   const run1Only = Object.keys(b.files).filter((rel) => rel.startsWith(`${REC}run1.`)).map((rel) => baseName(rel));
-  const reached = run1Only.filter((name) => !["run1.brief.json", "run1.invocation.json"].includes(name));
-  if (reached.length > 0) out.push(`run 1 left records beyond its brief and invocation (${reached.join(", ")}): it got further than a cut-off run`);
+  const reached = run1Only.filter((name) => !["run1.brief.json", "run1.context.md", "run1.invocation.json"].includes(name));
+  if (reached.length > 0) out.push(`run 1 left records beyond its brief, context file and invocation (${reached.join(", ")}): it got further than a cut-off run`);
   return out;
 }
 
@@ -379,6 +402,15 @@ function ep3(b) {
     }
     if (session.exitCode !== 0 || session.timedOut !== false) out.push("run 2's worker did not exit zero in time");
   }
+  for (const [inv, rel, label] of [[inv1, `${REC}run1.brief.json`, "run 1"], [inv2, `${REC}run2.brief.json`, "run 2"]]) {
+    let digest = null;
+    try {
+      digest = `sha256:${sha(JSON.stringify(JSON.parse(b.files[rel])))}`;
+    } catch {
+      digest = null;
+    }
+    if (digest === null || inv.brief?.digest !== digest) out.push(`${label}'s invocation names a brief digest that is not the digest of the committed brief ${rel}`);
+  }
   if (brief1 !== null && brief2 !== null) {
     briefShape(brief1, "run 1", out);
     briefShape(brief2, "run 2", out);
@@ -429,7 +461,7 @@ function ep3(b) {
 }
 
 /** The four ledger entries, parsed in order, with each problem named once. */
-function ledgerOf(b, v, out) {
+function ledgerOf(v, out) {
   const entries = [];
   for (let n = 1; n <= 4; n += 1) entries.push(need(v, ledgerFile(n), out));
   return entries;
@@ -461,12 +493,19 @@ function ep4(b) {
   const inv1 = need(v, `${REC}run1.invocation.json`, out);
   const inv2 = need(v, `${REC}run2.invocation.json`, out);
   const evidence = need(v, `${REC}run2.evidence.json`, out);
-  const entries = ledgerOf(b, v, out);
+  const entries = ledgerOf(v, out);
   out.push(...chainProblems(entries));
   const [e1, e2, e3, e4] = entries;
   if (e1 === null || e2 === null || e3 === null || e4 === null || inv1 === null || inv2 === null) return out;
+  let listsOk = true;
   for (const [entry, event, inv, label] of [[e1, "retrieved", inv1, "run 1"], [e2, "placed", inv1, "run 1"], [e3, "retrieved", inv2, "run 2"], [e4, "placed", inv2, "run 2"]]) {
     const where = ledgerFile(entry.seq);
+    for (const list of ["shown", "withheld", "omitted", "decisions"]) {
+      if (!Array.isArray(entry[list])) {
+        out.push(`${where} has no ${list} list`);
+        listsOk = false;
+      }
+    }
     if (entry.event !== event) out.push(`${where} is a '${entry.event}' entry, not '${event}'`);
     if (entry.sessionId !== inv.sessionId) out.push(`${where} is not ${label}'s session`);
     if (entry.tenant !== TENANT || entry.domain !== DOMAIN || entry.project !== PROJECT) out.push(`${where} is not for ${TENANT}/${PROJECT}`);
@@ -478,6 +517,7 @@ function ep4(b) {
       if (!isObject(item) || !same(Object.keys(item).sort(), [...ITEM_KEYS].sort())) out.push(`${where} lists an item with fields other than the ledger item's`);
     }
   }
+  if (!listsOk) return out;
   if (e1.envelopeId !== e2.envelopeId || e3.envelopeId !== e4.envelopeId || e1.envelopeId === e3.envelopeId) out.push("the envelopes are not one per run");
   const at = [e1, e2, e3, e4].map((entry) => ms(entry.at));
   if (at.some(Number.isNaN) || !(at[0] < at[1] && at[1] < at[2] && at[2] < at[3])) out.push("the ledger entries are not in time order");
@@ -489,6 +529,13 @@ function ep4(b) {
   for (const id of RESUME_IDS) {
     if (ids1.includes(id)) out.push(`run 1 was shown ${id}: there was nothing cut off for it to retrieve`);
     if (!ids2.includes(id)) out.push(`run 2 was not shown ${id}: the cut-off state did not reach the new worker`);
+  }
+  const context1 = b.files[`${REC}run1.context.md`];
+  if (typeof context1 !== "string") out.push(`${REC}run1.context.md is missing: nothing shows what run 1's worker was pointed at`);
+  else {
+    if (`sha256:${sha(context1)}` !== e1.fileHash || e1.fileHash !== e2.fileHash) out.push("run 1's context file is not the file the ledger says was placed (its sha256 is not the entries' fileHash)");
+    if (!context1.includes(inv1.sessionId)) out.push("run 1's context file does not name run 1's session");
+    for (const shownId of itemIds(e1.shown)) if (typeof shownId !== "string" || !context1.includes(shownId)) out.push(`run 1's context file does not contain the item the ledger says it was shown: ${shownId}`);
   }
   if (evidence !== null) {
     const stored = evidence.storedContext;
@@ -532,52 +579,50 @@ function run2Contexts(v) {
   return found;
 }
 
+const DECISION_KINDS = ["committed-decision", "approved-memory", "plan-memory"];
+const isDecisionKind = (item) => item.kind === "committed-decision" || item.effectiveKind === "committed-decision";
+const isAuthorityKind = (item) => DECISION_KINDS.includes(item.kind) || DECISION_KINDS.includes(item.effectiveKind);
+
+function rankingProblems(label, context, out) {
+  const shown = context.shown;
+  const items = shown.filter(isObject);
+  if (items.length !== shown.length) out.push(`${label} lists something that is not an item`);
+  if (!items.every((item, index) => item.rank === index + 1)) out.push(`${label} ranks are not 1..n in strictly increasing order along the list`);
+  if (!items.every((item, index) => index === 0 || item.tier >= items[index - 1].tier)) out.push(`${label} tiers are not non-decreasing along the ranks`);
+  if (!items.some(isDecisionKind)) out.push(`${label} shows no committed decision, so the ranking rule would hold over an empty set`);
+  const authority = items.filter(isAuthorityKind);
+  for (const item of items) {
+    if (!KINDS.includes(item.kind) || !KINDS.includes(item.effectiveKind)) out.push(`${label} item ${item.id} has a kind the ledger does not allow`);
+    else if (item.tier !== TIERS[item.effectiveKind]) out.push(`${label} item ${item.id} has tier ${item.tier}, not its kind's`);
+    if (!SOURCES.includes(item.source)) out.push(`${label} item ${item.id} has a source the ledger does not allow`);
+    if (!Array.isArray(item.overruledBy) || item.overruledBy.some((entry) => typeof entry !== "string")) out.push(`${label} item ${item.id} has no overruledBy list`);
+    if (isDecisionKind(item) && Array.isArray(item.overruledBy) && item.overruledBy.length > 0) out.push(`${label} committed decision ${item.id} is overruled by ${item.overruledBy.join(", ")}`);
+    if (item.source === "committed") continue;
+    if (isAuthorityKind(item)) out.push(`${label} item ${item.id} is labelled ${item.effectiveKind} with source ${item.source}: only committed bytes make a decision or plan memory`);
+    if (item.kind !== "execution-record" || item.effectiveKind !== "execution-record") out.push(`${label} item ${item.id} (source ${item.source}) is labelled ${item.kind}/${item.effectiveKind}, not an execution record`);
+    if (!(item.tier >= 2)) out.push(`${label} item ${item.id} (source ${item.source}) is in tier ${item.tier}, above tier 2`);
+    for (const other of authority) if (!(item.rank > other.rank)) out.push(`${label} item ${item.id} (source ${item.source}, rank ${item.rank}) does not rank below ${other.id} (rank ${other.rank})`);
+  }
+  for (const item of items) {
+    if (typeof item.id === "string" && item.id.startsWith("resume:") && !WORKER_SOURCES.includes(item.source)) out.push(`${label} resumed item ${item.id} has source ${item.source}, not one the loop read from the working tree`);
+  }
+  const outside = items.filter((item) => item.source !== "committed").map((item) => item.contentHash);
+  for (const decision of context.decisions) {
+    if (!isObject(decision) || !HASH.test(String(decision.hash)) || !["memory", "user"].includes(decision.target)) out.push(`${label} lists a decision that is not a hash and a memory or user target`);
+    else if (outside.includes(decision.hash)) out.push(`${label} lists an item from outside the committed bytes as an approved decision`);
+  }
+  if (outside.length > 0 && context.taintsRun !== true) out.push(`${label} showed text from outside the committed bytes and does not mark the run tainted`);
+}
+
 function ep5(b) {
   const out = [];
   const v = view(b);
-  const contexts = run2Contexts(v);
-  if (contexts.length === 0) return ["there is no record of what run 2 was shown"];
-  for (const [label, context] of contexts) {
-    const shown = Array.isArray(context.shown) ? context.shown : null;
-    if (shown === null) {
-      out.push(`${label} has no shown list`);
-      continue;
-    }
-    const wide = shown.filter((item) => isObject(item) && (item.kind === "committed-decision" || item.kind === "approved-memory" || item.kind === "plan-memory" || item.effectiveKind === "committed-decision" || item.effectiveKind === "approved-memory" || item.effectiveKind === "plan-memory"));
-    const ranks = shown.map((item) => item?.rank);
-    if (!ranks.every((rank, index) => rank === index + 1)) out.push(`${label} ranks are not 1..n in the order shown`);
-    for (const item of shown) {
-      if (!isObject(item)) {
-        out.push(`${label} lists something that is not an item`);
-        continue;
-      }
-      if (!KINDS.includes(item.kind) || !KINDS.includes(item.effectiveKind)) out.push(`${label} item ${item.id} has a kind the ledger does not allow`);
-      else if (item.tier !== TIERS[item.effectiveKind]) out.push(`${label} item ${item.id} has tier ${item.tier}, not its kind's`);
-      if (!SOURCES.includes(item.source)) out.push(`${label} item ${item.id} has a source the ledger does not allow`);
-      if (!Array.isArray(item.overruledBy) || item.overruledBy.some((entry) => typeof entry !== "string")) out.push(`${label} item ${item.id} has no overruledBy list`);
-      if (item.kind === "committed-decision" || item.effectiveKind === "committed-decision") {
-        if (item.source !== "committed") out.push(`${label} item ${item.id} is a committed decision whose source is ${item.source}`);
-        if (Array.isArray(item.overruledBy) && item.overruledBy.length > 0) out.push(`${label} committed decision ${item.id} is overruled by ${item.overruledBy.join(", ")}`);
-      }
-      if ((item.kind === "approved-memory" || item.effectiveKind === "approved-memory") && !["committed", "approved-decision"].includes(item.source)) out.push(`${label} item ${item.id} is approved memory whose source is ${item.source}`);
-      if (WORKER_SOURCES.includes(item.source) && wide.includes(item)) out.push(`${label} item ${item.id} is worker or loop text labelled ${item.effectiveKind}`);
-      if (typeof item.id === "string" && item.id.startsWith("resume:")) {
-        if (item.kind !== "execution-record" || item.effectiveKind !== "execution-record") out.push(`${label} resumed item ${item.id} is labelled ${item.kind}/${item.effectiveKind}, not an execution record`);
-        if (!(item.tier >= 2)) out.push(`${label} resumed item ${item.id} is in tier ${item.tier}, above tier 2`);
-        if (!WORKER_SOURCES.includes(item.source)) out.push(`${label} resumed item ${item.id} has source ${item.source}, not one the loop read from the working tree`);
-        for (const other of wide) if (!(item.rank > other.rank)) out.push(`${label} resumed item ${item.id} (rank ${item.rank}) does not rank below ${other.id} (rank ${other.rank})`);
-      }
-    }
-    const resumeHashes = shown.filter((item) => isObject(item) && typeof item.id === "string" && item.id.startsWith("resume:")).map((item) => item.contentHash);
-    if (!Array.isArray(context.decisions)) out.push(`${label} has no decisions list`);
-    else {
-      for (const decision of context.decisions) {
-        if (!isObject(decision) || !HASH.test(String(decision.hash)) || !["memory", "user"].includes(decision.target)) out.push(`${label} lists a decision that is not a hash and a memory or user target`);
-        else if (resumeHashes.includes(decision.hash)) out.push(`${label} lists a resumed item as an approved decision`);
-      }
-    }
-    const workerShown = shown.some((item) => isObject(item) && WORKER_SOURCES.includes(item.source));
-    if (workerShown && context.taintsRun !== true) out.push(`${label} showed worker-authored text and does not mark the run tainted`);
+  const contexts = run2Contexts(v).filter(([, context]) => Array.isArray(context.shown) && Array.isArray(context.decisions));
+  if (contexts.length === 0) return ["there is no usable record of what run 2 was shown"];
+  for (const [label, context] of contexts) rankingProblems(label, context, out);
+  for (const n of [1, 2]) {
+    const entry = v.j(ledgerFile(n));
+    if (isObject(entry) && entry.taintsRun !== true) out.push(`${ledgerFile(n)} (run 1) does not mark the run tainted, though stored text reached it`);
   }
   return out;
 }
@@ -601,9 +646,17 @@ function ep6(b) {
     const handover = new RegExp(`^STOPPED \\(OWNER_DECISION_REQUIRED\\): phase '${AGENCY_PHASE}' is awaiting_closure; that is not a state the loop may move it from$`, "m");
     if (stops.length !== 1 || !handover.test(log)) out.push(`${LOG2} stops for the owner other than at the loop's own awaiting_closure handover`);
     if (lines(log).filter((line) => line.startsWith("STOPPED")).length !== 1) out.push(`${LOG2} has other than exactly one STOPPED line`);
-    if (/^\s*(?:FAIL|REFUSED)\b/m.test(log) || /\bREFUSED \(/.test(log)) out.push(`${LOG2} shows a failure or a refusal`);
+    if (/^[ \t]*(?:FAIL|REFUSED)\b/m.test(log) || /\bREFUSED \(/.test(log)) out.push(`${LOG2} shows a failure or a refusal`);
+    const attempt = /^attempt 1: started claude-local; worker exited 0$/m.exec(log);
+    const review = /^ {2}independent review by codex-reviewer: APPROVE$/m.exec(log);
+    if (attempt !== null && review !== null && attempt.index < review.index) {
+      const section = log.slice(attempt.index, review.index);
+      for (const copy of ["validate-site", "validate-site@phase-copy"]) {
+        if (!new RegExp(`^ {2}PASS validator ${copy}$`, "m").test(section)) out.push(`${LOG2} has no 'PASS validator ${copy}' line in run 2's attempt section, before the independent review`);
+      }
+    }
     const steps = [
-      /^ {2}PASS validator validate-site$/m, /^ {2}PASS validator validate-site@phase-copy$/m, /^ {2}independent review by codex-reviewer: APPROVE$/m,
+      /^attempt 1: started claude-local; worker exited 0$/m, /^ {2}independent review by codex-reviewer: APPROVE$/m,
       /^ {2}gatekeeper: the gatekeeper reviewed CONTINUATION_READY and approved continuation$/m,
       handover, /^closure prepared for SEO-AGENCY-MEMORY-PROOF1A at subject [0-9a-f]{40}$/m, /^ {2}reviews \(credited\): complete$/m, /^ {2}unresolved CRITICAL\/HIGH: 0$/m,
       /^carrying on: projectos closure request --id SEO-AGENCY-MEMORY-PROOF1A --execute$/m, /^the closure authority decided to close SEO-AGENCY-MEMORY-PROOF1A at [0-9a-f]{7,40}$/m,
@@ -620,6 +673,8 @@ function ep6(b) {
     const cl = /^closure request (CLREQ-[0-9a-f]{24}) \(closure-review\) for SEO-AGENCY-MEMORY-PROOF1A at ([0-9a-f]{7,40})$/m.exec(log);
     if (gk === null || gate === null || gate.decisionId !== `GKDEC-${gk[1]}`) out.push("the gatekeeper decision is not the one for the request in the log");
     if (cl === null || closure === null || closure.decisionId !== cl[1] || !String(closure.evidenceSubjectHead).startsWith(cl[2])) out.push("the closure decision is not the one for the request in the log");
+    if (!/^ {2}gatekeeper decision provenance: InstallationBrokerProviderAnswer$/m.test(log)) out.push(`${LOG2} does not show the gatekeeper decision coming from the broker's provider answer`);
+    if (!/^closure decision provenance: InstallationBrokerProviderAnswer \(provider response resp_[0-9a-f]+\)$/m.test(log)) out.push(`${LOG2} does not show the closure decision coming from the broker's provider answer`);
   }
   if (reviewer !== null && inv2 !== null) {
     if (reviewer.sessionId !== inv2.sessionId || reviewer.phaseId !== AGENCY_PHASE || reviewer.baseHead !== inv2.repository?.head) out.push("the reviewer record is not for run 2's session, phase and commit");
@@ -631,6 +686,9 @@ function ep6(b) {
     if (!Array.isArray(requested) || requested.length === 0 || !requested.every((review) => Array.isArray(reviewer.reviewsPerformed) && reviewer.reviewsPerformed.includes(review))) out.push("a requested independent review was not performed");
   }
   if (evidence !== null) {
+    for (const [key, rel] of [["effectsSha256", "run2.effects.json"], ["findingsSha256", "run2.findings.json"], ["reviewerSha256", "run2.reviewer.json"]]) {
+      if (typeof b.files[`${REC}${rel}`] !== "string" || evidence[key] !== sha(b.files[`${REC}${rel}`])) out.push(`the evidence's ${key} is not the sha256 of the committed ${rel}`);
+    }
     const checks = Array.isArray(evidence.checks) ? evidence.checks : [];
     for (const id of ["validate-site", "validate-site@phase-copy"]) {
       const check = checks.find((entry) => entry?.id === id);
@@ -653,11 +711,14 @@ function ep6(b) {
   }
   if (gate !== null) {
     if (gate.decision !== "APPROVED_TO_PROCEED" || gate.ownerApprovalRequired !== false || gate.phaseId !== AGENCY_PHASE || gate.projectId !== PROJECT) out.push("the gatekeeper did not approve this phase without the owner");
+    if (gate.decidedBy !== "ChatGPT") out.push(`the gatekeeper decision was decided by ${JSON.stringify(gate.decidedBy)}, not by the provider answer (ChatGPT)`);
+    if (gate.provenance !== "InstallationBrokerProviderAnswer") out.push(`the gatekeeper decision's provenance is ${JSON.stringify(gate.provenance)}, not InstallationBrokerProviderAnswer`);
     if (!Array.isArray(gate.allowedActions) || gate.allowedActions.includes("phase-closure") || !Array.isArray(gate.forbiddenActions) || !gate.forbiddenActions.includes("phase-closure")) out.push("the gatekeeper's decision allows closure, which is the closure authority's");
   }
   if (closure !== null) {
     if (closure.decision !== "close" || closure.phaseId !== AGENCY_PHASE || closure.projectId !== PROJECT || closure.scope !== "phase-closure") out.push("the closure decision is not 'close' for the proof phase");
-    if (!same(closure.ownerAcceptedFindings, []) || typeof closure.decidedBy !== "string" || /owner|human/i.test(closure.decidedBy)) out.push("the closure was decided by the owner or carries an owner-accepted finding");
+    if (closure.decidedBy !== "ChatGPT") out.push(`the closure was decided by ${JSON.stringify(closure.decidedBy)}, not by the closure authority's provider answer (ChatGPT)`);
+    if (!same(closure.ownerAcceptedFindings, [])) out.push("the closure decision carries an owner-accepted finding");
   }
   const final = b.files[`${REC}final-humans.txt`];
   if (typeof final !== "string" || !same(lines(final).filter((line, i, all) => line !== "" || i < all.length - 1), HUMANS)) out.push("final-humans.txt is not the five lines the phase asked for");
@@ -673,25 +734,29 @@ function ep7(b) {
   if (ledger === null) return out;
   const gk = /^gatekeeper answered; recorded (\d+) micro-USD against (GKREQ-[0-9a-f]{24})$/m.exec(log);
   const cl = /^closure authority answered; this call cost (\d+) micro-USD \((CLREQ-[0-9a-f]{24})\)$/m.exec(log);
-  if (gk === null || cl === null) return [...out, `${LOG2} does not print both the gatekeeper and the closure-authority spend`];
+  if (gk === null || cl === null) return [...out, `${LOG2} does not print both the gatekeeper and the closure-authority broker spend`];
   const entries = (Array.isArray(ledger.entries) ? ledger.entries : []).filter((entry) => isObject(entry) && entry.phaseId === AGENCY_PHASE);
   const mine = entries.filter((entry) => entry.projectId === PROJECT);
-  if (mine.length !== entries.length) out.push("a spend entry for the proof phase belongs to another project");
-  if (!same(mine.map((entry) => entry.requestId), [gk[2], cl[2]])) out.push("the phase spend entries are not exactly the two requests the log names");
-  for (const entry of mine) if (!isCount(entry.costMicroUsd, 0)) out.push(`the cost of ${entry.requestId} is not a whole non-negative number of micro-USD`);
+  if (mine.length !== entries.length) out.push("a metered broker call for the proof phase belongs to another project");
+  if (!same(mine.map((entry) => entry.requestId), [gk[2], cl[2]])) out.push("the metered broker calls for the phase are not exactly the two requests the log names");
+  for (const entry of mine) if (!isCount(entry.costMicroUsd, 0)) out.push(`the metered cost of ${entry.requestId} is not a whole non-negative number of micro-USD`);
   const costs = mine.map((entry) => entry.costMicroUsd);
-  if (!same(costs, [Number(gk[1]), Number(cl[1])])) out.push(`the ledger costs (${costs.join(", ")}) are not the amounts the log printed (${gk[1]}, ${cl[1]})`);
+  if (!same(costs, [Number(gk[1]), Number(cl[1])])) out.push(`the metered broker costs in the ledger (${costs.join(", ")}) are not the amounts the log printed (${gk[1]}, ${cl[1]})`);
   const total = costs.reduce((sum, cost) => sum + (isCount(cost, 0) ? cost : 0), 0);
-  if (total > CAP_MICRO_USD) out.push(`the phase spend ${total} micro-USD is over the ${CAP_MICRO_USD} cap`);
-  if (Number(gk[1]) + Number(cl[1]) > CAP_MICRO_USD) out.push("the spend the log printed is over the cap");
+  if (total > CAP_MICRO_USD) out.push(`the metered broker spend ${total} micro-USD is over the ${CAP_MICRO_USD} cap`);
+  if (Number(gk[1]) + Number(cl[1]) > CAP_MICRO_USD) out.push("the metered broker spend the log printed is over the cap");
   const months = [...log.matchAll(/^budget OK: month (\d+) micro-USD/gm)].map((hit) => Number(hit[1]));
-  if (!same(months, [0, Number(gk[1])])) out.push(`${LOG2} budget lines (${months.join(", ")}) do not show the month starting at 0 and then the first call's cost`);
+  if (!same(months, [0, Number(gk[1])])) out.push(`${LOG2} budget lines (${months.join(", ")}) do not show the metered month starting at 0 and then the first call's cost`);
   const times = typeof b.files[TIMES] === "string" ? lines(b.files[TIMES]).filter((line) => line !== "") : [];
   for (const entry of mine) {
-    if (times.length !== 2 || !(ms(times[0]) <= ms(entry.at) && ms(entry.at) <= ms(times[1]))) out.push(`${entry.requestId} was recorded outside run 2's window`);
+    if (times.length !== 2 || !(ms(times[0]) <= ms(entry.at) && ms(entry.at) <= ms(times[1]))) out.push(`${entry.requestId} was metered outside run 2's window`);
   }
   return out;
 }
+
+// The words are built from pieces so that this file never contains the very text it forbids.
+const FORBIDDEN_WORDS = [["write", "File"], ["append", "File"], ["mk", "dir"], ["rm", "Sync"], ["unlink", "Sync"], ["re", "name"], ["child_", "process"], ["fe", "tch"], ["ht", "tp"], ["n", "et"], ["ev", "al"]].map((pieces) => pieces.join(""));
+const FS_READ_ONLY = ["readFileSync", "readdirSync", "lstatSync", "existsSync"];
 
 function ep8(b) {
   const out = [];
@@ -700,12 +765,13 @@ function ep8(b) {
     for (const phrase of ["no product code", "no model call", "does not lift D4"]) if (!b.notes.includes(phrase)) out.push(`${NOTES} does not say '${phrase}'`);
   }
   const code = withoutComments(b.selfSource);
-  const literal = [...code.matchAll(/\brequire\(\s*(["'`])([^"'`]+)\1\s*\)/g)].map((hit) => hit[2]);
-  const all = (code.match(/\brequire\s*\(/g) ?? []).length;
-  if (all !== literal.length) out.push("this validator imports something by a computed name");
-  for (const name of literal) if (!ALLOWED_IMPORTS.includes(name)) out.push(`this validator imports ${name}, which is not one of ${ALLOWED_IMPORTS.join(", ")}`);
-  if (/\bfs\.(?:write|append|unlink|rm|mkdir|rename|copy|truncate|chmod|symlink|link|open)\w*/.test(code)) out.push("this validator writes to the file system");
-  if (/\b(?:fetch|eval)\s*\(|\bnew\s+Function\b|\bimport\s*\(/.test(code)) out.push("this validator calls the network or evaluates text");
+  const named = [...code.matchAll(/\brequire\(\s*(["'`])([^"'`]+)\1\s*\)/g)].map((hit) => hit[2]);
+  const identifiers = (code.match(/\brequire\b/g) ?? []).length;
+  if (identifiers !== named.length) out.push("this validator uses the module loader other than as a call with a literal module name (an alias, a computed name or a property)");
+  if (!same([...named].sort(), [...ALLOWED_IMPORTS].sort())) out.push(`this validator loads ${named.join(", ") || "nothing"}; it must load exactly ${ALLOWED_IMPORTS.join(", ")}, once each, by literal name`);
+  for (const word of FORBIDDEN_WORDS) if (new RegExp(`\\b${word}\\b`).test(code)) out.push(`this validator contains the word ${word}`);
+  for (const use of new Set([...code.matchAll(/\bfs\.(\w+)/g)].map((hit) => hit[1]))) if (!FS_READ_ONLY.includes(use)) out.push(`this validator uses fs.${use}, which is not one of ${FS_READ_ONLY.join(", ")}`);
+  if (/\bnew\s+Function\b|\bimport\s*\(/.test(code)) out.push("this validator builds code from text or imports dynamically");
   return out;
 }
 
@@ -747,11 +813,22 @@ const RULES = [
   ["EP-1", ep1], ["EP-2", ep2], ["EP-3", ep3], ["EP-4", ep4], ["EP-5", ep5], ["EP-6", ep6], ["EP-7", ep7], ["EP-8", ep8], ["EP-9", ep9],
 ];
 
-/** Every rule that fires on a bundle, in order, with its problems. */
-function judge(b) {
+/**
+ * Every rule that fires on a bundle, in order, with its problems. A rule that throws is a problem of that rule, never a crash.
+ * `dead` names one rule whose body is replaced by `return []`: the control that shows a mutation needs its rule.
+ */
+function judge(b, dead = null) {
   const fired = {};
   for (const [id, rule] of RULES) {
-    const problems = rule(b);
+    let problems;
+    if (id === dead) problems = [];
+    else {
+      try {
+        problems = rule(b);
+      } catch (error) {
+        problems = [`${id} threw: ${error instanceof Error ? error.message : String(error)}`];
+      }
+    }
     if (problems.length > 0) fired[id] = problems;
   }
   return fired;
@@ -837,10 +914,32 @@ const DECISION = ".projectops/closure/decisions/SEO-AGENCY-SITE-CHECK3A.json";
 const PLAN = ".projectops/plan-f3614f2ecf63116f-82af6c940086.json";
 const inv2 = (b, fn, seal = true) => jsonEdit(b, `${REC}run2.invocation.json`, fn, seal);
 const inv1 = (b, fn, seal = true) => jsonEdit(b, `${REC}run1.invocation.json`, fn, seal);
-const brief2 = (b, fn) => jsonEdit(b, `${REC}run2.brief.json`, fn);
+/** Edit a brief and record its new digest in the invocation, so only the check meant to see the edit does. */
+const briefWith = (b, n, fn) => {
+  jsonEdit(b, `${REC}run${n}.brief.json`, fn);
+  jsonEdit(b, `${REC}run${n}.invocation.json`, (i) => { i.brief.digest = `sha256:${sha(JSON.stringify(JSON.parse(b.files[`${REC}run${n}.brief.json`])))}`; });
+};
+const brief2 = (b, fn) => briefWith(b, 2, fn);
 const log2 = (b, from, to) => textEdit(b, LOG2, from, to);
 const log1 = (b, from, to) => textEdit(b, LOG1, from, to);
-const reviewer = (b, fn) => jsonEdit(b, `${REC}run2.reviewer.json`, fn);
+/** Edit a record the evidence hashed, and record its new hash in the evidence. */
+const bound = (b, rel, key, fn) => {
+  jsonEdit(b, `${REC}${rel}`, fn);
+  jsonEdit(b, `${REC}run2.evidence.json`, (ev) => { ev[key] = sha(b.files[`${REC}${rel}`]); });
+};
+const reviewer = (b, fn) => bound(b, "run2.reviewer.json", "reviewerSha256", fn);
+const effectsWith = (b, fn) => bound(b, "run2.effects.json", "effectsSha256", fn);
+/** A different context file for run 1: the ledger entries are re-sealed to name it. */
+const context1With = (b, fn) => {
+  const rel = `${REC}run1.context.md`;
+  put(b, rel, fn(b.files[rel]));
+  for (const n of [1, 2]) entryEdit(b, n, (e) => { e.fileHash = `sha256:${sha(b.files[rel])}`; });
+};
+const shownItem = (id, over) => ({
+  id, kind: "execution-record", effectiveKind: "execution-record", rank: 1, tier: 2, contentHash: `sha256:${"a".repeat(64)}`, bytes: 1, truncated: false,
+  source: "working-tree", freshness: null, unverifiedClaim: false, overruledBy: [], ...over,
+});
+const renumber = (c) => { c.shown = c.shown.map((entry, index) => ({ ...entry, rank: index + 1 })); };
 const gate = (b, fn) => jsonEdit(b, `${REC}gatekeeper-decision.json`, fn);
 const closure = (b, fn) => jsonEdit(b, `${REC}closure-decision.json`, fn);
 const spend = (b, fn) => jsonEdit(b, `${REC}gatekeeper-ledger.json`, (ledger) => fn(ledger.entries.filter((entry) => entry.phaseId === AGENCY_PHASE)));
@@ -852,7 +951,8 @@ const without = (text, block) => {
   return text.replace(block, "\n];");
 };
 
-const X = (name, rule, apply, also = []) => ({ name, rule, apply, also });
+/** `expect` names text the rule's own problem must contain: proof the mutation is killed by that check and not by a cascade. */
+const X = (name, rule, apply, also = [], expect = null) => ({ name, rule, apply, also, expect });
 
 const MUTATIONS = [
   // EP-1 the files are the files
@@ -865,8 +965,8 @@ const MUTATIONS = [
     b.files[`${REC}extra.json`] = "{}";
     manifestEdit(b, (m) => { m.files[`${REC}extra.json`] = `sha256:${sha("{}")}`; });
   }),
-  X("a-missing-evidence-file-is-refused", "EP-1", (b) => drop(b, `${REC}run2.findings.json`, false)),
-  X("an-evidence-file-dropped-from-both-folder-and-manifest-is-refused", "EP-1", (b) => drop(b, `${REC}run2.findings.json`)),
+  X("a-missing-evidence-file-is-refused", "EP-1", (b) => drop(b, `${REC}run2.findings.json`, false), ["EP-6"]),
+  X("an-evidence-file-dropped-from-both-folder-and-manifest-is-refused", "EP-1", (b) => drop(b, `${REC}run2.findings.json`), ["EP-6"]),
   X("a-file-left-out-of-the-manifest-is-refused", "EP-1", (b) => manifestEdit(b, (m) => { delete m.files[`${REC}run2.findings.json`]; })),
   X("a-manifest-hash-that-is-another-files-is-refused", "EP-1", (b) => manifestEdit(b, (m) => { m.files[LOG1] = m.files[LOG2]; })),
   X("a-manifest-entry-for-a-file-that-is-not-there-is-refused", "EP-1", (b) => manifestEdit(b, (m) => { m.files[`${REC}ghost.json`] = m.files[LOG1]; })),
@@ -877,7 +977,14 @@ const MUTATIONS = [
   X("notes-without-the-first-log-hash-are-refused", "EP-1", (b) => { b.notes = b.notes.split(sha(b.files[LOG1])).join("0".repeat(64)); }),
   X("notes-without-the-resume-log-hash-are-refused", "EP-1", (b) => { b.notes = b.notes.split(sha(b.files[LOG2])).join("0".repeat(64)); }),
   X("no-notes-file-is-refused", "EP-1", (b) => { b.notes = null; }, ["EP-8"]),
-  X("a-log-that-is-not-utf8-is-refused", "EP-1", (b) => { b.loadProblems.push("run2-resume.log is not valid UTF-8 text"); }),
+  X("a-log-that-is-not-utf8-is-refused", "EP-1", (b) => {
+    const bytes = Buffer.from(b.files[LOG2], "utf8").toString("latin1").replace("Worker: claude-local", "Worker: claude-local\xff");
+    const derived = deriveFiles({ [LOG2]: bytes });
+    b.loadProblems.push(...derived.problems);
+    put(b, LOG2, derived.files[LOG2]);
+  }, [], "not valid UTF-8"),
+  X("a-symbolic-link-in-the-evidence-is-refused", "EP-1", (b) => { b.links.push(`${REC}run2.brief.json`); }, [], "symbolic link"),
+  X("a-symbolic-link-for-the-evidence-folder-is-refused", "EP-1", (b) => { b.links.push(EVIDENCE); }, [], "symbolic link"),
   // EP-2 it was cut off partway
   X("a-run-that-was-never-killed-is-refused", "EP-2", (b) => log1(b, /^\[cutoff\] worker wrote .*$/m, "[cutoff] the worker finished")),
   X("a-run-with-no-kill-line-is-refused", "EP-2", (b) => log1(b, /^\[cutoff\] killed at .*$/m, "")),
@@ -912,10 +1019,15 @@ const MUTATIONS = [
   X("another-interpreter-is-refused", "EP-3", (b) => inv2(b, (i) => { i.process.argv[0] = "C:\\bin\\python.exe"; })),
   X("a-first-run-with-a-relayed-flag-is-refused", "EP-3", (b) => inv1(b, (i) => { i.process.argv.push("--session", "x"); })),
   X("two-runs-of-different-entry-scripts-are-refused", "EP-3", (b) => inv1(b, (i) => { i.process.argv[1] = "C:\\other\\projectos.js"; })),
-  X("a-reused-process-id-is-refused", "EP-3", (b) => inv2(b, (i) => { i.process.pid = 5704; }), []),
-  X("a-reused-parent-process-id-is-refused", "EP-3", (b) => inv2(b, (i) => { i.process.ppid = 35388; })),
-  X("a-process-id-that-is-not-a-number-is-refused", "EP-3", (b) => inv2(b, (i) => { i.process.pid = "33112"; })),
-  X("a-process-that-is-its-own-parent-is-refused", "EP-3", (b) => inv2(b, (i) => { i.process.ppid = i.process.pid; })),
+  X("a-reused-process-id-is-refused", "EP-3", (b) => { inv2(b, (i) => { i.process.pid = 5704; }); log2(b, "(pid 33112,", "(pid 5704,"); }, [], "same process id"),
+  X("a-reused-parent-process-id-is-refused", "EP-3", (b) => { inv2(b, (i) => { i.process.ppid = 35388; }); log2(b, "parent 2732)", "parent 35388)"); }, [], "same parent process"),
+  X("a-process-id-that-is-not-a-number-is-refused", "EP-3", (b) => { inv2(b, (i) => { i.process.pid = "33112"; }); }, [], "no integer pid"),
+  X("a-process-that-is-its-own-parent-is-refused", "EP-3", (b) => { inv2(b, (i) => { i.process.ppid = i.process.pid; }); log2(b, "parent 2732)", "parent 33112)"); }, [], "its own parent"),
+  X("a-brief-changed-after-its-digest-was-recorded-is-refused", "EP-3", (b) => jsonEdit(b, `${REC}run2.brief.json`, (v) => { v.phase.riskLevel = "high"; }), [], "digest"),
+  X("a-first-brief-changed-after-its-digest-was-recorded-is-refused", "EP-3", (b) => jsonEdit(b, `${REC}run1.brief.json`, (v) => { v.phase.riskLevel = "high"; }), [], "digest"),
+  X("a-recorded-brief-digest-that-is-another-hash-is-refused", "EP-3", (b) => inv2(b, (i) => { i.brief.digest = `sha256:${"0".repeat(64)}`; }), [], "digest"),
+  X("a-recorded-first-brief-digest-that-is-another-hash-is-refused", "EP-3", (b) => inv1(b, (i) => { i.brief.digest = `sha256:${"0".repeat(64)}`; }), [], "digest"),
+  X("a-brief-digest-of-the-pretty-printed-text-is-refused", "EP-3", (b) => inv2(b, (i) => { i.brief.digest = `sha256:${sha(JSON.stringify(JSON.parse(b.files[`${REC}run2.brief.json`]), null, 2))}`; }), [], "digest"),
   X("a-log-with-another-pid-is-refused", "EP-3", (b) => log2(b, "(pid 33112, parent 2732)", "(pid 33113, parent 2732)")),
   X("a-log-with-another-parent-is-refused", "EP-3", (b) => log2(b, "(pid 33112, parent 2732)", "(pid 33112, parent 2733)")),
   X("a-log-with-another-invocation-is-refused", "EP-3", (b) => log2(b, "Invocation: b7c6fada59098a27", "Invocation: 27a8176ef17ae4d3")),
@@ -926,7 +1038,7 @@ const MUTATIONS = [
   X("a-log-with-a-note-flag-is-refused", "EP-3", (b) => log2(b, "Continuing SEO", "projectos run --note abc\nContinuing SEO")),
   X("a-log-with-no-prior-work-line-is-refused", "EP-3", (b) => log2(b, /^Prior work: .*$/m, "")),
   X("a-log-with-prior-work-from-another-session-is-refused", "EP-3", (b) => log2(b, "session SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-27a8176e", "session SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-99999999")),
-  X("a-log-where-the-worker-did-not-start-fresh-is-refused", "EP-3", (b) => log2(b, "attempt 1: started claude-local; worker exited 0", "attempt 1: rejoined claude-local; worker exited 0")),
+  X("a-log-where-the-worker-did-not-start-fresh-is-refused", "EP-3", (b) => log2(b, "attempt 1: started claude-local; worker exited 0", "attempt 1: rejoined claude-local; worker exited 0"), ["EP-6"]),
   X("a-resume-that-rejoined-the-first-session-is-refused", "EP-3", (b) => inv2(b, (i) => { i.sessionId = "SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-27a8176e"; }), ["EP-4", "EP-6"]),
   X("a-resume-whose-session-is-not-its-invocations-is-refused", "EP-3", (b) => inv2(b, (i) => { i.invocationId = "0000000000000000"; })),
   X("a-resume-with-the-first-invocation-id-is-refused", "EP-3", (b) => inv2(b, (i) => { i.invocationId = "27a8176ef17ae4d3"; })),
@@ -994,6 +1106,16 @@ const MUTATIONS = [
   X("a-log-for-another-tenant-and-project-is-refused", "EP-4", (b) => log2(b, "for agency-business/seo-agency", "for other-tenant/other-project")),
   X("a-log-context-file-of-another-session-is-refused", "EP-4", (b) => log2(b, /\(\.projectops\/execution\/[^)]*\.context\.md\)/, "(.projectops/execution/SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-27a8176e.context.md)")),
   X("a-log-with-no-stored-context-line-is-refused", "EP-4", (b) => log2(b, /^Stored context: .*$/m, "")),
+  X("a-retrieval-with-no-decisions-list-is-refused", "EP-4", (b) => entryEdit(b, 3, (e) => { delete e.decisions; }), [], "no decisions list"),
+  X("a-retrieval-with-no-shown-list-is-refused", "EP-4", (b) => entryEdit(b, 3, (e) => { delete e.shown; }), [], "no shown list"),
+  X("a-retrieval-with-no-withheld-list-is-refused", "EP-4", (b) => entryEdit(b, 3, (e) => { delete e.withheld; }), [], "no withheld list"),
+  X("a-retrieval-with-no-omitted-list-is-refused", "EP-4", (b) => entryEdit(b, 3, (e) => { delete e.omitted; }), [], "no omitted list"),
+  X("a-placement-whose-lists-are-not-lists-is-refused", "EP-4", (b) => entryEdit(b, 4, (e) => { e.shown = "x"; e.decisions = 7; }), [], "no decisions list"),
+  X("a-first-run-context-file-changed-is-refused", "EP-4", (b) => put(b, `${REC}run1.context.md`, `${b.files[`${REC}run1.context.md`]}extra\n`), [], "not the file the ledger says"),
+  X("a-first-run-ledger-file-hash-that-is-not-the-files-is-refused", "EP-4", (b) => entryEdit(b, 2, (e) => { e.fileHash = `sha256:${"b".repeat(64)}`; }), [], "not the file the ledger says"),
+  X("a-first-run-context-file-naming-another-session-is-refused", "EP-4", (b) => context1With(b, (t) => t.split("SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-27a8176e").join("SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-99999999")), [], "does not name run 1"),
+  X("a-first-run-context-file-without-a-shown-item-is-refused", "EP-4", (b) => context1With(b, (t) => t.split(".projectops/closure/decisions/SEO-AGENCY-SITE-CHECK3A.json").join("a-decision")), [], "does not contain the item"),
+  X("no-first-run-context-file-is-refused", "EP-4", (b) => drop(b, `${REC}run1.context.md`), ["EP-1"], "run1.context.md is missing"),
   // EP-5 worker text is not a decision
   X("a-resumed-item-called-a-committed-decision-is-refused", "EP-5", (b) => run2Edit(b, (c) => { const it = item(c, RESUME); it.kind = "committed-decision"; it.effectiveKind = "committed-decision"; it.tier = 0; })),
   X("a-resumed-item-called-approved-memory-is-refused", "EP-5", (b) => run2Edit(b, (c) => { const it = item(c, RESUME); it.kind = "approved-memory"; it.effectiveKind = "approved-memory"; it.tier = 1; })),
@@ -1017,9 +1139,21 @@ const MUTATIONS = [
   X("worker-text-shown-to-an-untainted-run-is-refused", "EP-5", (b) => run2Edit(b, (c) => { c.taintsRun = false; })),
   X("a-shown-list-with-a-gap-in-its-ranks-is-refused", "EP-5", (b) => run2Edit(b, (c) => { item(c, RESUME).rank = 9; })),
   X("a-resumed-item-whose-tier-is-not-its-kinds-is-refused", "EP-5", (b) => run2Edit(b, (c) => { item(c, CUT).tier = 3; })),
+  X("a-worker-note-at-rank-one-is-refused", "EP-5", (b) => run2Edit(b, (c) => { c.shown.unshift(shownItem("worker-notes:x", {})); renumber(c); }), ["EP-4"], "worker-notes:x"),
+  X("a-worker-note-ranked-below-the-decision-only-is-refused", "EP-5", (b) => run2Edit(b, (c) => { c.shown.splice(1, 0, shownItem("worker-notes:y", {})); renumber(c); }), ["EP-4"], "worker-notes:y"),
+  X("a-worker-note-called-a-finding-is-refused", "EP-5", (b) => run2Edit(b, (c) => { const it = item(c, CUT); it.kind = "finding"; it.effectiveKind = "finding"; }), [], "not an execution record"),
+  X("a-shown-list-with-no-committed-decision-is-refused", "EP-5", (b) => run2Edit(b, (c) => { c.shown = c.shown.filter((entry) => entry.id !== DECISION); renumber(c); }), ["EP-4"], "no committed decision"),
+  X("a-shown-list-with-tiers-out-of-order-is-refused", "EP-5", (b) => run2Edit(b, (c) => { c.shown = [c.shown[0], item(c, CUT), c.shown[1], item(c, RESUME)]; renumber(c); }), [], "tiers are not non-decreasing"),
+  X("a-committed-decision-sourced-from-an-index-is-refused", "EP-5", (b) => run2Edit(b, (c) => { item(c, DECISION).source = "index"; }), [], "only committed bytes make a decision"),
+  X("a-first-run-that-is-not-tainted-is-refused", "EP-5", (b) => { entryEdit(b, 1, (e) => { e.taintsRun = false; }); entryEdit(b, 2, (e) => { e.taintsRun = false; }); }, [], "run 1"),
   // EP-6 it reached closed by itself
-  X("a-run-with-no-first-validator-pass-is-refused", "EP-6", (b) => log2(b, "  PASS validator validate-site\n", "")),
-  X("a-run-with-no-phase-copy-validator-pass-is-refused", "EP-6", (b) => log2(b, "  PASS validator validate-site@phase-copy\n", "")),
+  X("a-run-with-no-first-validator-pass-is-refused", "EP-6", (b) => log2(b, "  PASS validator validate-site\n", ""), [], "attempt section"),
+  X("validator-passes-only-after-the-review-are-refused", "EP-6", (b) => {
+    log2(b, "  PASS validator validate-site\n", "");
+    log2(b, "  PASS validator validate-site@phase-copy\n", "");
+    log2(b, "  independent review by codex-reviewer: APPROVE\n", "  independent review by codex-reviewer: APPROVE\n  PASS validator validate-site\n  PASS validator validate-site@phase-copy\n");
+  }, [], "attempt section"),
+  X("a-run-with-no-phase-copy-validator-pass-is-refused", "EP-6", (b) => log2(b, "  PASS validator validate-site@phase-copy\n", ""), [], "validate-site@phase-copy"),
   X("a-run-whose-review-did-not-approve-is-refused", "EP-6", (b) => log2(b, "independent review by codex-reviewer: APPROVE", "independent review by codex-reviewer: REQUEST_CHANGES")),
   X("a-run-with-no-gatekeeper-approval-is-refused", "EP-6", (b) => log2(b, "approved continuation", "stopped continuation")),
   X("a-run-that-never-closed-is-refused", "EP-6", (b) => log2(b, "awaiting_closure -> closed", "awaiting_closure -> awaiting_closure")),
@@ -1044,8 +1178,21 @@ const MUTATIONS = [
   X("a-reviewer-record-at-another-commit-is-refused", "EP-6", (b) => reviewer(b, (r) => { r.baseHead = "4".repeat(40); })),
   X("a-failed-validator-check-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}run2.evidence.json`, (e) => { e.checks[0].passed = false; })),
   X("a-validator-check-with-a-non-zero-exit-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}run2.evidence.json`, (e) => { e.checks[1].exitCode = 1; })),
-  X("a-prohibited-effect-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}run2.effects.json`, (e) => { e.productionTouched = true; })),
-  X("an-effects-record-with-a-missing-field-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}run2.effects.json`, (e) => { delete e.rawSecretStored; })),
+  X("a-prohibited-effect-is-refused", "EP-6", (b) => effectsWith(b, (e) => { e.productionTouched = true; })),
+  X("an-effects-record-with-a-missing-field-is-refused", "EP-6", (b) => effectsWith(b, (e) => { delete e.rawSecretStored; })),
+  X("an-effects-record-changed-after-the-evidence-hashed-it-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}run2.effects.json`, () => {}), [], "effectsSha256"),
+  X("a-findings-record-changed-after-the-evidence-hashed-it-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}run2.findings.json`, () => {}), [], "findingsSha256"),
+  X("a-reviewer-record-changed-after-the-evidence-hashed-it-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}run2.reviewer.json`, () => {}), [], "reviewerSha256"),
+  X("an-evidence-effects-hash-that-is-another-hash-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}run2.evidence.json`, (e) => { e.effectsSha256 = "0".repeat(64); }), [], "effectsSha256"),
+  X("an-evidence-findings-hash-that-is-another-hash-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}run2.evidence.json`, (e) => { e.findingsSha256 = "0".repeat(64); }), [], "findingsSha256"),
+  X("an-evidence-reviewer-hash-that-is-another-hash-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}run2.evidence.json`, (e) => { e.reviewerSha256 = "0".repeat(64); }), [], "reviewerSha256"),
+  X("a-closure-decided-by-a-person-is-refused", "EP-6", (b) => closure(b, (c) => { c.decidedBy = "Murad"; }), [], "decided by"),
+  X("a-closure-decided-by-an-owner-ish-string-is-refused", "EP-6", (b) => closure(b, (c) => { c.decidedBy = "ChatGPT (typed by the owner)"; }), [], "decided by"),
+  X("a-gatekeeper-decided-by-a-person-is-refused", "EP-6", (b) => gate(b, (g) => { g.decidedBy = "Murad"; }), [], "gatekeeper decision was decided by"),
+  X("a-gatekeeper-decision-typed-by-hand-is-refused", "EP-6", (b) => gate(b, (g) => { g.provenance = "OwnerTypedByHand"; }), [], "provenance"),
+  X("a-gatekeeper-decision-with-no-provenance-is-refused", "EP-6", (b) => gate(b, (g) => { delete g.provenance; }), [], "provenance"),
+  X("a-log-where-the-gatekeeper-answer-is-not-the-brokers-is-refused", "EP-6", (b) => log2(b, "gatekeeper decision provenance: InstallationBrokerProviderAnswer", "gatekeeper decision provenance: OwnerTypedByHand"), [], "broker's provider answer"),
+  X("a-log-where-the-closure-answer-is-not-the-brokers-is-refused", "EP-6", (b) => log2(b, "closure decision provenance: InstallationBrokerProviderAnswer", "closure decision provenance: OwnerTypedByHand"), [], "broker's provider answer"),
   X("a-final-work-record-that-is-not-complete-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}final-work.v1.json`, (w) => { w.state = "AWAITING_GATE"; })),
   X("a-final-work-record-asking-for-the-owner-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}final-work.v1.json`, (w) => { w.ownerRequired = true; })),
   X("a-final-work-record-of-the-first-session-is-refused", "EP-6", (b) => jsonEdit(b, `${REC}final-work.v1.json`, (w) => { w.sessionId = "SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-27a8176e"; })),
@@ -1090,13 +1237,25 @@ const MUTATIONS = [
   X("notes-that-do-not-say-no-product-code-are-refused", "EP-8", (b) => { b.notes = b.notes.split("no product code").join("some product code"); }),
   X("notes-that-do-not-say-no-model-call-are-refused", "EP-8", (b) => { b.notes = b.notes.split("no model call").join("a model call"); }),
   X("notes-that-do-not-say-d4-stays-are-refused", "EP-8", (b) => { b.notes = b.notes.split("does not lift D4").join("lifts D4"); }),
-  X("a-validator-that-imports-core-source-is-refused", "EP-8", (b) => { b.selfSource += `\nconst coreSource = req${"uire"}("../core/src/index.js");\n`; }),
-  X("a-validator-that-imports-agent-source-is-refused", "EP-8", (b) => { b.selfSource += `\nconst agentSource = req${"uire"}("../agent/src/context/contextManager.js");\n`; }),
-  X("a-validator-that-imports-a-package-is-refused", "EP-8", (b) => { b.selfSource += `\nconst tool = req${"uire"}("vitest");\n`; }),
-  X("a-validator-that-imports-the-network-is-refused", "EP-8", (b) => { b.selfSource += `\nconst net = req${"uire"}("https");\n`; }),
-  X("a-validator-that-imports-by-a-computed-name-is-refused", "EP-8", (b) => { b.selfSource += `\nconst name = "f" + "s";\nreq${"uire"}(name);\n`; }),
-  X("a-validator-that-writes-a-file-is-refused", "EP-8", (b) => { b.selfSource += `\nfs.write${"FileSync"}("x", "y");\n`; }),
-  X("a-validator-that-calls-the-network-is-refused", "EP-8", (b) => { b.selfSource += `\nfet${"ch"}("https://example.invalid");\n`; }),
+  X("a-validator-that-imports-core-source-is-refused", "EP-8", (b) => { b.selfSource += `\nconst coreSource = req${"uire"}("../core/src/index.js");\n`; }, [], "must load exactly"),
+  X("a-validator-that-imports-agent-source-is-refused", "EP-8", (b) => { b.selfSource += `\nconst agentSource = req${"uire"}("../agent/src/context/contextManager.js");\n`; }, [], "must load exactly"),
+  X("a-validator-that-imports-a-package-is-refused", "EP-8", (b) => { b.selfSource += `\nconst tool = req${"uire"}("vitest");\n`; }, [], "must load exactly"),
+  X("a-validator-that-imports-the-os-module-is-refused", "EP-8", (b) => { b.selfSource += `\nconst system = req${"uire"}("os");\n`; }, [], "must load exactly"),
+  X("a-validator-that-loads-a-module-twice-is-refused", "EP-8", (b) => { b.selfSource += `\nconst again = req${"uire"}("fs");\n`; }, [], "must load exactly"),
+  X("a-validator-that-drops-an-import-is-refused", "EP-8", (b) => { b.selfSource = b.selfSource.replace(`const crypto = req${"uire"}("crypto");`, "const crypto = null;"); }, [], "must load exactly"),
+  X("a-validator-that-imports-by-a-computed-name-is-refused", "EP-8", (b) => { b.selfSource += `\nconst name = "f" + "s";\nreq${"uire"}(name);\n`; }, [], "module loader"),
+  X("a-validator-that-aliases-the-module-loader-is-refused", "EP-8", (b) => { b.selfSource += `\nconst load = req${"uire"};\nload("fs");\n`; }, [], "module loader"),
+  X("a-validator-that-calls-the-module-loader-through-a-property-is-refused", "EP-8", (b) => { b.selfSource += `\nreq${"uire"}.resolve("fs");\n`; }, [], "module loader"),
+  X("a-validator-that-writes-a-file-is-refused", "EP-8", (b) => { b.selfSource += `\nf${"s"}.write${"FileSync"}("x", "y");\n`; }, [], "s.writeFileSync"),
+  X("a-validator-that-creates-a-folder-is-refused", "EP-8", (b) => { b.selfSource += `\nf${"s"}.mk${"dirSync"}("x");\n`; }, [], "s.mkdirSync"),
+  X("a-validator-that-removes-a-file-is-refused", "EP-8", (b) => { b.selfSource += `\nf${"s"}.rm${"Sync"}("x");\n`; }, [], "s.rm" + "Sync"),
+  X("a-validator-that-names-a-write-without-fs-is-refused", "EP-8", (b) => { b.selfSource += `\nconst sink = { write${"File"}: 1 };\n`; }, [], "word"),
+  X("a-validator-that-names-a-process-spawner-is-refused", "EP-8", (b) => { b.selfSource += `\nconst spawner = "child_" + "process";\nconst child_${"process"} = 1;\n`; }, [], "word"),
+  X("a-validator-that-calls-the-network-is-refused", "EP-8", (b) => { b.selfSource += `\nfe${"tch"}("x");\n`; }, [], "word"),
+  X("a-validator-that-names-the-web-module-is-refused", "EP-8", (b) => { b.selfSource += `\nconst h = ht${"tp"};\n`; }, [], "word"),
+  X("a-validator-that-evaluates-text-is-refused", "EP-8", (b) => { b.selfSource += `\nev${"al"}("1");\n`; }, [], "word"),
+  X("a-validator-that-builds-code-from-text-is-refused", "EP-8", (b) => { b.selfSource += `\nnew Fun${"ction"}("return 1");\n`; }, [], "builds code"),
+  X("a-validator-that-imports-dynamically-is-refused", "EP-8", (b) => { b.selfSource += `\nim${"port"}("x");\n`; }, [], "builds code"),
   // EP-9 register it last
   X("a-validator-missing-from-validate-all-is-refused", "EP-9", (b) => registered(b, "validateAll", (t) => without(t, MODULE_BLOCK))),
   X("a-validator-missing-from-the-cached-runner-is-refused", "EP-9", (b) => registered(b, "cachedRunner", (t) => without(t, MODULE_BLOCK))),
@@ -1111,11 +1270,95 @@ const MUTATIONS = [
 
 // ---------------------------------------------------------------------------------------------------------
 
+const MAX_RULE_MS = 200;
+const HOSTILE_BYTES = 262144;
+
+/** Hostile logs, each 256 KiB: a rule that reads a log must stay linear on all of them. */
+function hostileLogs() {
+  return {
+    "blank lines": "\n".repeat(HOSTILE_BYTES),
+    "CRLF blank lines": "\r\n".repeat(HOSTILE_BYTES / 2),
+    "space-only lines": " \n".repeat(HOSTILE_BYTES / 2),
+    "one very long line": "a".repeat(HOSTILE_BYTES),
+    "a long line of the prior-work shape": `Prior work: ${" session".repeat(HOSTILE_BYTES / 8)}`,
+    "a long line of the cut-off shape": `[cutoff] worker wrote [${"[]".repeat(HOSTILE_BYTES / 4)}`,
+    "many lines that start like a real one": "Stored context: 1 item(s) and\n".repeat(HOSTILE_BYTES / 30),
+  };
+}
+
+function timingErrors(base) {
+  const errors = [];
+  let runs = 0;
+  for (const [name, text] of Object.entries(hostileLogs())) {
+    const copy = structuredClone(base);
+    copy.files[LOG1] = text;
+    copy.files[LOG2] = text;
+    for (const [id, rule] of RULES) {
+      if (!["EP-2", "EP-3", "EP-4", "EP-6", "EP-7"].includes(id)) continue;
+      const started = Date.now();
+      try {
+        rule(copy);
+      } catch (error) {
+        errors.push(`EP-T: ${id} threw on the ${name} log: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      const took = Date.now() - started;
+      runs += 1;
+      if (took > MAX_RULE_MS) errors.push(`EP-T: ${id} took ${took} ms on a 256 KiB log of ${name}; a log pattern is not linear`);
+    }
+  }
+  return { errors, runs };
+}
+
+/** A file that parses as null, a list, a string, a number or an empty object, and every runner text gone or empty, must never crash a rule. */
+function crashErrors(base) {
+  const errors = [];
+  let runs = 0;
+  const check = (label, copy) => {
+    runs += 1;
+    for (const [id, problems] of Object.entries(judge(copy))) if (problems.some((problem) => problem.startsWith(`${id} threw:`))) errors.push(`EP-F: ${id} threw on ${label}: ${problems.find((problem) => problem.includes("threw:"))}`);
+  };
+  for (const rel of EXPECTED_FILES.filter((name) => name.endsWith(".json"))) {
+    for (const body of ["null", "[]", "\"x\"", "7", "{}"]) {
+      const copy = structuredClone(base);
+      put(copy, rel, body);
+      check(`${rel} holding ${body}`, copy);
+    }
+  }
+  for (const key of ["notes", "validateAll", "cachedRunner", "manifest"]) {
+    for (const body of [null, "", "[]"]) {
+      const copy = structuredClone(base);
+      copy[key] = body;
+      check(`${key} holding ${JSON.stringify(body)}`, copy);
+    }
+  }
+  return { errors, runs };
+}
+
+/** Line endings in the notes, this file and the two runner lists change nothing: the clean judge and every EP-9 mutation behave the same. */
+function lineEndingErrors(base) {
+  const errors = [];
+  const crlf = structuredClone(base);
+  for (const key of TEXT_KEYS) if (typeof crlf[key] === "string") crlf[key] = crlf[key].replace(/\n/g, "\r\n");
+  normaliseBundle(crlf);
+  if (!same(crlf, base)) errors.push("EP-L: normalising CRLF copies of the notes, this file and the runner lists does not give the LF text");
+  if (Object.keys(judge(crlf)).length > 0) errors.push("EP-L: the clean judge fails on CRLF copies of the notes, this file and the runner lists");
+  let runs = 0;
+  for (const m of MUTATIONS.filter((entry) => entry.rule === "EP-9")) {
+    const copy = structuredClone(base);
+    for (const key of TEXT_KEYS) if (typeof copy[key] === "string") copy[key] = copy[key].replace(/\n/g, "\r\n");
+    normaliseBundle(copy);
+    m.apply(copy);
+    runs += 1;
+    if (!(m.rule in judge(copy))) errors.push(`EP-L: mutation '${m.name}' survives on CRLF copies`);
+  }
+  return { errors, runs };
+}
+
 function selfTest(base) {
   const errors = [];
   const results = [];
   const clean = judge(base);
-  if (Object.keys(clean).length > 0) return { errors: [`EP-M: the unmutated evidence does not pass: ${Object.keys(clean).join(", ")}`], results };
+  if (Object.keys(clean).length > 0) return { errors: [`EP-M: the unmutated evidence does not pass: ${Object.keys(clean).join(", ")}`], results, extras: [] };
   const names = MUTATIONS.map((m) => m.name);
   if (new Set(names).size !== names.length) errors.push("EP-M: two mutations share a name");
   for (const m of MUTATIONS) {
@@ -1130,15 +1373,42 @@ function selfTest(base) {
       errors.push(`EP-M: mutation '${m.name}' changed nothing`);
       continue;
     }
-    const fired = Object.keys(judge(copy)).sort();
+    const all = judge(copy);
+    const fired = Object.keys(all).sort();
     const wanted = [...new Set([m.rule, ...m.also])].sort();
-    results.push({ name: m.name, rule: m.rule, fired });
+    const own = all[m.rule] ?? [];
+    const matched = m.expect === null ? null : own.find((problem) => problem.includes(m.expect));
+    results.push({ name: m.name, rule: m.rule, fired, matched: matched ?? null });
+    if (Object.values(all).some((problems) => problems.some((problem) => / threw: /.test(problem)))) errors.push(`EP-M: mutation '${m.name}' made a rule throw instead of refuse`);
     if (!fired.includes(m.rule)) errors.push(`EP-M: mutation '${m.name}' survived; ${m.rule} did not fire (${fired.join(", ") || "nothing"})`);
     else if (!same(fired, wanted)) errors.push(`EP-M: mutation '${m.name}' wanted ${wanted.join(", ")} and fired ${fired.join(", ")}`);
+    else if (m.expect !== null && matched === undefined) errors.push(`EP-M: mutation '${m.name}' was killed by ${m.rule} but not by the check that names '${m.expect}'`);
   }
   const proved = new Set(MUTATIONS.map((m) => m.rule));
   for (const [id] of RULES) if (!proved.has(id)) errors.push(`EP-M: rule ${id} has no named mutation`);
-  return { errors, results };
+  // The control: with a rule's body replaced by `return []`, every one of that rule's mutations must survive.
+  let deadRuns = 0;
+  for (const m of MUTATIONS) {
+    const copy = structuredClone(base);
+    try {
+      m.apply(copy);
+    } catch {
+      continue;
+    }
+    deadRuns += 1;
+    if (m.rule in judge(copy, m.rule)) errors.push(`EP-D: mutation '${m.name}' still fires ${m.rule} with that rule's body replaced by an empty one`);
+  }
+  const timing = timingErrors(base);
+  const crash = crashErrors(base);
+  const endings = lineEndingErrors(base);
+  errors.push(...timing.errors, ...crash.errors, ...endings.errors);
+  const extras = [
+    `  dead-rule control: ${deadRuns} mutations all survive a judge whose own rule body is replaced by an empty one`,
+    `  regex timing: ${timing.runs} rule runs on 256 KiB hostile logs, each under ${MAX_RULE_MS} ms`,
+    `  crash resistance: ${crash.runs} judge runs on files holding null, a list, a string, a number or an empty object: no rule threw`,
+    `  line endings: the clean judge and ${endings.runs} EP-9 mutations behave the same on CRLF copies`,
+  ];
+  return { errors, results, extras };
 }
 
 function run() {
@@ -1148,22 +1418,24 @@ function run() {
   return selfTest(bundle).errors;
 }
 
-if (require.main === module) {
+if (process.argv[1] && path.basename(process.argv[1]) === path.basename(__filename)) {
   const bundle = loadBundle();
   const fired = judge(bundle);
   const errors = Object.keys(fired).length > 0 ? messagesOf(fired) : [];
-  const test = errors.length === 0 ? selfTest(bundle) : { errors: [], results: [] };
+  const test = errors.length === 0 ? selfTest(bundle) : { errors: [], results: [], extras: [] };
   const all = [...errors, ...test.errors];
   if (all.length > 0) {
     all.forEach((error) => console.error(`FAIL: ${error}`));
     console.error(`${THIS_VALIDATOR}: ${all.length} error(s)`);
     process.exit(1);
   }
-  if (process.argv.includes("--verbose")) for (const r of test.results) console.log(`  killed by ${r.fired.join("+")}: ${r.name}`);
+  if (process.argv.includes("--verbose")) for (const r of test.results) console.log(`  killed by ${r.fired.join("+")}: ${r.name}${r.matched === null ? "" : ` [${r.matched.slice(0, 90)}]`}`);
   for (const [id] of RULES) {
     const mine = test.results.filter((r) => r.rule === id);
-    console.log(`  ${id} ${RULE_NAMES[id]}: ${mine.length} named mutations killed by ${id}`);
+    const exact = mine.filter((r) => r.matched !== null).length;
+    console.log(`  ${id} ${RULE_NAMES[id]}: ${mine.length} named mutations killed by ${id} (${exact} also checked against the exact problem text)`);
   }
+  for (const line of test.extras) console.log(line);
   console.log(`${THIS_VALIDATOR}: PASS (${RULES.length} rules over ${Object.keys(bundle.files).length} evidence files; ${test.results.length} named mutations killed)`);
 }
 

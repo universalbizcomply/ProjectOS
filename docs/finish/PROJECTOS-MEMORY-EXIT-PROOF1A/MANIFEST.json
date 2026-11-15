@@ -11,6 +11,7 @@
     "agency-records/gatekeeper-decision.json": "sha256:10ec884faa6e79c69425a17d4d0ddfb3a853a1a4d501c8fcb2b4efaf6157ddbc",
     "agency-records/gatekeeper-ledger.json": "sha256:09e2f56ca92c204e3d88a6d255763d07747ab8b59f47441db7b443e22f7bb52c",
     "agency-records/run1.brief.json": "sha256:11b4ac4279c86396116d48a5ac68448f1ab3f024cc83680f917581792ade00cc",
+    "agency-records/run1.context.md": "sha256:cb830523e588375b7359010e67abb6dd4757c5dc79fa51361d137255363eb77c",
     "agency-records/run1.invocation.json": "sha256:6e2162fcfbc7c090bad6228aa3691dba941c4c33edb4e7d1536a390dedde9610",
     "agency-records/run2.brief.json": "sha256:f030ea81288b79352acfc5a3ef5d59a7034c6a078b65927f08ebbc4852a6b731",
     "agency-records/run2.effects.json": "sha256:395ccc50ae59801088461594d8b4ea31dbf0464630a785ce657d194558f2571f",
