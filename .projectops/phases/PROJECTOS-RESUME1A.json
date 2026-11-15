@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-RESUME1A",
+  "project": "ProjectOS",
+  "objective": "Gives a new worker on an in-progress phase what the cut-off attempt left, through the context manager: the work record's closed-vocabulary fields only (state, lastStopCode, subjectCommit), earlier findings and evidence labelled worker-authored and never ranked as decisions, approved decisions and memory, and the dirty paths and hashes the loop observed. A dirty path outside the phase's writePaths refuses the run. A moved HEAD marks old evidence stale. Selection and run.ts routing are unchanged; the work record stays non-authority; no --session is needed.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-15T05:13:42.582Z",
+      "note": "Owner-approved plan v1.36 and delta rev 2 (row 11). Built by an agent under the lead (Claude) in a parallel worktree after MEMORY-PROVENANCE1A and CONTEXT-MANAGER1A; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-15T05:13:43.453Z",
+      "note": "resume: work record closed fields, worker-authored findings, loop-observed dirty paths with write-path refusal, stale marks"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-15T05:13:44.247Z",
+      "note": "core 5005/5005 (115 files), agent 4199/4199 (134 files), control-center 952/952 (69 files) on the merged stack 5cc1139d after a rebuild of core then agent; one validator-only commit 1edb76ca followed (the SA-7 pin moved truthfully for the merged ports) and val-projectos-skills-adopt1a, val-projectos-resume1a and val-projectos-context-manager1a were re-run and pass. val-projectos-resume1a (14 rules, 171 named mutations killed), val-projectos-work-record-not-authority1a, val-projectos-boot-continue1a, val-projectos-context-manager1a, port-memory1a, port-context1a, port-skills1a, port-approvals1a, port-credit1a, memory-provenance1a, memory-stores1a and validate-no-secrets. validate-all on the merged stack 5cc1139d: 176 PASS, 2 FAIL, 2 retired (178 registered). One failure is the known Stage 4 carry val-cd-b4-sealed-expected-window-facts1a (AdmittedRequest::session_digest is public in dormant Host code); the other was SA-7 in val-projectos-skills-adopt1a, which pinned the production ports without the link-count port the sibling phase added: the pin was moved truthfully in 1edb76ca and the validator now passes with the SA-7 mutation still killed."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-15T05:13:45.076Z",
+      "note": "Evidence: docs/finish/PROJECTOS-RESUME1A.md (stacked at 1edb76ca)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-15T05:13:45.907Z",
+      "note": "closure tail only - no implementation. Reviews: ECC security-reviewer, fix round 1, one ECC recheck and a final round, re-verified by the lead."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-15T05:13:46.828Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
