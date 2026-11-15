@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-CONTEXT-MANAGER1A",
   "project": "ProjectOS",
   "objective": "Plan 3.4. The owner approved one edit to PROTECTED run.ts in the v1.36 delta: one added runLoop option, runEnvelope: admittedRunEnvelopeOf(ctx), and no other line. Retrieval is keyed on that envelope and recorded in a loop-written ledger. The runner writes .projectops/execution/<session>.context.md (fenced, untrusted, secret-scanned, capped) and the brief names it as records.contextPath. Compaction is deterministic. The evidence names the stored context read. PX-17, AP-29, PM-16 and PK-16 are narrowed to the new call sites.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-15T00:24:46.746Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-15T00:24:48.202Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-CONTEXT-MANAGER1A:owner-closure:f0d253d9"
     }
   ]
 }
