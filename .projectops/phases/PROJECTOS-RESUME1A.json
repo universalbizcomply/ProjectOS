@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-RESUME1A",
   "project": "ProjectOS",
   "objective": "Gives a new worker on an in-progress phase what the cut-off attempt left, through the context manager: the work record's closed-vocabulary fields only (state, lastStopCode, subjectCommit), earlier findings and evidence labelled worker-authored and never ranked as decisions, approved decisions and memory, and the dirty paths and hashes the loop observed. A dirty path outside the phase's writePaths refuses the run. A moved HEAD marks old evidence stale. Selection and run.ts routing are unchanged; the work record stays non-authority; no --session is needed.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-15T05:13:46.828Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-15T05:13:48.784Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-RESUME1A:owner-closure:1edb76ca"
     }
   ]
 }
