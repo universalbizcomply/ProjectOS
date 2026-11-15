@@ -35,12 +35,14 @@
  * asserts until owner proof exists, so independence holds only as far as that does.
  */
 import {
+  attestSkillReview,
   buildSkillProposal,
   checkPromotedSkill,
   decideSkillProposal,
+  importedSkillOrigin,
   promoteSkill,
+  proposedSkillOrigin,
   readSkillProposal,
-  renderSkillBlock,
   skillNameProblem,
   skillOk,
   skillRefused,
@@ -48,11 +50,11 @@ import {
   type SkillActor,
   type SkillDecisionOutcome,
   type SkillFile,
-  type SkillOrigin,
-  type SkillPromptBlock,
+  type SkillOriginMark,
   type SkillProposal,
   type SkillRefused,
   type SkillResult,
+  type SkillReviewVerifier,
 } from '@projectos/core';
 import { containsSecret } from '../authoringEvidence.js';
 import { join, projectopsDir } from '../context.js';
@@ -138,26 +140,52 @@ function activeHash(sys: System, root: string, name: string): SkillResult<string
 }
 
 export interface SkillProposalRequest {
-  /** The whole package, `SKILL.md` first or last. Imported text arrives the same way. */
+  /** The whole package, `SKILL.md` first or last. Imported text arrives the same way, through `importSkill`. */
   readonly files: readonly SkillFile[];
-  /** `imported` when the text came from outside, which only the owner may do. A proposal by default. */
-  readonly origin?: SkillOrigin;
 }
 
-/** Record a proposed skill for review. Nothing that is read as a skill is touched. */
+/**
+ * A request that carries an `origin` is refused, whatever it says: THE KERNEL SETS THE ORIGIN (PROJECTOS-SKILLS-ADOPT1A). The door a
+ * request comes through decides it (`proposeSkill` is `proposed`, `importSkill` is `imported` and owner-only), and a field of the request
+ * has no say. A request read through a getter or a Proxy that throws counts as supplying one.
+ */
+function suppliesOrigin(request: unknown): boolean {
+  try {
+    return request !== null && typeof request === 'object' && Reflect.has(request, 'origin');
+  } catch {
+    return true;
+  }
+}
+
+const originSuppliedRefusal = (): SkillRefused => skillRefused('SKILL_ORIGIN_NOT_KERNEL', 'The origin of a skill is set by the kernel, not by the request. Nothing was proposed.');
+
+/** Record a proposed skill for review. Nothing that is read as a skill is touched. The origin is `proposed`, always. */
 export function proposeSkill(sys: System, root: string, caller: SkillActor, request: SkillProposalRequest): SkillResult<SkillProposal> {
+  if (suppliesOrigin(request)) return originSuppliedRefusal();
+  const mark = proposedSkillOrigin(caller);
+  return mark.ok ? recordProposal(sys, root, mark.value, request.files) : mark;
+}
+
+/** Bring text in from outside, as the owner and nobody else. It is reviewed like any other, by someone who did not bring it. */
+export function importSkill(sys: System, root: string, caller: SkillActor, request: SkillProposalRequest): SkillResult<SkillProposal> {
+  if (suppliesOrigin(request)) return originSuppliedRefusal();
+  const mark = importedSkillOrigin(caller);
+  return mark.ok ? recordProposal(sys, root, mark.value, request.files) : mark;
+}
+
+function recordProposal(sys: System, root: string, mark: SkillOriginMark, files: readonly SkillFile[]): SkillResult<SkillProposal> {
   const { pending } = listPendingSkillProposals(sys, root);
   if (pending.length >= MAX_PENDING_PROPOSALS) {
     return skillRefused('SKILL_QUEUE_FULL', `${MAX_PENDING_PROPOSALS} proposals are already waiting for review. Nothing was proposed.`);
   }
-  const mine = pending.filter((proposal) => proposal.provenance.author.toLowerCase() === caller.actor.toLowerCase());
+  const mine = pending.filter((proposal) => proposal.provenance.author.toLowerCase() === mark.author.toLowerCase());
   if (mine.length >= MAX_PENDING_PER_AUTHOR) {
-    return skillRefused('SKILL_QUEUE_FULL', `${caller.actor} already has ${MAX_PENDING_PER_AUTHOR} proposals waiting for review. Nothing was proposed.`);
+    return skillRefused('SKILL_QUEUE_FULL', `${mark.author} already has ${MAX_PENDING_PER_AUTHOR} proposals waiting for review. Nothing was proposed.`);
   }
-  const input = { files: request.files, origin: request.origin ?? 'proposed', author: caller.actor, authorRole: caller.role, session: caller.session, proposedAt: sys.now() };
+  const input = { files, origin: mark, proposedAt: sys.now() };
   const probe = buildSkillProposal(input, null);
   if (!probe.ok) return probe;
-  const credential = credentialRefusal(request.files);
+  const credential = credentialRefusal(files);
   if (credential !== null) return credential;
   const active = activeHash(sys, root, probe.value.name);
   if (!active.ok) return active;
@@ -204,6 +232,22 @@ export interface SkillReviewRequest {
   readonly reviewedHash: string;
 }
 
+/** What a promotion asks of the kernel: which project this checkout is, and the verifier that answers for the review. */
+export interface SkillPromotionPorts {
+  /** The tenant and project this checkout is governed as, or why it cannot say. Anything but an identity refuses a promotion. */
+  readonly checkout: () => unknown;
+  /** Answers exactly `true` for one review of one package. Absent, nothing is promoted: there is no production one yet. */
+  readonly reviewVerifier?: SkillReviewVerifier;
+}
+
+function bindingOf(ports: SkillPromotionPorts): unknown {
+  try {
+    return ports.checkout();
+  } catch {
+    return null;
+  }
+}
+
 function decided(sys: System, root: string, caller: SkillActor, request: SkillReviewRequest, outcome: SkillDecisionOutcome): SkillResult<SkillProposal> {
   const proposal = loadSkillProposal(sys, root, request.id);
   if (!proposal.ok) return proposal;
@@ -227,11 +271,16 @@ function land(sys: System, root: string, approved: SkillProposal): SkillResult<P
     : skillRefused('SKILL_LANDED_INCOMPLETE', `The skill landed, but proposal ${approved.id} could not be marked. Do not review it again.`);
 }
 
-/** An independent reviewer approves one proposal, and it is promoted, or it is not promoted at all. */
-export function reviewAndPromoteSkill(sys: System, root: string, caller: SkillActor, request: SkillReviewRequest): SkillResult<PromotedSkill> {
+/**
+ * An independent reviewer approves one proposal, and it is promoted, or it is not promoted at all. PROMOTING IS AN ACTION: the
+ * approval is a proposal until the injected verifier answers exactly `true` for this review of this package, in this tenant and project.
+ */
+export function reviewAndPromoteSkill(sys: System, root: string, caller: SkillActor, request: SkillReviewRequest, ports: SkillPromotionPorts): SkillResult<PromotedSkill> {
   return underSkillLock(sys, root, () => {
     const approved = decided(sys, root, caller, request, 'approved');
     if (!approved.ok) return approved;
+    const vouched = attestSkillReview(approved.value, caller, bindingOf(ports), ports.reviewVerifier);
+    if (!vouched.ok) return vouched;
     const credential = credentialRefusal(approved.value.files);
     return credential ?? land(sys, root, approved.value);
   });
@@ -246,13 +295,4 @@ export function rejectSkillProposal(sys: System, root: string, caller: SkillActo
       ? rejected
       : skillRefused('SKILL_WRITE_FAILED', `Proposal ${request.id} could not be marked rejected.`);
   });
-}
-
-/** The fenced block for one promoted skill. The only way skill text leaves this module for a prompt. */
-export function loadSkillBlock(sys: System, root: string, name: string): SkillResult<SkillPromptBlock> {
-  const loaded = loadPromotedSkill(sys, root, name);
-  if (!loaded.ok) return loaded;
-  if (loaded.value === null) return skillRefused('SKILL_NOT_FOUND', `There is no promoted skill ${name}.`);
-  // A record is only a file, and core cannot run this check. The memory review asked for it at the prompt too.
-  return credentialRefusal(loaded.value.files) ?? renderSkillBlock(loaded.value);
 }

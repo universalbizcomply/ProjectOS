@@ -172,6 +172,8 @@ const MODULES = [
   "val-projectos-memory-provenance1a",
   // PROJECTOS-CONTEXT-MANAGER1A - retrieval is keyed on the admitted run envelope and recorded in a loop-written ledger; stored text reaches the worker only as a fenced, scanned, capped file named by the brief and gone before the checks; approved decisions are always loaded; compaction is deterministic and stops on overLimit; the evidence names what the worker was shown; run.ts changes by exactly one option.
   "val-projectos-context-manager1a",
+  // PROJECTOS-SKILLS-ADOPT1A — the kernel sets a skill's origin; promotion needs the skill validator, an independent review that a verifier vouched for and a hash pin; the loader adds only committed, pinned, unchanged skills to the context file, as fenced data after every decision; nothing in a skill is run; the bounded-repeat evasions are closed.
+  "val-projectos-skills-adopt1a",
   // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
   "val-projectos-connector-contract1a"
 ];

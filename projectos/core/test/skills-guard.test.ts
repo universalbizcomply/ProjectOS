@@ -153,3 +153,94 @@ describe('hostile input', () => {
     expect(performance.now() - started).toBeLessThan(15_000);
   }, 60_000);
 });
+
+describe('the bounded-repeat evasions PORT-SKILLS1A carried, closed (PROJECTOS-SKILLS-ADOPT1A)', () => {
+  const a = (count: number): string => 'a'.repeat(count);
+  const blockedBy = (rule: string, text: string): boolean => scan(text).some((finding) => finding.rule === rule && finding.weight === 'blocking');
+  const quiet = (rule: string, text: string): boolean => !rules(text).includes(rule);
+
+  describe.each([
+    ['py_read_secrets_file', (path: string) => `open('${path}.env')`],
+    ['py_read_secrets_file', (path: string) => `open("${path}.env", "r")`],
+    ['py_read_secrets_file', (path: string) => `Path('${path}.env').read_text()`],
+    ['py_read_secrets_file', (path: string) => `Path(os.path.expanduser("${path}.env")).read_text()`],
+    ['js_read_secrets_file', (path: string) => `readFileSync('${path}.env')`],
+    ['js_read_secrets_file', (path: string) => `fs.readFile("${path}.env", cb)`],
+  ])('%s', (rule, spell) => {
+    it.each([0, 10, 64, 65, 70, 300, 3000])('a path of %i characters before .env is still read', (length) => {
+      expect(blockedBy(rule, spell(length === 0 ? '' : `${a(length)}/`))).toBe(true);
+    });
+  });
+
+  it('a long name after .env is still read, up to what a file name can be', () => {
+    expect(blockedBy('py_read_secrets_file', `open('.env.${a(100)}')`)).toBe(true);
+    expect(blockedBy('py_read_secrets_file', `Path('.env.${a(300)}').read_text()`)).toBe(true);
+    expect(blockedBy('js_read_secrets_file', `readFileSync('.env.${a(300)}')`)).toBe(true);
+  });
+
+  it('a write is still not a read, however long the path: the controls', () => {
+    expect(quiet('py_read_secrets_file', "open('.env', 'w')")).toBe(true);
+    expect(quiet('py_read_secrets_file', `open('${a(300)}/.env', 'w')`)).toBe(true);
+    expect(quiet('py_read_secrets_file', `open('${a(300)}/.env', mode='a')`)).toBe(true);
+    expect(quiet('py_read_secrets_file', "open('notes.txt')")).toBe(true);
+    expect(quiet('js_read_secrets_file', "readFileSync('notes.txt')")).toBe(true);
+    expect(quiet('py_read_secrets_file', `open('${a(300)}/.envrc')`)).toBe(true);
+  });
+
+  describe('agent_config_mod_shell', () => {
+    const args = (count: number): string => Array.from({ length: count }, (_, index) => `-e s/x${index}/y/`).join(' ');
+
+    it.each([0, 1, 4, 5, 6, 12, 40])('sed with %i arguments before -i is still a write', (count) => {
+      expect(blockedBy('agent_config_mod_shell', `sed ${count === 0 ? '' : `${args(count)} `}-i CLAUDE.md`)).toBe(true);
+    });
+
+    it('a long script between -i and the file is still a write', () => {
+      expect(blockedBy('agent_config_mod_shell', `sed -i 's/${a(200)}/b/' CLAUDE.md`)).toBe(true);
+      expect(blockedBy('agent_config_mod_shell', `sed -i 's/${a(450)}/b/' CLAUDE.md`)).toBe(true);
+    });
+
+    it('a backup suffix, a combined flag and the long form are all in place', () => {
+      for (const flag of ['-i.bak', '-ni', '-Ei', '--in-place', '--in-place=.bak']) {
+        expect(blockedBy('agent_config_mod_shell', `sed ${flag} s/a/b/ CLAUDE.md`), flag).toBe(true);
+      }
+    });
+
+    it('the other two configurations are judged the same way', () => {
+      expect(blockedBy('agent_home_config_mod_shell', `sed ${args(8)} -i ~/.projectops/config.yaml`)).toBe(true);
+      expect(blockedBy('other_agent_config_mod_shell', `sed ${args(8)} -i .claude/settings.json`)).toBe(true);
+    });
+
+    it('a long path before a redirect or tee is still a write', () => {
+      expect(blockedBy('agent_config_mod_shell', `echo x >> ${a(300)}/CLAUDE.md`)).toBe(true);
+      expect(blockedBy('agent_config_mod_shell', `echo x | tee ${a(300)}/CLAUDE.md`)).toBe(true);
+    });
+
+    it('the controls: no in-place flag, another file, a dash inside the script', () => {
+      expect(quiet('agent_config_mod_shell', 'sed s/a/b/ CLAUDE.md')).toBe(true);
+      expect(quiet('agent_config_mod_shell', 'sed -i s/a/b/ notes.txt')).toBe(true);
+      expect(quiet('agent_config_mod_shell', 'sed s/a-i/b/ CLAUDE.md')).toBe(true);
+      expect(quiet('agent_config_mod_shell', 'sed -n p CLAUDE.md')).toBe(true);
+    });
+  });
+
+  describe('and the fix is not a quadratic', () => {
+    const BUDGET_MS = 500;
+    const SIZE = 262_144;
+    const fileOf = (shape: string): string => {
+      const line = shape.repeat(Math.max(1, Math.floor(3_900 / shape.length)));
+      return `${line}\n`.repeat(Math.ceil(SIZE / (line.length + 1)));
+    };
+    const slowest = (text: string, ids: readonly string[]): readonly string[] =>
+      SKILL_THREAT_PATTERNS.filter((pattern) => ids.includes(pattern.id)).flatMap((pattern) => {
+        const regex = new RegExp(pattern.source, 'imu');
+        const started = performance.now();
+        regex.exec(text);
+        return performance.now() - started < BUDGET_MS ? [] : [pattern.id];
+      });
+    const IDS = ['py_read_secrets_file', 'js_read_secrets_file', 'agent_config_mod_shell', 'agent_home_config_mod_shell', 'other_agent_config_mod_shell'];
+
+    it.each(["open('", "Path('", `open('${'.envx'.repeat(900)}`, `Path('${'.env'.repeat(900)}`, 'readFile("', 'sed -i ', 'sed -e a ', 'sed -i x ', `sed ${'-i '.repeat(1200)}`, 'tee ', 'a > ', '>> ', '.env.env', 'CLAUDE.md '])('no pattern is slow on a file of %j', (shape) => {
+      expect(slowest(fileOf(shape), IDS)).toEqual([]);
+    }, 60_000);
+  });
+});

@@ -50,7 +50,11 @@ export function renderSkillBlock(raw: unknown): SkillResult<SkillPromptBlock> {
   const parsed = parseSkillFrontmatter(files.find((file) => file.path === SKILL_MD)?.text ?? '');
   if (!parsed.ok) return skillRefused('SKILL_TAMPERED', `Skill ${pin.name} has no readable ${SKILL_MD}.`, parsed.rule);
   const body = deliveredSkillText(description, parsed.value.body);
-  const fence = createHash('sha256').update(body, 'utf8').digest('hex').slice(0, 16);
-  const text = [`<untrusted-skill fence="${fence}" name="${pin.name}" package="${pin.packageHash}">`, NOT_AUTHORITY, body, `</untrusted-skill fence="${fence}">`].join('\n');
+  // NOTHING IN A PACKAGE'S OTHER FILES IS READ INTO THE PROMPT, AND NOTHING IN scripts/ IS EVER RUN. They are only named, so a reader knows they exist.
+  const others = files.map((file) => file.path).filter((path) => path !== SKILL_MD).sort();
+  const listing = others.length === 0 ? [] : [`Other files in this package (listed only: not shown here, and nothing in scripts/ is ever run): ${others.join(', ')}`];
+  const inner = [...listing, body].join('\n');
+  const fence = createHash('sha256').update(inner, 'utf8').digest('hex').slice(0, 16);
+  const text = [`<untrusted-skill fence="${fence}" name="${pin.name}" package="${pin.packageHash}">`, NOT_AUTHORITY, inner, `</untrusted-skill fence="${fence}">`].join('\n');
   return skillOk({ name: pin.name, packageHash: pin.packageHash, text, authority: 'none', grants: [] });
 }

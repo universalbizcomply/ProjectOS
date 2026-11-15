@@ -39,6 +39,8 @@ import { createHash } from 'node:crypto';
 import { ROLES, type Role } from '../types.js';
 import type { HashPinnedOutcome, HashPinnedProposal } from '../memory/hashPinned.js';
 import { skillOk, skillRefused, type SkillRefused, type SkillResult } from './refusal.js';
+import { SKILL_ORIGINS, isSkillOriginMark, type SkillOrigin, type SkillOriginMark } from './skillOrigin.js';
+import { skillAttestationOf } from './skillReview.js';
 import { skillPackageHash, skillPackageOverCaps, validateSkillPackage, type SkillFile, type SkillValidation } from './skillPackage.js';
 
 export const SKILL_PROPOSAL_STATES = ['pending', 'approved', 'promoted', 'rejected'] as const;
@@ -48,9 +50,8 @@ export type SkillDecisionOutcome = HashPinnedOutcome;
 /** Who may review. Owner-only until the actor is kernel-issued; the plan's D11 reviewer roles wait for that. */
 export const SKILL_REVIEWER_ROLES: readonly Role[] = ['owner'];
 
-/** Where the text came from. An import is text from outside, so only the owner may bring one in. */
-export const SKILL_ORIGINS = ['proposed', 'imported'] as const;
-export type SkillOrigin = (typeof SKILL_ORIGINS)[number];
+/** Where the text came from is set by the kernel (`skillOrigin.ts`), never by a request. Re-exported for the callers that read a pin. */
+export { SKILL_ORIGINS, type SkillOrigin };
 
 const SKILL_PROPOSAL_SCHEMA = 'projectos.skill-proposal/1';
 const PROMOTED_SKILL_SCHEMA = 'projectos.promoted-skill/1';
@@ -122,10 +123,8 @@ export interface PromotedSkill {
 
 export interface SkillProposalInput {
   readonly files: readonly SkillFile[];
-  readonly origin: SkillOrigin;
-  readonly author: string;
-  readonly authorRole: Role;
-  readonly session: string;
+  /** A mark the kernel minted (`proposedSkillOrigin`, `importedSkillOrigin`). It carries the author too, so no one can be named beside it. */
+  readonly origin: SkillOriginMark;
   readonly proposedAt: string;
 }
 
@@ -177,10 +176,12 @@ function validationRefusal(validation: SkillValidation): SkillRefused {
 
 /** Turn proposed text into a proposal. A package that fails the validator is not proposed at all. */
 export function buildSkillProposal(input: SkillProposalInput, activeHash: string | null): SkillResult<SkillProposal> {
-  const missing = provenanceProblem(input);
+  // THE KERNEL SETS THE ORIGIN. A string, a plain object and a copy of a mark are not marks, and the author is read from the mark alone. A mark is
+  // minted only by a door that knows its origin (an import is the owner's door and no one else's), so the origin needs no second look here.
+  if (!isSkillOriginMark(input.origin)) return skillRefused('SKILL_ORIGIN_NOT_KERNEL', 'The origin of a skill is set by the kernel, not by the caller. Nothing was proposed.');
+  const { origin, author, authorRole, session } = input.origin;
+  const missing = provenanceProblem({ author, authorRole, session, proposedAt: input.proposedAt });
   if (missing !== null) return skillRefused('SKILL_PROVENANCE', `A skill proposal must name ${missing}.`);
-  if (!isOrigin(input.origin)) return skillRefused('SKILL_PROVENANCE', 'A skill proposal must name a known origin.');
-  if (input.origin === 'imported' && input.authorRole !== 'owner') return skillRefused('SKILL_NOT_OWNER', 'Only the owner brings a skill in from outside.');
   const validation = validateSkillPackage(input.files);
   if (!validation.passed) return validationRefusal(validation);
   const body: SkillProposalBody = {
@@ -192,8 +193,8 @@ export function buildSkillProposal(input: SkillProposalInput, activeHash: string
     supersedes: activeHash,
     advisories: advisoriesOf(validation),
     rulesVersion: validation.rulesVersion,
-    origin: input.origin,
-    provenance: { author: input.author, authorRole: input.authorRole, session: input.session, proposedAt: input.proposedAt },
+    origin,
+    provenance: { author, authorRole, session, proposedAt: input.proposedAt },
   };
   const proposalHash = hashBody(body);
   return skillOk({ ...body, schema: SKILL_PROPOSAL_SCHEMA, id: idOf(proposalHash), proposalHash, state: 'pending', decision: null });
@@ -353,8 +354,14 @@ export function promoteSkill(proposal: SkillProposal, activeHash: string | null)
   if (!APPROVED_HERE.has(proposal) || reviewer === undefined || decision === null) {
     return skillRefused('SKILL_NOT_APPROVED', `Proposal ${proposal.id} has not been approved by an independent reviewer, so nothing is promoted.`);
   }
+  // PROMOTING IS AN ACTION: an approved proposal is still a proposal until the verifier answered `true` for exactly this review.
+  const claim = skillAttestationOf(proposal);
+  if (claim === undefined) return skillRefused('SKILL_REVIEW_NOT_VERIFIED', `Proposal ${proposal.id} was approved, but no verifier has vouched for that review, so it stays a proposal.`);
   const checked = checkSkillProposal(proposal, activeHash);
   if (!checked.ok) return checked;
+  if (claim.proposalHash !== proposal.proposalHash || claim.packageHash !== proposal.packageHash || claim.name !== proposal.name || claim.reviewer !== reviewer.actor || claim.reviewerSession !== reviewer.session) {
+    return skillRefused('SKILL_REVIEW_NOT_VERIFIED', `The review a verifier vouched for is not the one on proposal ${proposal.id}, so it stays a proposal.`);
+  }
   const { provenance } = proposal;
   return skillOk({
     schema: PROMOTED_SKILL_SCHEMA,
