@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0.0",
+  "briefId": "SEO-AGENCY-MEMORY-PROOF1A@0ade0a9a7195cc71a95e99cde43081bb9c4d9ab1",
+  "generatedAt": "2026-11-15T22:38:08.001Z",
+  "projectId": "seo-agency",
+  "projectName": "SEO & Social Agency",
+  "repository": {
+    "root": "C:\\dev\\SEOAgency",
+    "remote": "SEOAgency-remote/seo-agency",
+    "branch": "work",
+    "head": "0ade0a9a7195cc71a95e99cde43081bb9c4d9ab1"
+  },
+  "plan": {
+    "path": "C:\\dev\\SEOAgency/.projectops/plan-f3614f2ecf63116f-82af6c940086.json",
+    "planId": "plan-f3614f2ecf63116f-82af6c940086",
+    "planVersion": "1.5"
+  },
+  "phase": {
+    "phaseId": "SEO-AGENCY-MEMORY-PROOF1A",
+    "description": "Add site/humans.txt with exactly these five lines: '/* TEAM */', 'Site: SEO & Social Agency', 'Contact: hello@example.com', '/* SITE */', 'Standards: HTML5, CSS3'. Extend projectos/validators/validate-site.cjs so the site fails unless site/humans.txt exists, its first line is '/* TEAM */', and it has exactly one 'Contact:' line whose value contains an '@'. Extend projectos/validators/validate-site.fixtures.cjs with a passing case and one targeted breakage for each new rule (file missing, first line not '/* TEAM */', no Contact line, Contact value without '@', two Contact lines), each asserting the targeted rule's message. This is the ProjectOS Stage 3 memory exit-proof phase: the implementer is Claude Code, the independent reviewer is Codex CLI (OpenAI), and the run is cut off partway and resumed by a fresh process.",
+    "dependsOn": [
+      "SEO-AGENCY-SITE-CHECK3A"
+    ],
+    "acceptanceCriteria": [
+      "site/humans.txt exists with the five lines exactly as described.",
+      "validate-site refuses a missing humans.txt, a first line that is not '/* TEAM */', a missing Contact line, a Contact value without '@', and two Contact lines, and passes the current site/.",
+      "validate-site.fixtures.cjs covers each new rule with one targeted breakage that asserts that rule's message, and exits zero.",
+      "The required validator validate-site passes in both its base copy and the phase's own copy."
+    ],
+    "riskLevel": "low",
+    "autonomyLevel": "gated-execution",
+    "requiredValidators": [
+      "validate-site"
+    ],
+    "requiredReviews": [
+      "Claude self-review",
+      "Independent code review"
+    ],
+    "requiredBrowserProof": false,
+    "requiredOwnerGates": [
+      "secrets-handling",
+      "payment-or-live-charge"
+    ]
+  },
+  "records": {
+    "briefPath": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-b7c6fada.brief.json",
+    "findingsPath": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-b7c6fada.findings.json",
+    "effectsPath": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-b7c6fada.effects.json",
+    "evidencePath": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-b7c6fada.evidence.json",
+    "contextPath": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-b7c6fada.context.md",
+    "effectsContract": {
+      "location": "top-level",
+      "valueType": "boolean",
+      "requiredFields": [
+        "productionTouched",
+        "deploymentOccurred",
+        "databaseMutationOccurred",
+        "externalSendOccurred",
+        "paymentOccurred",
+        "rawSecretStored"
+      ]
+    }
+  },
+  "verification": {
+    "runner": "projectos",
+    "checkIds": []
+  },
+  "boundaries": {
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "use-secrets",
+      "force-push",
+      "use-openai-api",
+      "use-anthropic-api",
+      "post-to-social-media",
+      "run-vendored-autosocial"
+    ],
+    "approvalGates": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "secrets-handling",
+      "phase-closure"
+    ],
+    "protectedBranches": [
+      "main"
+    ],
+    "productionFreeze": true
+  }
+}

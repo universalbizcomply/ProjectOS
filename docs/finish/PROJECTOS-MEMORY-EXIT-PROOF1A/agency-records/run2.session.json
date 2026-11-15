@@ -1,0 +1,15 @@
+{
+  "startedAt": "2026-11-15T22:38:08.181Z",
+  "providerRef": "ecdd1be9-e565-44a5-a28b-a35fc1f8ed37",
+  "state": "started",
+  "exitCode": 0,
+  "corrections": 0,
+  "invocationId": "b7c6fada59098a27",
+  "sessionId": "SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-b7c6fada",
+  "workerId": "claude-local",
+  "kind": "claude-code-cli",
+  "phaseId": "SEO-AGENCY-MEMORY-PROOF1A",
+  "briefId": "SEO-AGENCY-MEMORY-PROOF1A@0ade0a9a7195cc71a95e99cde43081bb9c4d9ab1",
+  "briefPath": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-MEMORY-PROOF1A-0ade0a9a7195-b7c6fada.brief.json",
+  "timedOut": false
+}

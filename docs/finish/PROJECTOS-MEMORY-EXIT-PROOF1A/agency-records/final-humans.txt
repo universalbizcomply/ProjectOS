@@ -1,0 +1,5 @@
+/* TEAM */
+Site: SEO & Social Agency
+Contact: hello@example.com
+/* SITE */
+Standards: HTML5, CSS3

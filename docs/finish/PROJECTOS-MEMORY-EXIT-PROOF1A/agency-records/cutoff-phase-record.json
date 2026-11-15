@@ -1,0 +1,22 @@
+{
+  "phaseId": "SEO-AGENCY-MEMORY-PROOF1A",
+  "project": "seo-agency",
+  "objective": "Add site/humans.txt with exactly these five lines: '/* TEAM */', 'Site: SEO & Social Agency', 'Contact: hello@example.com', '/* SITE */', 'Standards: HTML5, CSS3'. Extend projectos/validators/validate-site.cjs so the site fails unless site/humans.txt exists, its first line is '/* TEAM */', and it has exactly one 'Contact:' line whose value contains an '@'. Extend projectos/validators/validate-site.fixtures.cjs with a passing case and one targeted breakage for each new rule (file missing, first line not '/* TEAM */', no Contact line, Contact value without '@', two Contact lines), each asserting the targeted rule's message. This is the ProjectOS Stage 3 memory exit-proof phase: the implementer is Claude Code, the independent reviewer is Codex CLI (OpenAI), and the run is cut off partway and resumed by a fresh process.",
+  "status": "implementing",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-15T22:37:22.997Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-15T22:37:22.998Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    }
+  ]
+}

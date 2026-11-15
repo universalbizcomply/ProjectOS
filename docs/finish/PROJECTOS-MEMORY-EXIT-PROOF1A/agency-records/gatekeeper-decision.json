@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-e5a7c9115a9034d3a7830ecf",
+  "projectId": "seo-agency",
+  "phaseId": "SEO-AGENCY-MEMORY-PROOF1A",
+  "subjectCommit": "0ade0a9a7195cc71a95e99cde43081bb9c4d9ab1",
+  "requestDigest": "sha256:5375c6d891452b62d58c42596eacafcd237d34148fdd74c1f87f94840ab469d3",
+  "decision": "APPROVED_TO_PROCEED",
+  "reason": "All required checks passed, both required reviews are recorded with an independent APPROVE verdict, no unresolved critical or high findings remain, and no prohibited effects occurred. The bounded technical continuation is ready and is limited to the explicitly performable actions.",
+  "allowedActions": [
+    "commit",
+    "push"
+  ],
+  "forbiddenActions": [
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge",
+    "deploy",
+    "database mutation",
+    "external send"
+  ],
+  "ownerApprovalRequired": false,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-11-15T22:39:33.000Z",
+  "provenance": "InstallationBrokerProviderAnswer",
+  "providerResponseId": "resp_02512f1f85875b89006afa34a5421887d2ad02b58d94d1524a"
+}
