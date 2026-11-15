@@ -38,6 +38,7 @@ import { appendContextLedger, contextLedgerRepairOf } from './contextLedger.js';
 import { assembleRunContext, type RunContextRequest } from './contextManager.js';
 import type { ContextManagerPorts } from './contextPorts.js';
 import type { ShownSkill } from './skillContext.js';
+import type { ContextResumeRequest } from './resumeState.js';
 
 /** What the run touches. A real `System` has all of it. */
 export interface ContextRunSystem {
@@ -58,6 +59,8 @@ export interface PrepareRunContextInput {
   readonly dependsOn: readonly string[];
   readonly planMemoryPaths: readonly string[];
   readonly ports: ContextManagerPorts;
+  /** What a cut-off attempt left, when this run continues one (PROJECTOS-RESUME1A). Passed through to the manager, which reads it after the checkout is bound. */
+  readonly resume?: ContextResumeRequest;
   /** The installation's state directory, where the ledger lives. Null when the installation gives none, which refuses the run. */
   readonly ledgerRoot: string | null;
 }
@@ -161,7 +164,7 @@ export function prepareRunContext(sys: ContextRunSystem, root: string, input: Pr
     };
   }
   const ledgerRoot = input.ledgerRoot;
-  const request: RunContextRequest = { envelope: input.envelope, sessionId: input.sessionId, root, query: input.query, dependsOn: input.dependsOn, planMemoryPaths: input.planMemoryPaths, nowIso: instantOf(sys.now()) };
+  const request: RunContextRequest = { envelope: input.envelope, sessionId: input.sessionId, root, query: input.query, dependsOn: input.dependsOn, planMemoryPaths: input.planMemoryPaths, nowIso: instantOf(sys.now()), ...(input.resume === undefined ? {} : { resume: input.resume }) };
   const result = assembleRunContext(input.ports, request);
   if (result.kind === 'none') return { kind: 'none' };
   if (result.kind === 'refused') {

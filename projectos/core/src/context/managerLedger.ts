@@ -25,7 +25,7 @@ import { DOMAINS, isProjectId, isTenantId, type Domain } from '../tenant.js';
 export const CONTEXT_LEDGER_SCHEMA = 'projectos.context-retrieval/1';
 export const CONTEXT_LEDGER_EVENTS = ['retrieved', 'placed', 'refused'] as const;
 export type ContextLedgerEvent = (typeof CONTEXT_LEDGER_EVENTS)[number];
-export const CONTEXT_LEDGER_SOURCES = ['committed', 'index', 'approved-decision'] as const;
+export const CONTEXT_LEDGER_SOURCES = ['committed', 'index', 'approved-decision', 'working-tree', 'loop-observed'] as const;
 export type ContextLedgerSource = (typeof CONTEXT_LEDGER_SOURCES)[number];
 export const CONTEXT_LEDGER_COMPACTORS = ['none', 'deterministic-selection'] as const;
 export type ContextLedgerCompactor = (typeof CONTEXT_LEDGER_COMPACTORS)[number];

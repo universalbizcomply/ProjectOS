@@ -206,6 +206,8 @@ const MODULES = [
   "val-projectos-context-manager1a",
   // PROJECTOS-SKILLS-ADOPT1A — the kernel sets a skill's origin; promotion needs the skill validator, an independent review that a verifier vouched for and a hash pin; the loader adds only committed, pinned, unchanged skills to the context file, as fenced data after every decision; nothing in a skill is run; the bounded-repeat evasions are closed.
   "val-projectos-skills-adopt1a",
+  // PROJECTOS-RESUME1A - a new worker continues a half-done phase from retrieved state: the work record read for four closed fields; earlier findings and evidence labelled worker-authored and ranked below every decision; the dirty paths and hashes the loop observed, a path outside the phase write paths refusing the run; evidence marked stale after HEAD moves; the work record stays non-authority.
+  "val-projectos-resume1a",
   // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
   "val-projectos-connector-contract1a"
 ];

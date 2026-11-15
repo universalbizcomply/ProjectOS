@@ -446,7 +446,7 @@ function textProblems(raw, base, tracked) {
       const names = [...live.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
       const at = names.indexOf(THIS_VALIDATOR);
       if (names.filter((entry) => entry === THIS_VALIDATOR).length !== 1) E("CM-15", `${THIS_VALIDATOR} is not in ${name} exactly once`);
-      else if (names[at - 1] !== "val-projectos-memory-provenance1a" || names[at + 1] !== "val-projectos-connector-contract1a") E("CM-15", `${THIS_VALIDATOR} is not between val-projectos-memory-provenance1a and val-projectos-connector-contract1a in ${name}`);
+      else if (names[at - 1] !== "val-projectos-memory-provenance1a" || names[at + 1] !== "val-projectos-skills-adopt1a") E("CM-15", `${THIS_VALIDATOR} is not between val-projectos-memory-provenance1a and val-projectos-skills-adopt1a in ${name}`);
     }
   }
   const [va, cr] = lists.map(([, list]) => (list === null ? null : [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]).join("\n")));

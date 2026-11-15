@@ -89,6 +89,7 @@ import { portsProblem } from './contextPorts.js';
 import { MEMORY_ENTRY_NO_PROVENANCE, retrieveStoredContext, type ContextFailure, type ContextRead } from './contextRetrieval.js';
 import { storedContextTaintsRun } from './contextTaint.js';
 import { NO_SKILLS, SKILL_SECTION_HEADING, SKILL_SECTION_NOTE, loadSkillSection, skillAdviceOf, type ShownSkill } from './skillContext.js';
+import { resumeReadsOf, type ContextResumeRequest } from './resumeState.js';
 
 /** What a context file is held to: about 5,000 tokens before it compacts, and a hard stop at 7,000. */
 export const CONTEXT_MANAGER_WINDOW: ContextWindow = Object.freeze({ limitTokens: 8_000, reservedOutputTokens: 1_000, triggerRatio: 0.75 });
@@ -128,6 +129,8 @@ export interface RunContextRequest {
   readonly dependsOn: readonly string[];
   readonly planMemoryPaths: readonly string[];
   readonly nowIso: string;
+  /** What a cut-off attempt left, for a run that continues a half-done phase (PROJECTOS-RESUME1A). Read only after the checkout is bound. */
+  readonly resume?: ContextResumeRequest;
 }
 
 export type RunContextResult =
@@ -216,6 +219,7 @@ function itemTurns(meta: Meta, number: number): readonly ContextTurn[] {
     contentHash.slice(0, 19),
     ...(ranked.unverifiedClaim ? ['unverified claim'] : []),
     ...(read.freshness === null ? [] : [read.freshness]),
+    ...(read.note === undefined ? [] : [read.note]),
     ...(ranked.overruledBy.length === 0 ? [] : [`overruled by ${ranked.overruledBy.map(displayIdOf).join(', ')}`]),
   ];
   const callId = `read-${number}`;
@@ -545,9 +549,12 @@ export function assembleRunContext(ports: ContextManagerPorts, request: RunConte
       key,
     );
   }
-  const withheld: ContextLedgerWithheld[] = retrieval.failures.map((failure) => ({ id: ledgerIdOf(failure.id), code: failure.code }));
+  // WHAT A CUT-OFF ATTEMPT LEFT (PROJECTOS-RESUME1A): read only now, after the checkout is bound and the decisions are readable. A dirty path the phase does not grant refuses the run.
+  const resumed = resumeReadsOf(ports, { resume: request.resume, root: request.root, head, sessionId: request.sessionId });
+  if (resumed.kind === 'refused') return refuse(resumed.code, resumed.message, key);
+  const withheld: ContextLedgerWithheld[] = [...retrieval.failures, ...resumed.failures].map((failure) => ({ id: ledgerIdOf(failure.id), code: failure.code }));
   const committedPlaceholders: string[] = [];
-  const metas = rankedMetas(ports, retrieval.reads, head, nowMs, withheld, committedPlaceholders);
+  const metas = rankedMetas(ports, [...retrieval.reads, ...resumed.reads], head, nowMs, withheld, committedPlaceholders);
   if (metas === null) return refuse('CONTEXT_MANAGER_RANKING', 'No stored context: the items could not be ranked.', key);
   const decisions = decisionsOf(ports, retrieval.decisions);
   const metaOfTurn = new Map(metas.map((meta) => [`item-${meta.ranked.rank}`, meta]));

@@ -70,8 +70,11 @@ export interface ContextRead {
   readonly text: string;
   /** Minted by the committed read that produced `text`; null for anything an index returned. */
   readonly proof: CommittedProof | null;
-  readonly source: 'committed' | 'index';
+  /** `working-tree` is a file a worker could have written, and `loop-observed` is what the loop read from git and the files itself (PROJECTOS-RESUME1A). */
+  readonly source: 'committed' | 'index' | 'working-tree' | 'loop-observed';
   readonly freshness: string | null;
+  /** A label of this phase's own words, shown in the item's header. Never stored text. */
+  readonly note?: string;
 }
 
 export interface ContextFailure {
