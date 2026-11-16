@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-MEMORY-EXIT-PROOF1A",
   "project": "ProjectOS",
   "objective": "Live on the agency pilot (C:/dev/SEOAgency). A governed phase run is cut off partway; a fresh process runs one projectos continue --execute; the phase reaches closed with zero manual context relay. A ledger validator in the style of validate-zero-relay-continuity proves the new worker used retrieved state, that no human-written text was supplied, and that worker-authored text never ranked as a decision. Spend stays inside the committed $1.50 phase cap. This phase writes evidence and the validator only.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-16T00:31:55.354Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-16T00:31:56.736Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-MEMORY-EXIT-PROOF1A:owner-closure:62609743"
     }
   ]
 }
