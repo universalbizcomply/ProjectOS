@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-MEMORY-EXIT-PROOF1A",
+  "project": "ProjectOS",
+  "objective": "Live on the agency pilot (C:/dev/SEOAgency). A governed phase run is cut off partway; a fresh process runs one projectos continue --execute; the phase reaches closed with zero manual context relay. A ledger validator in the style of validate-zero-relay-continuity proves the new worker used retrieved state, that no human-written text was supplied, and that worker-authored text never ranked as a decision. Spend stays inside the committed $1.50 phase cap. This phase writes evidence and the validator only.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-16T00:31:51.423Z",
+      "note": "Owner-approved plan v1.36 and delta rev 2 (row 12). Live run authorised by the owner on 2026-11-15: \"yes, run the exit-proof pilot, $1.50 cap\". Built by an agent under the lead (Claude) after RESUME1A; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-16T00:31:52.306Z",
+      "note": "Stage 3 exit proof: live cut-off and fresh-process resume on the agency pilot, loop ledger evidence, manifest-pinned ledger validator"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-16T00:31:53.097Z",
+      "note": "No product code changed in this phase, so the core 5005, agent 4199 and control-center 952 suites of the last stack (5cc1139d) are unchanged and were not re-run; validate-all on the merged stack 62609743: 179 registered, 178 PASS, 1 FAIL (the known Stage 4 carry val-cd-b4-sealed-expected-window-facts1a), 2 retired; the lead re-ran the phase validator (9 rules, 276 named mutations), resume1a, skills-adopt1a, context-manager1a, connector-contract1a, port-computer1a and validate-no-secrets, all exit 0. val-projectos-memory-exit-proof1a (9 rules, 276 named mutations), the neighbour validators val-projectos-connector-contract1a (CC-M) and val-projectos-port-computer1a (CP-M) had their registration-tail pins moved truthfully in 1704d050 and still kill all 293 and 306+120 mutations."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-16T00:31:53.773Z",
+      "note": "Evidence: docs/finish/PROJECTOS-MEMORY-EXIT-PROOF1A.md (stacked at 62609743)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-16T00:31:54.615Z",
+      "note": "closure tail only - no implementation. Reviews: ECC security-reviewer, ECC code-reviewer, fix round 1, one ECC recheck and a final bounded round, re-verified by the lead."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-16T00:31:55.354Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
