@@ -38,6 +38,14 @@
  *   OC-16 "two reads are one read"                    - the hash asked about is the hash of the bytes that were shown
  * and the invisible and look-alike character ranges that visibleText escapes (OC-8).
  *
+ * FINAL ROUND (recheck, APPROVE WITH CHANGES):
+ *   OC-13 now also: NO role read from the queue file skips the rank rule; through `memory approve` a proposal can add, and can replace or
+ *         remove only what its real rank allows
+ *   OC-17 "reject must read the whole text too"        - reject lands nothing, so it may ask on the text cut, marked, with hash and size;
+ *         approve refuses; the prompt is bounded by lines as well as characters, and the deciding facts are printed again right before the code
+ *   OC-8  now an ALLOW rule (categories L, M, N, P, S and the ordinary space) instead of a list of ranges
+ *   OC-11 now a word boundary only, so a namespace-qualified call from another file is caught
+ *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT rule fires. Comments
  * are stripped first. Reads files; runs nothing and calls no provider.
  */
@@ -104,6 +112,18 @@ const TESTS = {
     "a wrong answer deletes nothing and writes no ledger entry",
     "is shown as an escape, never raw",
     "an item that changed after it was shown, with the new hash given by --hash, is not deleted",
+    "a file that claims the owner, kind lesson, replacing an approved fact, is refused and nobody is asked",
+    "a remove claimed by the owner is refused the same way",
+    "an oversize proposal cannot be approved, and the refusal names reject",
+    "an oversize proposal can be rejected, with the text shown cut and marked, and its hash and size",
+    "a 1050-line proposal cannot be approved: a refusal with a reason and a next step, nobody asked",
+    "a 1050-line proposal can be rejected, and the prompt stays under the line bound",
+    "a proposal of exactly the bound is approved: the limit is the bound, not below it",
+    "the author, claimed role, kind, target and hash are printed again immediately before the typed-code line",
+    "is escaped, never printed raw",
+    "letters, marks, numbers, punctuation, symbols and the ordinary space are printed as they are",
+    "a combining mark that starts a line is escaped, and the same mark after a letter is not",
+    "every separator other than the ordinary space is escaped, and a tab and a newline are too",
   ],
 };
 
@@ -115,7 +135,7 @@ const PIN = {
   availableUsed: "return terminalAvailable(terminal) ? terminal : null;",
   needsTerminal: "if (terminal === null) return needsTerminal();",
   terminalFirst: "const terminal = terminalOf(deps);",
-  askedExactlyTrue: "if (terminalProposalVerifier(() => terminal, extra)(claim) !== true) {",
+  askedExactlyTrue: "if (terminalProposalVerifier(() => terminal, extra, decidingFacts(proposal))(claim) !== true) {",
   verifierGiven: "ownerVerifier: verifier },",
   ownerOnlyNow: "const OWNER_CALLER: MemoryCaller = Object.freeze({ author: 'owner-terminal', role: 'owner', session: 'typed-terminal' });",
   tenantTerminalShared: "import { nodeTerminal, type TenantReceiptTerminal } from '../commands/tenant.js';",
@@ -170,25 +190,40 @@ const PIN = {
   fencedWholeProposed: "fencedWholeText('proposed text', proposal.content, cap)",
   fencedWholeReplaced: "fencedWholeText('the entry it would replace or remove', proposal.targetEntry, cap)",
   fencedItem: "fencedStoredText('the item', item.text, 400)",
-  fenceLine: String.raw`const lines = shown.split(/\r\n|\r|\n/).map((line) => ` + "`| ${visibleText(line, FENCE_LINE_CAP)}`);",
+  fenceLine: "const lines = kept.map((line) => `| ${visibleText(line, FENCE_LINE_CAP)}`);",
   fenceCap: "const shown = [...text.slice(0, cap * 2)].slice(0, cap).join('');",
-  visibleMap: "const visible = (text: string): string => [...text].map((character) => (isUnsafe(character.codePointAt(0) ?? 0) ? escapeOf(character) : character)).join('');",
-  rangeControl: "[0x0, 0x1f],",
-  rangeBidi: "[0x2028, 0x202f],",
-  rangeInvisible: "[0x2000, 0x200f],",
+  visibleMap: "const visible = (text: string): string => [...text].map((character, index) => (isPrintable(character, index === 0) ? character : escapeOf(character))).join('');",
+  printable: String.raw`const PRINTABLE = /^[\p{L}\p{M}\p{N}\p{P}\p{S}]$/u;`,
+  ignorable: String.raw`const IGNORABLE = /^\p{Default_Ignorable_Code_Point}$/u;`,
+  markPattern: String.raw`const MARK = /^\p{M}$/u;`,
+  blanks: "const DRAWS_NOTHING_OR_A_BOX: readonly number[] = [0x2800, 0xfffc];",
+  spaceOnly: "if (character === ' ') return true;",
+  allowRule: "if (!PRINTABLE.test(character) || IGNORABLE.test(character) || DRAWS_NOTHING_OR_A_BOX.includes(codePoint)) return false;",
+  markAtStart: "return !(atStart && MARK.test(character));",
   visibleUsed: "const escaped = visible(shown);",
   reasonVisible: "`REFUSED (${code}): ${visibleText(reason, REASON_CAP)}`",
   // OC-12
   textBlocks: "export function proposalTextBlocks(proposal: Pick<MemoryProposal, 'target' | 'content' | 'targetEntry'>): readonly string[] | null {",
   storeLimit: "const cap = memoryCharLimit(proposal.target);",
-  notShownRefused: "if (blocks === null) return decided(refusal('MEMORY_TEXT_NOT_SHOWN_IN_FULL'",
-  promptBlocks: "const extra = [...proposalFacts(proposal), ...blocks];",
-  wholeOrNull: "if (text.length > cap * 2 || [...text].length > cap) return null;",
+  notShownRefused: "if (blocks === null && verb === 'approve') {",
+  promptBlocks: "const extra = [...proposalFacts(proposal), ...(blocks ?? cutTextBlocks(proposal))];",
+  wholeOrNull: "if (text.length > cap * 2 || [...text].length > cap || lineCountOf(text) > maxLines) return null;",
+  tooManyLines: "refusal('MEMORY_TEXT_TOO_MANY_LINES'",
+  notInFull: "refusal('MEMORY_TEXT_NOT_SHOWN_IN_FULL'",
+  textProblem: "function textProblemOf(proposal: Pick<MemoryProposal, 'target' | 'content' | 'targetEntry'>): 'characters' | 'lines' | null {",
+  maxLines: "export const PROMPT_MAX_LINES = 60;",
+  keptLines: "const kept = all.slice(0, PROMPT_MAX_LINES);",
+  closingGiven: "terminalProposalVerifier(() => terminal, extra, decidingFacts(proposal))(claim) !== true",
+  closingPrinted: "    ...extra,\n    ...closing,\n  ];",
+  cutMarked: "THE TEXT BELOW IS CUT",
+  cutSize: "const sizeOf = (label: string, text: string | null): readonly string[] =>",
+  cutHash: "    `  proposal hash ${proposal.proposalHash}`,\n    ...(proposal.content === null ? [] : fencedStoredText('proposed text, CUT'",
+  factsAgain: "`DECIDING FACTS: author ${visibleText(author, 64)}, claimed role ${visibleText(authorRole, 32)}, kind ${visibleText(proposal.kind, 16)}, target ${visibleText(proposal.target, 16)}, ${visibleText(proposal.op, 16)}, proposal hash ${proposal.proposalHash}`",
+  rejectHint: "reject it with `projectos memory reject --id <id>`",
   wholeCap: "visibleText(line, cap)",
   // OC-13
   decisionRefused: "if (held === undefined || held === 'decision') {",
   decisionCode: "refusal('MEMORY_DECISION_NOT_CHANGED_HERE'",
-  roleExemption: "if (proposal.provenance.authorRole === 'owner' && proposal.kind !== 'summary') return null;",
   factsRole: "role ${visibleText(authorRole, 32)}",
   factsKind: "kind ${visibleText(proposal.kind, 16)}${proposal.ledgerRef === null ? '' : `, ledger reference ${visibleText(proposal.ledgerRef, 200)}`}",
   // OC-14
@@ -223,16 +258,12 @@ const PIN = {
   pmNarrowed: '"projectos/agent/src/commands/memory.ts": ["approveMemoryProposal", "rejectMemoryProposal", "listPendingMemoryProposals", "loadMemoryProposal", "readMemoryStore"]',
   pmStillRefuses: 'E("PM-16", `${rel} calls',
   pmDeletionSites: 'const DELETION_CALL_SITES = ["projectos/agent/src/commands/memory.ts"];',
+  pmDeletionName: String.raw`const DELETION_NAME = /\b(?:deleteMemoryItem|deleteDerivedIndex)\b/;`,
   pmDeletionRefuses: 'E("PM-16", `${rel} names a deletion entry point, and only the owner commands may`);',
 };
 
-/** Every range visibleText escapes: control, no-break and other spaces, fillers, selectors, tags, bidirectional marks and the byte order mark. */
-const RANGE_PINS = [
-  "[0x0, 0x1f],", "[0x7f, 0x9f],", "[0xa0, 0xa0],", "[0xad, 0xad],", "[0x34f, 0x34f],", "[0x61c, 0x61c],", "[0x115f, 0x1160],", "[0x1680, 0x1680],",
-  "[0x180e, 0x180e],", "[0x2000, 0x200f],", "[0x2028, 0x202f],", "[0x205f, 0x206f],", "[0x2800, 0x2800],", "[0x3000, 0x3000],", "[0x3164, 0x3164],",
-  "[0xfe00, 0xfe0f],", "[0xfeff, 0xfeff],", "[0xffa0, 0xffa0],", "[0xfff9, 0xfffb],", "[0xe0000, 0xe007f],", "[0xe0100, 0xe01ef],",
-];
-
+/** A role read from a queue file compared anywhere in the command: it is a claim, and decides nothing here. */
+const ROLE_COMPARED = /authorRole\s*[!=]==?/;
 const FORBIDDEN_NODE = /from\s+['"]node:|require\(|\bchild_process\b|\bfetch\(|\bprocess\.(?:env|argv|stdin|stdout)\b/;
 const SECOND_PROMPT = /\b(?:readSync|writeSync|createInterface|readline)\b/;
 const ROLE_FLAGS = /(?:str|bool)\(\s*flags\s*,\s*['"](?:as|owner|role|yes|confirm|force)['"]|flags\[\s*['"](?:as|owner|role|yes|confirm|force)['"]\s*\]/;
@@ -350,8 +381,8 @@ function check(raw) {
   if (!has(m, PIN.refusalFn, PIN.nextStep, PIN.nextStepsTyped, PIN.statement, PIN.reasonVisible) || !has(m, PIN.fencedWholeProposed, PIN.fencedWholeReplaced, PIN.fencedItem) || UNFENCED_STORED.test(m)) {
     E("OC-8", "a refusal no longer names a code, a reason and a next step, a decision no longer says what a typed confirmation proves, or stored text is printed outside a fence");
   }
-  if (!has(v, PIN.fenceLine, PIN.visibleMap, PIN.rangeControl, PIN.rangeBidi, PIN.rangeInvisible, PIN.visibleUsed, ...RANGE_PINS) || count(v, PIN.fenceCap) < 2) {
-    E("OC-8", "the fence no longer prefixes every line, caps the text and makes control, invisible and bidirectional characters visible");
+  if (!has(v, PIN.fenceLine, PIN.visibleMap, PIN.visibleUsed, PIN.printable, PIN.ignorable, PIN.markPattern, PIN.blanks, PIN.spaceOnly, PIN.allowRule, PIN.markAtStart) || /UNSAFE_RANGES/.test(v) || count(v, PIN.fenceCap) < 2) {
+    E("OC-8", "the fence no longer prefixes every line and caps the text, or visibleText is no longer an allow rule (letters, marks, numbers, punctuation, symbols and the ordinary space) with the ignorable and blank characters and a leading mark escaped");
   }
 
   // OC-9 - reachable, and the stop lets only the read through.
@@ -363,21 +394,21 @@ function check(raw) {
   if (FORBIDDEN_NODE.test(m) || FORBIDDEN_NODE.test(v)) E("OC-10", "the command or the verifier reaches a node module, the process or the network directly");
 
   // OC-11 - the memory validator names this call site, and keeps refusing the others.
-  if (!has(pm, PIN.pmNarrowed, PIN.pmStillRefuses, PIN.pmDeletionSites, PIN.pmDeletionRefuses)) {
+  if (!has(pm, PIN.pmNarrowed, PIN.pmStillRefuses, PIN.pmDeletionSites, PIN.pmDeletionRefuses, PIN.pmDeletionName)) {
     E("OC-11", "the memory validator no longer names exactly the owner commands as a call site of the queue's entry points, or no longer refuses any other");
   }
 
   // OC-12 - the whole text, or no question.
   const iBlocks = m.indexOf(PIN.notShownRefused);
   const iAsked = m.indexOf(PIN.askedExactlyTrue);
-  if (!has(m, PIN.textBlocks, PIN.storeLimit, PIN.notShownRefused, PIN.promptBlocks) || !has(v, PIN.wholeOrNull, PIN.wholeCap) || iBlocks < 0 || iAsked < 0 || !(iBlocks < iAsked) || /PROPOSAL_TEXT_CAP/.test(m)) {
+  if (!has(m, PIN.textBlocks, PIN.notShownRefused, PIN.promptBlocks) || count(m, PIN.storeLimit) !== 2 || !has(v, PIN.wholeOrNull, PIN.wholeCap) || iBlocks < 0 || iAsked < 0 || !(iBlocks < iAsked) || /PROPOSAL_TEXT_CAP/.test(m)) {
     E("OC-12", "the owner is no longer shown the whole text up to the store's own limit, or is asked about text that would be cut");
   }
 
   // OC-13 - a role in a queue file exempts nothing about decisions, and the prompt says who proposed it.
   const iDecision = m.indexOf(PIN.decisionRefused);
-  const iRole = m.indexOf(PIN.roleExemption);
-  if (!has(m, PIN.decisionRefused, PIN.decisionCode, PIN.roleExemption, PIN.promptBlocks) || iDecision < 0 || iRole < 0 || !(iDecision < iRole) || !has(m, PIN.factsRole, PIN.factsKind)) {
+  const iRank = m.indexOf(PIN.replacementAsked);
+  if (!has(m, PIN.decisionRefused, PIN.decisionCode, PIN.writerRank, PIN.replacementAsked, PIN.promptBlocks) || iDecision < 0 || iRank < 0 || !(iDecision < iRank) || ROLE_COMPARED.test(m) || count(m, PIN.factsRole) !== 2 || !has(m, PIN.factsKind)) {
     E("OC-13", "a role read from the queue file can again let a decision entry be replaced or removed, or the prompt no longer shows the author, role, kind and ledger reference");
   }
 
@@ -394,6 +425,11 @@ function check(raw) {
   const iDelete = body.indexOf("deleteDerivedIndex(");
   if (!has(m, PIN.indexTerminal, PIN.indexNothing, PIN.indexVerified) || !has(v, PIN.indexClaimHash) || iTerm < 0 || !(iTerm < iNothing && iNothing < iVerify && iVerify < iDelete)) {
     E("OC-15", "`index delete` no longer asks for the terminal first and the typed code before it deletes, or writes a ledger entry for a refusal or for an index that is not there");
+  }
+
+  // OC-17 - reject may decide on cut text, approve may not; the prompt is bounded by lines; the deciding facts come last.
+  if (!has(m, PIN.notShownRefused, PIN.tooManyLines, PIN.notInFull, PIN.textProblem, PIN.closingGiven, PIN.cutMarked, PIN.cutSize, PIN.cutHash, PIN.factsAgain) || count(m, PIN.rejectHint) !== 2 || !has(v, PIN.maxLines, PIN.keptLines, PIN.wholeOrNull, PIN.closingPrinted)) {
+    E("OC-17", "reject can no longer be decided on the cut text with its hash and size, or approve is asked about cut text, or a prompt is no longer bounded by lines, or the deciding facts are no longer printed again before the code");
   }
 
   // OC-16 - what was shown is what is deleted.
@@ -413,7 +449,7 @@ const MUTATIONS = [
   { name: "a-second-prompt-mechanism", rule: "OC-1", rel: VER_REL, from: "export type OwnerTerminal = TenantReceiptTerminal;", to: "import { readSync } from 'node:fs';\nexport type OwnerTerminal = TenantReceiptTerminal;" },
   { name: "the-tenant-terminal-goes-private", rule: "OC-1", rel: TENANT_REL, from: PIN.tenantTerminalExported, to: "function nodeTerminal(): TenantReceiptTerminal {" },
   { name: "deletion-without-a-terminal-check", rule: "OC-1", rel: MEM_REL, from: PIN.availableUsed, to: "return terminal;" },
-  { name: "the-answer-is-truthy-not-true", rule: "OC-1", rel: MEM_REL, from: PIN.askedExactlyTrue, to: "if (!terminalProposalVerifier(() => terminal, extra)(claim)) {" },
+  { name: "the-answer-is-truthy-not-true", rule: "OC-1", rel: MEM_REL, from: PIN.askedExactlyTrue, to: "if (!terminalProposalVerifier(() => terminal, extra, decidingFacts(proposal))(claim)) {" },
   { name: "role-from-a-flag", rule: "OC-1", rel: MEM_REL, from: "const path = str(flags, 'path');", to: "const path = str(flags, 'path');\n  const asOwner = str(flags, 'as');" },
   { name: "the-verifier-is-left-off-the-ports", rule: "OC-1", rel: MEM_REL, from: PIN.verifierGiven, to: "}," },
   { name: "the-owner-role-is-a-guest-role", rule: "OC-1", rel: MEM_REL, from: PIN.ownerOnlyNow, to: "const OWNER_CALLER: MemoryCaller = Object.freeze({ author: 'owner-terminal', role: 'implementer', session: 'typed-terminal' });" },
@@ -470,20 +506,6 @@ const MUTATIONS = [
   { name: "fence-lines-not-prefixed", rule: "OC-8", rel: VER_REL, from: PIN.fenceLine, to: String.raw`const lines = shown.split(/\r\n|\r|\n/).map((line) => visibleText(line, FENCE_LINE_CAP));` },
   { name: "fence-uncapped", rule: "OC-8", rel: VER_REL, from: PIN.fenceCap, to: "const shown = text;" },
   { name: "control-characters-not-visible", rule: "OC-8", rel: VER_REL, from: PIN.visibleUsed, to: "const escaped = shown;" },
-  { name: "bidirectional-characters-pass", rule: "OC-8", rel: VER_REL, from: PIN.rangeBidi, to: "[0x2028, 0x2028]," },
-  { name: "escape-character-passes", rule: "OC-8", rel: VER_REL, from: PIN.rangeControl, to: "[0x0, 0x8]," },
-  { name: "tag-characters-pass", rule: "OC-8", rel: VER_REL, from: "[0xe0000, 0xe007f],", to: "" },
-  { name: "variation-selectors-pass", rule: "OC-8", rel: VER_REL, from: "[0xfe00, 0xfe0f],", to: "" },
-  { name: "supplementary-variation-selectors-pass", rule: "OC-8", rel: VER_REL, from: "[0xe0100, 0xe01ef],", to: "" },
-  { name: "grapheme-joiner-passes", rule: "OC-8", rel: VER_REL, from: "[0x34f, 0x34f],", to: "" },
-  { name: "hangul-filler-passes", rule: "OC-8", rel: VER_REL, from: "[0x3164, 0x3164],", to: "" },
-  { name: "braille-blank-passes", rule: "OC-8", rel: VER_REL, from: "[0x2800, 0x2800],", to: "" },
-  { name: "no-break-space-passes", rule: "OC-8", rel: VER_REL, from: "[0xa0, 0xa0],", to: "" },
-  { name: "jamo-fillers-pass", rule: "OC-8", rel: VER_REL, from: "[0x115f, 0x1160],", to: "" },
-  { name: "mongolian-separator-passes", rule: "OC-8", rel: VER_REL, from: "[0x180e, 0x180e],", to: "" },
-  { name: "spaces-and-zero-width-pass", rule: "OC-8", rel: VER_REL, from: "[0x2000, 0x200f],", to: "" },
-  { name: "halfwidth-filler-passes", rule: "OC-8", rel: VER_REL, from: "[0xffa0, 0xffa0],", to: "" },
-  { name: "ogham-space-passes", rule: "OC-8", rel: VER_REL, from: "[0x1680, 0x1680],", to: "" },
   // OC-9
   { name: "command-not-reached-from-the-cli", rule: "OC-9", rel: CLI_REL, from: PIN.cliCase, to: "case 'memory':\n      return { code: 1, lines: [] };" },
   { name: "every-memory-command-runs-under-the-stop", rule: "OC-9", rel: CLI_REL, from: PIN.stopCase, to: "case 'memory':\n      return true;" },
@@ -499,14 +521,13 @@ const MUTATIONS = [
   { name: "deletion-importer-moved", rule: "OC-11", rel: PM_REL, from: PIN.pmDeletionSites, to: 'const DELETION_CALL_SITES = ["projectos/agent/src/commands/nothing.ts"];' },
   { name: "memory-validator-stops-refusing", rule: "OC-11", rel: PM_REL, from: PIN.pmStillRefuses, to: 'E("PM-16", `${rel} is fine and calls' },
   { name: "cap-back-to-six-hundred", rule: "OC-12", rel: MEM_REL, from: PIN.storeLimit, to: "const cap = 600;" },
-  { name: "cut-text-is-asked-about", rule: "OC-12", rel: MEM_REL, from: PIN.notShownRefused, to: "if (false) return decided(refusal('MEMORY_TEXT_NOT_SHOWN_IN_FULL'" },
+  { name: "cut-text-is-asked-about", rule: "OC-12", rel: MEM_REL, from: PIN.notShownRefused, to: "if (false) {" },
   { name: "the-block-is-left-out-of-the-prompt", rule: "OC-12", rel: MEM_REL, from: PIN.promptBlocks, to: "const extra = [...proposalFacts(proposal)];" },
   { name: "whole-text-quietly-cut", rule: "OC-12", rel: VER_REL, from: PIN.wholeOrNull, to: "" },
   { name: "long-lines-cut-inside-the-block", rule: "OC-12", rel: VER_REL, from: PIN.wholeCap, to: "visibleText(line, 200)" },
   { name: "a-role-in-the-file-opens-a-decision", rule: "OC-13", rel: MEM_REL, from: PIN.decisionRefused, to: "if ((held === undefined || held === 'decision') && proposal.provenance.authorRole !== 'owner') {" },
   { name: "an-entry-with-no-record-is-replaceable", rule: "OC-13", rel: MEM_REL, from: PIN.decisionRefused, to: "if (held === 'decision') {" },
-  { name: "the-exemption-comes-before-the-decision-rule", rule: "OC-13", rel: MEM_REL, from: PIN.decisionRefused, to: "if (proposal.provenance.authorRole === 'owner' && proposal.kind !== 'summary') return null;\n  if (held === undefined || held === 'decision') {" },
-  { name: "the-prompt-leaves-out-who-proposed-it", rule: "OC-13", rel: MEM_REL, from: PIN.promptBlocks, to: "const extra = [...blocks];" },
+  { name: "the-prompt-leaves-out-who-proposed-it", rule: "OC-13", rel: MEM_REL, from: PIN.promptBlocks, to: "const extra = [...(blocks ?? cutTextBlocks(proposal))];" },
   { name: "the-role-is-not-shown", rule: "OC-13", rel: MEM_REL, from: PIN.factsRole, to: "role hidden" },
   { name: "the-ledger-reference-is-not-shown", rule: "OC-13", rel: MEM_REL, from: PIN.factsKind, to: "kind ${visibleText(proposal.kind, 16)}" },
   { name: "another-case-is-another-file", rule: "OC-14", rel: MEM_REL, from: PIN.spellingCase, to: "if (false) return true;" },
@@ -524,6 +545,32 @@ const MUTATIONS = [
   { name: "the-shown-hash-is-not-compared", rule: "OC-16", rel: MEM_REL, from: PIN.shownHash, to: "if (false) {" },
   { name: "the-shown-hash-is-not-passed", rule: "OC-16", rel: MEM_REL, from: PIN.shownHashPassed, to: "{ hash: null, citedFolded }" },
   { name: "a-changed-item-reads-as-a-typo", rule: "OC-16", rel: MEM_REL, from: PIN.changedMapped, to: "stop === 'changed') return refusal('MEMORY_OWNER_NOT_CONFIRMED'" },
+  { name: "an-owner-role-skips-the-rank-rule", rule: "OC-13", rel: MEM_REL, from: PIN.writerRank, to: "if (proposal.provenance.authorRole === 'owner') return null;\n  const writer = { kind: proposal.kind === 'summary' ? 'summary' : 'recollection' };" },
+  { name: "the-rank-follows-the-claimed-role", rule: "OC-13", rel: MEM_REL, from: PIN.writerRank, to: "const writer = { kind: proposal.provenance.authorRole === 'owner' ? 'approved-memory' : 'recollection' };" },
+  { name: "a-claimed-owner-note-skips-the-check", rule: "OC-13", rel: MEM_REL, from: PIN.replacementAsked, to: "const code = proposal.provenance.authorRole !== 'owner' ? provenanceReplacementProblem(writer, target) : null;" },
+  { name: "reject-needs-the-whole-text", rule: "OC-17", rel: MEM_REL, from: PIN.notShownRefused, to: "if (blocks === null) {" },
+  { name: "approve-asks-on-cut-text", rule: "OC-17", rel: MEM_REL, from: PIN.notShownRefused, to: "if (false) {" },
+  { name: "too-many-lines-reads-as-too-long", rule: "OC-17", rel: MEM_REL, from: PIN.tooManyLines, to: "refusal('MEMORY_TEXT_NOT_SHOWN_IN_FULL'" },
+  { name: "the-line-bound-is-huge", rule: "OC-17", rel: VER_REL, from: PIN.maxLines, to: "export const PROMPT_MAX_LINES = 100000;" },
+  { name: "the-prompt-does-not-count-lines", rule: "OC-17", rel: VER_REL, from: PIN.wholeOrNull, to: "if (text.length > cap * 2 || [...text].length > cap) return null;" },
+  { name: "the-cut-text-is-not-line-bounded", rule: "OC-17", rel: VER_REL, from: PIN.keptLines, to: "const kept = all;" },
+  { name: "the-deciding-facts-are-not-repeated", rule: "OC-17", rel: MEM_REL, from: PIN.closingGiven, to: "terminalProposalVerifier(() => terminal, extra)(claim) !== true" },
+  { name: "the-verifier-drops-the-closing-facts", rule: "OC-17", rel: VER_REL, from: PIN.closingPrinted, to: "    ...extra,\n  ];" },
+  { name: "the-closing-facts-come-before-the-text", rule: "OC-17", rel: VER_REL, from: PIN.closingPrinted, to: "    ...closing,\n    ...extra,\n  ];" },
+  { name: "the-cut-text-is-not-marked", rule: "OC-17", rel: MEM_REL, from: PIN.cutMarked, to: "THE TEXT BELOW IS SHOWN" },
+  { name: "the-cut-size-is-not-shown", rule: "OC-17", rel: MEM_REL, from: PIN.cutSize, to: "const sizeOf = (label: string, text: string | null): string[] =>" },
+  { name: "the-cut-hash-is-not-shown", rule: "OC-17", rel: MEM_REL, from: PIN.cutHash, to: "    ...(proposal.content === null ? [] : fencedStoredText('proposed text, CUT'" },
+  { name: "the-facts-line-loses-the-role", rule: "OC-17", rel: MEM_REL, from: PIN.factsAgain, to: "`DECIDING FACTS: author ${visibleText(author, 64)}, kind ${visibleText(proposal.kind, 16)}, proposal hash ${proposal.proposalHash}`" },
+  { name: "the-hint-does-not-name-reject", rule: "OC-17", rel: MEM_REL, from: PIN.rejectHint, to: "reject the proposal" },
+  { name: "separators-are-printed", rule: "OC-8", rel: VER_REL, from: PIN.printable, to: "const PRINTABLE = /^[\\\\p{L}\\\\p{M}\\\\p{N}\\\\p{P}\\\\p{S}\\\\p{Z}]$/u;" },
+  { name: "format-characters-are-printed", rule: "OC-8", rel: VER_REL, from: PIN.printable, to: "const PRINTABLE = /^[\\\\p{L}\\\\p{M}\\\\p{N}\\\\p{P}\\\\p{S}\\\\p{Cf}]$/u;" },
+  { name: "controls-and-private-use-are-printed", rule: "OC-8", rel: VER_REL, from: PIN.printable, to: "const PRINTABLE = /^[\\\\p{L}\\\\p{M}\\\\p{N}\\\\p{P}\\\\p{S}\\\\p{C}]$/u;" },
+  { name: "ignorable-characters-are-printed", rule: "OC-8", rel: VER_REL, from: PIN.allowRule, to: "if (!PRINTABLE.test(character) || DRAWS_NOTHING_OR_A_BOX.includes(codePoint)) return false;" },
+  { name: "the-blank-and-box-symbols-are-printed", rule: "OC-8", rel: VER_REL, from: PIN.blanks, to: "const DRAWS_NOTHING_OR_A_BOX: readonly number[] = [];" },
+  { name: "a-leading-mark-is-printed", rule: "OC-8", rel: VER_REL, from: PIN.markAtStart, to: "return true;" },
+  { name: "the-allow-rule-is-a-block-list-again", rule: "OC-8", rel: VER_REL, from: PIN.allowRule, to: "if (/^[\\\\u0000-\\\\u001f]$/.test(character)) return false;" },
+  { name: "the-ordinary-space-is-escaped", rule: "OC-8", rel: VER_REL, from: PIN.spaceOnly, to: "" },
+  { name: "the-importer-rule-skips-a-qualified-name", rule: "OC-11", rel: PM_REL, from: PIN.pmDeletionName, to: "const DELETION_NAME = /(?<![.\\\\w])(?:deleteMemoryItem|deleteDerivedIndex)\\\\b/;" },
 ];
 
 /** Every named mutation must be killed by its own rule. Applied to CRLF-folded text, as `check` reads it. */

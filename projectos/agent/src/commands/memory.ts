@@ -76,8 +76,10 @@ import {
 import {
   OWNER_CONFIRMATION_STATEMENT,
   fencedStoredText,
+  PROMPT_MAX_LINES,
   fencedWholeText,
   indexDeletionClaimOf,
+  lineCountOf,
   proposalDecisionClaimOf,
   terminalAvailable,
   terminalDeletionVerifier,
@@ -154,6 +156,7 @@ type LocalCode =
   | 'MEMORY_DELETE_PATH_SPELLING'
   | 'MEMORY_DELETE_ITEM_CHANGED'
   | 'MEMORY_TEXT_NOT_SHOWN_IN_FULL'
+  | 'MEMORY_TEXT_TOO_MANY_LINES'
   | 'MEMORY_DECISION_NOT_CHANGED_HERE'
   | 'MEMORY_INDEX_NO_STATE_DIRECTORY'
   | 'MEMORY_INDEX_UNAVAILABLE';
@@ -173,7 +176,8 @@ const NEXT_STEP: Readonly<Record<KnownCode, string>> = {
   MEMORY_DELETE_DECISIONS_UNREADABLE: 'the committed decisions could not all be read; check `git status` for this checkout and try again',
   MEMORY_DELETE_PATH_SPELLING: 'give the path exactly as the directory spells it, in the same case, with no trailing dot or space and no ~1 short name; `git ls-files` shows it',
   MEMORY_DELETE_ITEM_CHANGED: 'the item changed after it was read, so what was shown is not what would be deleted; run the command again',
-  MEMORY_TEXT_NOT_SHOWN_IN_FULL: 'the text is longer than the store allows, so it cannot be shown in full and is not asked about; reject the proposal',
+  MEMORY_TEXT_NOT_SHOWN_IN_FULL: 'the text is longer than the store allows, so it cannot be shown in full and is not asked about; reject it with `projectos memory reject --id <id>` (reject shows the text cut, with its hash and size), and have it proposed again within the limit',
+  MEMORY_TEXT_TOO_MANY_LINES: 'the text has more lines than a prompt shows, so it is not asked about; reject it with `projectos memory reject --id <id>` (reject shows the text cut, with its hash and size), and have it proposed again in fewer lines',
   MEMORY_DECISION_NOT_CHANGED_HERE: 'a decision is changed by committing a new decision, not by a proposal; reject this one',
   MEMORY_INDEX_NO_STATE_DIRECTORY: 'the installation has no state directory; run `projectos doctor`',
   MEMORY_INDEX_UNAVAILABLE: 'the index could not be opened or built; it is derived, so `projectos memory index delete` and a rebuild are safe',
@@ -517,6 +521,40 @@ export function proposalTextBlocks(proposal: Pick<MemoryProposal, 'target' | 'co
   return proposed === null || replaced === null ? null : [...proposed, ...replaced];
 }
 
+const REJECT_CUT_CHARS = 600;
+
+/** Why a proposal's text cannot be shown in full: too many characters for the store, or too many lines for a prompt. */
+function textProblemOf(proposal: Pick<MemoryProposal, 'target' | 'content' | 'targetEntry'>): 'characters' | 'lines' | null {
+  const cap = memoryCharLimit(proposal.target);
+  const texts = [proposal.content, proposal.targetEntry].filter((text): text is string => text !== null);
+  if (texts.some((text) => text.length > cap * 2 || [...text].length > cap)) return 'characters';
+  return texts.some((text) => lineCountOf(text) > PROMPT_MAX_LINES) ? 'lines' : null;
+}
+
+/**
+ * What `reject` and `proposals --id` show when the text cannot be shown in full: the size, the hash, and the text CUT and marked as cut.
+ * A rejection lands nothing, so the owner may decide it on the cut text; an approval may not (`MEMORY_TEXT_NOT_SHOWN_IN_FULL`).
+ */
+function cutTextBlocks(proposal: MemoryProposal): readonly string[] {
+  const sizeOf = (label: string, text: string | null): readonly string[] => (text === null ? [] : [`  ${label}: ${text.length} characters in ${lineCountOf(text)} lines`]);
+  return [
+    `  THE TEXT BELOW IS CUT: it is longer than the store or a prompt allows, so this proposal cannot be approved (it can be rejected)`,
+    ...sizeOf('proposed text', proposal.content),
+    ...sizeOf('the entry it would replace or remove', proposal.targetEntry),
+    `  proposal hash ${proposal.proposalHash}`,
+    ...(proposal.content === null ? [] : fencedStoredText('proposed text, CUT', proposal.content, REJECT_CUT_CHARS)),
+    ...(proposal.targetEntry === null ? [] : fencedStoredText('the entry it would replace or remove, CUT', proposal.targetEntry, REJECT_CUT_CHARS)),
+  ];
+}
+
+/** The deciding facts on ONE line, printed again right before the code is asked for, so the text above cannot scroll them away. */
+function decidingFacts(proposal: MemoryProposal): readonly string[] {
+  const { author, authorRole } = proposal.provenance;
+  return [
+    `DECIDING FACTS: author ${visibleText(author, 64)}, claimed role ${visibleText(authorRole, 32)}, kind ${visibleText(proposal.kind, 16)}, target ${visibleText(proposal.target, 16)}, ${visibleText(proposal.op, 16)}, proposal hash ${proposal.proposalHash}`,
+  ];
+}
+
 /** Who proposed it, in which role, of what kind: inert, capped text. The role is what the queue file CLAIMS, and decides nothing here. */
 function proposalFacts(proposal: MemoryProposal): readonly string[] {
   const { author, authorRole, session, proposedAt } = proposal.provenance;
@@ -534,7 +572,7 @@ function showProposal(proposal: MemoryProposal): readonly string[] {
     ...proposalFacts(proposal),
     `  proposal hash ${proposal.proposalHash}`,
     ...(proposal.timeSensitive === null ? [] : [`  time-sensitive wording: ${visibleText(proposal.timeSensitive, 100)}`]),
-    ...(whole ?? [`  THE TEXT IS LONGER THAN THE STORE ALLOWS and is not shown in full, so this proposal cannot be approved or rejected here`, ...fencedStoredText('proposed text, cut', proposal.content ?? '', memoryCharLimit(proposal.target))]),
+    ...(whole ?? cutTextBlocks(proposal)),
     `  decide it, in a terminal: projectos memory approve --id ${proposal.id}   or   projectos memory reject --id ${proposal.id}`,
   ];
 }
@@ -561,8 +599,12 @@ function proposalsCommand(ctx: CommandContext, flags: Flags): CommandResult {
 /**
  * The rank rule, asked before the owner is. A role read from the queue file is a claim, not proof, so it exempts nothing from the rule
  * about decisions: through this command a proposal that would replace or remove an entry that is a decision (or that has no record of
- * its origin, which is protected as one) is always refused. A decision is changed by committing a new decision. For any other entry,
- * the owner's own non-summary writing is not a stand-in for it and goes to the owner, who is shown the author and role it claims.
+ * its origin, which is protected as one) is always refused. A decision is changed by committing a new decision.
+ *
+ * FINAL ROUND, A: NO ROLE READ FROM THE FILE SKIPS THE RANK RULE EITHER. The rule runs for every replace and remove, whatever role the
+ * file claims, with the rank the proposal really has (a summary, or a worker's recollection). So through this command a proposal can
+ * ADD an entry, and can replace or remove only what that rank allows, which for approved memory is nothing. Anything else is the owner
+ * editing and committing the file. (No product path writes an owner-role proposal: the proposal door refuses owner-role callers.)
  */
 function replacementProblem(ctx: CommandContext, proposal: MemoryProposal): CommandResult | null {
   if (proposal.op === 'add') return null;
@@ -572,7 +614,6 @@ function replacementProblem(ctx: CommandContext, proposal: MemoryProposal): Comm
   if (held === undefined || held === 'decision') {
     return refusal('MEMORY_DECISION_NOT_CHANGED_HERE', `proposal ${proposal.id} would ${proposal.op} an entry that is a decision or has no record of its origin`);
   }
-  if (proposal.provenance.authorRole === 'owner' && proposal.kind !== 'summary') return null;
   const writer = { kind: proposal.kind === 'summary' ? 'summary' : 'recollection' };
   const target = { kind: 'approved-memory', path: `.projectops/memory/${proposal.target === 'user' ? 'USER' : 'MEMORY'}.md` };
   const code = provenanceReplacementProblem(writer, target);
@@ -603,10 +644,15 @@ function decideCommand(ctx: CommandContext, flags: Flags, who: { tenant: string;
     op: proposal.op,
   });
   const blocks = proposalTextBlocks(proposal);
-  if (blocks === null) return decided(refusal('MEMORY_TEXT_NOT_SHOWN_IN_FULL', `proposal ${proposal.id} holds text longer than the store allows, so it cannot be shown in full`));
-  const extra = [...proposalFacts(proposal), ...blocks];
+  // APPROVING NEEDS THE WHOLE TEXT. REJECTING LANDS NOTHING, so it may be decided on the text cut and marked, with its hash and size.
+  if (blocks === null && verb === 'approve') {
+    return textProblemOf(proposal) === 'lines'
+      ? decided(refusal('MEMORY_TEXT_TOO_MANY_LINES', `proposal ${proposal.id} has more than ${PROMPT_MAX_LINES} lines of text, so a prompt cannot show it in full`))
+      : decided(refusal('MEMORY_TEXT_NOT_SHOWN_IN_FULL', `proposal ${proposal.id} holds text longer than the store allows, so it cannot be shown in full`));
+  }
+  const extra = [...proposalFacts(proposal), ...(blocks ?? cutTextBlocks(proposal))];
   // Asked once, for this proposal and the hash just read. The role is the owner's only now, only for this one call.
-  if (terminalProposalVerifier(() => terminal, extra)(claim) !== true) {
+  if (terminalProposalVerifier(() => terminal, extra, decidingFacts(proposal))(claim) !== true) {
     return decided(refusal('MEMORY_OWNER_NOT_CONFIRMED', 'what was typed is not the code for this proposal, so it was not decided'));
   }
   const request = { id: proposal.id, reviewedHash: proposal.proposalHash };

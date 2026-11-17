@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,6 +21,7 @@ import {
   confirmationCodeOf,
   fencedStoredText,
   fencedWholeText,
+  PROMPT_MAX_LINES,
   proposalDecisionClaimOf,
   terminalDeletionVerifier,
   terminalProposalVerifier,
@@ -783,7 +785,7 @@ describe('review item 1: the owner is shown the whole text, or is not asked', ()
     memory(w.ctx, { id: first.id }, ['approve'], depsOver(w));
     const replace = propose(w, { op: 'replace', kind: 'fact', content: 'New short entry.', oldText: 'Old entry' }, 'owner');
     const t = terminal();
-    memory(w.ctx, { id: replace.id }, ['approve'], depsOver(w, { terminal: () => t }));
+    memory(w.ctx, { id: replace.id }, ['reject'], depsOver(w, { terminal: () => t }));
     expect(t.asked[0]).toContain('OLD-TAIL');
   });
 
@@ -854,17 +856,6 @@ describe('review item 2: a role read from the queue file never lets a decision e
     expect(prompt).toContain('implementer');
     expect(prompt).toContain('decision');
     expect(prompt).toContain('.projectops/closure/decisions/d9.json');
-  });
-
-  it('an owner-authored change to an entry that is not a decision still goes to the owner for the typed code', () => {
-    const w = world({});
-    const first = propose(w, { content: 'The build uses Node 24.' }, 'owner');
-    memory(w.ctx, { id: first.id }, ['approve'], depsOver(w));
-    const replace = propose(w, { op: 'replace', kind: 'fact', content: 'The build uses Node 25.', oldText: 'The build uses Node 24.' }, 'owner');
-    const t = terminal();
-    expect(memory(w.ctx, { id: replace.id }, ['approve'], depsOver(w, { terminal: () => t })).code).toBe(0);
-    expect(t.asked).toHaveLength(1);
-    expect(storeEntries(w)).toEqual(['The build uses Node 25.']);
   });
 });
 
@@ -1058,5 +1049,233 @@ describe('review item 6: what was shown is what is deleted', () => {
     const t = terminal({ answer: () => 'no' });
     remove(w, deleteFlags(), { terminal: () => t });
     expect(t.asked[0]).toContain(ITEM_HASH);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// FINAL ROUND (recheck verdict APPROVE WITH CHANGES): A to E.
+// ---------------------------------------------------------------------------------------------------------
+
+/** A proposal file the queue's own rules would refuse to build (text over the store's limit), sealed the way core seals one. */
+function writeSealedProposal(w: World, body: { content: string; kind?: string; authorRole?: string }): string {
+  const fields = {
+    target: 'memory',
+    op: 'add',
+    kind: body.kind ?? 'fact',
+    content: body.content,
+    targetEntry: null,
+    targetEntryHash: null,
+    ledgerRef: null,
+    timeSensitive: null,
+    provenance: { author: 'worker-1', authorRole: body.authorRole ?? 'implementer', session: 'sess-1', proposedAt: '2026-11-17T10:00:00.000Z', contentHash: memoryEntryHash(body.content) },
+  };
+  const list = [
+    'projectos.memory-proposal/1',
+    fields.target,
+    fields.op,
+    fields.kind,
+    fields.content,
+    fields.targetEntry,
+    fields.targetEntryHash,
+    fields.ledgerRef,
+    fields.timeSensitive,
+    fields.provenance.author,
+    fields.provenance.authorRole,
+    fields.provenance.session,
+    fields.provenance.proposedAt,
+    fields.provenance.contentHash,
+  ];
+  const proposalHash = `sha256:${createHash('sha256').update(JSON.stringify(list), 'utf8').digest('hex')}`;
+  const id = `mem-${proposalHash.slice('sha256:'.length, 'sha256:'.length + 24)}`;
+  w.files.set(`${memoryDir(ROOT)}/proposals/${id}.json`, JSON.stringify({ schema: 'projectos.memory-proposal/1', id, proposalHash, state: 'pending', decision: null, ...fields }));
+  return id;
+}
+
+describe('final round A: a role read from the queue file never skips the rank rule', () => {
+  const approvedFact = (): World => {
+    const w = world({});
+    const first = propose(w, { content: 'The build uses Node 24.' }, 'owner');
+    expect(memory(w.ctx, { id: first.id }, ['approve'], depsOver(w)).code).toBe(0);
+    return w;
+  };
+
+  it('a file that claims the owner, kind lesson, replacing an approved fact, is refused and nobody is asked', () => {
+    const w = approvedFact();
+    const forged = propose(w, { op: 'replace', kind: 'lesson', content: 'The build uses Node 25.', oldText: 'The build uses Node 24.' }, 'owner');
+    const t = terminal();
+    const result = memory(w.ctx, { id: forged.id }, ['approve'], depsOver(w, { terminal: () => t }));
+    expect(text(result)).toContain('REFUSED (PROVENANCE_LOWER_RANK_CANNOT_REPLACE)');
+    expect(text(result)).toContain('next:');
+    expect(t.asked).toEqual([]);
+    expect(storeEntries(w)).toEqual(['The build uses Node 24.']);
+    expect(stateOnFile(w, forged.id)).toBe('pending');
+  });
+
+  it('a remove claimed by the owner is refused the same way', () => {
+    const w = approvedFact();
+    const removal = propose(w, { op: 'remove', kind: 'fact', oldText: 'The build uses Node 24.' }, 'owner');
+    const result = memory(w.ctx, { id: removal.id }, ['approve'], depsOver(w));
+    expect(text(result)).toContain('PROVENANCE_LOWER_RANK_CANNOT_REPLACE');
+    expect(storeEntries(w)).toEqual(['The build uses Node 24.']);
+  });
+
+  it('an add, whatever role the file claims, is still approved by the typed code: the positive control', () => {
+    const w = approvedFact();
+    const another = propose(w, { content: 'Tests run with vitest.' }, 'owner');
+    expect(memory(w.ctx, { id: another.id }, ['approve'], depsOver(w)).code).toBe(0);
+    expect(storeEntries(w)).toEqual(['The build uses Node 24.', 'Tests run with vitest.']);
+  });
+});
+
+describe('final round B: reject does not need the full text, approve refuses with a hint that works', () => {
+  const OVERSIZE = `Oversize ${'q'.repeat(2300)} END-OF-OVERSIZE`;
+
+  it('an oversize proposal cannot be approved, and the refusal names reject', () => {
+    const w = world({});
+    const id = writeSealedProposal(w, { content: OVERSIZE });
+    const t = terminal();
+    const result = memory(w.ctx, { id }, ['approve'], depsOver(w, { terminal: () => t }));
+    expect(text(result)).toContain('REFUSED (MEMORY_TEXT_NOT_SHOWN_IN_FULL)');
+    expect(text(result)).toContain('memory reject');
+    expect(t.asked).toEqual([]);
+    expect(storeEntries(w)).toEqual([]);
+  });
+
+  it('an oversize proposal can be rejected, with the text shown cut and marked, and its hash and size', () => {
+    const w = world({});
+    const id = writeSealedProposal(w, { content: OVERSIZE });
+    const t = terminal();
+    const result = memory(w.ctx, { id }, ['reject'], depsOver(w, { terminal: () => t }));
+    expect(result.code).toBe(0);
+    const prompt = t.asked[0] ?? '';
+    expect(prompt).toContain('CUT');
+    expect(prompt).toContain(`${OVERSIZE.length} characters`);
+    expect(prompt).toContain('sha256:');
+    expect(prompt).not.toContain('END-OF-OVERSIZE');
+    expect(stateOnFile(w, id)).toBe('rejected');
+    expect(text(memory(w.ctx, {}, ['proposals'], depsOver(w)))).toContain('No proposals are waiting.');
+  });
+
+  it('proposals --id shows the cut text marked as cut, with the size, and says approve is refused', () => {
+    const w = world({});
+    const id = writeSealedProposal(w, { content: OVERSIZE });
+    const shown = text(memory(w.ctx, { id }, ['proposals'], depsOver(w)));
+    expect(shown).toContain('CUT');
+    expect(shown).toContain(`${OVERSIZE.length} characters`);
+    expect(shown).not.toContain('END-OF-OVERSIZE');
+  });
+});
+
+describe('final round C: the prompt is bounded by lines, and the deciding facts come last', () => {
+  const lines = (count: number): string => Array.from({ length: count }, () => 'a').join('\n');
+
+  it('a 1050-line proposal cannot be approved: a refusal with a reason and a next step, nobody asked', () => {
+    const w = world({});
+    const proposal = propose(w, { content: lines(1050) });
+    const t = terminal();
+    const result = memory(w.ctx, { id: proposal.id }, ['approve'], depsOver(w, { terminal: () => t }));
+    expect(text(result)).toContain('REFUSED (MEMORY_TEXT_TOO_MANY_LINES)');
+    expect(text(result)).toContain(`${PROMPT_MAX_LINES}`);
+    expect(text(result)).toContain('next:');
+    expect(t.asked).toEqual([]);
+    expect(storeEntries(w)).toEqual([]);
+  });
+
+  it('a 1050-line proposal can be rejected, and the prompt stays under the line bound', () => {
+    const w = world({});
+    const proposal = propose(w, { content: lines(1050) });
+    const t = terminal();
+    expect(memory(w.ctx, { id: proposal.id }, ['reject'], depsOver(w, { terminal: () => t })).code).toBe(0);
+    expect((t.asked[0] ?? '').split('\n').length).toBeLessThan(PROMPT_MAX_LINES + 30);
+  });
+
+  it('a proposal of exactly the bound is approved: the limit is the bound, not below it', () => {
+    const w = world({});
+    const proposal = propose(w, { content: lines(PROMPT_MAX_LINES) });
+    expect(memory(w.ctx, { id: proposal.id }, ['approve'], depsOver(w)).code).toBe(0);
+  });
+
+  it('proposals --id on a 1050-line proposal prints at most the bound of text lines', () => {
+    const w = world({});
+    const proposal = propose(w, { content: lines(1050) });
+    const printed = memory(w.ctx, { id: proposal.id }, ['proposals'], depsOver(w)).lines;
+    expect(printed.filter((line) => line.startsWith('| ')).length).toBeLessThanOrEqual(PROMPT_MAX_LINES);
+  });
+
+  it('the author, claimed role, kind, target and hash are printed again immediately before the typed-code line', () => {
+    const w = world({});
+    const proposal = propose(w, { content: lines(40) });
+    const t = terminal({ answer: () => 'no' });
+    memory(w.ctx, { id: proposal.id }, ['approve'], depsOver(w, { terminal: () => t }));
+    const prompt = (t.asked[0] ?? '').split('\n');
+    const retype = prompt.findIndex((line) => line.startsWith('Retype the code'));
+    const lastBlockEnd = prompt.lastIndexOf('-- end of stored text --');
+    const facts = prompt.findIndex((line, index) => index > lastBlockEnd && line.startsWith('DECIDING FACTS'));
+    expect(lastBlockEnd).toBeGreaterThan(0);
+    expect(facts).toBeGreaterThan(lastBlockEnd);
+    expect(retype).toBeGreaterThan(facts);
+    expect(retype - facts).toBeLessThanOrEqual(3);
+    const line = prompt[facts] ?? '';
+    for (const wanted of ['worker-1', 'implementer', 'fact', 'memory', proposal.proposalHash]) expect(line).toContain(wanted);
+  });
+});
+
+describe('final round E: visibleText prints only what it can vouch for', () => {
+  const B = String.fromCharCode(92);
+  const escaped = (codePoint: number): string => `${B}u{${codePoint.toString(16)}}`;
+  const probes: readonly [string, number][] = [
+    ['a khmer inherent vowel', 0x17b4],
+    ['the other khmer inherent vowel', 0x17b5],
+    ['a mongolian free variation selector', 0x180b],
+    ['the second mongolian free variation selector', 0x180c],
+    ['the third mongolian free variation selector', 0x180d],
+    ['the fourth mongolian free variation selector', 0x180f],
+    ['an object replacement character', 0xfffc],
+    ['a musical symbol begin beam', 0x1d173],
+    ['a musical symbol end phrase', 0x1d17a],
+    ['a shorthand format letter overlap', 0x1bca0],
+    ['a shorthand format up step', 0x1bca3],
+    ['an arabic number sign', 0x600],
+    ['an arabic number mark above', 0x605],
+    ['an arabic end of ayah', 0x6dd],
+    ['an arabic disputed end of ayah', 0x8e2],
+    ['a kaithi number sign above', 0x110bd],
+    ['an unassigned code point', 0x378],
+    ['a private use character', 0xe000],
+    ['a lone surrogate', 0xd800],
+    ['a paragraph separator', 0x2029],
+    ['a line separator', 0x2028],
+    ['an ideographic space', 0x3000],
+    ['a narrow no-break space', 0x202f],
+    ['a medium mathematical space', 0x205f],
+    ['a word joiner', 0x2060],
+    ['an invisible times', 0x2062],
+    ['a soft hyphen', 0xad],
+    ['a zero width no-break space', 0xfeff],
+  ];
+  it.each(probes)('%s is escaped, never printed raw', (_name, codePoint) => {
+    const shown = visibleText(`a${String.fromCodePoint(codePoint)}b`);
+    expect(shown).toContain(escaped(codePoint));
+    expect(shown).not.toContain(String.fromCodePoint(codePoint));
+  });
+
+  it('letters, marks, numbers, punctuation, symbols and the ordinary space are printed as they are', () => {
+    const plain = ['Caf' + String.fromCodePoint(0xe9), 'e' + String.fromCodePoint(0x301), String.fromCodePoint(0x4e2d, 0x6587), String.fromCodePoint(0x645, 0x631, 0x62d), '1234', '!?;', '+' + String.fromCodePoint(0x20ac, 0xa9), String.fromCodePoint(0x1f600), 'a b'].join(' ');
+    expect(visibleText(plain)).toBe(plain);
+  });
+
+  it('a combining mark that starts a line is escaped, and the same mark after a letter is not', () => {
+    expect(visibleText(`${String.fromCodePoint(0x301)}a`)).toBe(`${escaped(0x301)}a`);
+    expect(visibleText(`a${String.fromCodePoint(0x301)}`)).toBe(`a${String.fromCodePoint(0x301)}`);
+    const block = fencedStoredText('x', `${String.fromCodePoint(0x301)}first\n${String.fromCodePoint(0x301)}second`);
+    expect(block[1]).toBe(`| ${escaped(0x301)}first`);
+    expect(block[2]).toBe(`| ${escaped(0x301)}second`);
+  });
+
+  it('every separator other than the ordinary space is escaped, and a tab and a newline are too', () => {
+    for (const codePoint of [0x9, 0xa, 0xa0, 0x1680, 0x2000, 0x2003, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000]) {
+      expect(visibleText(`x${String.fromCodePoint(codePoint)}y`)).toBe(`x${escaped(codePoint)}y`);
+    }
+    expect(visibleText('x y')).toBe('x y');
   });
 });

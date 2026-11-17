@@ -19,7 +19,7 @@ Stage 3 shipped the memory rules with no command the owner can run. This phase a
 ## What was added
 
 - `projectos/agent/src/commands/memory.ts` (the five commands, plus `memory index delete`), `projectos/agent/src/memory/ownerTerminalVerifier.ts` (the verifier, the proposal claim, the fence).
-- `projectos/agent/test/memoryOwnerCommands.test.ts` (109 tests after review round 1), validator `projectos/validators/val-projectos-memory-owner-commands1a.cjs` (109 named mutations after review round 1; 68 at the first commit).
+- `projectos/agent/test/memoryOwnerCommands.test.ts` (150 tests after the final round), validator `projectos/validators/val-projectos-memory-owner-commands1a.cjs` (120 named mutations after the final round; 68 at the first commit).
 - `cli.ts`: the `memory` case, its help line, and the platform-stop classification (only `memory proposals` is read-only). `index.ts`: exports.
 
 ### Commands and their refusals
@@ -133,7 +133,7 @@ The reviewer reproduced items 1 to 4 with real files. Each item was written as a
 
 ### Decisions taken in this round
 
-- **Item 2 keeps one path for non-decision entries.** The rule the reviewer named is about decisions, and it is now absolute through this command. For an entry that is not a decision, an owner-authored non-summary change still skips the rank rule, as before, because without that no entry could ever be replaced or removed here; the owner is now shown the author and role the file claims and types the code. A worker's or a summary's change to approved memory is still refused by the rank rule.
+- **Item 2 kept one path for non-decision entries (SUPERSEDED in the final round, A).** The owner-authored exemption for a non-decision entry was removed after the recheck: see the final round below.
 - **The deletion prompt still cuts the item at 400 characters, with a visible cut notice.** Item 1 is about approving text that later reaches workers; a deletion shows the path, the class, the hash and the first 400 characters, and the item remains in git. An item can be up to 1 MiB, so a whole-text rule there would make large execution records undeletable. If the owner wants the same refuse-when-cut rule for deletions, it is one cap.
 - **`index delete` now needs the typed code,** not only a terminal, as the other deciding commands do.
 
@@ -161,3 +161,41 @@ The reviewer reproduced items 1 to 4 with real files. Each item was written as a
 | `validate-no-secrets` | PASS |
 
 Files changed in this round: `commands/memory.ts`, `memory/ownerTerminalVerifier.ts`, `test/memoryOwnerCommands.test.ts`, `val-projectos-memory-owner-commands1a.cjs`, `val-projectos-port-memory1a.cjs`, this file. No PROTECTED file, no `core/src` file and no registration list was touched in this round.
+
+## Recheck verdict and final round (APPROVE WITH CHANGES; no further review)
+
+The recheck closed findings 1, 3, 4, 6 and 7 and left five points. Each was written as a failing test first (30 of the new and changed tests failed before the code changed, 150 pass after), then fixed, then pinned in the validator with named mutations, each killed by its own rule. Final validator output: `PASS (120 named mutations killed)`. `val-projectos-port-memory1a`: `PASS (20 rules; 213 named mutations killed)`.
+
+| | Finding | Fix | Tests ("final round X") | Validator: rule, named mutations |
+|---|---|---|---|---|
+| A | LOW-MEDIUM: a worker-authored file claiming role `owner`, kind `lesson`, replacing an approved `fact`, reached the prompt and landed | The role exemption is gone completely. The rank rule runs for every replace and remove, whatever role the file claims, with the rank the proposal really has (a summary, or a worker's recollection). The validator now REQUIRES the rule to run after the decision check and refuses any comparison of a role read from the file | a claimed-owner replace is refused with nobody asked; a claimed-owner remove is refused; an add is still approved | OC-13: `an-owner-role-skips-the-rank-rule`, `the-rank-follows-the-claimed-role`, `a-claimed-owner-note-skips-the-check` (the old `roleExemption` pin and its order mutation are removed) |
+| B | N1: `reject` landed nothing yet needed the full text | `reject` asks with the text CUT and marked (`THE TEXT BELOW IS CUT`), the size of each text in characters and lines, and the proposal hash. `approve` still refuses with `MEMORY_TEXT_NOT_SHOWN_IN_FULL`, and its next step now names `projectos memory reject --id <id>`, which works. `proposals --id` shows the same cut block | an oversize proposal (sealed the way core seals one, since the queue will not build it) cannot be approved and names reject; it can be rejected, the prompt says CUT and shows the size and the hash and not the tail, and the queue is empty after | OC-17: `reject-needs-the-whole-text`, `approve-asks-on-cut-text`, `the-cut-text-is-not-marked`, `the-cut-size-is-not-shown`, `the-cut-hash-is-not-shown`, `the-hint-does-not-name-reject` |
+| C | N2: a prompt of 1000 short lines scrolls the deciding facts away | `PROMPT_MAX_LINES = 60` per text. `approve` over it refuses `MEMORY_TEXT_TOO_MANY_LINES` with the count and a next step; `reject` shows the cut block, itself bounded by lines (`fencedStoredText` now stops at 60 lines and says so). A one-line `DECIDING FACTS` (author, claimed role, kind, target, operation, hash) is printed again immediately before the typed-code line | 1050 short lines refused for approve and rejectable with a bounded prompt; exactly 60 lines approved; `proposals --id` prints at most 60 text lines; the facts line is after the last text block and within three lines of the code line | OC-17: `too-many-lines-reads-as-too-long`, `the-line-bound-is-huge`, `the-prompt-does-not-count-lines`, `the-cut-text-is-not-line-bounded`, `the-deciding-facts-are-not-repeated`, `the-verifier-drops-the-closing-facts`, `the-closing-facts-come-before-the-text`, `the-facts-line-loses-the-role` |
+| D | N3: `DELETION_NAME` used a lookbehind, so `ns.deleteMemoryItem(` evaded the importer rule | A word boundary only: `/\b(?:deleteMemoryItem\|deleteDerivedIndex)\b/` | (validator) | PM-16 in the memory validator: `another-agent-file-deletes-through-a-namespace`, `another-agent-file-deletes-through-an-optional-call`; OC-11: `the-importer-rule-skips-a-qualified-name` |
+| E | finding 5, PARTLY: `visibleText` was a blocklist and still printed U+17B4, U+17B5, U+180B-180D, U+180F, U+FFFC, U+1D173-1D17A, U+1BCA0-1BCA3, U+0600-0605, U+06DD, U+08E2, U+110BD raw | An ALLOW rule: a character is printed as itself only if it is in general category L, M, N, P or S, or is the ordinary space; everything else (Cc, Cf, Cs, Co, Cn and every Z other than U+0020) is escaped. The categories alone still pass some marks and symbols that draw nothing, so on top of them: any `Default_Ignorable_Code_Point` is escaped (this catches U+17B4, U+17B5, U+180B-180F and the variation selectors, which are marks), and U+2800 and U+FFFC (symbols that draw a blank or a box) are escaped. A combining mark that starts a line is escaped, because it would attach to the `\| ` before it. The old range list is deleted | one test per character: all the earlier ones, the eleven in the finding, an unassigned code point, a private-use character, a lone surrogate, the line and paragraph separators and the spaces; letters, accents, CJK, Arabic, digits, punctuation, symbols, an emoji and the ordinary space are untouched; a leading mark, and the same mark after a letter; a tab and a newline | OC-8: `separators-are-printed`, `format-characters-are-printed`, `controls-and-private-use-are-printed`, `ignorable-characters-are-printed`, `the-blank-and-box-symbols-are-printed`, `a-leading-mark-is-printed`, `the-allow-rule-is-a-block-list-again`, `the-ordinary-space-is-escaped` |
+
+### What `memory approve` can now do
+
+Through `memory approve` a proposal can ADD an entry. It can replace or remove only what the existing rank rule allows for its real, non-owner rank, and for approved memory that is nothing: a worker's or a summary's text never stands in for an entry approved memory already holds, and a decision entry is never changed by a proposal at all. Anything else is the owner editing and committing the file. Nothing honest depends on the removed exemption: the proposal door refuses owner-role callers, so no product path writes an owner-role proposal.
+
+### Stated limits
+
+- **`visibleText` does not detect homoglyphs.** A Cyrillic letter that looks like a Latin one is a letter and is printed as it is; the allow rule vouches that a character is a visible letter, mark, number, punctuation or symbol, not that it is the one it looks like. The proposed text is always shown with its author, role, kind and hash, and the owner reads it.
+- **Known, carried and not fixed (N4):** a legitimate file name that contains a `~` followed by a digit is refused as a possible 8.3 short name by `MEMORY_DELETE_PATH_SPELLING`. The cost is a refused deletion of such a file; the owner can delete it with git.
+- The line bound is per text (the proposed text and the entry it would replace each get 60 lines).
+
+### Checks of the final round
+
+| Check | Result |
+|---|---|
+| `tsc -p tsconfig.json --noEmit` | exit 0 |
+| `vitest run test/memoryOwnerCommands.test.ts` | 150 passed (30 failed before the code change) |
+| Whole agent suite, once | 137 of 138 files; 4433 passed, 10 skipped; the one failing file is the same `tenantSidecar.test.ts` (no `control-center/node_modules` in this worktree) |
+| `val-projectos-memory-owner-commands1a` | PASS (120 named mutations killed); `run()` returns an array |
+| `val-projectos-port-memory1a` | PASS (20 rules; 213 named mutations killed) |
+| `val-projectos-memory-provenance1a` | PASS (204 text and 125 behavioural mutations killed) |
+| `val-projectos-memory-stores1a` | PASS (198 text and 84 behavioural mutations killed) |
+| `val-projectos-kernel-followup1a` | PASS (88 named mutations killed) |
+| `validate-no-secrets` | PASS |
+
+Files changed in this round: `commands/memory.ts`, `memory/ownerTerminalVerifier.ts`, `test/memoryOwnerCommands.test.ts`, `val-projectos-memory-owner-commands1a.cjs`, `val-projectos-port-memory1a.cjs`, this file. No PROTECTED file, no `core/src` file and no registration list was touched.

@@ -212,7 +212,8 @@ const OWNER_COMMAND_CALL_SITES = { "projectos/agent/src/commands/memory.ts": ["a
  * product importer, the owner commands. Naming either one anywhere else in a product source is refused, so no other agent file can delete memory.
  */
 const DELETION_CALL_SITES = ["projectos/agent/src/commands/memory.ts"];
-const DELETION_NAME = /(?<![.\w])(?:deleteMemoryItem|deleteDerivedIndex)\b/;
+// A WORD BOUNDARY ONLY (final round, D): a lookbehind that skips a name after a dot let `ns.deleteMemoryItem(` from another file through.
+const DELETION_NAME = /\b(?:deleteMemoryItem|deleteDerivedIndex)\b/;
 /** A CALL of a memory entry point: the name, then an argument list, and not a method of something else. */
 const MEMORY_CALL = /(?<![.\w])(?:loadMemoryBlock|readMemoryStore|proposeMemoryWrite|approveMemoryProposal|rejectMemoryProposal|listPendingMemoryProposals|loadMemoryProposal|writeMemoryEntries|writeMemoryProvenance|underMemoryLock)\(/g;
 /** Every product source (a package's `src`) except this port's own directories. Read once, so a mutation can name any of them. */
@@ -1116,6 +1117,8 @@ const MUTATIONS = [
   T("the-owner-commands-no-longer-decide", "PM-16", "projectos/agent/src/commands/memory.ts", "approveMemoryProposal(sys, root, OWNER_CALLER, request)", "({ ok: false } as never)"),
   T("another-agent-file-deletes-memory", "PM-16", "projectos/agent/src/closureGate.ts", "import type { System } from './system.js';", "import type { System } from './system.js';\nexport const del = (p: never) => deleteMemoryItem(p, '/', {});"),
   T("another-agent-file-deletes-an-index", "PM-16", "projectos/agent/src/context/contextPorts.ts", "export interface ContextDraftOffer {", "export const dropIndex = (p: never) => deleteDerivedIndex(p, '/', '/', {});\nexport interface ContextDraftOffer {"),
+  T("another-agent-file-deletes-through-a-namespace", "PM-16", "projectos/agent/src/closureGate.ts", "import type { System } from './system.js';", "import type { System } from './system.js';\nexport const del = (ns: any) => ns.deleteMemoryItem('/', {});"),
+  T("another-agent-file-deletes-through-an-optional-call", "PM-16", "projectos/agent/src/context/contextPorts.ts", "export interface ContextDraftOffer {", "export const dropIndex = (ns: any) => ns?.deleteDerivedIndex?.('/');\nexport interface ContextDraftOffer {"),
   // PM-17
   T("core-reads-a-file", "PM-17", STORE, "import { createHash } from 'node:crypto';", "import { createHash } from 'node:crypto';\nimport { readFileSync } from 'node:fs';"),
   T("core-imports-the-agent", "PM-17", PROPOSAL, "import { createHash } from 'node:crypto';", "import { createHash } from 'node:crypto';\nimport { join } from '../../../agent/src/context.js';"),

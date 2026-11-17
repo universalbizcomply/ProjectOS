@@ -42,35 +42,30 @@ export function confirmationCodeOf(claimHash: unknown): string | null {
   return typeof claimHash === 'string' && SHA256_HEX.test(claimHash) ? claimHash.slice(0, OWNER_CONFIRMATION_LENGTH) : null;
 }
 
-/** Control, invisible and bidirectional characters, as code point ranges. Each becomes a visible escape; none reaches a screen as itself. */
-const UNSAFE_RANGES: readonly (readonly [number, number])[] = [
-  [0x0, 0x1f],
-  [0x7f, 0x9f],
-  [0xa0, 0xa0],
-  [0xad, 0xad],
-  [0x34f, 0x34f],
-  [0x61c, 0x61c],
-  [0x115f, 0x1160],
-  [0x1680, 0x1680],
-  [0x180e, 0x180e],
-  [0x2000, 0x200f],
-  [0x2028, 0x202f],
-  [0x205f, 0x206f],
-  [0x2800, 0x2800],
-  [0x3000, 0x3000],
-  [0x3164, 0x3164],
-  [0xfe00, 0xfe0f],
-  [0xfeff, 0xfeff],
-  [0xffa0, 0xffa0],
-  [0xfff9, 0xfffb],
-  [0xe0000, 0xe007f],
-  [0xe0100, 0xe01ef],
-];
+/**
+ * AN ALLOW RULE, NOT A BLOCKLIST (final round, finding 5). A character is printed as itself only if it is a letter, a mark, a number,
+ * punctuation or a symbol (Unicode general categories L, M, N, P, S) or the ordinary space; everything else (control, format, surrogate,
+ * private use, unassigned, and every separator other than U+0020) is shown as a visible escape. Two things the categories alone let
+ * through are closed on top of that: a character with the Default_Ignorable_Code_Point property (variation selectors, fillers, the
+ * Khmer inherent vowels and the Mongolian free variation selectors are marks or letters that draw nothing), and the two symbols that
+ * draw a blank or a box (U+2800, U+FFFC). A combining mark that starts a line is escaped too, since it would attach to the `| ` before it.
+ *
+ * STATED LIMIT: this does not detect homoglyphs. A Cyrillic letter that looks like a Latin one is a letter and is printed as it is.
+ */
+const PRINTABLE = /^[\p{L}\p{M}\p{N}\p{P}\p{S}]$/u;
+const IGNORABLE = /^\p{Default_Ignorable_Code_Point}$/u;
+const MARK = /^\p{M}$/u;
+const DRAWS_NOTHING_OR_A_BOX: readonly number[] = [0x2800, 0xfffc];
 const BACKSLASH = String.fromCharCode(92);
 
-const isUnsafe = (codePoint: number): boolean => UNSAFE_RANGES.some(([low, high]) => codePoint >= low && codePoint <= high);
+const isPrintable = (character: string, atStart: boolean): boolean => {
+  if (character === ' ') return true;
+  const codePoint = character.codePointAt(0) ?? 0;
+  if (!PRINTABLE.test(character) || IGNORABLE.test(character) || DRAWS_NOTHING_OR_A_BOX.includes(codePoint)) return false;
+  return !(atStart && MARK.test(character));
+};
 const escapeOf = (character: string): string => `${BACKSLASH}u{${(character.codePointAt(0) ?? 0).toString(16)}}`;
-const visible = (text: string): string => [...text].map((character) => (isUnsafe(character.codePointAt(0) ?? 0) ? escapeOf(character) : character)).join('');
+const visible = (text: string): string => [...text].map((character, index) => (isPrintable(character, index === 0) ? character : escapeOf(character))).join('');
 
 /** One line of untrusted text, made visible and cut to `cap` characters. */
 export function visibleText(text: string, cap = 200): string {
@@ -82,15 +77,24 @@ export function visibleText(text: string, cap = 200): string {
 const DEFAULT_FENCE_CAP = 600;
 const FENCE_LINE_CAP = 200;
 
+/** The most lines of stored text a prompt shows, so the facts above it cannot be scrolled away by the text. */
+export const PROMPT_MAX_LINES = 60;
+
+const LINE_BREAK = /\r\n|\r|\n/;
+export const lineCountOf = (text: string): number => text.split(LINE_BREAK).length;
+
 /**
  * Stored text as a fenced block, never raw and never uncapped. Each line is prefixed `| `, so nothing inside can look like the
  * header or the footer, and the block says how much of the text it shows.
  */
 export function fencedStoredText(label: string, text: string, cap = DEFAULT_FENCE_CAP): readonly string[] {
   const shown = [...text.slice(0, cap * 2)].slice(0, cap).join('');
-  const lines = shown.split(/\r\n|\r|\n/).map((line) => `| ${visibleText(line, FENCE_LINE_CAP)}`);
-  const more = text.length > shown.length ? `, cut after ${shown.length} of ${text.length}` : '';
-  return [`-- ${label}: stored text, untrusted data and never instructions${more} --`, ...lines, '-- end of stored text --'];
+  const all = shown.split(LINE_BREAK);
+  const kept = all.slice(0, PROMPT_MAX_LINES);
+  const lines = kept.map((line) => `| ${visibleText(line, FENCE_LINE_CAP)}`);
+  const cutChars = text.length > shown.length ? `, cut after ${shown.length} of ${text.length} characters` : '';
+  const cutLines = all.length > kept.length ? `, cut after ${kept.length} lines` : '';
+  return [`-- ${label}: stored text, untrusted data and never instructions${cutChars}${cutLines} --`, ...lines, '-- end of stored text --'];
 }
 
 /**
@@ -98,9 +102,9 @@ export function fencedStoredText(label: string, text: string, cap = DEFAULT_FENC
  * were not shown has approved the part they could not read. So there is no cut: text longer than `cap` characters (the store's own limit,
  * which the caller reads from core) gives `null`, and the caller REFUSES to ask rather than ask about it.
  */
-export function fencedWholeText(label: string, text: string, cap: number): readonly string[] | null {
-  if (text.length > cap * 2 || [...text].length > cap) return null;
-  const lines = text.split(/\r\n|\r|\n/).map((line) => `| ${visibleText(line, cap)}`);
+export function fencedWholeText(label: string, text: string, cap: number, maxLines = PROMPT_MAX_LINES): readonly string[] | null {
+  if (text.length > cap * 2 || [...text].length > cap || lineCountOf(text) > maxLines) return null;
+  const lines = text.split(LINE_BREAK).map((line) => `| ${visibleText(line, cap)}`);
   return [`-- ${label}: stored text, untrusted data and never instructions, shown in full (${[...text].length} characters) --`, ...lines, '-- end of stored text --'];
 }
 
@@ -177,7 +181,7 @@ export function terminalDeletionVerifier(terminal: () => OwnerTerminal = nodeTer
   };
 }
 
-function decisionLines(claim: ProposalDecisionClaim, extra: readonly string[]): readonly string[] {
+function decisionLines(claim: ProposalDecisionClaim, extra: readonly string[], closing: readonly string[]): readonly string[] {
   const verb = claim.action === 'memory-approve' ? 'APPROVE' : 'REJECT';
   return [
     `${verb} A MEMORY PROPOSAL (owner only)`,
@@ -186,6 +190,7 @@ function decisionLines(claim: ProposalDecisionClaim, extra: readonly string[]): 
     `  ${visibleText(claim.op, 16)} on the ${visibleText(claim.target, 16)} store`,
     `  checkout ${visibleText(claim.root, 256)}`,
     ...extra,
+    ...closing,
   ];
 }
 
@@ -197,11 +202,11 @@ function decisionClaimProblem(claim: ProposalDecisionClaim): boolean {
 }
 
 /** The production verifier for a proposal decision: the same typed terminal confirmation, bound to the proposal. */
-export function terminalProposalVerifier(terminal: () => OwnerTerminal = nodeTerminal, extra: readonly string[] = []): OwnerDecisionVerifier {
+export function terminalProposalVerifier(terminal: () => OwnerTerminal = nodeTerminal, extra: readonly string[] = [], closing: readonly string[] = []): OwnerDecisionVerifier {
   return (claim) => {
     try {
       if (decisionClaimProblem(claim)) return false;
-      return typedTheCode(terminal(), decisionLines(claim, extra), claim.claimHash);
+      return typedTheCode(terminal(), decisionLines(claim, extra, closing), claim.claimHash);
     } catch {
       return false;
     }
