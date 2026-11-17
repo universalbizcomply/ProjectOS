@@ -484,3 +484,57 @@ every full run since. A search of `projectos/host` found no caller of it outside
 passes; every other `val-cd-b4` validator that reads `ipc_session.rs` still passes. If any dependant fails to compile, the phase stops and reports.
 
 **Review:** ECC `security-reviewer` reads the one-line diff and the cargo output.
+
+---
+
+# Plan v1.38 — PROJECTOS-PROPOSAL-DOOR-WIRING1A (Stage 3 carry-forward C)
+
+**Status:** APPROVED by the owner 2026-11-17 ("Approve phase C, all three recommendations"). Lands AFTER PROJECTOS-MEMORY-OWNER-COMMANDS1A.
+Owner answers (all as recommended): (1) this phase may also edit `val-projectos-context-manager1a.cjs`, because the summariser kind and the guard
+re-baseline must move its CM-6 and CM-10 pins (the plan's write list for this phase gains that file: plan v1.38); (2) the kernel's own proposal files are
+handled by a re-baseline of the store guard after the door, limited to the files the door made, not by exempting `proposals/` from the guard;
+(3) skill proposals simply wait until a command decides them, and the two `.gitignore` lines are added to project onboarding later.
+
+**Why:** `openProposalDoor` has no caller. A worker that asks for a memory or skill write through a `proposals` entry in its findings record is
+ignored today. This wires the door so each entry becomes one pending proposal the owner can decide with the memory commands.
+
+**Existing code found.**
+- `openProposalDoor(sys, root, caller, findingsText)` (`agent/src/memory/proposalDoor.ts`): no product caller; its one skill call (`proposeSkill`)
+  passes no `SkillStatePorts`, so a skill proposal can never be minted for review (`skillQueue.ts` skips `recordSkillMint` without them).
+- `runner.ts` already holds both inputs (`checkoutIdentityOf`, `options.contextStateDir ?? nodeInstallationStateDir()`) and the findings record path.
+- The store guard (`agent/src/context/contextStoreGuard.ts`: `beginStoreGuard`, `endStoreGuard`) takes ONE baseline per invocation; every later judgement
+  compares against it, so a proposal the kernel writes in attempt 1 would be refused as a worker write in attempt 2.
+- `commands/run.ts` `isFoldableRunRecord` (PROTECTED) refuses an untracked `proposals/` file at the next closure; `.gitignore` has no entry for either directory.
+- `SUMMARISER_KINDS` in `core/src/context/provenance.ts` has no deterministic kind; the agent side records `agent-model` (`context/contextManager.ts`).
+
+**ADDED.**
+- `agent/test/proposalDoorWiring.test.ts`; validator `val-projectos-proposal-door-wiring1a.cjs` with named mutations, registered in both runners.
+- `rebaseStoreGuard` in `contextStoreGuard.ts`; the summariser kind `deterministic-selection`.
+- `.gitignore`: `.projectops/memory/proposals/` and `.projectops/skills/proposals/`.
+
+**MODIFIED.**
+- `memory/proposalDoor.ts`: an optional fifth parameter `state?: SkillStatePorts`, passed to the one `proposeSkill` call.
+- `loop/runner.ts`: one door call per attempt after the post-checks store judgement and before `writeEvidence`, never on a refused worker, a dry run or an
+  unreadable findings record; the caller is `{author: worker id, role: 'implementer', session}` taken from the kernel; outcome lines carry codes, ids and hashes only.
+- `core/src/context/provenance.ts` and `agent/src/context/contextManager.ts` (PX-12): the deterministic kind, used when no drafter port exists.
+- Pins moved with the rules, never deleted: `val-projectos-port-context1a.cjs` (PX-12 list and mutations), `val-projectos-memory-stores1a.cjs` MS-9 (gains `, state`),
+  `val-projectos-context-manager1a.cjs` CM-6 and CM-10, `core/test/context-hardening.test.ts`.
+- `validate-all.cjs`, `cached-runner.cjs`: registration only, both lists identical, BEFORE `val-projectos-memory-stores1a`.
+
+**PROTECTED (untouched).** `commands/run.ts`, closure authority and the owner floor, `loop/workers.ts`, the registries, `endStoreGuard`'s refusal logic,
+`val-projectos-port-memory1a.cjs`, `val-projectos-port-skills1a.cjs`, `agent/src/index.ts`.
+
+**Rules.** Each is a test, a pin and a named mutation.
+1. DW-1 The door passes `state` to `proposeSkill`, so a skill proposal can be minted and reviewed.
+2. DW-2 The door runs once per attempt, after the store guard's post-checks judgement and before the evidence is written.
+3. DW-3 One entry becomes exactly one pending proposal pinned by hash; an identical entry in a later attempt is a duplicate, not a second proposal.
+4. DW-4 The caller is supplied by the kernel; a worker cannot name its own author or role.
+5. DW-5 A worker write to a `proposals/` path is still refused (`MEMORY_STORE_CHANGED`) even though git ignores the directory.
+6. DW-6 After the door, the guard is re-baselined for exactly the files the door made, so the next attempt is not refused for them, and a worker file placed beside them still is.
+7. DW-7 The `.gitignore` lines are present and exact, `git status` is clean after the door, and neither `MEMORY.md` nor `skills/promoted` is ignored.
+8. DW-8 No door call on a refused worker, a dry run, or an unreadable findings record.
+9. DW-9 A deterministic compaction is recorded under a deterministic kind.
+10. DW-10 `runner.ts` is the only caller of `openProposalDoor` and imports no propose or write entry point.
+11. DW-11 Outcome lines carry codes, ids and hashes, never worker text.
+
+**Reviews:** ECC `security-reviewer`; one recheck at most.

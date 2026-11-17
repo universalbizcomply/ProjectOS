@@ -2677,7 +2677,10 @@
         "projectos/speed/cached-runner.cjs",
         "docs/finish/",
         "docs/changes/delta_spec.md",
-        "docs/06_Plan.md"
+        "docs/06_Plan.md",
+        "projectos/validators/val-projectos-context-manager1a.cjs",
+        "projectos/core/src/context/provenance.ts",
+        "projectos/core/test/context-hardening.test.ts"
       ],
       "exclusions": [
         "No change to closure authority, the owner floor, gatekeeper composition, loop/workers.ts write grants, credential custody, the tenant or action registries, or any existing authority record.",
