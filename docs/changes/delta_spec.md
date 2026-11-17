@@ -174,3 +174,89 @@ rotation and PAT revocation at project completion (owner); legal name and produc
 - **Spend:** only phase 12 calls the gatekeeper and the Codex reviewer, inside the committed $1.50 per-phase cap.
 - **A green exit proof does not lift D4.** Workers still run as the owner's Windows user until Stage 4.3 and service
   custody.
+
+---
+
+# Plan v1.37 (draft) — Stage 4, first phase: PROJECTOS-WORKER-CODEX-IMPLEMENTER1A (plan 4.1a)
+
+**Status:** DRAFT, not approved. Drafted 2026-11-17 at `main` = `ef473593` (plan v1.36 47/47). No code until the owner approves in Plan Mode.
+
+**Why this phase first:** the Stage 4 exit proof is "the same phase runs with the implementer and reviewer providers swapped, and no code change". Today only Claude can implement, and Claude or Codex can review, so the swap is impossible. This is the smallest slice that removes that wall; 4.2 and 4.3 build on it.
+
+## Existing code found (B1)
+
+| What | Where | Consequence |
+|---|---|---|
+| Claude implements AND reviews; the loop never touches VS Code (the only `.vscode` mention is a never-writable path) | `agent/src/loop/adapters/claudeCodeCli.ts` | The "no VS Code dependency" half of 4.1 is already true. This phase pins it with a validator rule instead of rebuilding it. |
+| Codex is a REVIEWER kind only; `start` and `rejoin` refuse; fixed read-only sandbox; closed argument allowlist; credential scrub; out-of-checkout command and secret-reply heuristics | `agent/src/loop/adapters/codexCli.ts` (561 lines) | Stays untouched. Its "never an implementer" guarantee is pinned by `codexCliAdapter.test.ts` and its validator. The implementer is a separate kind. |
+| Adapter registry `BUILT_IN_ADAPTERS` ("a new KIND is a new entry here; a new WORKER is configuration only") | `claudeCodeCli.ts:321` | One new entry. Not a protected file. |
+| Worker roles, write grants, `roleBindingProblems`, `reviewerWorkerId` | `agent/src/loop/workers.ts` (PROTECTED), `reviewRoles.ts` | Unchanged. The existing post-run grant check stays the authority on what was written. |
+| Provider choice per role | `.projectops/project-config.json` `execution.workers` (`claude-local`, `claude-reviewer`) | A swap becomes a config edit by the owner: a `codex-local` implementer and a Claude reviewer. |
+| Provider broker, retry, pricing, fallback (4.5) | `core/src/modelBroker/`, `agent/src/modelBroker/`, unwired | Not this phase. That is 4.2. |
+
+## User stories
+
+- **P1 (MVP slice).** As the owner, I configure a Codex worker as the implementer of a phase and the loop runs it headless, in the phase worktree, under the same brief, write grants, evidence, independent review and gatekeeper path as a Claude worker. *Given* a plan whose worker is of kind `codex-implementer-cli`, *when* `run --execute` dispatches it, *then* Codex runs headless from the brief path with a fixed instruction, and any write outside the plan's `writePaths` is refused by the existing check.
+- **P2.** As the owner, a Claude reviewer reviews a Codex implementer (`providerDistinct` true), and a Codex reviewer reviews a Claude implementer, with no code change between the two.
+- **P3.** As the owner, a Codex implementer cannot be started as a reviewer, and the reviewer-only Codex kind cannot be started as an implementer.
+
+Edge cases: Codex not installed or not logged in (refuse with a named reason, no retry loop); Codex exits non-zero; reply carries a credential-shaped string; a configured argument tries to widen the sandbox; the worker is cut off mid-run (a fresh worker with retrieved state, per the Stage 3 design; no Codex session rejoin).
+
+## Functional requirements
+
+- FR-001 The system MUST provide a worker kind `codex-implementer-cli` whose `start` runs `codex exec` headless, from the brief path and one fixed instruction sentence, with the checkout as working directory.
+- FR-002 The sandbox MUST be set by the adapter only, never by configuration, MUST be Codex's workspace-write sandbox confined to the checkout, and the argument allowlist MUST be closed (no `danger-full-access`, no bypass flag, no `--add-dir`, no `-c` except the adapter's own Windows sandbox pair, no profile).
+- FR-003 The adapter MUST NOT treat the Codex sandbox as the write boundary. Write authority stays the plan's `writePaths` as enforced by the existing loop check on the resulting diff.
+- FR-004 `rejoin` MUST refuse with "start a fresh worker"; `review` MUST be absent. `codex-cli` (reviewer) keeps refusing `start`.
+- FR-005 The spawn MUST use the same scrubbed environment, argument-credential refusal and bounded timeout as every worker spawn, and MUST pass no key, token or login material.
+- FR-006 A reply or event stream carrying credential-shaped content MUST be withheld and reported as a refusal, never written to a record or stop detail.
+- FR-007 A validator MUST pin: no VS Code API or `code` binary use anywhere in `agent/src/loop`; both Codex kinds present in `BUILT_IN_ADAPTERS`; each kind's role refusals.
+- FR-008 Two role-swap fixtures (Claude implements / Codex reviews, Codex implements / Claude reviews) MUST run through the same loop code with fake spawn ports and differ only in committed worker config.
+
+SC-001 Both swap fixtures pass with no source difference. SC-002 Every named mutation (widen the sandbox, let `codex-implementer-cli` review, let `codex-cli` implement, drop the credential scrub, let `rejoin` run) is killed by its own rule.
+
+No blocking `[NEEDS CLARIFICATION]`. Defaults chosen: fresh worker instead of Codex session resume; no live Codex call in this phase (the live swap is the Stage 4 exit proof; it spends provider money, so it asks the owner first).
+
+## Zone 1 — ADDED
+
+- `projectos/agent/src/loop/adapters/codexImplementer.ts` (the new kind; reuses the parser, scrub and denial helpers by import from `codexCli.ts`, never by copy).
+- `projectos/agent/test/codexImplementerAdapter.test.ts` and `projectos/agent/test/workerRoleSwap.test.ts` (fake spawn port, no network, no real Codex).
+- `projectos/validators/val-projectos-worker-codex-implementer1a.cjs` with named mutations (SC-002).
+- `docs/finish/PROJECTOS-WORKER-CODEX-IMPLEMENTER1A.md`.
+
+## Zone 2 — MODIFIED (smallest change)
+
+- `projectos/agent/src/loop/adapters/claudeCodeCli.ts`: one import and one line in `BUILT_IN_ADAPTERS`; nothing else.
+- `projectos/agent/src/loop/adapters/codexCli.ts`: export (not change) the helpers the new file reuses, only if not already exported. If any logic has to change, the phase stops and asks.
+- `projectos/validators/validate-all.cjs`, `projectos/speed/cached-runner.cjs`: registration only, lists kept identical. `validate-all.cjs` is PROTECTED; this delta asks for the registration-only edit, as plan v1.36 did.
+- `docs/06_Plan.md`: tick with evidence. `docs/04_TRD.md`: unchanged (no new dependency; Codex is a local CLI the owner logs into).
+
+## Zone 3 — PROTECTED (do not touch)
+
+Everything in `00_Baseline_State.md` §4. In particular: `loop/workers.ts` (grants, `roleBindingProblems`), `verification.ts`, `pinnedValidators.ts`, `candidateIdentity.ts`; `commands/run.ts`; the broker, credential router and `credentialResolver.ts`; `.projectops/project-config.json` (the owner edits worker config; this phase ships no config change and no worker entry); `taskEnvelope.ts`, `actionRegistry.ts`, `action-registry.json`; `projectos/host/**`; the SQL. `codexCli.ts` behaviour, its test and its validator stay as they are.
+
+## Rules (each becomes a test)
+
+1. A worker of kind `codex-implementer-cli` may implement and never review; a worker of kind `codex-cli` may review and never implement.
+2. The Codex sandbox is chosen by the adapter and is never configurable.
+3. What a Codex implementer may write is decided by the plan's `writePaths`, checked by the loop on the diff, not by Codex's sandbox.
+4. No credential, key or login material crosses the command line or the environment, and a credential-shaped reply is withheld.
+5. Resuming a cut-off Codex run starts a fresh worker; there is no Codex session rejoin.
+6. Swapping which provider implements and which reviews is a committed-config change only.
+7. Nothing in the loop depends on VS Code.
+
+## Plan, tasks, risk (trimmed)
+
+Constitution check: no PROTECTED file edited beyond the registration-only lists; no new table, money rule or login change. The approval gate applies because this adds a second write-capable provider (a security boundary) and edits a protected registration file.
+
+**Reviews:** ECC `security-reviewer` mandatory and independent; Agency `application-security-engineer` additive (security and external-api routes); max 2 builders; one recheck.
+
+- [ ] T001 Tests first: sandbox allowlist, role refusals, credential scrub, withheld reply (`test/codexImplementerAdapter.test.ts`).
+- [ ] T002 Adapter `codexImplementer.ts` to pass T001.
+- [ ] T003 Registry entry (`claudeCodeCli.ts`) and swap fixtures (`test/workerRoleSwap.test.ts`).
+- [ ] T004 Validator with named mutations; register in both lists; credit and no-secrets validators; every validator that reads a touched file.
+- [ ] T005 Independent security review, fix round, recheck; lead verification; finish doc; tick plan.
+
+**Residuals to state, not hide:** Codex runs as the owner's Windows user (D4 stands until 4.3); a workspace-write sandbox blocks writes outside the checkout, not reads, so the credential heuristics are fail-closed signals, not proof.
+
+**Not in this phase:** 4.2 role broker wiring; 4.3 isolation and idempotency keys; the Stage 3 carry-forwards (proposal door, taint enforcement, index directory, owner verifier; their own next phase); `val-cd-b4` (Rust host, protected, owner approval); the live swap proof.
