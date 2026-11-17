@@ -123,3 +123,46 @@ export function endStoreGuard(sys: StoreGuardSystem, root: string, fs: DocumentF
 
 /** The two store roots a worker may not write, for a caller that needs to name them. */
 export const GUARDED_STORE_ROOTS = MEMORY_STORE_ROOTS;
+
+/**
+ * RE-BASELINE AFTER THE KERNEL'S OWN DOOR, FOR EXACTLY THE FILES THE DOOR MADE (PROJECTOS-PROPOSAL-DOOR-WIRING1A, rule DW-6).
+ *
+ * The baseline is taken once per run and every later judgement compares against it, so a proposal the kernel writes after attempt 1
+ * would be refused in attempt 2 as a worker's write. This takes the baseline again AFTER the door, and absorbs ONLY what the door said it
+ * made: a proposal file under `.projectops/memory/proposals/` or `.projectops/skills/proposals/` named `mem-` or `skl-` and 24 hex digits,
+ * and the directories above it that were not there before. It does not exempt `proposals/`: a worker file beside the door's, an existing
+ * file that changed, and anything removed are not absorbed, and then the OLD baseline is kept, so the next judgement refuses with
+ * `MEMORY_STORE_CHANGED` and names the paths. A baseline that could not be taken, or a git that cannot say, keeps the old baseline too.
+ */
+const DOOR_FILE = /^\.projectops\/(?:memory|skills)\/proposals\/(?:mem|skl)-[0-9a-f]{24}\.json$/;
+
+export interface StoreRebase {
+  readonly baseline: StoreGuardBefore;
+  /** False when the old baseline was kept, so a later judgement will refuse what changed. */
+  readonly absorbed: boolean;
+}
+
+/** The made file and the two directories above it, project-relative: the store root and its `proposals` directory. */
+function withParents(path: string): readonly string[] {
+  const parts = path.split('/');
+  return [parts.slice(0, 2).join('/'), parts.slice(0, 3).join('/')];
+}
+
+export function rebaseStoreGuard(sys: StoreGuardSystem, root: string, fs: DocumentFs, before: StoreGuardBefore, made: readonly string[]): StoreRebase {
+  const kept: StoreRebase = { baseline: before, absorbed: false };
+  if (made.length === 0) return { baseline: before, absorbed: true };
+  if (!made.every((path) => DOOR_FILE.test(path))) return kept;
+  const now = beginStoreGuard(sys, root, fs);
+  if (!before.snapshot.ok || !now.snapshot.ok || before.dirty === null || now.dirty === null) return kept;
+  const allowed = new Set(made.flatMap((path) => [...withParents(path), path]));
+  const was = new Map(before.snapshot.snapshot.files.map((entry) => [entry.path, entry.hash]));
+  const is = new Map(now.snapshot.snapshot.files.map((entry) => [entry.path, entry.hash]));
+  for (const [path, hash] of is) {
+    if (was.get(path) === hash) continue;
+    if (was.has(path) || !allowed.has(path)) return kept;
+  }
+  for (const path of was.keys()) if (!is.has(path)) return kept;
+  const known = new Set(before.dirty);
+  const dirty = [...before.dirty, ...now.dirty.filter((path) => allowed.has(path) && !known.has(path))];
+  return { baseline: { snapshot: now.snapshot, dirty }, absorbed: true };
+}

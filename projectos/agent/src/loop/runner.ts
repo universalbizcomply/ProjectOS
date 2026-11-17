@@ -78,6 +78,8 @@ import { contextPathOf, prepareRunContext, type StoredContextEvidence } from '..
 import { nodeContextPorts, type ContextManagerPorts } from '../context/contextPorts.js';
 import { checkoutIdentityOf } from '../context/contextCheckout.js';
 import { beginStoreGuard, endStoreGuard, storeGuardBaselineProblem, type StoreGuardVerdict } from '../context/contextStoreGuard.js';
+import { afterProposalDoor } from '../context/proposalDoorStep.js';
+import { openProposalDoor } from '../memory/proposalDoor.js';
 import { nodeInstallationStateDir } from '../nodeRuntimeRoot.js';
 import { nodeEntryProbe } from '../search/nodeHost.js';
 import { documentFsOver } from '../search/ports.js';
@@ -1863,7 +1865,14 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
   // A baseline that cannot be used is found out HERE, before the first worker is paid for, and not after it as an "unchecked" stop.
   const baselineProblem = storeGuardBaselineProblem(storeGuardBaseline);
   if (baselineProblem !== null) return refused([`REFUSED (${baselineProblem.slice(0, baselineProblem.indexOf(':'))}): ${baselineProblem.slice(baselineProblem.indexOf(':') + 2)}`]);
-  storeGuardNow = () => endStoreGuard(sys, root, storeGuardFs, storeGuardBaseline);
+  // THE BASELINE THE JUDGEMENTS USE: the one above until the proposal door has made files, then the one re-taken for exactly those files (see `afterProposalDoor`).
+  let storeGuardCurrent = storeGuardBaseline;
+  storeGuardNow = () => endStoreGuard(sys, root, storeGuardFs, storeGuardCurrent);
+  // WHAT A SKILL PROPOSAL NEEDS TO BE REVIEWABLE (PROJECTOS-PROPOSAL-DOOR-WIRING1A): this checkout's identity and the installation's state directory.
+  const doorState = {
+    checkout: contextPorts?.checkout ?? (() => checkoutIdentityOf(sys, root)),
+    stateDir: options.contextStateDir === undefined ? nodeInstallationStateDir() : options.contextStateDir,
+  };
   // Spent at the first dispatch; see where the attempt's grants are composed.
   let writeGrantSpent = false;
   for (;;) {
@@ -2070,6 +2079,19 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       store.writeEvidence(sys, root, withStoredContext({ ...collectEvidence(sys, root, { sessionId, brief, checks }), invocationId: invocation.invocationId }, contextRun?.evidence() ?? null));
       break;
     }
+    // THE PROPOSAL DOOR (PROJECTOS-PROPOSAL-DOOR-WIRING1A): the worker's `proposals` entries become pending proposals, here, after the stores were
+    // judged twice and before the evidence is written. The caller is the kernel's: this worker, the implementer role, this session. A findings record
+    // the loop itself cannot read, a refused worker (ended above) and a dry run (ended before the loop) reach no door.
+    const doorFindings = store.readFindings(sys, root, sessionId);
+    const door = afterProposalDoor(
+      sys,
+      root,
+      storeGuardFs,
+      storeGuardCurrent,
+      openProposalDoor(sys, root, { author: resolution.worker.workerId, role: 'implementer', session: sessionId }, doorFindings.ok ? sys.readText(store.findingsPath(root, sessionId)) : null, doorState),
+    );
+    storeGuardCurrent = door.baseline;
+    lines.push(...door.lines);
     options.onWorkState?.({
       state: 'VALIDATING',
       phaseId,

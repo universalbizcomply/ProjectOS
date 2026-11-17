@@ -16,11 +16,13 @@
  * is handed `util.types.isProxy` here (core loads in a browser and may not import `node:util`), and every entry is answered, accepted or refused, each with a machine-readable code and no worker text. Asked twice with the same
  * record, an entry that is already pending comes back as a duplicate of that proposal, not a second one.
  *
- * WIRING IS NOT HERE. The loop does not call this yet: it belongs after `readFindings` in the run, and that code is outside
- * this phase's paths (Stage 4.1). See `docs/finish/PROJECTOS-MEMORY-STORES1A.md`.
+ * WIRED (PROJECTOS-PROPOSAL-DOOR-WIRING1A): `loop/runner.ts` is the one caller, once per attempt after the checks were judged and before the
+ * evidence is written. It passes `state`, the checkout identity and the installation's state directory, so a skill proposal is minted and can
+ * be reviewed; without it a skill proposal is pending and readable and can never be promoted.
  */
 import { types } from 'node:util';
 import { normalizedEntryKey, readFindingsProposals, type FindingsMemoryRequest, type FindingsSkillRequest, type ProposalDoorCode, type Role } from '@projectos/core';
+import type { SkillStatePorts } from '../skills/skillMint.js';
 import { listPendingSkillProposals, proposeSkill } from '../skills/skillQueue.js';
 import type { System } from '../system.js';
 import { listPendingMemoryProposals, proposeMemoryWrite } from './proposalQueue.js';
@@ -111,11 +113,11 @@ function memoryEntry(sys: System, root: string, caller: ProposalDoorCaller, one:
 const filesKey = (files: readonly { readonly path: string; readonly text: string }[]): string =>
   JSON.stringify([...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).map(({ path, text }) => [path, text]));
 
-function skillEntry(sys: System, root: string, caller: ProposalDoorCaller, one: FindingsSkillRequest): DoorEntryOutcome {
+function skillEntry(sys: System, root: string, caller: ProposalDoorCaller, one: FindingsSkillRequest, state?: SkillStatePorts): DoorEntryOutcome {
   const wanted = filesKey(one.files);
   const same = listPendingSkillProposals(sys, root).pending.find((pending) => pending.provenance.author === caller.author && filesKey(pending.files) === wanted);
   if (same !== undefined) return { ok: true, index: one.index, class: 'skill', id: same.id, proposalHash: same.proposalHash, state: 'pending', duplicate: true };
-  const made = proposeSkill(sys, root, { actor: caller.author, role: caller.role, session: caller.session }, { files: one.files });
+  const made = proposeSkill(sys, root, { actor: caller.author, role: caller.role, session: caller.session }, { files: one.files }, state);
   if (!made.ok) return { ok: false, index: one.index, class: 'skill', code: made.refusal.code, message: made.refusal.message };
   return { ok: true, index: one.index, class: 'skill', id: made.value.id, proposalHash: made.value.proposalHash, state: 'pending', duplicate: false };
 }
@@ -124,7 +126,7 @@ function skillEntry(sys: System, root: string, caller: ProposalDoorCaller, one: 
  * Turn the `proposals` entry of one findings record into pending proposals. `findingsText` is the record's text, or null when
  * there is none. Every accepted entry is pending and pinned by its hash, and every refused one says why.
  */
-export function openProposalDoor(sys: System, root: string, caller: ProposalDoorCaller, findingsText: string | null): ProposalDoorOutcome {
+export function openProposalDoor(sys: System, root: string, caller: ProposalDoorCaller, findingsText: string | null, state?: SkillStatePorts): ProposalDoorOutcome {
   if (findingsText === null) return { findings: 'absent', entries: [] };
   if (caller.role === 'owner') {
     return { findings: 'read', entries: [whole('PROPOSAL_DOOR_CALLER_NOT_WORKER', 'A findings record is the worker\'s, so its proposals are not made in the owner\'s role. Nothing was proposed.')] };
@@ -135,7 +137,7 @@ export function openProposalDoor(sys: System, root: string, caller: ProposalDoor
   const parsed = parsedRecord(findingsText);
   if (!parsed.ok) return { findings: 'unreadable', entries: [whole('PROPOSAL_DOOR_UNREADABLE', 'The findings record is not valid JSON, so it asked for nothing.')] };
   const read = readFindingsProposals(parsed.record, (value) => types.isProxy(value));
-  const accepted = read.requests.map((one) => (one.class === 'memory' ? memoryEntry(sys, root, caller, one) : skillEntry(sys, root, caller, one)));
+  const accepted = read.requests.map((one) => (one.class === 'memory' ? memoryEntry(sys, root, caller, one) : skillEntry(sys, root, caller, one, state)));
   const refused = read.refused.map((one): DoorEntryOutcome => ({ ok: false, index: one.index, class: null, code: one.code, message: one.message }));
   return { findings: 'read', entries: [...accepted, ...refused].sort((a, b) => (a.index ?? -1) - (b.index ?? -1)) };
 }

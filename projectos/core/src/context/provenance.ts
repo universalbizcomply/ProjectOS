@@ -18,8 +18,11 @@ const COMPACTION_SCHEMA = 'projectos.context-compaction/1';
 const COMPACTION_ID = /^ctx-[0-9a-f]{24}$/;
 const ISO_INSTANT = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?Z$/;
 const DAY_MS = 86_400_000;
-/** The kinds of summariser the kernel knows. A name outside this list says nothing anyone can check. */
-export const SUMMARISER_KINDS = ['summary-model', 'agent-model'] as const;
+/**
+ * The kinds of summariser the kernel knows. A name outside this list says nothing anyone can check.
+ * `deterministic-selection` is a compaction nothing generated: items left out by rank, listed by path and hash (PROJECTOS-PROPOSAL-DOOR-WIRING1A).
+ */
+export const SUMMARISER_KINDS = ['summary-model', 'agent-model', 'deterministic-selection'] as const;
 
 /** A turn as the record remembers it: enough to say what it was, without keeping its text. */
 export interface TurnMark {

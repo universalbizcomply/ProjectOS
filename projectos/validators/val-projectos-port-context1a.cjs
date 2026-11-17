@@ -831,7 +831,7 @@ function provenanceProblems(m, k, E) {
   for (const over of forgedDrafts) {
     if (draft(over) !== "CONTEXT_DRAFT_INVALID") E("PX-12", `a draft with ${JSON.stringify(over)} was accepted`);
   }
-  if (m.SUMMARISER_KINDS.join() !== "summary-model,agent-model") E("PX-12", "the kernel's list of summarisers moved");
+  if (m.SUMMARISER_KINDS.join() !== "summary-model,agent-model,deterministic-selection") E("PX-12", "the kernel's list of summarisers moved");
   for (const over of [...m.SUMMARISER_KINDS.map((summarisedBy) => ({ summarisedBy })), { at: "2028-02-29T23:59:59.5Z" }]) {
     if (draft(over) !== "ok") E("PX-12", `a draft with ${JSON.stringify(over)} was refused`);
   }
@@ -1250,10 +1250,11 @@ const MUTATIONS = [
   M("summary-not-tied-to-its-record", "PX-12", THREAD, " || thread.summary.compactionId !== last.id", GONE),
   M("summary-text-not-pinned", "PX-12", THREAD, "return memoryEntryHash(thread.summary.text) === last.summaryHash ? null : refuse('its summary text changed after the record');", "return null;"),
   M("who-not-required", "PX-12", PROVENANCE, "  if (!SUMMARISER_KINDS.some((kind) => kind === fields.summarisedBy)) return 'a known kind of summariser';\n", GONE),
-  M("owner-is-a-summariser", "PX-12", PROVENANCE, "['summary-model', 'agent-model'] as const", "['summary-model', 'agent-model', 'owner'] as const"),
-  M("owner-approved-is-a-summariser", "PX-12", PROVENANCE, "['summary-model', 'agent-model'] as const", "['summary-model', 'agent-model', 'owner-approved'] as const"),
+  M("owner-is-a-summariser", "PX-12", PROVENANCE, "['summary-model', 'agent-model', 'deterministic-selection'] as const", "['summary-model', 'agent-model', 'deterministic-selection', 'owner'] as const"),
+  M("owner-approved-is-a-summariser", "PX-12", PROVENANCE, "['summary-model', 'agent-model', 'deterministic-selection'] as const", "['summary-model', 'agent-model', 'deterministic-selection', 'owner-approved'] as const"),
   M("summariser-name-folded", "PX-12", PROVENANCE, "kind === fields.summarisedBy", "kind === String(fields.summarisedBy).toLowerCase()"),
-  M("a-known-kind-refused", "PX-12", PROVENANCE, "['summary-model', 'agent-model'] as const", "['summary-model'] as const"),
+  M("a-known-kind-refused", "PX-12", PROVENANCE, "['summary-model', 'agent-model', 'deterministic-selection'] as const", "['summary-model'] as const"),
+  M("the-deterministic-kind-is-not-known", "PX-12", PROVENANCE, "['summary-model', 'agent-model', 'deterministic-selection'] as const", "['summary-model', 'agent-model'] as const"),
   M("session-not-required", "PX-12", PROVENANCE, "  if (!isContextLabel(fields.session)) return 'a session';\n", GONE),
   M("time-not-required", "PX-12", PROVENANCE, "  if (!isRealInstant(fields.at)) return 'a real time';\n", GONE),
   M("impossible-day-admitted", "PX-12", PROVENANCE, "return day <= (Date.UTC(year, month, 1) - Date.UTC(year, month - 1, 1)) / DAY_MS;", "return day > 0;"),

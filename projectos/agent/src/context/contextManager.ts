@@ -46,8 +46,8 @@
  * `recordContextUsage` is not called: it takes a provider's own count of a prompt, and a CLI worker reports none, so there is
  * nothing real to record (named residual). Over the limit after compaction, or when nothing protected will fit, is a STOP.
  *
- * `summarisedBy` is `agent-model`, the nearest kind the kernel's closed list has, because the list is pinned by the context port
- * validator and has no deterministic kind. The ledger records the truth (`compactor: 'deterministic-selection'`).
+ * `summarisedBy` is `deterministic-selection` when no drafter port exists (PROJECTOS-PROPOSAL-DOOR-WIRING1A: the kernel's list gained that kind, so a
+ * compaction nothing generated is no longer recorded as a model summary), and `agent-model` when a caller supplied a drafter. The ledger records `compactor: 'deterministic-selection'`.
  */
 import {
   appendContextTurn,
@@ -109,7 +109,13 @@ export const MAX_RECORDED_WITHHELD = 400;
 const SESSION_ID = /^[A-Za-z0-9_.-]{1,64}$/;
 const SOURCE_ID_CHARS = /[^A-Za-z0-9._:/?=&%+~@#-]/g;
 const PARTIAL_STOP_REASONS: readonly string[] = ['length', 'max_tokens', 'max_output_tokens', 'incomplete'];
-const SUMMARISED_BY = 'agent-model';
+const DETERMINISTIC_SUMMARISER = 'deterministic-selection';
+const DRAFTED_SUMMARISER = 'agent-model';
+
+/** Which kind of summariser wrote a compaction: the deterministic kind when the manager's own selection did, the agent's when a drafter port did. */
+export function summariserKindOf(drafter: ContextManagerPorts['drafter']): typeof DETERMINISTIC_SUMMARISER | typeof DRAFTED_SUMMARISER {
+  return drafter === undefined ? DETERMINISTIC_SUMMARISER : DRAFTED_SUMMARISER;
+}
 /** Said under "Items left out for room": a path listed there is a decision or record that was not copied here, and a committed decision is authority. */
 const LEFT_OUT_NOTE =
   'A committed decision named below was left out of this file for room. It is still authoritative: read each one from its listed path before you act on anything it could decide.';
@@ -389,7 +395,7 @@ function compacted(ports: ContextManagerPorts, request: RunContextRequest, threa
   }
   const offer = (ports.drafter ?? ((p: CompactionPlan) => deterministicDraft(p, metaOfTurn)))(plan.value);
   if (offerProblem(offer)) return refuse('CONTEXT_MANAGER_PARTIAL_SUMMARY', 'A summary that was cut short, or that does not say it is complete, is never installed. Nothing was sent.', null);
-  const draft: CompactionDraft = { threadHash: plan.value.threadHash, text: offer.text, summarisedBy: SUMMARISED_BY, session: request.sessionId, at: request.nowIso };
+  const draft: CompactionDraft = { threadHash: plan.value.threadHash, text: offer.text, summarisedBy: summariserKindOf(ports.drafter), session: request.sessionId, at: request.nowIso };
   const applied = applyCompaction(thread, account, draft);
   if (!applied.ok) {
     noteCompactionRefused(accounts.value, agentId, applied.refusal.code);

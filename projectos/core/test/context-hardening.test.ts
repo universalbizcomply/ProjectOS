@@ -369,7 +369,12 @@ describe('who a draft can say wrote it', () => {
   });
 
   it('knows exactly these kinds', () => {
-    expect(SUMMARISER_KINDS).toEqual(['summary-model', 'agent-model']);
+    expect(SUMMARISER_KINDS).toEqual(['summary-model', 'agent-model', 'deterministic-selection']);
+  });
+
+  it('names a deterministic kind, so a compaction nothing generated is not recorded as a model summary (PROJECTOS-PROPOSAL-DOOR-WIRING1A, DW-9)', () => {
+    expect(SUMMARISER_KINDS).toContain('deterministic-selection');
+    expect(codeOf(landed(SUMMARY, { summarisedBy: 'deterministic-selection' }))).toBe('ok');
   });
 
   it.each(SUMMARISER_KINDS)('accepts the kernel-known kind %s: the positive control', (summarisedBy) => {
