@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "2ba17d032f60540c",
+  "objective": "Plan v1.37: Stage 4 runtime and provider independence: Codex implementer (4.1a), the Stage 3 carry-forwards (context for Codex, owner memory commands, proposal door), scratch-checkout isolation (4.3a), the role registry (4.2 first slice), the session-digest seal in the host, and the Stage 4 exit proof, per the delta sections in docs/changes/delta_spec.md approved by the owner on 2026-11-17.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "a0138a0f24cae8b682a4318472165f8dbc500120",
+  "submittedAt": "2026-11-17T12:46:00.465Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
