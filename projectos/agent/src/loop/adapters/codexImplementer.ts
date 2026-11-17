@@ -29,8 +29,8 @@
  * WHAT THIS DOES NOT PROVE. It is tested with fakes only; no live Codex run was made. The command and
  * credential heuristics are the reviewer adapter's (`commandProblem`, `credentialShaped`) and are tripwires
  * on text, not proofs; they may over-refuse a real run. Codex runs as the owner's Windows user (D4 stands
- * until Stage 4.3). Stored context is not handed over: this kind is not in `CONTEXT_POINTABLE_KINDS`, so the
- * loop refuses a run that has stored context for it.
+ * until Stage 4.3). Stored context is handed over by reference (PROJECTOS-CONTEXT-CODEX1A): this kind is in
+ * `CONTEXT_POINTABLE_KINDS`, and both fixed sentences name the file by its project-relative path when the brief has one.
  */
 import type { System } from '../../system.js';
 import type { WorkerBrief } from '../brief.js';
@@ -281,10 +281,14 @@ export const CODEX_IMPLEMENTER_NOT_RESUMABLE =
   `a '${CODEX_IMPLEMENTER}' worker is never resumed: it starts a fresh worker, which reads the brief and the loop's records; ` +
   'there is no Codex session to rejoin';
 
-/** The two fixed sentences the loop already uses for a start and a correction. Injected, so this file imports nothing from the Claude adapter. */
+/**
+ * The two fixed sentences the loop already uses for a start and a correction, and the function that turns the brief's context path into the
+ * project-relative one the sentences may name. Injected, so this file imports nothing from the Claude adapter.
+ */
 export interface InstructionBuilders {
   readonly pointerInstruction: (briefPath: string, contextPath?: string) => string;
   readonly correctionInstruction: (briefPath: string, contextPath?: string) => string;
+  readonly contextPointerPathOf: (contextPath: unknown, root: unknown) => string | null;
 }
 
 /** What actually happened, with the same non-completion outcomes as the other adapters. */
@@ -319,12 +323,14 @@ export function codexImplementerAdapterWith(instructions: InstructionBuilders): 
       const unbounded = boundProblem(worker);
       if (unbounded !== null) return { kind: 'refused', detail: unbounded };
       if (brief.repository.head === null) return { kind: 'refused', detail: 'the brief is not bound to a commit, so no worker may be started from it' };
-      if (brief.records.contextPath !== undefined) {
-        return { kind: 'refused', detail: `the brief names stored context, and a '${CODEX_IMPLEMENTER}' worker is not told where it is; no worker was started` };
-      }
       const root = brief.repository.root;
+      // The stored-context file, when the brief names one, by its project-relative path, exactly as the Claude adapter does it
+      // (PROJECTOS-CONTEXT-CODEX1A). A path that is not that file under this root yields no pointer, never a guessed one.
+      const contextPointer = instructions.contextPointerPathOf(brief.records.contextPath, root) ?? undefined;
       // The correction sentence once the LOOP has written its evidence record (a worker cannot write it: not granted).
-      const instruction = sys.exists(brief.records.evidencePath) ? instructions.correctionInstruction(briefPath) : instructions.pointerInstruction(briefPath);
+      const instruction = sys.exists(brief.records.evidencePath)
+        ? instructions.correctionInstruction(briefPath, contextPointer)
+        : instructions.pointerInstruction(briefPath, contextPointer);
       const built = codexImplementerArgv(worker, root, instruction);
       if (!built.ok) return { kind: 'refused', detail: built.problem };
       const { scopes } = attemptScopes(worker);

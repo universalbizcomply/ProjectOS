@@ -68,8 +68,9 @@ Accepted and fixed: ECC 1 to 6, Agency F1, F2, F4, F5, F7. Not fixed, stated bel
 4. **A write made and undone during the run is not seen**, nor a path under `.git` other than configuration, HEAD, index flags and `info/exclude`.
    Whether Codex's Windows sandbox makes `.git` read-only was not verified.
 5. **After a refusal the tree is left as the worker left it.** The owner restores it; nothing does so automatically.
-6. **Stored context is not handed to a Codex implementer.** The kind is not in `CONTEXT_POINTABLE_KINDS` (pinned by `val-projectos-context-manager1a`
-   CM-20), so a run that has stored context refuses for it. The exit proof on a project with stored context needs that follow-up.
+6. ~~**Stored context is not handed to a Codex implementer.** The kind is not in `CONTEXT_POINTABLE_KINDS` (pinned by `val-projectos-context-manager1a`
+   CM-20), so a run that has stored context refuses for it. The exit proof on a project with stored context needs that follow-up.~~
+   CLOSED by PROJECTOS-CONTEXT-CODEX1A (see `docs/finish/PROJECTOS-CONTEXT-CODEX1A.md`): the kind is context-pointable and both sentences name the file.
 7. **The worker executable should be `codex.exe`, not the npm `.cmd` shim.**
 
 The real fix for 2 to 5 is to run the worker in a scratch checkout and copy back only granted paths. That is Stage 4.3.

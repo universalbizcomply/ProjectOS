@@ -402,6 +402,17 @@ describe('review round 1: item 1, the empty retrieval; item 7, the pointer; item
     expect(ledgerOf(w.files).filter((entry) => entry.event === 'placed')).toEqual([]);
   });
 
+  it('PROJECTOS-CONTEXT-CODEX1A: a Codex implementer is given the context file (it is pointable), and is not refused', () => {
+    const w = world({ kind: 'codex-implementer-cli' });
+    const wk = worker(w, () => undefined, 'codex-implementer-cli');
+    const result = run(w, wk);
+    expect(result.lines.join('\n')).not.toContain('CONTEXT_NOT_POINTABLE');
+    expect(wk.calls).toEqual(['start']);
+    expect(wk.seenAtDispatch[0]).toContain('# Stored context for session');
+    expect(ledgerOf(w.files).filter((entry) => entry.event === 'placed').map((entry) => entry.attempt)).toEqual([1]);
+    expect(CONTEXT_PATH in w.files).toBe(false);
+  });
+
   it('judges a direct store write even when the run has no admitted envelope and no context', () => {
     const w = world();
     const wk = worker(w, () => {
