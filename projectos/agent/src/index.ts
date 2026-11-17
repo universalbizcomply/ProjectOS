@@ -22,3 +22,17 @@ export { phase } from './commands/phase.js';
 export { approve } from './commands/approve.js';
 export { plan } from './commands/plan.js';
 export { plugins } from './commands/plugins.js';
+export { memory, MEMORY_COMMAND_CODES, type MemoryCommandDeps } from './commands/memory.js';
+export {
+  OWNER_CONFIRMATION_STATEMENT,
+  confirmationCodeOf,
+  fencedStoredText,
+  proposalDecisionClaimOf,
+  terminalAvailable,
+  terminalDeletionVerifier,
+  terminalProposalVerifier,
+  visibleText,
+  type OwnerDecisionVerifier,
+  type OwnerTerminal,
+  type ProposalDecisionClaim,
+} from './memory/ownerTerminalVerifier.js';

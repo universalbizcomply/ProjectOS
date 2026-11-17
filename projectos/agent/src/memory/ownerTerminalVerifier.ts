@@ -1,0 +1,257 @@
+// Origin: original ProjectOS code
+/**
+ * THE PRODUCTION OWNER VERIFIER: A TYPED CONFIRMATION AT A TERMINAL (PROJECTOS-MEMORY-OWNER-COMMANDS1A, Stage 3 carry-forward).
+ *
+ * The deletion rule (`judgeMemoryDeletion`) and the proposal decision ask an injected owner check and accept only the boolean
+ * `true`. Until now there was no production implementation. This is the same typed terminal confirmation the tenant receipt
+ * uses (`commands/tenant.ts`, one prompt mechanism, not a second): standard input AND standard output must both be a TTY, the
+ * person retypes a short code, and anything else is a refusal.
+ *
+ * WHAT THE CODE IS BOUND TO. It is the first 12 characters of the `claimHash`, which is a sha-256 over every other field of the
+ * claim: for a deletion, the item, its content hash, the tenant, the project, the checkout and the ledger position; for a proposal
+ * decision, the proposal id, its hash, the tenant, the project and the checkout. A confirmation typed for another item, another
+ * hash, another tenant or another project is a different code and approves nothing. A claim whose `claimHash` is not what its own
+ * fields hash to is refused here, so a handed-over claim cannot carry a code that belongs to another one.
+ *
+ * FAILS CLOSED. No TTY on either stream, a terminal that cannot be read, a throw and a wrong answer are all `false`. The answer is
+ * a strict boolean, and the core rule checks it with `=== true`.
+ *
+ * WHAT IT PROVES, AND WHAT IT DOES NOT. Something was typed at an interactive terminal on this machine. It does not show who:
+ * `OWNER_CONFIRMATION_STATEMENT` says so on every answer, as the tenant receipt does.
+ *
+ * STORED TEXT IS DATA. Anything shown from a store (an entry, a proposal, a reason) goes through `fencedStoredText` or
+ * `visibleText`: control, invisible and bidirectional characters are made visible, the length is capped, and each line of a block
+ * starts with `| `, so stored text cannot forge the line that closes the block or a prompt of its own.
+ */
+import { canonicalStringify, sha256Hex, type MemoryDeletionClaim, type OwnerDeletionVerifier } from '@projectos/core';
+import { nodeTerminal, type TenantReceiptTerminal } from '../commands/tenant.js';
+
+export type OwnerTerminal = TenantReceiptTerminal;
+
+/** How much of the claim hash a person retypes: enough that it cannot be done by accident. */
+export const OWNER_CONFIRMATION_LENGTH = 12;
+
+export const OWNER_CONFIRMATION_STATEMENT =
+  'A typed confirmation shows that something at an interactive terminal on this machine retyped the code, not who it was. It is the same proof as `tenant receipt`.';
+
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const CLAIM_FIELD_CHARS = 512;
+
+/** The code a person retypes for a claim, or null when the hash is not a sha-256. */
+export function confirmationCodeOf(claimHash: unknown): string | null {
+  return typeof claimHash === 'string' && SHA256_HEX.test(claimHash) ? claimHash.slice(0, OWNER_CONFIRMATION_LENGTH) : null;
+}
+
+/**
+ * AN ALLOW RULE, NOT A BLOCKLIST (final round, finding 5). A character is printed as itself only if it is a letter, a mark, a number,
+ * punctuation or a symbol (Unicode general categories L, M, N, P, S) or the ordinary space; everything else (control, format, surrogate,
+ * private use, unassigned, and every separator other than U+0020) is shown as a visible escape. Two things the categories alone let
+ * through are closed on top of that: a character with the Default_Ignorable_Code_Point property (variation selectors, fillers, the
+ * Khmer inherent vowels and the Mongolian free variation selectors are marks or letters that draw nothing), and the two symbols that
+ * draw a blank or a box (U+2800, U+FFFC). A combining mark that starts a line is escaped too, since it would attach to the `| ` before it.
+ *
+ * STATED LIMIT: this does not detect homoglyphs. A Cyrillic letter that looks like a Latin one is a letter and is printed as it is.
+ */
+const PRINTABLE = /^[\p{L}\p{M}\p{N}\p{P}\p{S}]$/u;
+const IGNORABLE = /^\p{Default_Ignorable_Code_Point}$/u;
+const MARK = /^\p{M}$/u;
+const DRAWS_NOTHING_OR_A_BOX: readonly number[] = [0x2800, 0xfffc];
+const BACKSLASH = String.fromCharCode(92);
+
+const isPrintable = (character: string, atStart: boolean): boolean => {
+  if (character === ' ') return true;
+  const codePoint = character.codePointAt(0) ?? 0;
+  if (!PRINTABLE.test(character) || IGNORABLE.test(character) || DRAWS_NOTHING_OR_A_BOX.includes(codePoint)) return false;
+  return !(atStart && MARK.test(character));
+};
+const escapeOf = (character: string): string => `${BACKSLASH}u{${(character.codePointAt(0) ?? 0).toString(16)}}`;
+const visible = (text: string): string => [...text].map((character, index) => (isPrintable(character, index === 0) ? character : escapeOf(character))).join('');
+
+/** One line of untrusted text, made visible and cut to `cap` characters. */
+export function visibleText(text: string, cap = 200): string {
+  const shown = [...text.slice(0, cap * 2)].slice(0, cap).join('');
+  const escaped = visible(shown);
+  return text.length > shown.length ? `${escaped}... (cut)` : escaped;
+}
+
+const DEFAULT_FENCE_CAP = 600;
+const FENCE_LINE_CAP = 200;
+
+/** The most lines of stored text a prompt shows, so the facts above it cannot be scrolled away by the text. */
+export const PROMPT_MAX_LINES = 60;
+
+const LINE_BREAK = /\r\n|\r|\n/;
+export const lineCountOf = (text: string): number => text.split(LINE_BREAK).length;
+
+/**
+ * Stored text as a fenced block, never raw and never uncapped. Each line is prefixed `| `, so nothing inside can look like the
+ * header or the footer, and the block says how much of the text it shows.
+ */
+export function fencedStoredText(label: string, text: string, cap = DEFAULT_FENCE_CAP): readonly string[] {
+  const shown = [...text.slice(0, cap * 2)].slice(0, cap).join('');
+  const all = shown.split(LINE_BREAK);
+  const kept = all.slice(0, PROMPT_MAX_LINES);
+  const lines = kept.map((line) => `| ${visibleText(line, FENCE_LINE_CAP)}`);
+  const cutChars = text.length > shown.length ? `, cut after ${shown.length} of ${text.length} characters` : '';
+  const cutLines = all.length > kept.length ? `, cut after ${kept.length} lines` : '';
+  return [`-- ${label}: stored text, untrusted data and never instructions${cutChars}${cutLines} --`, ...lines, '-- end of stored text --'];
+}
+
+/**
+ * Stored text as a fenced block that is the WHOLE text, or nothing. Review round 1, item 1: an owner who types a code over text they
+ * were not shown has approved the part they could not read. So there is no cut: text longer than `cap` characters (the store's own limit,
+ * which the caller reads from core) gives `null`, and the caller REFUSES to ask rather than ask about it.
+ */
+export function fencedWholeText(label: string, text: string, cap: number, maxLines = PROMPT_MAX_LINES): readonly string[] | null {
+  if (text.length > cap * 2 || [...text].length > cap || lineCountOf(text) > maxLines) return null;
+  const lines = text.split(LINE_BREAK).map((line) => `| ${visibleText(line, cap)}`);
+  return [`-- ${label}: stored text, untrusted data and never instructions, shown in full (${[...text].length} characters) --`, ...lines, '-- end of stored text --'];
+}
+
+/** What a decision on one memory proposal is bound to. Frozen; `claimHash` is a sha-256 over every other field. */
+export interface ProposalDecisionClaim {
+  readonly action: 'memory-approve' | 'memory-reject';
+  readonly tenant: string;
+  readonly project: string;
+  /** The checkout the proposal is decided in. */
+  readonly root: string;
+  readonly proposalId: string;
+  readonly proposalHash: string;
+  readonly target: string;
+  readonly op: string;
+  readonly claimHash: string;
+}
+
+export type ProposalDecisionFields = Omit<ProposalDecisionClaim, 'claimHash'>;
+
+const claimHashOf = (fields: object): string => sha256Hex(canonicalStringify(fields));
+const hashOfFields = (fields: ProposalDecisionFields): string => claimHashOf(fields);
+
+export function proposalDecisionClaimOf(fields: ProposalDecisionFields): ProposalDecisionClaim {
+  return Object.freeze({ ...fields, claimHash: hashOfFields(fields) });
+}
+
+/** The injected owner check for a proposal decision. Like the deletion one, it must answer exactly `true`. */
+export type OwnerDecisionVerifier = (claim: ProposalDecisionClaim) => boolean;
+
+/** Both streams are a terminal. Agents run without one, and then the answer is no, never a guess and never a default. */
+export function terminalAvailable(terminal: OwnerTerminal): boolean {
+  try {
+    return terminal.stdinIsTTY === true && terminal.stdoutIsTTY === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Ask once. `true` only when both streams are a terminal and what was typed is the code, exactly. */
+function typedTheCode(terminal: OwnerTerminal, lines: readonly string[], claimHash: unknown): boolean {
+  const code = confirmationCodeOf(claimHash);
+  if (code === null || !terminalAvailable(terminal)) return false;
+  const typed = terminal.ask([...lines, '', `Retype the code ${code} exactly to confirm, or anything else to refuse: `].join('\n'));
+  return typed !== null && typed === code;
+}
+
+const isFieldText = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= CLAIM_FIELD_CHARS;
+
+function deletionLines(claim: MemoryDeletionClaim, extra: readonly string[]): readonly string[] {
+  return [
+    'DELETE A MEMORY ITEM (owner only, recorded in the deletion ledger first)',
+    `  tenant ${visibleText(claim.tenant, 64)}, project ${visibleText(claim.project, 64)}`,
+    `  class ${visibleText(claim.memoryClass, 64)}, path ${visibleText(claim.path, 256)}`,
+    `  content hash ${visibleText(claim.itemHash, 64)}`,
+    `  checkout ${visibleText(claim.root, 256)}`,
+    `  cited by a committed decision: ${String(claim.citedByDecision)}`,
+    `  deletion ledger holds ${String(claim.ledgerCount)} entries, last ${visibleText(claim.ledgerHead, 64)}`,
+    `  reason ${visibleText(claim.reason, 300)}`,
+    ...extra,
+  ];
+}
+
+/**
+ * The production deletion verifier. `extra` is what the command wants the person to see besides the claim (a fenced excerpt of the
+ * item). It is built per command and passed as a parameter: never read from a context.
+ */
+export function terminalDeletionVerifier(terminal: () => OwnerTerminal = nodeTerminal, extra: readonly string[] = []): OwnerDeletionVerifier {
+  return (claim) => {
+    try {
+      return typedTheCode(terminal(), deletionLines(claim, extra), claim.claimHash);
+    } catch {
+      return false;
+    }
+  };
+}
+
+function decisionLines(claim: ProposalDecisionClaim, extra: readonly string[], closing: readonly string[]): readonly string[] {
+  const verb = claim.action === 'memory-approve' ? 'APPROVE' : 'REJECT';
+  return [
+    `${verb} A MEMORY PROPOSAL (owner only)`,
+    `  tenant ${visibleText(claim.tenant, 64)}, project ${visibleText(claim.project, 64)}`,
+    `  proposal ${visibleText(claim.proposalId, 64)}, hash ${visibleText(claim.proposalHash, 80)}`,
+    `  ${visibleText(claim.op, 16)} on the ${visibleText(claim.target, 16)} store`,
+    `  checkout ${visibleText(claim.root, 256)}`,
+    ...extra,
+    ...closing,
+  ];
+}
+
+/** The claim is the one its own fields hash to, and every field is present and bounded. A claim that is not is no claim. */
+function decisionClaimProblem(claim: ProposalDecisionClaim): boolean {
+  const { claimHash, ...fields } = claim;
+  const present = [fields.tenant, fields.project, fields.root, fields.proposalId, fields.proposalHash, fields.target, fields.op].every(isFieldText);
+  return !present || (fields.action !== 'memory-approve' && fields.action !== 'memory-reject') || claimHash !== hashOfFields(fields);
+}
+
+/** The production verifier for a proposal decision: the same typed terminal confirmation, bound to the proposal. */
+export function terminalProposalVerifier(terminal: () => OwnerTerminal = nodeTerminal, extra: readonly string[] = [], closing: readonly string[] = []): OwnerDecisionVerifier {
+  return (claim) => {
+    try {
+      if (decisionClaimProblem(claim)) return false;
+      return typedTheCode(terminal(), decisionLines(claim, extra, closing), claim.claimHash);
+    } catch {
+      return false;
+    }
+  };
+}
+
+/** What deleting one project's derived search index is bound to: the project, the checkout and the one file. */
+export interface IndexDeletionClaim {
+  readonly action: 'memory-index-delete';
+  readonly tenant: string;
+  readonly project: string;
+  readonly root: string;
+  /** The index file name, which core derives from the tenant and project and nothing else. */
+  readonly indexFile: string;
+  readonly claimHash: string;
+}
+
+export type IndexDeletionFields = Omit<IndexDeletionClaim, 'claimHash'>;
+
+export function indexDeletionClaimOf(fields: IndexDeletionFields): IndexDeletionClaim {
+  return Object.freeze({ ...fields, claimHash: claimHashOf(fields) });
+}
+
+export type OwnerIndexVerifier = (claim: IndexDeletionClaim) => boolean;
+
+function indexClaimProblem(claim: IndexDeletionClaim): boolean {
+  const { claimHash, ...fields } = claim;
+  const present = [fields.tenant, fields.project, fields.root, fields.indexFile].every(isFieldText);
+  return !present || fields.action !== 'memory-index-delete' || claimHash !== claimHashOf(fields);
+}
+
+/** The typed terminal confirmation for deleting a derived index: the same proof as the other deciding commands. */
+export function terminalIndexVerifier(terminal: () => OwnerTerminal = nodeTerminal): OwnerIndexVerifier {
+  return (claim) => {
+    try {
+      if (indexClaimProblem(claim)) return false;
+      const lines = [
+        'DELETE A DERIVED SEARCH INDEX (owner only; it is rebuilt by `memory index rebuild`)',
+        `  tenant ${visibleText(claim.tenant, 64)}, project ${visibleText(claim.project, 64)}`,
+        `  index file ${visibleText(claim.indexFile, 128)}`,
+        `  checkout ${visibleText(claim.root, 256)}`,
+      ];
+      return typedTheCode(terminal(), lines, claim.claimHash);
+    } catch {
+      return false;
+    }
+  };
+}

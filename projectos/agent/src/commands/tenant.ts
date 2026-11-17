@@ -110,7 +110,7 @@ function askTerminal(question: string): string | null {
   return line;
 }
 
-function nodeTerminal(): TenantReceiptTerminal {
+export function nodeTerminal(): TenantReceiptTerminal {
   return { stdinIsTTY: process.stdin.isTTY === true, stdoutIsTTY: process.stdout.isTTY === true, ask: askTerminal };
 }
 
