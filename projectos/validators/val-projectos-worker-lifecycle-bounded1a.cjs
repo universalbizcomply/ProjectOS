@@ -105,7 +105,7 @@ function run() {
   // PROJECTOS-KERNEL-FOLLOWUP1A added the Codex REVIEWER adapter (owner-approved plan v1.19). The set is
   // still closed: an unlisted file is still a second channel nobody reconciled, and every listed adapter is
   // held to the same bound rules below.
-  const KNOWN_ADAPTERS = ["claudeCodeCli.ts", "codexCli.ts"];
+  const KNOWN_ADAPTERS = ["claudeCodeCli.ts", "codexCli.ts", "codexImplementer.ts"];
   const adapterFiles = fs.readdirSync(adapterDirAbs).filter((f) => f.endsWith(".ts"));
   const unknown = adapterFiles.filter((f) => !KNOWN_ADAPTERS.includes(f));
   if (unknown.length > 0 || !adapterFiles.includes("claudeCodeCli.ts")) {
