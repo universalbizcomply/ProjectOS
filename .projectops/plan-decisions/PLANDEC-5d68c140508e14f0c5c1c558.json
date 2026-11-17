@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-5d68c140508e14f0c5c1c558",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "01986cf0d00137e27a2970726018d3e9d69222ae",
+  "draftId": "a39f6a4f7d228a02",
+  "planDigest": "sha256:37cb1ff2619c7a042ec7a9a9656ce4143230f455a5fb7e95eaf82d1fe3867578",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-17T13:44:00.169Z",
+  "note": "Owner, 2026-11-17: \"Approve phase C, all three recommendations\". Recommendations: (1) phase C may also edit val-projectos-context-manager1a.cjs; (2) re-baseline the store guard after the door, limited to the files the door made; (3) skill proposals wait until a command decides them, and the two .gitignore lines join project onboarding later.",
+  "recordedBy": "projectos plan decide"
+}
