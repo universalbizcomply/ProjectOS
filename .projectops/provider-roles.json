@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "roles": {
+    "implementer": {
+      "workerId": "claude-local",
+      "capabilities": ["implement"],
+      "cost": { "class": "unmetered" },
+      "notes": "The owner's local Claude Code login. It has no metered price, so none is recorded."
+    },
+    "reviewer": {
+      "workerId": "claude-reviewer",
+      "capabilities": ["review"],
+      "cost": { "class": "unmetered" },
+      "notes": "The read-only Claude Code reviewer on the owner's login. It has no metered price, so none is recorded. It is the same provider as the implementer."
+    },
+    "gatekeeper": {
+      "transportId": "openai-primary",
+      "capabilities": ["gatekeeper-review", "plan-authoring", "closure-question"],
+      "cost": { "class": "metered", "model": "gpt-5.6-terra" },
+      "notes": "The committed gatekeeper route, priced by its committed rate card. This registry holds no decision from it."
+    }
+  }
+}

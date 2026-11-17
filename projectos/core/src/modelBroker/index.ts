@@ -38,3 +38,29 @@ export { chooseRoute } from './fallback.js';
 export type { ChooseRouteParams, ChosenRoute, RouteChoice, RouteSkip, RouteSkipReason } from './fallback.js';
 export { MAX_RESULT_TEXT, MODEL_CALL_CLASS, ModelCallError, callModel, createCooldownBook } from './callModel.js';
 export type { AttemptRecord, CooldownBook, ModelBrokerDeps, ModelCallOutcome, ModelCallRefusal, ModelCallRefusalCode, ModelCallRequest, ModelCallSuccess, RouteFailure } from './callModel.js';
+export {
+  COST_CLASSES,
+  MAX_ROLE_NOTES,
+  MAX_ROLE_REFUSALS,
+  MAX_ROLE_REGISTRY_BYTES,
+  ROLE_CAPABILITIES,
+  ROLE_IDS,
+  ROLE_REGISTRY_SCHEMA,
+  parseRoleRegistry,
+  selectForRole,
+  validateRoleRegistry,
+} from './roleRegistry.js';
+export type {
+  CostClass,
+  KnownRoleSources,
+  RoleCapability,
+  RoleCost,
+  RoleEntry,
+  RoleId,
+  RoleParse,
+  RoleRefusal,
+  RoleRefusalCode,
+  RoleRegistry,
+  RoleSelection,
+  RoleStanding,
+} from './roleRegistry.js';

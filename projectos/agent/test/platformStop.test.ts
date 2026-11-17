@@ -298,6 +298,7 @@ const READ_ONLY_UNDER_STOP: readonly (readonly string[])[] = [
   ['prompt', '--phase', 'P'],
   ['tenant'],
   ['tenant', 'show'],
+  ['roles'],
   ['closure'],
   ['closure', 'status', '--id', 'P'],
   ['phase'],
