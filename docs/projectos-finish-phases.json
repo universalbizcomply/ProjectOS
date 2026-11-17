@@ -2668,7 +2668,6 @@
         "projectos/core/src/context/",
         "projectos/core/test/",
         "projectos/agent/test/",
-        "./.gitignore",
         "projectos/validators/val-projectos-proposal-door-wiring1a.cjs",
         "projectos/validators/val-projectos-port-context1a.cjs",
         "projectos/validators/val-projectos-memory-stores1a.cjs",
@@ -2686,7 +2685,8 @@
         "No change to closure authority, the owner floor, gatekeeper composition, loop/workers.ts write grants, credential custody, the tenant or action registries, or any existing authority record.",
         "No live provider call and no worker entry committed to project-config.json unless the phase says so.",
         "commands/run.ts (isFoldableRunRecord) is not edited.",
-        "Nothing writes approved memory or promotes a skill by itself: the owner decides with the memory commands."
+        "Nothing writes approved memory or promotes a skill by itself: the owner decides with the memory commands.",
+        "The two .gitignore lines are a lead edit recorded in the delta spec: no worker may be granted a git control file, so .gitignore is not in the write list."
       ],
       "dependsOn": [
         "PROJECTOS-MEMORY-OWNER-COMMANDS1A"
