@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "a39f6a4f7d228a02",
+  "objective": "Plan v1.38: amend PROJECTOS-PROPOSAL-DOOR-WIRING1A so its write list includes val-projectos-context-manager1a.cjs, core provenance.ts and core context-hardening.test.ts (the summariser kind and the guard re-baseline move CM-6 and CM-10), per the delta section approved by the owner on 2026-11-17.",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "fa5e7ee46b28edcdfb7944e3fa72c728363acd1d",
+  "submittedAt": "2026-11-17T13:43:32.172Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
