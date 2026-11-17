@@ -690,7 +690,7 @@ impl AdmittedRequest {
     }
     /// The session this admission belongs to.
     #[must_use]
-    pub fn session_digest(&self) -> [u8; 32] {
+    pub(crate) fn session_digest(&self) -> [u8; 32] {
         self.session_digest
     }
     /// The correlation this admission answers.
