@@ -222,6 +222,7 @@ No blocking `[NEEDS CLARIFICATION]`. Defaults chosen: fresh worker instead of Co
 ## Zone 1 — ADDED
 
 - `projectos/agent/src/loop/adapters/codexImplementer.ts` (the new kind; reuses the parser, scrub and denial helpers by import from `codexCli.ts`, never by copy).
+- `projectos/agent/src/loop/writeScope.ts` (as built: the scope snapshot and rule, kept out of the adapters directory so the adapter has exactly one spawn) and `projectos/agent/test/writeScopeRealGit.test.ts` (real git, temporary repository).
 - `projectos/agent/test/codexImplementerAdapter.test.ts` and `projectos/agent/test/workerRoleSwap.test.ts` (fake spawn port, no network, no real Codex).
 - `projectos/validators/val-projectos-worker-codex-implementer1a.cjs` with named mutations (SC-002).
 - `docs/finish/PROJECTOS-WORKER-CODEX-IMPLEMENTER1A.md`.
@@ -229,7 +230,7 @@ No blocking `[NEEDS CLARIFICATION]`. Defaults chosen: fresh worker instead of Co
 ## Zone 2 — MODIFIED (smallest change)
 
 - `projectos/agent/src/loop/adapters/claudeCodeCli.ts`: one import and one line in `BUILT_IN_ADAPTERS`; nothing else.
-- `projectos/agent/src/loop/adapters/codexCli.ts`: add `export` to `WINDOWS_SANDBOX` and `FETCH_OR_DECODE` only (no logic change; `val-projectos-kernel-followup1a` pins by substring, re-run to confirm). If any logic has to change, the phase stops and asks.
+- `projectos/agent/src/loop/adapters/codexCli.ts`: add `export` to `WINDOWS_SANDBOX`, `commandProblem` and `inert` only (as built) (no logic change; `val-projectos-kernel-followup1a` pins by substring, re-run to confirm). If any logic has to change, the phase stops and asks.
 - `projectos/validators/val-projectos-worker-lifecycle-bounded1a.cjs`: `KNOWN_ADAPTERS` gains `codexImplementer.ts`, so the new file is held to the same bound rules (every spawn carries `timeoutMs`, a worker without a bound is refused). Extending a closed list, not loosening a rule.
 - `projectos/validators/validate-all.cjs`, `projectos/speed/cached-runner.cjs`: registration only, lists kept identical. `validate-all.cjs` is PROTECTED; this delta asks for the registration-only edit, as plan v1.36 did.
 - `docs/06_Plan.md`: tick with evidence. `docs/04_TRD.md`: unchanged (no new dependency; Codex is a local CLI the owner logs into).
@@ -263,3 +264,5 @@ Constitution check: no PROTECTED file edited beyond the registration-only lists;
 **Residuals to state, not hide:** Codex runs as the owner's Windows user (D4 stands until 4.3); a workspace-write sandbox blocks writes outside the checkout, not reads, so the credential heuristics are fail-closed signals, not proof.
 
 **Not in this phase:** making the Codex implementer a context-pointable kind (`CONTEXT_POINTABLE_KINDS`, pinned by `val-projectos-context-manager1a` CM-20): until then a run that has stored context REFUSES for a Codex implementer (`CONTEXT_NOT_POINTABLE`), truthfully, and the exit proof on a project with stored context needs that follow-up (put it in the Stage 3 carry-forwards phase); 4.2 role broker wiring; 4.3 isolation and idempotency keys; the Stage 3 carry-forwards (proposal door, taint enforcement, index directory, owner verifier; their own next phase); `val-cd-b4` (Rust host, protected, owner approval); the live swap proof.
+
+**As built (2026-11-17).** The scope check does not use `computeCandidateIdentity`: the independent review showed it cannot see ignored paths, the gatekeeper asking records or non-ASCII names, so `writeScope.ts` takes its own snapshot (see `docs/finish/PROJECTOS-WORKER-CODEX-IMPLEMENTER1A.md`). FR-003 stands as rewritten; the instrument changed, not the rule.
