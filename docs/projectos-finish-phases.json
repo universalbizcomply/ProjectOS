@@ -2668,7 +2668,7 @@
         "projectos/core/src/context/",
         "projectos/core/test/",
         "projectos/agent/test/",
-        ".gitignore",
+        "./.gitignore",
         "projectos/validators/val-projectos-proposal-door-wiring1a.cjs",
         "projectos/validators/val-projectos-port-context1a.cjs",
         "projectos/validators/val-projectos-memory-stores1a.cjs",
