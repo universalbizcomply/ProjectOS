@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-11-17T14:06:10.049Z",
   "note": "Lead-recorded mechanical correction within the owner's approval of phase C (owner, 2026-11-17: \"Approve phase C, all three recommendations\"): the same write path, spelled ./.gitignore because the grant reader refuses a bare filename. The owner is told in plain words in the same session; if the owner objects, this decision is the one to withdraw.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-11-17T14:06:18.824Z"
 }
