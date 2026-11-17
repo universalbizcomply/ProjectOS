@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-1625b817436ca0f8c82c2030",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "96b5f7aa2735920a69309149181dd64625b2c6ed",
+  "draftId": "5b5702e6a43b8cc5",
+  "planDigest": "sha256:f4860be1d612a8f7d3ca1b4aff7e575b8fff3e5e752be325103a418f28168d5e",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-17T14:10:35.377Z",
+  "note": "Lead-recorded mechanical correction within the owner's approval of phase C (owner, 2026-11-17: \"Approve phase C, all three recommendations\"): the .gitignore write path is removed from the phase write list because no worker may be granted a git control file; the two .gitignore lines stay a lead edit named in the approved delta spec. Supersedes the spelling change of plan v1.39. The owner is told in plain words in the same session; if the owner objects, this is the decision to withdraw.",
+  "recordedBy": "projectos plan decide"
+}
