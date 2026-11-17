@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-11-17T13:44:00.169Z",
   "note": "Owner, 2026-11-17: \"Approve phase C, all three recommendations\". Recommendations: (1) phase C may also edit val-projectos-context-manager1a.cjs; (2) re-baseline the store guard after the door, limited to the files the door made; (3) skill proposals wait until a command decides them, and the two .gitignore lines join project onboarding later.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-11-17T13:44:36.950Z"
 }
