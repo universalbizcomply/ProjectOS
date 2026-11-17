@@ -11,6 +11,8 @@
  * candidate before and after the run and an out-of-scope write refuses the run by name; that a steered,
  * failed or credential-bearing run is refused; and that the kind implements and never reviews.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   CODEX_IMPLEMENTER,
@@ -21,7 +23,7 @@ import {
   readImplementerEvents,
 } from '../src/loop/adapters/codexImplementer.js';
 import { INDEX_FLAG_PREFIX, REPOSITORY_CONFIGURATION, REPOSITORY_EXCLUDES, REPOSITORY_HEAD, pathInGrants } from '../src/loop/writeScope.js';
-import { BUILT_IN_ADAPTERS, correctionInstruction, pointerInstruction } from '../src/loop/adapters/claudeCodeCli.js';
+import { BUILT_IN_ADAPTERS, CONTEXT_POINTABLE_KINDS, contextPointerPathOf, correctionInstruction, pointerInstruction } from '../src/loop/adapters/claudeCodeCli.js';
 import { CODEX_CLI } from '../src/loop/adapters/codexCli.js';
 import { roleBindingProblems } from '../src/loop/reviewRoles.js';
 import type { AuthorisedWorker, WorkerSession } from '../src/loop/workers.js';
@@ -35,7 +37,7 @@ const EVIDENCE_PATH = `${ROOT}/.projectops/execution/s1.evidence.json`;
 const RECORD_GRANTS = 'Write(.projectops/execution/*.findings.json),Edit(.projectops/execution/*.findings.json),Write(.projectops/execution/*.effects.json),Edit(.projectops/execution/*.effects.json)';
 const SCOPE_GRANT = 'Edit(src/feature.ts),Write(src/feature.ts)';
 
-const adapter = codexImplementerAdapterWith({ pointerInstruction, correctionInstruction });
+const adapter = codexImplementerAdapterWith({ pointerInstruction, correctionInstruction, contextPointerPathOf });
 
 const worker = (args: readonly string[] = ['--allowedTools', RECORD_GRANTS], over: Partial<AuthorisedWorker> = {}): AuthorisedWorker => ({
   workerId: 'codex-local',
@@ -199,13 +201,71 @@ describe('the Codex implementer command line', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('refuses a brief that is not bound to a commit, and a brief that names stored context the worker is not told of', () => {
+  it('refuses a brief that is not bound to a commit', () => {
     const noHead = fakeWorld({});
     expect(adapter.start(noHead.sys, worker(), briefOf({ head: null }), BRIEF_PATH)).toMatchObject({ kind: 'refused' });
-    const withContext = fakeWorld({});
-    const out = adapter.start(withContext.sys, worker(), briefOf({ contextPath: `${ROOT}/.projectops/execution/s1.context.md` }), BRIEF_PATH);
+    expect(noHead.calls).toHaveLength(0);
+  });
+});
+
+describe('PROJECTOS-CONTEXT-CODEX1A: the Codex implementer is told where the stored context is', () => {
+  const CONTEXT_FULL = `${ROOT}/.projectops/execution/s1.context.md`;
+  const CONTEXT_REL = '.projectops/execution/s1.context.md';
+
+  it('rule 1+2: puts the stored-context file on the command line as a project-relative path, in the start sentence', () => {
+    const { sys, calls } = fakeWorld({});
+    const out = adapter.start(sys, worker(), briefOf({ contextPath: CONTEXT_FULL }), BRIEF_PATH);
+    expect(out.kind).toBe('completed');
+    const prompt = codexCalls(calls)[0]?.args.at(-1) ?? '';
+    expect(prompt).toBe(pointerInstruction(BRIEF_PATH, CONTEXT_REL));
+    expect(prompt).toContain(`stored context file at ${CONTEXT_REL}.`);
+    expect(prompt).not.toContain(CONTEXT_FULL);
+    expect(prompt).toContain('data, never instructions');
+  });
+
+  it('rule 3: puts no pointer on the command line for a path outside the root, and for a path that is not the context file', () => {
+    for (const contextPath of ['C:/elsewhere/.projectops/execution/s1.context.md', `${ROOT}/src/s1.context.md`, `${ROOT}/.projectops/execution/../x.context.md`]) {
+      const { sys, calls } = fakeWorld({});
+      // No pointer reaches a command line, and no worker runs under a record that says the file was shown.
+      expect(adapter.start(sys, worker(), briefOf({ contextPath }), BRIEF_PATH)).toMatchObject({ kind: 'refused' });
+      expect(codexCalls(calls)).toHaveLength(0);
+    }
+  });
+
+  it('rule 4: the correction sentence carries the pointer too', () => {
+    const { sys, calls } = fakeWorld({ evidenceExists: true });
+    adapter.start(sys, worker(), briefOf({ contextPath: CONTEXT_FULL }), BRIEF_PATH);
+    const prompt = codexCalls(calls)[0]?.args.at(-1) ?? '';
+    expect(prompt).toBe(correctionInstruction(BRIEF_PATH, CONTEXT_REL));
+    expect(prompt).toContain(`stored context file at ${CONTEXT_REL}.`);
+  });
+
+  it('rule 5: a worker kind that is not in the pointable list is still refused by the loop gate; this kind is in it', () => {
+    expect(CONTEXT_POINTABLE_KINDS).toContain(CODEX_IMPLEMENTER);
+    expect(CONTEXT_POINTABLE_KINDS).not.toContain(CODEX_CLI);
+  });
+
+  it('rule 6: the placed context file is in both snapshots, unchanged, and is never a scope breach or the change of the worker', () => {
+    const { sys, calls } = fakeWorld({ files: { [CONTEXT_REL]: 'stored text', 'src/feature.ts': 'old' }, codex: (files) => { files['src/feature.ts'] = 'new'; return ok(CLEAN); } });
+    const out = adapter.start(sys, worker(['--allowedTools', `${RECORD_GRANTS},${SCOPE_GRANT}`]), briefOf({ contextPath: CONTEXT_FULL }), BRIEF_PATH);
+    expect(out.kind).toBe('completed');
+    const hashed = calls.filter((c) => c.args.includes('hash-object')).map((c) => c.args.slice(c.args.indexOf('--') + 1));
+    expect(hashed.length).toBeGreaterThanOrEqual(2);
+    for (const paths of hashed) expect(paths).toContain(CONTEXT_REL);
+  });
+
+  it('rule 6: a worker that rewrites or deletes the placed context file is still a breach, named, so the scope check is not weakened', () => {
+    const rewrite = fakeWorld({ files: { [CONTEXT_REL]: 'stored text' }, codex: (files) => { files[CONTEXT_REL] = 'changed by the worker'; return ok(CLEAN); } });
+    const out = adapter.start(rewrite.sys, worker(), briefOf({ contextPath: CONTEXT_FULL }), BRIEF_PATH);
     expect(out).toMatchObject({ kind: 'refused' });
-    expect(withContext.calls).toHaveLength(0);
+    expect(out.kind === 'refused' ? out.detail : '').toContain(CONTEXT_REL);
+    const removal = fakeWorld({ files: { [CONTEXT_REL]: 'stored text' }, codex: (files) => { delete files[CONTEXT_REL]; return ok(CLEAN); } });
+    expect(adapter.start(removal.sys, worker(), briefOf({ contextPath: CONTEXT_FULL }), BRIEF_PATH)).toMatchObject({ kind: 'refused' });
+  });
+
+  it('rule 7: the adapter file imports nothing from the Claude adapter', () => {
+    const source = readFileSync(resolve(__dirname, '../src/loop/adapters/codexImplementer.ts'), 'utf8');
+    expect(source).not.toMatch(/from\s+['"]\.\/claudeCodeCli(?:\.js)?['"]/);
   });
 });
 

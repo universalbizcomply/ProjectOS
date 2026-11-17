@@ -512,7 +512,7 @@ function textProblems(raw, base, tracked) {
   // Item 7: the pointer is the project-relative path, and only a worker that is told where the file is may be given one.
   const pointAt = after(runner, "if (!CONTEXT_POINTABLE_KINDS.includes(resolution.worker.kind)) {");
   const recordedAt = after(runner, "const recorded = contextRun.record();");
-  if (!(pointAt >= 0 && recordedAt > pointAt) || !claude.includes("export const CONTEXT_POINTABLE_KINDS: readonly string[] = [CLAUDE_CODE_CLI];") || !claude.includes("export function contextPointerPathOf(contextPath: unknown, root: unknown): string | null {") || !claude.includes("if (!full.startsWith(`${base}/`)) return null;")) E("CM-20", "the record can say a file was shown to a worker that was not pointed at it");
+  if (!(pointAt >= 0 && recordedAt > pointAt) || !claude.includes("export const CONTEXT_POINTABLE_KINDS: readonly string[] = [CLAUDE_CODE_CLI, CODEX_IMPLEMENTER];") || !claude.includes("export function contextPointerPathOf(contextPath: unknown, root: unknown): string | null {") || !claude.includes("if (!full.startsWith(`${base}/`)) return null;")) E("CM-20", "the record can say a file was shown to a worker that was not pointed at it");
   // Item 8: the credential screen this phase hands the manager knows the shapes a note is written in, and cannot run for ever.
   if (!ports.includes("secretScreen: storedTextSecretScreen,") || !screen.includes("return containsSecret(text) || assignedCredential(text) || bearerCredential(text) || URL_CREDENTIAL.test(text) || AWS_SECRET.test(text);")) E("CM-20", "the stored-text credential screen is not the one that knows password, URL, bearer and AWS shapes");
   const returnLine = /return containsSecret\(text\)[^\n]*/.exec(screen)?.[0] ?? "";
@@ -848,7 +848,7 @@ const MUTATIONS = [
   M("the-withheld-list-is-not-capped", "CM-20", MANAGER, "if (sorted.length <= MAX_RECORDED_WITHHELD) return sorted;", "return sorted;"),
   M("the-withheld-cap-grows", "CM-20", MANAGER, "export const MAX_RECORDED_WITHHELD = 400;", "export const MAX_RECORDED_WITHHELD = 4000;"),
   M("any-worker-kind-may-be-given-a-file", "CM-20", RUNNER, "if (!CONTEXT_POINTABLE_KINDS.includes(resolution.worker.kind)) {", "if (false) {"),
-  M("a-worker-kind-that-is-not-told-is-pointable", "CM-20", CLAUDE, "export const CONTEXT_POINTABLE_KINDS: readonly string[] = [CLAUDE_CODE_CLI];", "export const CONTEXT_POINTABLE_KINDS: readonly string[] = [CLAUDE_CODE_CLI, 'codex-cli'];"),
+  M("a-worker-kind-that-is-not-told-is-pointable", "CM-20", CLAUDE, "export const CONTEXT_POINTABLE_KINDS: readonly string[] = [CLAUDE_CODE_CLI, CODEX_IMPLEMENTER];", "export const CONTEXT_POINTABLE_KINDS: readonly string[] = [CLAUDE_CODE_CLI, CODEX_IMPLEMENTER, 'codex-cli'];"),
   M("the-pointer-is-not-held-to-the-root", "CM-20", CLAUDE, "  if (!full.startsWith(`${base}/`)) return null;\n", GONE),
   M("a-bearer-shape-is-no-longer-screened", "CM-20", SCREEN, "assignedCredential(text) || bearerCredential(text) || URL_CREDENTIAL.test(text)", "assignedCredential(text) || URL_CREDENTIAL.test(text)"),
   M("the-stored-text-screen-is-the-old-one", "CM-20", PORTS, "secretScreen: storedTextSecretScreen,", "secretScreen: containsSecret,"),

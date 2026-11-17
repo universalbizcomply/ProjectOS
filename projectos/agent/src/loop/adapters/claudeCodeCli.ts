@@ -93,7 +93,7 @@ const CONTEXT_RELATIVE_SHAPE = /^\.projectops\/execution\/[A-Za-z0-9_.-]{1,64}\.
 const CONTEXT_PATH_SHAPE = /^(?:[A-Za-z0-9_.:/ -]{1,400}\/)?\.projectops\/execution\/[A-Za-z0-9_.-]{1,64}\.context\.md$/;
 
 /** The worker kinds whose instruction names the context file. A run that has a file to show and a worker of another kind is refused, so the record never says shown when the worker was not told. */
-export const CONTEXT_POINTABLE_KINDS: readonly string[] = [CLAUDE_CODE_CLI];
+export const CONTEXT_POINTABLE_KINDS: readonly string[] = [CLAUDE_CODE_CLI, CODEX_IMPLEMENTER];
 
 /**
  * The context file's path RELATIVE TO THE PROJECT ROOT, which is where the worker is placed (`cwd`), or null when the path is not that
@@ -324,5 +324,5 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
 export const BUILT_IN_ADAPTERS: Readonly<Record<string, WorkerAdapter>> = {
   [CLAUDE_CODE_CLI]: claudeCodeCliAdapter,
   [CODEX_CLI]: codexCliAdapter,
-  [CODEX_IMPLEMENTER]: codexImplementerAdapterWith({ pointerInstruction, correctionInstruction }),
+  [CODEX_IMPLEMENTER]: codexImplementerAdapterWith({ pointerInstruction, correctionInstruction, contextPointerPathOf }),
 };
