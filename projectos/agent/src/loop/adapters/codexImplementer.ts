@@ -19,9 +19,13 @@
  * and nothing configured can widen it. But Codex has no per-path grant: the sandbox covers the whole checkout,
  * including `.projectops/authority/`, validators and CLAUDE.md. What a worker may write is the loop's grants
  * (the plan's `writePaths` plus the worker-owned records), which for Claude are enforced by the CLI before the
- * write. For Codex they are read from the argv the loop composed, never forwarded, and judged AFTER the run on
- * the candidate (`writeScope.ts`): a write outside them refuses the run and names the paths. That is detective.
- * The write has happened; the run stops and nothing is certified.
+ * write. For Codex they are read from the argv the loop composed and never forwarded.
+ *
+ * THE SCOPE IS PREVENTATIVE (PROJECTOS-WORKER-SCRATCH-CHECKOUT1A). Codex runs in a scratch copy of the checkout (a fresh
+ * temporary directory, `scratchCheckout.ts`), and only changes inside the grants are copied back; anything else refuses the
+ * whole copy-back and the real tree stays byte-identical. The brief the worker reads is a copy whose root and record paths
+ * point into the scratch. The before/after snapshot of the REAL checkout (`writeScope.ts`) stays as the backstop: a write that
+ * reached the real tree some other way (an absolute path, a link) is still refused and named, but that one is detective.
  *
  * NOT RESUMABLE. A cut-off Codex run starts a fresh worker (the Stage 3 design: new worker plus retrieved
  * state). `providerRef` is always null, so the loop never calls `rejoin`; if something does, it refuses.
@@ -34,6 +38,7 @@
  */
 import type { System } from '../../system.js';
 import type { WorkerBrief } from '../brief.js';
+import { nodeScratchHost, type Refusal, type ScratchCheckout, type ScratchHost } from '../scratchCheckout.js';
 import type { AuthorisedWorker, WorkerAdapter, WorkerOutcome } from '../workers.js';
 import { ambiguousGrants, argvGrants } from '../workers.js';
 import { candidateSnapshot, grantScopes, scopeBreaches } from '../writeScope.js';
@@ -315,7 +320,86 @@ function outcomeFrom(r: { code: number; stdout: string; stderr: string; failure?
   return { kind: 'completed', exitCode: 0, stdout: JSON.stringify({ type: 'result', is_error: false, session_id: null }), stderr: '', providerRef: null };
 }
 
-export function codexImplementerAdapterWith(instructions: InstructionBuilders): WorkerAdapter {
+/** At most this many paths of a refusal are named; the count says how many there were. */
+const MAX_NAMED_REFUSALS = 20;
+
+function namedRefusals(refusals: readonly Refusal[]): string {
+  const shown = refusals.slice(0, MAX_NAMED_REFUSALS).map((r) => `${inert(r.path)} (${r.why})`);
+  return `${shown.join(', ')}${refusals.length > shown.length ? ', …' : ''}`;
+}
+
+/** The brief with its root and record paths mapped into the scratch, or null when one of them is not inside the checkout. */
+function scratchBriefOf(brief: WorkerBrief, scratch: ScratchCheckout): WorkerBrief | null {
+  const r = brief.records;
+  const at = (real: string): string | null => scratch.scratchPathOf(real);
+  const mapped = [at(r.briefPath), at(r.findingsPath), at(r.effectsPath), at(r.evidencePath), r.contextPath === undefined ? '' : at(r.contextPath)];
+  if (mapped.some((p) => p === null)) return null;
+  const [briefPath, findingsPath, effectsPath, evidencePath, contextPath] = mapped as string[];
+  return {
+    ...brief,
+    repository: { ...brief.repository, root: scratch.root },
+    records: { ...r, briefPath, findingsPath, effectsPath, evidencePath, ...(r.contextPath === undefined ? {} : { contextPath }) },
+  } as WorkerBrief;
+}
+
+/**
+ * Put into the scratch what the worker reads and writes beside the code: its brief (rewritten to point into the scratch) and the
+ * evidence, findings, effects and stored-context files that already exist in the real checkout. Returns the scratch path of the
+ * brief, or why nothing may run.
+ */
+function prepareScratch(sys: System, scratch: ScratchCheckout, brief: WorkerBrief, briefPath: string): { readonly ok: true; readonly briefPath: string } | { readonly ok: false; readonly problem: string } {
+  const inside = scratchBriefOf(brief, scratch);
+  const where = scratch.scratchPathOf(briefPath);
+  if (inside === null || where === null) return { ok: false, problem: 'a record path in the brief is not inside the checkout, so no worker was started' };
+  const wrote = scratch.placeText(briefPath, `${JSON.stringify(inside, null, 2)}\n`);
+  if (wrote !== null) return { ok: false, problem: `the brief could not be placed in the scratch checkout, so no worker was started: ${wrote}` };
+  const records = [brief.records.evidencePath, brief.records.findingsPath, brief.records.effectsPath, ...(brief.records.contextPath === undefined ? [] : [brief.records.contextPath])];
+  for (const record of records) {
+    const placed = sys.exists(record) ? scratch.placeFile(record) : null;
+    if (placed !== null) return { ok: false, problem: `a record could not be placed in the scratch checkout, so no worker was started: ${placed}` };
+  }
+  return { ok: true, briefPath: where };
+}
+
+/**
+ * After a run: judge the scratch against the grants, and copy back only when the run itself was not refused. A refused run (steered,
+ * failed turn, overflow) copies nothing, so it leaves the real tree byte-identical; a completed or timed-out run keeps its granted work.
+ */
+function settleScratch(scratch: ScratchCheckout, scopes: readonly string[], outcome: WorkerOutcome): WorkerOutcome {
+  const inspected = scratch.inspect(scopes);
+  if (inspected.kind === 'unreadable') {
+    return { kind: 'refused', detail: `the scratch checkout could not be read after the run, so what the worker wrote cannot be judged and the run is not certified: ${inspected.reason}` };
+  }
+  if (inspected.kind === 'refused') return refusedCopyBack(inspected.refusals);
+  if (outcome.kind === 'refused') return outcome;
+  const copied = scratch.copyBack();
+  if (copied.kind === 'copied') return outcome;
+  if (copied.kind === 'refused') return refusedCopyBack(copied.refusals);
+  return {
+    kind: 'refused',
+    detail: `copying the worker's changes back failed: ${copied.reason}; ${copied.rolledBack ? 'the checkout was restored' : 'THE CHECKOUT MAY HOLD PART OF THE COPY'}, and nothing is certified`,
+  };
+}
+
+function refusedCopyBack(refusals: readonly Refusal[]): WorkerOutcome {
+  return {
+    kind: 'refused',
+    detail:
+      `the Codex worker changed ${refusals.length} path(s) its write grants do not allow in the scratch checkout: ${namedRefusals(refusals)}. ` +
+      'The worker ran in a scratch copy, so nothing was copied back and the checkout is unchanged; nothing is certified',
+  };
+}
+
+/** A scratch that could not be removed is said, on the outcome it belongs to. Never swallowed, and never turns a result into another. */
+function withCleanupNote(outcome: WorkerOutcome, problem: string | null): WorkerOutcome {
+  if (problem === null) return outcome;
+  const note = `the scratch checkout could not be removed and was left in the temporary directory (${problem})`;
+  if (outcome.kind === 'refused') return { ...outcome, detail: `${outcome.detail}; ${note}` };
+  if (outcome.kind === 'completed' || outcome.kind === 'timedOut') return { ...outcome, stderr: outcome.stderr === '' ? note : `${outcome.stderr}; ${note}` };
+  return outcome;
+}
+
+export function codexImplementerAdapterWith(instructions: InstructionBuilders, scratchHost: ScratchHost = nodeScratchHost): WorkerAdapter {
   return {
     kind: CODEX_IMPLEMENTER,
 
@@ -333,35 +417,58 @@ export function codexImplementerAdapterWith(instructions: InstructionBuilders): 
         return { kind: 'refused', detail: 'the brief names stored context at a path this worker cannot be pointed at, so no worker was started' };
       }
       // The correction sentence once the LOOP has written its evidence record (a worker cannot write it: not granted).
-      const instruction = sys.exists(brief.records.evidencePath)
-        ? instructions.correctionInstruction(briefPath, contextPointer)
-        : instructions.pointerInstruction(briefPath, contextPointer);
-      const built = codexImplementerArgv(worker, root, instruction);
-      if (!built.ok) return { kind: 'refused', detail: built.problem };
+      const corrected = sys.exists(brief.records.evidencePath);
+      const sentenceFor = (path: string): string =>
+        corrected ? instructions.correctionInstruction(path, contextPointer) : instructions.pointerInstruction(path, contextPointer);
+      // The configured arguments are judged before anything is made; the real run's argv is built again below, for the scratch.
+      const probe = codexImplementerArgv(worker, root, sentenceFor(briefPath));
+      if (!probe.ok) return { kind: 'refused', detail: probe.problem };
       const { scopes } = attemptScopes(worker);
       const before = candidateSnapshot(sys, root);
       if (before === null) return { kind: 'refused', detail: 'the checkout could not be read before the run, so no worker was started: a write scope cannot be judged afterwards without it' };
-      const result = sys.exec(worker.command, built.argv, {
-        // No credential-shaped variable is inherited, and the worker runs in the governed checkout.
-        scrubCredentials: true, ensureSystemPath: true, cwd: root,
-        // BOUNDED, from the committed config, like every worker spawn.
-        timeoutMs: worker.timeoutMs, maxOutputBytes: WORKER_MAX_OUTPUT_BYTES,
-      });
-      if (result.failure !== 'not-started') {
-        const after = candidateSnapshot(sys, root);
-        if (after === null) return { kind: 'refused', detail: 'the checkout could not be read after the run, so what the worker wrote cannot be judged and the run is not certified' };
-        const breaches = scopeBreaches(before, after, scopes);
-        if (breaches.length > 0) {
-          const shown = breaches.slice(0, 20).map(inert);
-          return {
-            kind: 'refused',
-            detail:
-              `the Codex worker changed ${breaches.length} path(s) outside its write grants: ${shown.join(', ')}${breaches.length > shown.length ? ', …' : ''}. ` +
-              'Codex has no per-path grant, so this was found after the write; the paths are left in the tree for the owner and nothing is certified',
-          };
+      const opened = scratchHost.open(sys, root);
+      if (!opened.ok) return { kind: 'refused', detail: `no scratch checkout could be made, so no worker was started: ${opened.reason}` };
+      const scratch = opened.scratch;
+      const runWorker = (): WorkerOutcome => {
+        const prepared = prepareScratch(sys, scratch, brief, briefPath);
+        if (!prepared.ok) return { kind: 'refused', detail: prepared.problem };
+        // From here the worker's root, brief and sentence are the scratch's.
+        const instruction = sentenceFor(prepared.briefPath);
+        const built = codexImplementerArgv(worker, scratch.root, instruction);
+        if (!built.ok) return { kind: 'refused', detail: built.problem };
+        const baselined = scratch.baseline();
+        if (baselined !== null) return { kind: 'refused', detail: `the scratch checkout could not be read before the run, so no worker was started: ${baselined}` };
+        const result = sys.exec(worker.command, built.argv, {
+          // No credential-shaped variable is inherited, and the worker runs in the scratch checkout, never the governed one.
+          scrubCredentials: true, ensureSystemPath: true, cwd: scratch.root,
+          // BOUNDED, from the committed config, like every worker spawn.
+          timeoutMs: worker.timeoutMs, maxOutputBytes: WORKER_MAX_OUTPUT_BYTES,
+        });
+        if (result.failure !== 'not-started') {
+          const after = candidateSnapshot(sys, root);
+          if (after === null) return { kind: 'refused', detail: 'the checkout could not be read after the run, so what the worker wrote cannot be judged and the run is not certified' };
+          const breaches = scopeBreaches(before, after, scopes);
+          if (breaches.length > 0) {
+            const shown = breaches.slice(0, 20).map(inert);
+            return {
+              kind: 'refused',
+              detail:
+                `the real checkout changed ${breaches.length} path(s) outside the write grants although the worker ran in a scratch copy: ${shown.join(', ')}${breaches.length > shown.length ? ', …' : ''}. ` +
+                'Something reached the real tree by another route; the paths are left in the tree for the owner and nothing is certified',
+            };
+          }
+          return settleScratch(scratch, scopes, outcomeFrom(result, worker.timeoutMs, instruction, scratch.root));
         }
+        return outcomeFrom(result, worker.timeoutMs, instruction, scratch.root);
+      };
+      let outcome: WorkerOutcome;
+      let cleanup: string | null = null;
+      try {
+        outcome = runWorker();
+      } finally {
+        cleanup = scratch.dispose();
       }
-      return outcomeFrom(result, worker.timeoutMs, instruction, root);
+      return withCleanupNote(outcome, cleanup);
     },
 
     rejoin(): WorkerOutcome {
