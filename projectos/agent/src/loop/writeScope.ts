@@ -180,7 +180,7 @@ export function candidateSnapshot(sys: System, root: string): CandidateSnapshot 
     if (token.length > 2 && token[0] !== 'H') snapshot.set(`${INDEX_FLAG_PREFIX}${token.slice(2)}`, token[0] as string);
   }
 
-  const status = run(['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+  const status = run(['status', '--porcelain=v1', '-z', '--ignore-submodules=dirty', '--untracked-files=all']);
   if (failed(status)) return null;
   const codes = new Map<string, string>();
   const present: string[] = [];
@@ -194,7 +194,7 @@ export function candidateSnapshot(sys: System, root: string): CandidateSnapshot 
   if (!hashInto(run, present, (path, blob) => snapshot.set(path, `${codes.get(path)}|${blob}`))) return null;
 
   // Ignored entries, at git's collapsed level: an ignored directory is one entry, not its thousand files.
-  const ignored = run(['status', '--porcelain=v1', '-z', '--ignored']);
+  const ignored = run(['status', '--porcelain=v1', '-z', '--ignore-submodules=dirty', '--ignored', '--untracked-files=normal']);
   if (failed(ignored)) return null;
   const ignoredFiles = new Set<string>();
   for (const { code, path } of statusEntries(ignored.stdout)) {
@@ -203,7 +203,7 @@ export function candidateSnapshot(sys: System, root: string): CandidateSnapshot 
     if (!path.endsWith('/') && sys.exists(joinRepoPath(root, path))) ignoredFiles.add(path);
   }
   // Everything git ignores under `.projectops/` is expanded: records, caches and owner controls live there.
-  const records = run(['status', '--porcelain=v1', '-z', '--ignored', '--untracked-files=all', '--', '.projectops']);
+  const records = run(['status', '--porcelain=v1', '-z', '--ignore-submodules=dirty', '--ignored', '--untracked-files=all', '--', '.projectops']);
   if (failed(records)) return null;
   for (const { code, path } of statusEntries(records.stdout)) {
     if (code === '!!' && !path.endsWith('/') && sys.exists(joinRepoPath(root, path))) ignoredFiles.add(path);

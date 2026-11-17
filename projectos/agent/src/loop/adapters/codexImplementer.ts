@@ -217,8 +217,8 @@ const SECRET_READ = new RegExp(`${SECRET_FILE_NAMES}|${ENVIRONMENT_READS}`, 'i')
 
 /** Free text from the provider or its stderr reaches a stop detail and the evidence: bounded, inert, and withheld whole if credential-shaped. */
 function safeText(text: string, instruction: string): string {
-  const clean = inert(text);
-  return credentialShaped(clean, instruction) ? '<withheld: credential-shaped text>' : clean;
+  // Judged on the WHOLE text, before it is cut: a key straddling the cut would otherwise leak its first part.
+  return credentialShaped(text, instruction) ? '<withheld: credential-shaped text>' : inert(text);
 }
 
 /** Items that neither act nor read beyond the checkout. A file change is expected of an implementer. */

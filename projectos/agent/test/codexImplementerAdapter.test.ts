@@ -532,6 +532,13 @@ describe('a run that may have been steered, failed or leaked is refused', () => 
     if (gone.kind === 'refused') expect(gone.detail).not.toContain(key);
   });
 
+  it('judges failure text whole, so a key straddling the length cut leaks no prefix', () => {
+    const key = 'sk-' + 'b'.repeat(40);
+    const out = run(jsonl({ type: 'thread.started', thread_id: 't' }, { type: 'turn.failed', error: { message: `${'x'.repeat(285)} ${key}` } }));
+    expect(out.kind).toBe('refused');
+    if (out.kind === 'refused') expect(out.detail).not.toContain('sk-b');
+  });
+
   it('names the denial in the refusal without echoing the text that tripped it', () => {
     const out = run(withItem({ id: 'c', type: 'agent_message', text: 'token sk-' + 'a'.repeat(30) }));
     expect(out.kind).toBe('refused');
