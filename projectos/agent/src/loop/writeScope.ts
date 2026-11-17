@@ -51,7 +51,7 @@ const FILE_WRITE_GRANT = /^(?:Write|Edit)\(.+\)$/;
 /** Glob and brace syntax this module does not interpret: refused rather than read two ways. */
 const UNSUPPORTED_SYNTAX = /[?[\]{}]|\*\*/;
 /** Agent configuration and instruction paths for either provider: never in scope, even beneath a directory grant. */
-const AGENT_CONTROL_SEGMENT = /^(?:\.git.*|\.claude|\.codex|\.agents|\.husky|\.vscode)$/i;
+const AGENT_CONTROL_SEGMENT = /^(?:\.git.*|\.claude|\.codex|\.agents|\.husky|\.vscode|\.cursor(?:rules)?|\.windsurf(?:rules)?|\.mcp\.json|\.gemini|\.opencode|\.kiro|\.roo(?:rules)?|\.clinerules|\.continue|\.aider\.conf\.yml|\.aiderignore|\.codeium)$/i;
 const AGENT_INSTRUCTION_FILE = /^(?:CLAUDE|AGENTS|GEMINI)(?:\.local|\.override)?\.md$/i;
 const ABSOLUTE_PATH = /^(?:[A-Za-z]:|[\\/])/;
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
@@ -115,7 +115,7 @@ function statusEntries(out: string): readonly StatusEntry[] {
   return entries;
 }
 
-type GitRun = (args: readonly string[]) => ExecResult;
+export type GitRun = (args: readonly string[]) => ExecResult;
 
 const failed = (r: ExecResult): boolean => r.code !== 0 || r.failure !== undefined;
 
@@ -151,13 +151,25 @@ function hashInto(run: GitRun, paths: readonly string[], set: (path: string, blo
   return true;
 }
 
-/** The checkout as a map, or null when it cannot be read completely. */
-export function candidateSnapshot(sys: System, root: string): CandidateSnapshot | null {
+/**
+ * Git run against `root` the way every read of a checkout here runs it: isolated (no system or user configuration, no
+ * fsmonitor, no replace refs, no remote protocol), with every filter driver the repository configures NOW switched off at command
+ * scope. Null when the drivers cannot be listed: a read that might run the worker's program is not made. Shared by the snapshot
+ * below and by the scratch export (`scratchCheckout.ts`), so a checkout is never read two ways.
+ */
+export function isolatedGitRunner(sys: System, root: string): GitRun | null {
   const base = ['-C', root, '-c', 'core.fsmonitor=false', '-c', 'core.useReplaceRefs=false', '-c', 'protocol.allow=never'];
   const options = { isolatedGit: {}, maxOutputBytes: MAX_GIT_OUTPUT_BYTES };
   const neutralisers = filterNeutralisers((args) => sys.exec('git', [...base, ...args], options));
   if (neutralisers === null) return null;
   const run: GitRun = (args) => sys.exec('git', [...base, ...neutralisers, ...args], options);
+  return run;
+}
+
+/** The checkout as a map, or null when it cannot be read completely. */
+export function candidateSnapshot(sys: System, root: string): CandidateSnapshot | null {
+  const run = isolatedGitRunner(sys, root);
+  if (run === null) return null;
   const snapshot = new Map<string, string>();
 
   const config = run(['config', '--local', '--list', '-z']);

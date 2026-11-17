@@ -11,14 +11,15 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { resolveReviewer, resolveWorker, type AuthorisedWorker } from '../src/loop/workers.js';
-import { BUILT_IN_ADAPTERS, CLAUDE_CODE_CLI } from '../src/loop/adapters/claudeCodeCli.js';
+import { BUILT_IN_ADAPTERS, CLAUDE_CODE_CLI, contextPointerPathOf, correctionInstruction, pointerInstruction } from '../src/loop/adapters/claudeCodeCli.js';
 import { CODEX_CLI } from '../src/loop/adapters/codexCli.js';
-import { CODEX_IMPLEMENTER } from '../src/loop/adapters/codexImplementer.js';
+import { CODEX_IMPLEMENTER, codexImplementerAdapterWith } from '../src/loop/adapters/codexImplementer.js';
 import { roleBindingProblems } from '../src/loop/reviewRoles.js';
 import type { WorkerBrief } from '../src/loop/brief.js';
 import type { GovernedContext } from '../src/governedContext.js';
 import type { ExecResult, System } from '../src/system.js';
 import type { ProjectConfig } from '@projectos/core';
+import { fakeScratchHost } from './support/fakeScratchHost.js';
 
 const ROOT = 'C:/dev/candidate';
 const CLAUDE = 'C:/Users/murad/.local/bin/claude.exe';
@@ -81,11 +82,21 @@ function fakeSystem(spawned: string[]): System {
   };
 }
 
+/**
+ * The registry the loop resolves from. PROJECTOS-WORKER-SCRATCH-CHECKOUT1A: the Codex implementer now runs in a scratch directory, and
+ * the fake checkout here (`C:/dev/candidate`) has none, so its entry takes a scripted scratch host; every other entry, and the
+ * kind's registration, are the real ones. The real scratch is proven in `scratchCheckout.test.ts` and `codexImplementerScratch.test.ts`.
+ */
+const ADAPTERS = {
+  ...BUILT_IN_ADAPTERS,
+  [CODEX_IMPLEMENTER]: codexImplementerAdapterWith({ pointerInstruction, correctionInstruction, contextPointerPathOf }, fakeScratchHost({ realRoot: ROOT }).host),
+};
+
 /** The loop's own steps, written once: resolve, bind the roles, start the implementer, review with the reviewer. */
 function runRoles(execution: unknown) {
   const context = contextWith(execution);
-  const implementer = resolveWorker(context, BUILT_IN_ADAPTERS);
-  const reviewer = resolveReviewer(context, BUILT_IN_ADAPTERS);
+  const implementer = resolveWorker(context, ADAPTERS);
+  const reviewer = resolveReviewer(context, ADAPTERS);
   if (!implementer.ok || reviewer === null) throw new Error(`could not resolve: ${implementer.ok ? 'no reviewer' : implementer.problems.join('; ')}`);
   const spawned: string[] = [];
   const sys = fakeSystem(spawned);
