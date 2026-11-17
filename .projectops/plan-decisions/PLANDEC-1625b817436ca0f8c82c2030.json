@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-11-17T14:10:35.377Z",
   "note": "Lead-recorded mechanical correction within the owner's approval of phase C (owner, 2026-11-17: \"Approve phase C, all three recommendations\"): the .gitignore write path is removed from the phase write list because no worker may be granted a git control file; the two .gitignore lines stay a lead edit named in the approved delta spec. Supersedes the spelling change of plan v1.39. The owner is told in plain words in the same session; if the owner objects, this is the decision to withdraw.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-11-17T14:10:49.120Z"
 }
