@@ -22,6 +22,7 @@ import type { WorkerBrief } from '../brief.js';
 import { PROTECTED_EFFECT_FIELDS } from '../outcome.js';
 import type { AuthorisedWorker, WorkerAdapter, WorkerOutcome, WorkerSession } from '../workers.js';
 import { CODEX_CLI, codexCliAdapter } from './codexCli.js';
+import { CODEX_IMPLEMENTER, codexImplementerAdapterWith } from './codexImplementer.js';
 
 export const CLAUDE_CODE_CLI = 'claude-code-cli';
 
@@ -323,4 +324,5 @@ export const claudeCodeCliAdapter: WorkerAdapter = {
 export const BUILT_IN_ADAPTERS: Readonly<Record<string, WorkerAdapter>> = {
   [CLAUDE_CODE_CLI]: claudeCodeCliAdapter,
   [CODEX_CLI]: codexCliAdapter,
+  [CODEX_IMPLEMENTER]: codexImplementerAdapterWith({ pointerInstruction, correctionInstruction }),
 };

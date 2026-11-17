@@ -191,6 +191,7 @@ rotation and PAT revocation at project completion (owner); legal name and produc
 | Codex is a REVIEWER kind only; `start` and `rejoin` refuse; fixed read-only sandbox; closed argument allowlist; credential scrub; out-of-checkout command and secret-reply heuristics | `agent/src/loop/adapters/codexCli.ts` (561 lines) | Stays untouched. Its "never an implementer" guarantee is pinned by `codexCliAdapter.test.ts` and its validator. The implementer is a separate kind. |
 | Adapter registry `BUILT_IN_ADAPTERS` ("a new KIND is a new entry here; a new WORKER is configuration only") | `claudeCodeCli.ts:321` | One new entry. Not a protected file. |
 | Worker roles, write grants, `roleBindingProblems`, `reviewerWorkerId` | `agent/src/loop/workers.ts` (PROTECTED), `reviewRoles.ts` | Unchanged. The existing post-run grant check stays the authority on what was written. |
+| **CORRECTION (2026-11-17, found while reading `runner.ts` before building).** Write scope for a Claude worker is PREVENTATIVE: the loop composes per-path `--allowedTools Edit(path)` grants onto the worker's argv (`runner.ts` `writeGrant`, `withCorrectionGrants`, `argvGrants`/`grantedPaths` in `workers.ts`). There is NO post-run check that the changed paths lie inside the plan's `writePaths` (only git-ignored content, hook/settings dirs, the memory and skill stores, and resume dirty paths are judged after the worker). My first draft said the loop checked the resulting diff; that was wrong. | `runner.ts:1890-1904`, `workers.ts:376-415`, `candidateIdentity.ts` | A Codex worker has no per-path grant (its workspace-write sandbox covers the whole checkout), so for Codex the scope check does not exist unless this phase adds it. See FR-003 and Rule 3, now rewritten. |
 | Provider choice per role | `.projectops/project-config.json` `execution.workers` (`claude-local`, `claude-reviewer`) | A swap becomes a config edit by the owner: a `codex-local` implementer and a Claude reviewer. |
 | Provider broker, retry, pricing, fallback (4.5) | `core/src/modelBroker/`, `agent/src/modelBroker/`, unwired | Not this phase. That is 4.2. |
 
@@ -205,12 +206,13 @@ Edge cases: Codex not installed or not logged in (refuse with a named reason, no
 ## Functional requirements
 
 - FR-001 The system MUST provide a worker kind `codex-implementer-cli` whose `start` runs `codex exec` headless, from the brief path and one fixed instruction sentence, with the checkout as working directory.
-- FR-002 The sandbox MUST be set by the adapter only, never by configuration, MUST be Codex's workspace-write sandbox confined to the checkout, and the argument allowlist MUST be closed (no `danger-full-access`, no bypass flag, no `--add-dir`, no `-c` except the adapter's own Windows sandbox pair, no profile).
-- FR-003 The adapter MUST NOT treat the Codex sandbox as the write boundary. Write authority stays the plan's `writePaths` as enforced by the existing loop check on the resulting diff.
+- FR-002 The sandbox MUST be set by the adapter only, never by configuration, MUST be Codex's workspace-write sandbox confined to the checkout, and the argument allowlist MUST be closed (no `danger-full-access`, no bypass flag, no `--add-dir`, no `-c` except the adapter's own Windows sandbox pair, no profile). The only configured arguments accepted are model selection, the same three switches as the reviewer, and `--allowedTools <grants>` (record grants, consumed by the adapter, never forwarded).
+- FR-003 (rewritten) The adapter MUST enforce write scope itself, after the run, because Codex cannot be given per-path grants. It reads the `Edit(...)`/`Write(...)` grants the loop puts on `worker.args` (the configured worker-owned records, plus the plan's `writePaths` on the first dispatch and any correction grants), MUST NOT pass `--allowedTools` to Codex, takes the candidate identity (`computeCandidateIdentity`, read-only import) before and after the run, and MUST return `refused` naming every path that changed outside the grants. The check is DETECTIVE, not preventative: an out-of-scope write has already happened and is left in the tree for the owner; the run stops (`WORKER_REFUSED`) and nothing is certified.
+- FR-003a A candidate identity that cannot be read before or after the run MUST refuse the run (a blind check is not a check).
 - FR-004 `rejoin` MUST refuse with "start a fresh worker"; `review` MUST be absent. `codex-cli` (reviewer) keeps refusing `start`.
 - FR-005 The spawn MUST use the same scrubbed environment, argument-credential refusal and bounded timeout as every worker spawn, and MUST pass no key, token or login material.
 - FR-006 A reply or event stream carrying credential-shaped content MUST be withheld and reported as a refusal, never written to a record or stop detail.
-- FR-007 A validator MUST pin: no VS Code API or `code` binary use anywhere in `agent/src/loop`; both Codex kinds present in `BUILT_IN_ADAPTERS`; each kind's role refusals.
+- FR-007 A validator MUST pin: the scope check and its refusal; no VS Code API or `code` binary use anywhere in `agent/src/loop`; both Codex kinds present in `BUILT_IN_ADAPTERS`; each kind's role refusals.
 - FR-008 Two role-swap fixtures (Claude implements / Codex reviews, Codex implements / Claude reviews) MUST run through the same loop code with fake spawn ports and differ only in committed worker config.
 
 SC-001 Both swap fixtures pass with no source difference. SC-002 Every named mutation (widen the sandbox, let `codex-implementer-cli` review, let `codex-cli` implement, drop the credential scrub, let `rejoin` run) is killed by its own rule.
@@ -220,6 +222,7 @@ No blocking `[NEEDS CLARIFICATION]`. Defaults chosen: fresh worker instead of Co
 ## Zone 1 — ADDED
 
 - `projectos/agent/src/loop/adapters/codexImplementer.ts` (the new kind; reuses the parser, scrub and denial helpers by import from `codexCli.ts`, never by copy).
+- `projectos/agent/src/loop/writeScope.ts` (as built: the scope snapshot and rule, kept out of the adapters directory so the adapter has exactly one spawn) and `projectos/agent/test/writeScopeRealGit.test.ts` (real git, temporary repository).
 - `projectos/agent/test/codexImplementerAdapter.test.ts` and `projectos/agent/test/workerRoleSwap.test.ts` (fake spawn port, no network, no real Codex).
 - `projectos/validators/val-projectos-worker-codex-implementer1a.cjs` with named mutations (SC-002).
 - `docs/finish/PROJECTOS-WORKER-CODEX-IMPLEMENTER1A.md`.
@@ -227,7 +230,8 @@ No blocking `[NEEDS CLARIFICATION]`. Defaults chosen: fresh worker instead of Co
 ## Zone 2 — MODIFIED (smallest change)
 
 - `projectos/agent/src/loop/adapters/claudeCodeCli.ts`: one import and one line in `BUILT_IN_ADAPTERS`; nothing else.
-- `projectos/agent/src/loop/adapters/codexCli.ts`: export (not change) the helpers the new file reuses, only if not already exported. If any logic has to change, the phase stops and asks.
+- `projectos/agent/src/loop/adapters/codexCli.ts`: add `export` to `WINDOWS_SANDBOX`, `commandProblem` and `inert` only (as built) (no logic change; `val-projectos-kernel-followup1a` pins by substring, re-run to confirm). If any logic has to change, the phase stops and asks.
+- `projectos/validators/val-projectos-worker-lifecycle-bounded1a.cjs`: `KNOWN_ADAPTERS` gains `codexImplementer.ts`, so the new file is held to the same bound rules (every spawn carries `timeoutMs`, a worker without a bound is refused). Extending a closed list, not loosening a rule.
 - `projectos/validators/validate-all.cjs`, `projectos/speed/cached-runner.cjs`: registration only, lists kept identical. `validate-all.cjs` is PROTECTED; this delta asks for the registration-only edit, as plan v1.36 did.
 - `docs/06_Plan.md`: tick with evidence. `docs/04_TRD.md`: unchanged (no new dependency; Codex is a local CLI the owner logs into).
 
@@ -239,7 +243,7 @@ Everything in `00_Baseline_State.md` §4. In particular: `loop/workers.ts` (gran
 
 1. A worker of kind `codex-implementer-cli` may implement and never review; a worker of kind `codex-cli` may review and never implement.
 2. The Codex sandbox is chosen by the adapter and is never configurable.
-3. What a Codex implementer may write is decided by the plan's `writePaths`, checked by the loop on the diff, not by Codex's sandbox.
+3. What a Codex implementer may write is the loop's grants (the plan's `writePaths` and the worker-owned records), judged by the adapter on the candidate before and after the run; Codex's sandbox is not the boundary, and the check detects a breach, it does not prevent it.
 4. No credential, key or login material crosses the command line or the environment, and a credential-shaped reply is withheld.
 5. Resuming a cut-off Codex run starts a fresh worker; there is no Codex session rejoin.
 6. Swapping which provider implements and which reviews is a committed-config change only.
@@ -259,4 +263,6 @@ Constitution check: no PROTECTED file edited beyond the registration-only lists;
 
 **Residuals to state, not hide:** Codex runs as the owner's Windows user (D4 stands until 4.3); a workspace-write sandbox blocks writes outside the checkout, not reads, so the credential heuristics are fail-closed signals, not proof.
 
-**Not in this phase:** 4.2 role broker wiring; 4.3 isolation and idempotency keys; the Stage 3 carry-forwards (proposal door, taint enforcement, index directory, owner verifier; their own next phase); `val-cd-b4` (Rust host, protected, owner approval); the live swap proof.
+**Not in this phase:** making the Codex implementer a context-pointable kind (`CONTEXT_POINTABLE_KINDS`, pinned by `val-projectos-context-manager1a` CM-20): until then a run that has stored context REFUSES for a Codex implementer (`CONTEXT_NOT_POINTABLE`), truthfully, and the exit proof on a project with stored context needs that follow-up (put it in the Stage 3 carry-forwards phase); 4.2 role broker wiring; 4.3 isolation and idempotency keys; the Stage 3 carry-forwards (proposal door, taint enforcement, index directory, owner verifier; their own next phase); `val-cd-b4` (Rust host, protected, owner approval); the live swap proof.
+
+**As built (2026-11-17).** The scope check does not use `computeCandidateIdentity`: the independent review showed it cannot see ignored paths, the gatekeeper asking records or non-ASCII names, so `writeScope.ts` takes its own snapshot (see `docs/finish/PROJECTOS-WORKER-CODEX-IMPLEMENTER1A.md`). FR-003 stands as rewritten; the instrument changed, not the rule.

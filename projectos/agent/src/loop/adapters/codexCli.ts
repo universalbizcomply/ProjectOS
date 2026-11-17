@@ -67,7 +67,7 @@ const FIXED_REVIEW_ARGS: readonly string[] = ['--json', '--color', 'never', '--i
  * modes; a host without it set up fails the review closed. Codex ignores `windows.*` on other platforms.
  * This is the ONE `-c` the finished command line may carry: `sandboxProblem` refuses any other.
  */
-const WINDOWS_SANDBOX: readonly string[] = ['-c', 'windows.sandbox="elevated"'];
+export const WINDOWS_SANDBOX: readonly string[] = ['-c', 'windows.sandbox="elevated"'];
 
 /** Configured arguments that take a value. Model selection only — nothing that touches authority. */
 const CONFIGURABLE_VALUED: readonly string[] = ['-m', '--model', '--local-provider'];
@@ -218,7 +218,7 @@ export interface CodexReviewContext {
 const NEUTRAL_ITEMS: ReadonlySet<string> = new Set(['agent_message', 'reasoning', 'todo_list']);
 
 /** Reviewer text reaches the stop detail: no control characters, bounded. */
-function inert(value: unknown): string {
+export function inert(value: unknown): string {
   // eslint-disable-next-line no-control-regex
   return (typeof value === 'string' ? value : '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, 300);
 }
@@ -356,7 +356,7 @@ const FETCH_OR_DECODE = new RegExp(
   'i',
 );
 
-function commandProblem(item: Record<string, unknown>, root: string | null): string | null {
+export function commandProblem(item: Record<string, unknown>, root: string | null): string | null {
   const command = item['command'];
   if (typeof command !== 'string') return 'command_execution: the command was not reported';
   if (commandLeavesCheckout(command, root)) return 'command_execution: names a path outside the repository';
