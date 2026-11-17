@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-6a937440776391b3fbeb33a0",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "5cc74c3f875fdb59d38e52501546eca976fef0d7",
+  "draftId": "2ba17d032f60540c",
+  "planDigest": "sha256:df926ff8e3a1c9a0efdb36c0ef4cccc636cd73e9f10d02d26513c374d5714979",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-17T12:46:41.797Z",
+  "note": "Owner, 2026-11-17: \"I approve plan v1.37, accept both\". Delta sections for the Stage 4 phases in docs/changes/delta_spec.md approved by the owner the same day (\"Approved all, build A and B in parallel\"). \"Both\" = the typed confirmation is the same strength of proof as the tenant receipt, and a decision is changed by committing it, not through memory approve.",
+  "recordedBy": "projectos plan decide"
+}
