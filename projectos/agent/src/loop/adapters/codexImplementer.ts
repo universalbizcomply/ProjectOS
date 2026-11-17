@@ -327,6 +327,11 @@ export function codexImplementerAdapterWith(instructions: InstructionBuilders): 
       // The stored-context file, when the brief names one, by its project-relative path, exactly as the Claude adapter does it
       // (PROJECTOS-CONTEXT-CODEX1A). A path that is not that file under this root yields no pointer, never a guessed one.
       const contextPointer = instructions.contextPointerPathOf(brief.records.contextPath, root) ?? undefined;
+      // A brief that names stored context this worker cannot be pointed at starts nothing: the loop records the file as shown,
+      // and a worker that was never told where it is must not run under that record.
+      if (brief.records.contextPath !== undefined && contextPointer === undefined) {
+        return { kind: 'refused', detail: 'the brief names stored context at a path this worker cannot be pointed at, so no worker was started' };
+      }
       // The correction sentence once the LOOP has written its evidence record (a worker cannot write it: not granted).
       const instruction = sys.exists(brief.records.evidencePath)
         ? instructions.correctionInstruction(briefPath, contextPointer)

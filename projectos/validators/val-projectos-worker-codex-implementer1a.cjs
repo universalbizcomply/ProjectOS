@@ -99,6 +99,7 @@ const PIN = {
   // imports nothing from the Claude adapter) and both sentences are given it.
   contextRefused: "a '${CODEX_IMPLEMENTER}' worker is not told where it is",
   contextPointer: "const contextPointer = instructions.contextPointerPathOf(brief.records.contextPath, root) ?? undefined;",
+  unpointableRefused: "if (brief.records.contextPath !== undefined && contextPointer === undefined) {",
   startPointed: ": instructions.pointerInstruction(briefPath, contextPointer);",
   correctionPointed: "? instructions.correctionInstruction(briefPath, contextPointer)",
   pointerInjected: "readonly contextPointerPathOf: (contextPath: unknown, root: unknown) => string | null;",
@@ -248,7 +249,7 @@ function check(raw) {
   // PROJECTOS-CONTEXT-CODEX1A: a brief that names stored context is no longer refused here (the kind is context-pointable); the worker is TOLD
   // instead, by both sentences, from the injected pointer-path function. A refusal left in, or a sentence that drops the pointer, is the old defect
   // (a run recorded as shown to a worker that was not pointed at the file) or its mirror (a refusal that blocks every project that has memory).
-  if (a.includes(PIN.contextRefused) || !a.includes(PIN.contextPointer) || !a.includes(PIN.startPointed) || !a.includes(PIN.correctionPointed) || !a.includes(PIN.pointerInjected)) {
+  if (a.includes(PIN.contextRefused) || !a.includes(PIN.contextPointer) || !a.includes(PIN.unpointableRefused) || !a.includes(PIN.startPointed) || !a.includes(PIN.correctionPointed) || !a.includes(PIN.pointerInjected)) {
     E("WI-3", "the Codex implementer refuses a brief that names stored context, or does not give both of its sentences the pointer the injected function derives");
   }
   // WI-4 — scope is judged on the candidate before and after the run; a breach or a blind check refuses.
@@ -317,6 +318,7 @@ const MUTATIONS = [
   { name: "grants-forwarded-to-codex", rule: "WI-2", rel: ADAPTER_REL, from: PIN.grantsNotForwarded, to: "if (true) {\n      forwarded.push(arg);" },
   { name: "implementer-can-review", rule: "WI-3", rel: ADAPTER_REL, from: "    rejoin(): WorkerOutcome {", to: "    review(): WorkerOutcome {\n      return { kind: 'completed', exitCode: 0, stdout: '', stderr: '', providerRef: null };\n    },\n\n    rejoin(): WorkerOutcome {" },
   { name: "implementer-rejoins", rule: "WI-3", rel: ADAPTER_REL, from: PIN.rejoinRefuses, to: "rejoin(): WorkerOutcome {\n      return { kind: 'completed', exitCode: 0, stdout: '', stderr: '', providerRef: null };" },
+  { name: "unpointable-context-starts-a-worker", rule: "WI-3", rel: ADAPTER_REL, from: PIN.unpointableRefused, to: "if (false) {" },
   { name: "stored-context-ignored", rule: "WI-3", rel: ADAPTER_REL, from: PIN.contextPointer, to: "const contextPointer = undefined;" },
   { name: "start-sentence-without-the-pointer", rule: "WI-3", rel: ADAPTER_REL, from: PIN.startPointed, to: ": instructions.pointerInstruction(briefPath);" },
   { name: "correction-sentence-without-the-pointer", rule: "WI-3", rel: ADAPTER_REL, from: PIN.correctionPointed, to: "? instructions.correctionInstruction(briefPath)" },

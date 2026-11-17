@@ -226,10 +226,9 @@ describe('PROJECTOS-CONTEXT-CODEX1A: the Codex implementer is told where the sto
   it('rule 3: puts no pointer on the command line for a path outside the root, and for a path that is not the context file', () => {
     for (const contextPath of ['C:/elsewhere/.projectops/execution/s1.context.md', `${ROOT}/src/s1.context.md`, `${ROOT}/.projectops/execution/../x.context.md`]) {
       const { sys, calls } = fakeWorld({});
-      adapter.start(sys, worker(), briefOf({ contextPath }), BRIEF_PATH);
-      const prompt = codexCalls(calls)[0]?.args.at(-1) ?? '';
-      expect(prompt).toBe(pointerInstruction(BRIEF_PATH));
-      expect(prompt).not.toContain('stored context file');
+      // No pointer reaches a command line, and no worker runs under a record that says the file was shown.
+      expect(adapter.start(sys, worker(), briefOf({ contextPath }), BRIEF_PATH)).toMatchObject({ kind: 'refused' });
+      expect(codexCalls(calls)).toHaveLength(0);
     }
   });
 
