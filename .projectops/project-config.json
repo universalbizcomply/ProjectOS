@@ -12,8 +12,8 @@
   ],
   "productionFreeze": true,
   "planMemory": {
-    "planPath": ".projectops/plan-5b5702e6a43b8cc5-f4860be1d612.json",
-    "currentStatePath": ".projectops/current-state-5b5702e6a43b8cc5-f4860be1d612.json"
+    "planPath": ".projectops/plan-a521220f9992d498-d68fb2693bdb.json",
+    "currentStatePath": ".projectops/current-state-a521220f9992d498-d68fb2693bdb.json"
   },
   "planSources": [
     "docs/projectos-autonomous-self-hosting-plan.md",
@@ -113,7 +113,9 @@
     ".projectops/plan-a39f6a4f7d228a02-37cb1ff2619c.json",
     ".projectops/current-state-a39f6a4f7d228a02-37cb1ff2619c.json",
     ".projectops/plan-f417782ed9381dd6-f1665de0df80.json",
-    ".projectops/current-state-f417782ed9381dd6-f1665de0df80.json"
+    ".projectops/current-state-f417782ed9381dd6-f1665de0df80.json",
+    ".projectops/plan-5b5702e6a43b8cc5-f4860be1d612.json",
+    ".projectops/current-state-5b5702e6a43b8cc5-f4860be1d612.json"
   ],
   "allowedActions": [
     "inspect-repository",
