@@ -51,7 +51,7 @@ const FILE_WRITE_GRANT = /^(?:Write|Edit)\(.+\)$/;
 /** Glob and brace syntax this module does not interpret: refused rather than read two ways. */
 const UNSUPPORTED_SYNTAX = /[?[\]{}]|\*\*/;
 /** Agent configuration and instruction paths for either provider: never in scope, even beneath a directory grant. */
-const AGENT_CONTROL_SEGMENT = /^(?:\.git.*|\.claude|\.codex|\.agents|\.husky|\.vscode)$/i;
+const AGENT_CONTROL_SEGMENT = /^(?:\.git.*|\.claude|\.codex|\.agents|\.husky|\.vscode|\.cursor(?:rules)?|\.windsurf(?:rules)?|\.mcp\.json)$/i;
 const AGENT_INSTRUCTION_FILE = /^(?:CLAUDE|AGENTS|GEMINI)(?:\.local|\.override)?\.md$/i;
 const ABSOLUTE_PATH = /^(?:[A-Za-z]:|[\\/])/;
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;

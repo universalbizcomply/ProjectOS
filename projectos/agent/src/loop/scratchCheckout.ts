@@ -40,6 +40,8 @@ export type EntryKind = 'file' | 'dir' | 'link' | 'other';
 export interface EntryStat {
   readonly kind: EntryKind;
   readonly size: number;
+  /** Hard-link count (1 for an ordinary file). */
+  readonly links: number;
 }
 
 /** Everything this module does to the file system. `stat` is `lstat`: a link is a link, never its target. */
@@ -71,7 +73,7 @@ export const nodeScratchFs: ScratchFs = {
     try {
       const s = lstatSync(path);
       const kind: EntryKind = s.isSymbolicLink() ? 'link' : s.isDirectory() ? 'dir' : s.isFile() ? 'file' : 'other';
-      return { kind, size: s.size };
+      return { kind, size: s.size, links: s.nlink };
     } catch (e) {
       if (NOT_THERE.has(errorCode(e))) return null;
       throw e;
@@ -116,10 +118,15 @@ export interface ScratchLimits {
 export const DEFAULT_SCRATCH_LIMITS: ScratchLimits = { maxFiles: 100_000, maxBytes: 1024 ** 3, maxEntries: 250_000, maxPlacedBytes: 64 * 1024 * 1024 };
 const MAX_DEPTH = 64;
 const MAX_PATH_CHARS = 1024;
+const MAX_SHOWN_NAME_CHARS = 300;
+/** Records placed in the scratch after the export (brief, evidence, findings, effects, context) may take the scratch a little past the export bound. */
+const PLACED_FILES_SLACK = 16;
+const PLACED_RECORDS_MAX = 4;
+const MAX_SKIPPED_NAMED = 200;
 const MAX_GIT_LIST_BYTES = 64 * 1024 * 1024;
 
 /** One entry of a manifest. A file is its content hash. */
-export type ManifestEntry = { readonly kind: 'file'; readonly hash: string } | { readonly kind: 'dir' } | { readonly kind: 'link' } | { readonly kind: 'other' };
+export type ManifestEntry = { readonly kind: 'file'; readonly hash: string; readonly links?: number } |{ readonly kind: 'dir' } | { readonly kind: 'link' } | { readonly kind: 'other' };
 /** Repository-relative POSIX path -> entry. Never contains the scratch's own top-level `.git`. */
 export type Manifest = ReadonlyMap<string, ManifestEntry>;
 
@@ -139,6 +146,8 @@ export const WHY = {
   outside: 'lies outside the write grants',
   throughLink: 'would be written through a link, or into a path that is not a plain directory, in the real checkout',
   inTheWay: 'has something other than a plain file at its place in the real checkout',
+  alias: 'is spelled differently from the file it would replace in the real checkout (a short name, or another case), so it is refused',
+  hardlink: 'is a hard link to another file, and a hard-linked file is not copied back',
 } as const;
 
 // ---- paths -------------------------------------------------------------------------------------------------------------
@@ -146,14 +155,31 @@ export const WHY = {
 // eslint-disable-next-line no-control-regex
 const FORBIDDEN_IN_NAME = /[\u0000-\u001f<>:"|?*\\]/;
 
+/** A segment shaped like an 8.3 short name (`GITIGN~1`, `AGENTS~1.MD`): on a volume that generates them it can name a control file under another spelling. */
+const SHORT_NAME_SHAPE = /~[0-9]/;
+/** The Windows device names, with or without an extension (`NUL`, `CON.txt`, `com9.log`), including the superscript digits Windows also reserves. */
+const RESERVED_DEVICE = /^(?:CON|PRN|AUX|NUL|COM[0-9\xb2\xb3\xb9]|LPT[0-9\xb2\xb3\xb9]|CONIN\$|CONOUT\$|CLOCK\$)$/i;
+
+const isReservedDevice = (segment: string): boolean => RESERVED_DEVICE.test((segment.split('.')[0] ?? '').replace(/ +$/, ''));
+
+/** Does any segment look like an 8.3 short name? */
+export const hasShortNameShape = (path: string): boolean => path.split('/').some((seg) => SHORT_NAME_SHAPE.test(seg));
+
 /**
  * Is this a plain repository-relative POSIX path? Refuses the empty path, a leading `/`, a drive letter, a `.` or `..` or empty
- * segment, a control character, a backslash, a colon (an alternate data stream on NTFS), and a segment ending in a dot or space
- * (Windows drops it, so it names another file). A path from the scratch or from git is never trusted before this.
+ * segment, a control character, a backslash, a colon (an alternate data stream on NTFS), a segment ending in a dot or space
+ * (Windows drops it, so it names another file), a segment shaped like an 8.3 short name, and a Windows device name. A path from
+ * the scratch or from git is never trusted before this.
  */
 export function safeRelativePath(path: string): boolean {
   if (path === '' || path.length > MAX_PATH_CHARS || path.startsWith('/') || /^[A-Za-z]:/.test(path)) return false;
-  return path.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..' && !FORBIDDEN_IN_NAME.test(seg) && !/[. ]$/.test(seg));
+  return path.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..' && !FORBIDDEN_IN_NAME.test(seg) && !/[. ]$/.test(seg) && !SHORT_NAME_SHAPE.test(seg) && !isReservedDevice(seg));
+}
+
+/** A name from the scratch or from git, shown in a refusal: control characters and Unicode format characters (a bidirectional override, a zero-width space, a line separator) escaped, and cut short. */
+export function plainName(value: string): string {
+  const escaped = value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, (c) => `\\u{${(c.codePointAt(0) ?? 0).toString(16)}}`);
+  return escaped.slice(0, MAX_SHOWN_NAME_CHARS);
 }
 
 /** `inner` below `outer`, by relative path (so slashes and, on Windows, case do not matter). False for the same path. */
@@ -183,6 +209,8 @@ const described = (what: string, e: unknown): string => `${what} failed (${error
  */
 export function manifestOf(fs: ScratchFs, root: string, limits: ScratchLimits = DEFAULT_SCRATCH_LIMITS): Result<Manifest> {
   const manifest = new Map<string, ManifestEntry>();
+  let files = 0;
+  let bytes = 0;
   const pending: { dir: string; rel: string; depth: number }[] = [{ dir: root, rel: '', depth: 0 }];
   try {
     for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
@@ -201,8 +229,15 @@ export function manifestOf(fs: ScratchFs, root: string, limits: ScratchLimits = 
         if (st.kind === 'dir') {
           manifest.set(rel, { kind: 'dir' });
           pending.push({ dir: abs, rel, depth: next.depth + 1 });
-        } else if (st.kind === 'file') manifest.set(rel, { kind: 'file', hash: fs.hashFile(abs) });
-        else manifest.set(rel, { kind: st.kind });
+        } else if (st.kind === 'file') {
+          // The same bounds as the export (with room for the records placed afterwards), checked BEFORE the file is read.
+          files += 1;
+          bytes += st.size;
+          if (files > limits.maxFiles + PLACED_FILES_SLACK || bytes > limits.maxBytes + PLACED_RECORDS_MAX * limits.maxPlacedBytes) {
+            return { ok: false, reason: `the scratch is over the bound (${limits.maxFiles} files, ${limits.maxBytes} bytes)` };
+          }
+          manifest.set(rel, { kind: 'file', hash: fs.hashFile(abs), links: st.links });
+        } else manifest.set(rel, { kind: st.kind });
       }
     }
   } catch (e) {
@@ -234,7 +269,9 @@ function refusalFor(path: string, was: ManifestEntry | undefined, now: ManifestE
   // A new directory is not state that is copied: the files inside it are judged one by one, and an empty one is dropped.
   if (now.kind === 'dir') return null;
   if (isAgentControlPath(path)) return WHY.control;
-  return pathInGrants(path, scopes) ? null : WHY.outside;
+  if (!pathInGrants(path, scopes)) return WHY.outside;
+  // A hard link shares its bytes with another path (possibly one outside the grants): the copy would not be the file that was judged.
+  return now.kind === 'file' && (now.links ?? 1) > 1 ? WHY.hardlink : null;
 }
 
 /** Every difference between two manifests, judged against the grants. Writes nothing; pure. Sorted. */
@@ -256,20 +293,28 @@ export function judgeChanges(before: Manifest, after: Manifest, scopes: readonly
  * Why a granted path cannot be written at its real place, or null. Every existing component below the root must be a plain
  * directory (a link or a file in the way refuses), and the target, if present, a plain file. Components that do not exist yet
  * are created later, so nothing beyond the first missing one can be a link.
+ *
+ * THE DEEPEST EXISTING PATH MUST BE WHAT IT IS CALLED. Its canonical form (`realPath`) has to equal the expected root-joined
+ * path exactly, case-sensitively, segment by segment. On a volume that generates 8.3 short names a "docs/" plus a short name
+ * can open the real `docs/.gitignore`; the grant and control-path judgement saw the alias, not the file. Any other alias
+ * (another case) is refused the same way, so the judgement is always about the path that would really be written.
  */
 export function destinationProblem(fs: ScratchFs, realRoot: string, rel: string): string | null {
   if (!safeRelativePath(rel) || relativeInside(realRoot, underRoot(realRoot, rel)) !== rel) return WHY.unsafe;
   const segments = rel.split('/');
   let current = realRoot;
+  let depth = 0;
   for (let i = 0; i < segments.length; i += 1) {
     current = join(current, segments[i] as string);
     const st = fs.stat(current);
-    if (st === null) return null;
-    const last = i === segments.length - 1;
-    if (last) return st.kind === 'file' ? null : st.kind === 'dir' ? WHY.inTheWay : st.kind === 'link' ? WHY.throughLink : WHY.inTheWay;
-    if (st.kind !== 'dir') return WHY.throughLink;
+    if (st === null) break;
+    if (i === segments.length - 1) {
+      if (st.kind !== 'file') return st.kind === 'dir' ? WHY.inTheWay : st.kind === 'link' ? WHY.throughLink : WHY.inTheWay;
+    } else if (st.kind !== 'dir') return WHY.throughLink;
+    depth = i + 1;
   }
-  return null;
+  const expected = join(fs.realPath(realRoot), ...segments.slice(0, depth));
+  return fs.realPath(join(realRoot, ...segments.slice(0, depth))) === expected ? null : WHY.alias;
 }
 
 // ---- copy back ---------------------------------------------------------------------------------------------------------
@@ -300,6 +345,12 @@ function rollBack(fs: ScratchFs, undo: readonly Undo[]): string | null {
   return stuck.length === 0 ? null : stuck[0] ?? 'undoing a write failed';
 }
 
+function requireEmptyPlainDirectory(fs: ScratchFs, dir: string): void {
+  const st = fs.stat(dir);
+  if (st === null || st.kind !== 'dir') throw new CopyProblem('the backup location is not a plain directory');
+  if (fs.list(dir).length > 0) throw new CopyProblem('the backup location is not empty');
+}
+
 /** Create the missing directories above `dest` one at a time, recording each so a rollback can remove it. */
 function makeParents(fs: ScratchFs, realRoot: string, rel: string, undo: Undo[]): void {
   const segments = rel.split('/').slice(0, -1);
@@ -321,15 +372,20 @@ function makeParents(fs: ScratchFs, realRoot: string, rel: string, undo: Undo[])
  */
 export function copyBack(fs: ScratchFs, scratchRoot: string, realRoot: string, writes: readonly PlannedWrite[], stagingDir: string): CopyBackOutcome {
   const refusals: Refusal[] = [];
-  for (const w of writes) {
-    const why = destinationProblem(fs, realRoot, w.path);
-    if (why !== null) refusals.push({ path: w.path, why });
+  try {
+    for (const w of writes) {
+      const why = destinationProblem(fs, realRoot, w.path);
+      if (why !== null) refusals.push({ path: w.path, why });
+    }
+  } catch (e) {
+    return { kind: 'failed', reason: described('checking the destinations', e), rolledBack: true };
   }
   if (refusals.length > 0) return { kind: 'refused', refusals };
   const undo: Undo[] = [];
   let step = 'preparing the copy';
   try {
-    if (writes.length > 0) fs.makeDir(stagingDir);
+    // The backup location was made by the caller, just now, under a name nobody was given. It is used only if it is still an empty plain directory.
+    if (writes.length > 0) requireEmptyPlainDirectory(fs, stagingDir);
     for (const [i, w] of writes.entries()) {
       const dest = underRoot(realRoot, w.path);
       step = `copying ${w.path}`;
@@ -367,18 +423,50 @@ function listedFiles(sys: System, realRoot: string): Result<readonly string[]> {
 const shownName = (name: string): string => name.slice(0, 120).replace(/[^\x20-\x7e]/g, '?');
 
 /** Copy the listed files, binary-safe, and report how many. A name that is not a plain path refuses the whole export. */
-function copyFiles(fs: ScratchFs, realRoot: string, scratchRoot: string, paths: readonly string[], limits: ScratchLimits): Result<number> {
+function copyFiles(fs: ScratchFs, realRoot: string, scratchRoot: string, paths: readonly string[], limits: ScratchLimits): Result<{ readonly files: number; readonly skipped: readonly string[] }> {
   let files = 0;
   let bytes = 0;
+  const skipped: string[] = [];
+  const skip = (path: string): void => {
+    if (skipped.length < MAX_SKIPPED_NAMED) skipped.push(path);
+  };
+  // Directories already seen to be plain (not a link, not a file), by relative path; '' is the root.
+  const plain = new Set<string>(['']);
+  // F3: git lists the files BENEATH an untracked junction too, and `lstat` of the leaf alone follows the junction. Every parent
+  // component is `lstat`ed from the root down, and a path is copied only when each one is a plain directory.
+  const parentsPlain = (listed: string): boolean => {
+    const parents = listed.split('/').slice(0, -1);
+    let prefix = '';
+    for (const seg of parents) {
+      prefix = prefix === '' ? seg : `${prefix}/${seg}`;
+      if (plain.has(prefix)) continue;
+      const dir = fs.stat(underRoot(realRoot, prefix));
+      if (dir === null || dir.kind !== 'dir') return false;
+      plain.add(prefix);
+    }
+    return true;
+  };
   for (const listed of paths) {
     // A trailing slash is git naming a nested repository or submodule: not a file, and never copied.
     if (listed.endsWith('/')) continue;
+    // A name shaped like an 8.3 short name is not given to the worker (it could never be copied back); it is not a reason to refuse the export.
+    if (hasShortNameShape(listed)) {
+      skip(listed);
+      continue;
+    }
     if (!safeRelativePath(listed)) return { ok: false, reason: `git listed a path that is not a plain relative path: ${shownName(listed)}` };
     if (isAgentControlPath(listed)) continue;
+    if (!parentsPlain(listed)) {
+      skip(listed);
+      continue;
+    }
     const from = underRoot(realRoot, listed);
     const st = fs.stat(from);
     // gone from the working tree (a tracked file deleted), a link, a submodule directory: not copied
-    if (st === null || st.kind !== 'file') continue;
+    if (st === null || st.kind !== 'file') {
+      if (st !== null) skip(listed);
+      continue;
+    }
     files += 1;
     bytes += st.size;
     if (files > limits.maxFiles || bytes > limits.maxBytes) return { ok: false, reason: `the checkout is over the scratch bound (${limits.maxFiles} files, ${limits.maxBytes} bytes)` };
@@ -386,7 +474,7 @@ function copyFiles(fs: ScratchFs, realRoot: string, scratchRoot: string, paths: 
     fs.makeDir(dirname(to));
     fs.copyFile(from, to);
   }
-  return { ok: true, value: files };
+  return { ok: true, value: { files, skipped } };
 }
 
 // ---- the scratch -------------------------------------------------------------------------------------------------------
@@ -400,6 +488,8 @@ export type ScratchInspection =
 export interface ScratchCheckout {
   /** The directory the worker runs in. */
   readonly root: string;
+  /** Listed paths that were NOT exported (beneath a link, a link or oddity at the leaf, an 8.3-shaped name), at most 200 named. */
+  readonly skipped: readonly string[];
   /** Where a path of the real checkout lives in the scratch, or null when it is not strictly inside the real checkout. */
   scratchPathOf(realPath: string): string | null;
   /** Copy a real file (a record) to the same place in the scratch. Null when placed; otherwise why not. */
@@ -423,13 +513,13 @@ export interface ScratchHost {
   open(sys: System, realRoot: string): OpenOutcome;
 }
 
-function openScratch(fs: ScratchFs, limits: ScratchLimits, realRoot: string, holder: string): ScratchCheckout {
+function openScratch(fs: ScratchFs, limits: ScratchLimits, realRoot: string, holder: string, skipped: readonly string[]): ScratchCheckout {
   const root = join(holder, 'checkout');
-  const staging = join(holder, 'backup');
   let baseline: Manifest | null = null;
   let verdict: ScratchInspection | null = null;
   let pending: readonly PlannedWrite[] = [];
-  let removed = false;
+  /** Every directory this scratch made and must remove: the holder first, then any backup location. */
+  const owned: string[] = [holder];
   const target = (realPath: string): string | null => {
     const rel = relativeInside(realRoot, realPath);
     return rel === null ? null : underRoot(root, rel);
@@ -447,6 +537,7 @@ function openScratch(fs: ScratchFs, limits: ScratchLimits, realRoot: string, hol
   };
   return {
     root,
+    skipped,
     scratchPathOf: target,
     placeFile: (realPath) => {
       if (target(realPath) === null) return 'a record path is not inside the checkout';
@@ -490,17 +581,29 @@ function openScratch(fs: ScratchFs, limits: ScratchLimits, realRoot: string, hol
       // Only what `inspect` found clean is ever copied. A refused or never-inspected scratch copies nothing.
       if (verdict?.kind === 'refused') return { kind: 'refused', refusals: verdict.refusals };
       if (verdict?.kind !== 'clean') return { kind: 'failed', reason: 'the scratch was not inspected, so nothing was copied', rolledBack: true };
+      // F4: the backup location does not exist until now, is made by `mkdtemp` (unpredictable, exclusive) in a directory of its own, never inside the
+      // holder the worker's cwd lives in, and `copyBack` uses it only while it is still an empty plain directory.
+      let staging: string;
+      try {
+        staging = fs.makeTempDir('projectos-backup-');
+      } catch (e) {
+        return { kind: 'failed', reason: described('making the backup location', e), rolledBack: true };
+      }
+      owned.push(staging);
       return copyBack(fs, root, realRoot, pending, staging);
     },
     dispose() {
-      if (removed) return null;
-      try {
-        fs.removeTree(holder);
-        removed = true;
-        return null;
-      } catch (e) {
-        return described('removing the scratch', e);
+      // The scratch holder, and every backup location made for a copy-back. A directory that cannot be removed stays on the list and is reported.
+      const stuck: string[] = [];
+      for (const dir of [...owned]) {
+        try {
+          fs.removeTree(dir);
+          owned.splice(owned.indexOf(dir), 1);
+        } catch (e) {
+          stuck.push(described('removing the scratch', e));
+        }
       }
+      return stuck[0] ?? null;
     },
   };
 }
@@ -535,7 +638,7 @@ function exportScratch(fs: ScratchFs, limits: ScratchLimits, sys: System, realRo
     // A standalone repository: its own `.git`, no remote, no template (so no hook file), no link to the real one.
     const init = sys.exec('git', ['init', '-q', '--template=', root], { isolatedGit: {}, timeoutMs: 60_000 });
     if (init.code !== 0 || init.failure !== undefined) return fail('git could not initialise the scratch repository');
-    return { ok: true, scratch: openScratch(fs, limits, realRoot, holder) };
+    return { ok: true, scratch: openScratch(fs, limits, realRoot, holder, copied.value.skipped) };
   } catch (e) {
     return fail(described('building the scratch', e));
   }

@@ -38,7 +38,7 @@
  */
 import type { System } from '../../system.js';
 import type { WorkerBrief } from '../brief.js';
-import { nodeScratchHost, type Refusal, type ScratchCheckout, type ScratchHost } from '../scratchCheckout.js';
+import { nodeScratchHost, plainName, type Refusal, type ScratchCheckout, type ScratchHost } from '../scratchCheckout.js';
 import type { AuthorisedWorker, WorkerAdapter, WorkerOutcome } from '../workers.js';
 import { ambiguousGrants, argvGrants } from '../workers.js';
 import { candidateSnapshot, grantScopes, scopeBreaches } from '../writeScope.js';
@@ -324,7 +324,7 @@ function outcomeFrom(r: { code: number; stdout: string; stderr: string; failure?
 const MAX_NAMED_REFUSALS = 20;
 
 function namedRefusals(refusals: readonly Refusal[]): string {
-  const shown = refusals.slice(0, MAX_NAMED_REFUSALS).map((r) => `${inert(r.path)} (${r.why})`);
+  const shown = refusals.slice(0, MAX_NAMED_REFUSALS).map((r) => `${plainName(r.path)} (${r.why})`);
   return `${shown.join(', ')}${refusals.length > shown.length ? ', …' : ''}`;
 }
 
@@ -445,11 +445,14 @@ export function codexImplementerAdapterWith(instructions: InstructionBuilders, s
           timeoutMs: worker.timeoutMs, maxOutputBytes: WORKER_MAX_OUTPUT_BYTES,
         });
         if (result.failure !== 'not-started') {
+          // The scratch is judged and copied back FIRST, and the real tree is read AFTER that (review F1(c)): the backstop judges what
+          // actually landed, copy-back included, not what the tree looked like before it.
+          const settled = settleScratch(scratch, scopes, outcomeFrom(result, worker.timeoutMs, instruction, scratch.root));
           const after = candidateSnapshot(sys, root);
-          if (after === null) return { kind: 'refused', detail: 'the checkout could not be read after the run, so what the worker wrote cannot be judged and the run is not certified' };
+          if (after === null) return { kind: 'refused', detail: 'the checkout could not be read after the run and the copy-back, so what reached it cannot be judged and the run is not certified' };
           const breaches = scopeBreaches(before, after, scopes);
           if (breaches.length > 0) {
-            const shown = breaches.slice(0, 20).map(inert);
+            const shown = breaches.slice(0, 20).map(plainName);
             return {
               kind: 'refused',
               detail:
@@ -457,7 +460,7 @@ export function codexImplementerAdapterWith(instructions: InstructionBuilders, s
                 'Something reached the real tree by another route; the paths are left in the tree for the owner and nothing is certified',
             };
           }
-          return settleScratch(scratch, scopes, outcomeFrom(result, worker.timeoutMs, instruction, scratch.root));
+          return settled;
         }
         return outcomeFrom(result, worker.timeoutMs, instruction, scratch.root);
       };

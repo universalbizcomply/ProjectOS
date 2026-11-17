@@ -97,6 +97,8 @@ const TESTS = {
     "rule 12: a failed cleanup is reported with the outcome, never swallowed",
     "keeps the real-root snapshot as the backstop: a write that reaches the real checkout is refused even when the scratch is clean",
     "the adapter file imports no file system and runs no git of its own",
+    "review F1(c): the real-root snapshot is taken after the copy-back, so a write that lands with the copy outside the grants is refused and named",
+    "treats %s as out of scope even beneath a directory grant",
   ],
   "projectos/agent/test/scratchCheckout.test.ts": [
     "rule 1: holds the tracked and untracked files byte for byte, and never .git, an ignored file or an agent control path",
@@ -116,12 +118,27 @@ const TESTS = {
     "restores the real tree when the bytes written are not the bytes that were judged",
     "dispose removes the whole scratch, including a link the worker made",
     "a failed cleanup is reported, never swallowed, and does not throw",
+    // the independent review: REAL-DIRECTORY tests, so deleting them fails the validator
+    "F1: a short-name alias of a real control file is refused, whatever the grants, and the real control files are not overwritten",
+    "F1: a destination that exists under another spelling",
+    "F1: the control-path set also covers the other agents",
+    "F2: every reserved name is refused as a path segment",
+    "F2: real files with reserved names made in a scratch are refused, never copied, and never opened by the walk",
+    "F3: files that git lists beneath an untracked junction are not exported, and are reported as skipped",
+    "F4: a junction planted where the backup used to be is never written through",
+    "F4: the backup directory is made at copy time, outside the scratch holder, and removed with the scratch",
+    "F4: a staging directory that is a link, or is not empty, is refused before any real file is touched",
+    "a file with more than one hard link is refused when it would be copied back",
+    "what is judged in the scratch after the run is bounded by the same limits as the export",
+    "refusal text escapes control, bidirectional-override and other format characters, and is bounded",
+    "rule 9 as a scenario",
   ],
   "projectos/agent/test/codexImplementerScratch.test.ts": [
     "rule 3 and 10: one change outside the grants refuses the run, names it, and leaves the real tree byte-identical",
     "rule 3 and 11: copies back exactly the granted changes and the worker-owned records, and removes the scratch",
     "keeps the real-root snapshot as the backstop: a worker that writes the real tree through a junction is refused and named",
     "removes the scratch when the worker throws",
+    "review F1(c): a write that lands in the real tree with the copy-back is seen by the backstop, which is taken after the copy",
   ],
   "projectos/agent/test/workerRoleSwap.test.ts": [
     "Codex implements and Claude reviews, through the same loop functions and no source change",
@@ -202,7 +219,7 @@ const PIN = {
   unsupportedSyntax: "const UNSUPPORTED_SYNTAX = /[?[\\]{}]|\\*\\*/;",
   changedByDigest: "if (before.get(path) === after.get(path)) continue;",
   breachRule: "if (isAgentControlPath(path) || !pathInGrants(path, scopes)) changed.push(path);",
-  agentSegments: String.raw`const AGENT_CONTROL_SEGMENT = /^(?:\.git.*|\.claude|\.codex|\.agents|\.husky|\.vscode)$/i;`,
+  agentSegments: String.raw`const AGENT_CONTROL_SEGMENT = /^(?:\.git.*|\.claude|\.codex|\.agents|\.husky|\.vscode|\.cursor(?:rules)?|\.windsurf(?:rules)?|\.mcp\.json)$/i;`,
   agentFiles: String.raw`const AGENT_INSTRUCTION_FILE = /^(?:CLAUDE|AGENTS|GEMINI)(?:\.local|\.override)?\.md$/i;`,
   neutralised: "const run: GitRun = (args) => sys.exec('git', [...base, ...neutralisers, ...args], options);",
   neutraliserNull: "if (neutralisers === null) return null;",
@@ -240,7 +257,7 @@ const PIN = {
   copyCall: "const copied = scratch.copyBack();",
   copiedOnly: "if (copied.kind === 'copied') return outcome;",
   copyPartial: "THE CHECKOUT MAY HOLD PART OF THE COPY",
-  settleCalled: "return settleScratch(scratch, scopes, outcomeFrom(",
+  settleCalled: "const settled = settleScratch(scratch, scopes, outcomeFrom(",
   finallyDispose: "} finally {\n        cleanup = scratch.dispose();\n      }",
   cleanupNoted: "return withCleanupNote(outcome, cleanup);",
   cleanupNote: "if (outcome.kind === 'refused') return { ...outcome, detail: `${outcome.detail}; ${note}` };",
@@ -250,7 +267,7 @@ const PIN = {
   scSharedRunner: "const run = isolatedGitRunner(sys, realRoot);",
   scSharedImport: "import { isAgentControlPath, isolatedGitRunner, pathInGrants } from './writeScope.js';",
   scControlSkipped: "if (isAgentControlPath(listed)) continue;",
-  scOnlyFiles: "if (st === null || st.kind !== 'file') continue;",
+  scOnlyFiles: "if (st === null || st.kind !== 'file') {",
   scListedUnsafe: "if (!safeRelativePath(listed)) return { ok: false, reason:",
   scGitSkipped: "if (next.rel === '' && name === '.git') continue;",
   scInit: "const init = sys.exec('git', ['init', '-q', '--template=', root], { isolatedGit: {}, timeoutMs: 60_000 });",
@@ -269,7 +286,7 @@ const PIN = {
   scKindChange: "if (was !== undefined && now !== undefined && was.kind !== now.kind) return WHY.kindChange;",
   scDeleted: "if (now === undefined) return WHY.deleted;",
   scControl: "if (isAgentControlPath(path)) return WHY.control;",
-  scOutside: "return pathInGrants(path, scopes) ? null : WHY.outside;",
+  scOutside: "if (!pathInGrants(path, scopes)) return WHY.outside;",
   scAllRefusals: "if (why !== null) refusals.push({ path, why });",
   scForbidden: String.raw`const FORBIDDEN_IN_NAME = /[\u0000-\u001f<>:"|?*\\]/;`,
   scSafeHead: "if (path === '' || path.length > MAX_PATH_CHARS || path.startsWith('/') || /^[A-Za-z]:/.test(path)) return false;",
@@ -278,7 +295,7 @@ const PIN = {
   scThroughLink: "if (st.kind !== 'dir') return WHY.throughLink;",
   scLastLink: "st.kind === 'link' ? WHY.throughLink : WHY.inTheWay",
   scDestinationJudged: "const why = destinationProblem(fs, realRoot, w.path);\n          if (why !== null) refusals.push({ path: w.path, why });",
-  scDestinationRechecked: "const why = destinationProblem(fs, realRoot, w.path);\n    if (why !== null) refusals.push({ path: w.path, why });\n  }\n  if (refusals.length > 0) return { kind: 'refused', refusals };",
+  scDestinationRechecked: "const why = destinationProblem(fs, realRoot, w.path);\n      if (why !== null) refusals.push({ path: w.path, why });\n    }\n  } catch (e) {\n    return { kind: 'failed', reason: described('checking the destinations', e), rolledBack: true };\n  }\n  if (refusals.length > 0) return { kind: 'refused', refusals };",
   scRefusedHeld: "if (refusals.length > 0) return (verdict = { kind: 'refused', refusals:",
   scRefusedNotCopied: "if (verdict?.kind === 'refused') return { kind: 'refused', refusals: verdict.refusals };",
   scUninspectedNotCopied: "if (verdict?.kind !== 'clean') return { kind: 'failed',",
@@ -287,9 +304,33 @@ const PIN = {
   scRolledBackSaid: "rolledBack: stuck === null",
   scBackedUp: "undo.push({ step: 'restore', dest, backup });",
   scNewNoted: "if (fs.stat(dest) === null) undo.push({ step: 'remove-file', dest });",
-  scDispose: "fs.removeTree(holder);\n        removed = true;\n        return null;\n      } catch (e) {\n        return described('removing the scratch', e);",
+  scDispose: "fs.removeTree(dir);\n          owned.splice(owned.indexOf(dir), 1);\n        } catch (e) {\n          stuck.push(described('removing the scratch', e));",
   scExportCleanup: "try {\n        fs.removeTree(holder);\n      } catch (e) {\n        cleanup = `; and the scratch could not be removed (${errorCode(e)})`;",
   scRemoveRetries: "rmSync(path, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })",
+
+  // ---- the independent review of 001822c4 (F1 to F4 and the LOW items) ----
+  scShortShape: "const SHORT_NAME_SHAPE = /~[0-9]/;",
+  scShortRefused: "&& !SHORT_NAME_SHAPE.test(seg)",
+  scShortNotExported: "if (hasShortNameShape(listed)) {\n      skip(listed);\n      continue;\n    }",
+  scCanonicalExpected: "const expected = join(fs.realPath(realRoot), ...segments.slice(0, depth));",
+  scCanonicalCompared: "return fs.realPath(join(realRoot, ...segments.slice(0, depth))) === expected ? null : WHY.alias;",
+  scDeviceNames: String.raw`const RESERVED_DEVICE = /^(?:CON|PRN|AUX|NUL|COM[0-9\xb2\xb3\xb9]|LPT[0-9\xb2\xb3\xb9]|CONIN\$|CONOUT\$|CLOCK\$)$/i;`,
+  scDeviceStrip: "RESERVED_DEVICE.test((segment.split('.')[0] ?? '').replace(/ +$/, ''))",
+  scDeviceRefused: "&& !isReservedDevice(seg)",
+  scParentsDefined: "const parentsPlain = (listed: string): boolean => {",
+  scParentPlain: "if (dir === null || dir.kind !== 'dir') return false;",
+  scParentsUsed: "if (!parentsPlain(listed)) {\n      skip(listed);\n      continue;\n    }",
+  scSkippedRecorded: "if (skipped.length < MAX_SKIPPED_NAMED) skipped.push(path);",
+  scStagingMade: "staging = fs.makeTempDir('projectos-backup-');",
+  scStagingChecked: "if (writes.length > 0) requireEmptyPlainDirectory(fs, stagingDir);",
+  scStagingPlain: "if (st === null || st.kind !== 'dir') throw new CopyProblem('the backup location is not a plain directory');",
+  scStagingEmpty: "if (fs.list(dir).length > 0) throw new CopyProblem('the backup location is not empty');",
+  scHardlink: "return now.kind === 'file' && (now.links ?? 1) > 1 ? WHY.hardlink : null;",
+  scLinksRecorded: "manifest.set(rel, { kind: 'file', hash: fs.hashFile(abs), links: st.links });",
+  scPostRunBound: "if (files > limits.maxFiles + PLACED_FILES_SLACK || bytes > limits.maxBytes + PLACED_RECORDS_MAX * limits.maxPlacedBytes) {",
+  scFormatEscaped: String.raw`value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu,`,
+  adapterPlainNames: "map((r) => `${plainName(r.path)} (${r.why})`);",
+  adapterPlainBreaches: "const shown = breaches.slice(0, 20).map(plainName);",
 };
 
 /** A VS Code dependency in the loop: an import of the editor API, or a spawn of its launcher. */
@@ -475,8 +516,8 @@ function check(raw) {
   const iBreach = a.indexOf(PIN.breaches);
   const iSettle = a.indexOf(PIN.settleCalled);
   if (!has(a, [PIN.inspected, PIN.unreadableRefused, PIN.judgementRefused, PIN.refusedRunKept, PIN.copyCall, PIN.copiedOnly, PIN.copyPartial, PIN.settleCalled]) ||
-      iInspect < 0 || iKept < 0 || iCopy < 0 || !(iInspect < iKept && iKept < iCopy) || iBreach < 0 || iSettle < 0 || !(iBreach < iSettle) || count(a, "scratch.copyBack()") !== 1) {
-    E("WI-23", "the judgement no longer precedes the copy, a refused run can be copied back, an unreadable scratch is accepted, or the real-root snapshot no longer comes first");
+      iInspect < 0 || iKept < 0 || iCopy < 0 || !(iInspect < iKept && iKept < iCopy) || iBreach < 0 || iSettle < 0 || !(iSettle < iBreach) || count(a, "scratch.copyBack()") !== 1) {
+    E("WI-23", "the judgement no longer precedes the copy, a refused run can be copied back, an unreadable scratch is accepted, or the real-root snapshot is no longer taken AFTER the copy-back (review F1(c): the backstop must judge what landed)");
   }
   // WI-24 — the adapter has no file system and no git of its own; its single spawn is the worker's (WI-7).
   if (/from\s+['"]node:(?:fs|child_process|os)['"]|require\(\s*['"](?:node:)?(?:fs|child_process)['"]/.test(a) || /sys\.exec\(\s*['"]git['"]/.test(a)) {
@@ -486,6 +527,29 @@ function check(raw) {
   const wScope = w;
   if (!wScope.includes("export function isolatedGitRunner(sys: System, root: string): GitRun | null {") || !wScope.includes("const run = isolatedGitRunner(sys, root);") || !sc.includes(PIN.scSharedImport) || /core\.fsmonitor/.test(sc)) {
     E("WI-25", "the scratch export no longer reads git through the shared isolated runner that the snapshot uses, or the runner is no longer shared");
+  }
+  // ---- the independent review of 001822c4. The text pins below pin the CODE; the real-directory tests named in TESTS are what prove it, and
+  // deleting those tests fails WI-T. (The review reproduced F1 to F3 with real directories after text pins and logic tests had passed.) ----
+  // WI-26 (F1) — an alias of a control file: 8.3 short-name shapes are refused, the destination must be its own canonical path, the backstop is
+  // taken after the copy (WI-23), and the other agents' control files are control paths (WI-10).
+  if (!has(sc, [PIN.scShortShape, PIN.scShortRefused, PIN.scShortNotExported, PIN.scCanonicalExpected, PIN.scCanonicalCompared])) {
+    E("WI-26", "a path shaped like an 8.3 short name, or a destination that is not its own canonical path (a short name, another case), is no longer refused");
+  }
+  // WI-27 (F2) — Windows device names, in any case, with or without an extension, including the superscript digits.
+  if (!has(sc, [PIN.scDeviceNames, PIN.scDeviceStrip, PIN.scDeviceRefused])) {
+    E("WI-27", "a Windows device name (NUL, CON.txt, aux, COM1, LPT1.log, CONIN$ and the superscript forms) is no longer refused as a path segment");
+  }
+  // WI-28 (F3) — the export lstats every parent component and copies only below plain directories; what it did not copy is recorded.
+  if (!has(sc, [PIN.scParentsDefined, PIN.scParentPlain, PIN.scParentsUsed, PIN.scSkippedRecorded])) {
+    E("WI-28", "the export no longer checks every parent component of a listed path (a junction beneath the root is followed out of it), or skipped paths are not recorded");
+  }
+  // WI-29 (F4) — the backup location is made at copy time with mkdtemp, outside the holder, and used only while an empty plain directory.
+  if (!has(sc, [PIN.scStagingMade, PIN.scStagingChecked, PIN.scStagingPlain, PIN.scStagingEmpty]) || /join\(holder,\s*'(?:backup|staging|tmp)/.test(sc)) {
+    E("WI-29", "the backup location is predictable, sits inside the directory the worker runs in, or is used without being checked to be an empty plain directory");
+  }
+  // WI-30 (LOW) — a hard-linked file is not copied back; the scratch is bounded after the run; refusal text escapes format characters.
+  if (!has(sc, [PIN.scHardlink, PIN.scLinksRecorded, PIN.scPostRunBound, PIN.scFormatEscaped]) || !has(a, [PIN.adapterPlainNames, PIN.adapterPlainBreaches]) || /inert\(r\.path\)/.test(a)) {
+    E("WI-30", "a hard-linked file can be copied back, what is judged after the run is unbounded, or a refusal shows control or bidirectional-format characters unescaped");
   }
   // The reviewer file only gained exports, so the exit-proof reviewer is unchanged in behaviour.
   if (!PIN.codexExports.every((p) => cx.includes(p))) {
@@ -632,7 +696,7 @@ const MUTATIONS = [
   { name: "scratch-left-behind", rule: "WI-22", rel: ADAPTER_REL, from: "cleanup = scratch.dispose();", to: "cleanup = null;" },
   { name: "cleanup-failure-swallowed", rule: "WI-22", rel: ADAPTER_REL, from: PIN.cleanupNoted, to: "return outcome;" },
   { name: "cleanup-failure-lost-on-a-refusal", rule: "WI-22", rel: ADAPTER_REL, from: PIN.cleanupNote, to: "if (outcome.kind === 'refused') return outcome;" },
-  { name: "dispose-failure-swallowed", rule: "WI-22", rel: SCRATCH_REL, from: "return described('removing the scratch', e);", to: "return null;" },
+  { name: "dispose-failure-swallowed", rule: "WI-22", rel: SCRATCH_REL, from: "stuck.push(described('removing the scratch', e));", to: "void e;" },
   { name: "refused-export-leaves-a-directory", rule: "WI-22", rel: SCRATCH_REL, from: PIN.scExportCleanup, to: "try {\n        void holder;\n      } catch (e) {\n        cleanup = `; and the scratch could not be removed (${errorCode(e)})`;" },
   { name: "removal-gives-up-at-the-first-lock", rule: "WI-22", rel: SCRATCH_REL, from: "maxRetries: 3, retryDelay: 100", to: "maxRetries: 0" },
   { name: "refused-run-copied-back", rule: "WI-23", rel: ADAPTER_REL, from: PIN.refusedRunKept, to: "" },
@@ -641,11 +705,37 @@ const MUTATIONS = [
   { name: "refused-judgement-copied-anyway", rule: "WI-23", rel: ADAPTER_REL, from: PIN.judgementRefused, to: "" },
   { name: "failed-copy-treated-as-success", rule: "WI-23", rel: ADAPTER_REL, from: PIN.copiedOnly, to: "if (copied.kind === 'copied' || copied.kind === 'failed') return outcome;" },
   { name: "partial-copy-not-said", rule: "WI-23", rel: ADAPTER_REL, from: PIN.copyPartial, to: "THE CHECKOUT IS FINE" },
-  { name: "copy-back-before-the-backstop", rule: "WI-23", rel: ADAPTER_REL, from: PIN.settleCalled, to: "scratch.copyBack(); return settleScratch(scratch, scopes, outcomeFrom(" },
+  { name: "backstop-taken-before-the-copy-back", rule: "WI-23", rel: ADAPTER_REL, from: PIN.settleCalled, to: PIN.breaches + "\n          " + PIN.settleCalled },
+  { name: "second-copy-back-added", rule: "WI-23", rel: ADAPTER_REL, from: PIN.settleCalled, to: "scratch.copyBack(); " + PIN.settleCalled },
   { name: "adapter-reads-the-disk", rule: "WI-24", rel: ADAPTER_REL, from: "import type { System } from '../../system.js';", to: "import type { System } from '../../system.js';\nimport { rmSync } from 'node:fs';" },
   { name: "adapter-runs-git", rule: "WI-24", rel: ADAPTER_REL, from: "    rejoin(): WorkerOutcome {", to: "    rejoin(sys: System): WorkerOutcome {\n      sys.exec('git', ['status']);" },
   { name: "snapshot-builds-its-own-runner", rule: "WI-25", rel: SCOPE_REL, from: "const run = isolatedGitRunner(sys, root);", to: "const run = ((args: readonly string[]) => sys.exec('git', ['-C', root, ...args])) as GitRun;" },
   { name: "scratch-uses-its-own-isolation", rule: "WI-25", rel: SCRATCH_REL, from: PIN.scSharedImport, to: "import { isAgentControlPath, pathInGrants } from './writeScope.js';" },
+
+  // ---- the independent review of 001822c4 ----
+  { name: "short-name-shape-allowed", rule: "WI-26", rel: SCRATCH_REL, from: PIN.scShortShape, to: "const SHORT_NAME_SHAPE = /^$/;" },
+  { name: "short-name-not-part-of-a-plain-path", rule: "WI-26", rel: SCRATCH_REL, from: PIN.scShortRefused, to: "" },
+  { name: "short-name-files-exported", rule: "WI-26", rel: SCRATCH_REL, from: PIN.scShortNotExported, to: "" },
+  { name: "destination-alias-allowed", rule: "WI-26", rel: SCRATCH_REL, from: PIN.scCanonicalCompared, to: "return fs.realPath(join(realRoot, ...segments.slice(0, depth))) === expected ? null : null;" },
+  { name: "canonical-root-not-used", rule: "WI-26", rel: SCRATCH_REL, from: PIN.scCanonicalExpected, to: "const expected = join(realRoot, ...segments.slice(0, depth));" },
+  { name: "cursor-and-windsurf-files-in-scope", rule: "WI-10", rel: SCOPE_REL, from: String.raw`|\.cursor(?:rules)?|\.windsurf(?:rules)?|\.mcp\.json)$/i;`, to: ")$/i;" },
+  { name: "device-names-allowed", rule: "WI-27", rel: SCRATCH_REL, from: PIN.scDeviceRefused, to: "" },
+  { name: "nul-not-reserved", rule: "WI-27", rel: SCRATCH_REL, from: "|AUX|NUL|COM[0-9", to: "|AUX|COM[0-9" },
+  { name: "superscript-ports-not-reserved", rule: "WI-27", rel: SCRATCH_REL, from: String.raw`COM[0-9\xb2\xb3\xb9]|LPT[0-9\xb2\xb3\xb9]`, to: "COM[0-9]|LPT[0-9]" },
+  { name: "device-extension-not-stripped", rule: "WI-27", rel: SCRATCH_REL, from: "(segment.split('.')[0] ?? '')", to: "segment" },
+  { name: "parents-not-checked", rule: "WI-28", rel: SCRATCH_REL, from: "if (!parentsPlain(listed)) {", to: "if (false) {" },
+  { name: "junction-parent-treated-as-plain", rule: "WI-28", rel: SCRATCH_REL, from: PIN.scParentPlain, to: "if (dir === null) return false;" },
+  { name: "skipped-paths-not-recorded", rule: "WI-28", rel: SCRATCH_REL, from: PIN.scSkippedRecorded, to: "void path;" },
+  { name: "backup-beside-the-worker", rule: "WI-29", rel: SCRATCH_REL, from: PIN.scStagingMade, to: "staging = join(holder, 'backup'); fs.makeDir(staging);" },
+  { name: "backup-used-unchecked", rule: "WI-29", rel: SCRATCH_REL, from: PIN.scStagingChecked, to: "if (writes.length > 0) fs.makeDir(stagingDir);" },
+  { name: "linked-backup-accepted", rule: "WI-29", rel: SCRATCH_REL, from: PIN.scStagingPlain, to: "if (st === null) throw new CopyProblem('the backup location is not a plain directory');" },
+  { name: "non-empty-backup-accepted", rule: "WI-29", rel: SCRATCH_REL, from: PIN.scStagingEmpty, to: "" },
+  { name: "hard-linked-file-copied-back", rule: "WI-30", rel: SCRATCH_REL, from: PIN.scHardlink, to: "return null;" },
+  { name: "link-count-not-recorded", rule: "WI-30", rel: SCRATCH_REL, from: PIN.scLinksRecorded, to: "manifest.set(rel, { kind: 'file', hash: fs.hashFile(abs) });" },
+  { name: "scratch-unbounded-after-the-run", rule: "WI-30", rel: SCRATCH_REL, from: PIN.scPostRunBound, to: "if (false) {" },
+  { name: "format-characters-shown-raw", rule: "WI-30", rel: SCRATCH_REL, from: PIN.scFormatEscaped, to: String.raw`value.replace(/[\p{Cc}]/gu,` },
+  { name: "refusal-paths-shown-raw", rule: "WI-30", rel: ADAPTER_REL, from: PIN.adapterPlainNames, to: "map((r) => `${inert(r.path)} (${r.why})`);" },
+  { name: "breach-paths-shown-raw", rule: "WI-30", rel: ADAPTER_REL, from: PIN.adapterPlainBreaches, to: "const shown = breaches.slice(0, 20).map(inert);" },
 ];
 
 /** Every named mutation must be killed by its own rule. Applied to CRLF-folded text, as `check` reads it. */

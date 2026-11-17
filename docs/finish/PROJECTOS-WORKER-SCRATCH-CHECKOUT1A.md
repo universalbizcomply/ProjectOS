@@ -24,7 +24,7 @@ byte-identical after a refusal. The before/after snapshot of the real root stays
 
 ## Design
 
-`projectos/agent/src/loop/scratchCheckout.ts` (new, 549 lines; in `loop/`, not `loop/adapters/`, so the lifecycle validator's closed adapter list is untouched).
+`projectos/agent/src/loop/scratchCheckout.ts` (new, 652 lines after the review fixes; in `loop/`, not `loop/adapters/`, so the lifecycle validator's closed adapter list is untouched).
 
 - **Port.** `ScratchFs` (lstat-based `stat`, `list`, streamed `hashFile`, `copyFile`, `makeDir`, `makeTempDir`, `realPath`, `writeText`, `removeFile`, `removeDir`, `removeTree`) with a node
   implementation, and `ScratchHost` (`open`) injected into the adapter as a second, defaulted argument of `codexImplementerAdapterWith`, so the registry line is unchanged.
@@ -121,4 +121,31 @@ New files: `scratchCheckout.ts`, `test/scratchCheckout.test.ts`, `test/codexImpl
 6. **A deletion refuses the run** (this slice), so a worker that legitimately removes a granted file is refused. New empty directories are not copied. A worker process that outlives its run could still write the scratch; every copied file is hashed again at its destination to catch that.
 7. **Cleanup can fail** (a lingering handle on Windows). It retries three times, then is reported on the outcome; the directory is left in the temporary directory.
 8. `tsc -p tsconfig.test.json` has one error that is not from this phase (`test/skillLoad.test.ts(128,26)`, `sort` on a readonly array); `tsc -p tsconfig.json` is clean.
-9. The adversarial review (ECC `security-reviewer`, mandatory and independent) has not been run by this builder; one recheck at most, per the spec.
+9. The independent review (ECC `security-reviewer`) returned BLOCK on `001822c4`; the fix round below answers it. One recheck at most, per the spec.
+10. **Untracked, non-ignored secret files ARE exported.** Only git-ignored files are kept out of the scratch. A file such as `.env.local` that is neither tracked nor ignored is listed by git and copied, so the worker can read it. Keep secrets git-ignored.
+11. **The worker's descendants are not owned by the spawn** (`system.ts` is not edited): a process the worker started may outlive the run and still write in the scratch during the copy-back. The guards are the hash of every copied file at its destination and the rollback, not a prevention.
+12. **Names refused by shape.** Any path segment with a tilde and a digit (`~1`) or a Windows device name is refused in a copy-back; an export skips tilde-digit names (and records them in `skipped`) and refuses a checkout that lists a device name. A hard-linked file is never copied back.
+
+## Fix round for the independent review (`fix(worker): close the review findings on the scratch checkout`)
+
+Verdict on `001822c4` was BLOCK: four findings reproduced with real directories and real git. Each has a real-directory test that FAILED first (14 of the 16 new tests failed before the fix; the
+other two were already green), then the fix, then validator pins and named mutations, and a TESTS needle in the validator so deleting the test fails it (WI-T). The reviewer's point stands: text pins and logic tests had
+passed while all four were live, so the validator pins the code and the tests prove it; the pins are not evidence on their own.
+
+| Finding | Fix | Real-directory test (scratchCheckout.test.ts unless noted) | Validator |
+|---|---|---|---|
+| F1 HIGH: 8.3 short names (`GITIGN~1`, `AGENTS~1.MD`, `CLAUDE~1/...`, `HUSKY~1/...`) passed the control-path judgement and overwrote the real `.gitignore`, `.gitattributes`, `AGENTS.override.md`, `.claude/settings.json`, `.husky/pre-commit` | (a) a segment with a tilde and a digit is not a plain path; (b) the deepest existing destination is canonicalised with `realpath.native` and must equal the expected root-joined path exactly (this also refuses another case on a case-insensitive volume); (c) the real-root `after` snapshot is now taken AFTER the copy-back, so the backstop judges what landed | "F1: a short-name alias of a real control file is refused ... not overwritten" (8.3 is ON for `C:` here; a companion test checks the aliases really resolve, and skips only if 8.3 is off), "F1: a destination that exists under another spelling", IN "review F1(c): a write that lands in the real tree with the copy-back is seen by the backstop", AD "review F1(c) ..." | WI-26 (`short-name-shape-allowed`, `short-name-not-part-of-a-plain-path`, `short-name-files-exported`, `destination-alias-allowed`, `canonical-root-not-used`); WI-23 reordered (`backstop-taken-before-the-copy-back`, `second-copy-back-added`) |
+| F2 MEDIUM: `NUL`, `CON.txt`, `aux`, `COM1`, `LPT1.log`, `CONIN$` were copied into the real tree | Every segment is refused if its part before the first dot, case-insensitively, is CON, PRN, AUX, NUL, COM0-9, LPT0-9 (and the superscript 1, 2, 3 forms), CONIN$, CONOUT$ or CLOCK$ | "F2: every reserved name is refused ..." and "F2: real files with reserved names made in a scratch" (made with `\\?\` paths, removed in a `finally`) | WI-27 (`device-names-allowed`, `nul-not-reserved`, `superscript-ports-not-reserved`, `device-extension-not-stripped`) |
+| F3 MEDIUM: the export followed an untracked junction out of the root (`jl/secret.txt`, `docs/jd/secret.txt` landed in the scratch) | Every parent component of a listed path is `lstat`ed from the root down; the path is copied only below plain directories and as a plain file. Skipped paths are on `ScratchCheckout.skipped` (at most 200 named) | "F3: files that git lists beneath an untracked junction are not exported, and are reported as skipped" (real junctions) | WI-28 (`parents-not-checked`, `junction-parent-treated-as-plain`, `skipped-paths-not-recorded`) |
+| F4 MEDIUM: `holder/backup` was predictable and only `makeDir`'d, so a planted junction there received a pre-image | No backup location exists until copy-back time. It is made then with `mkdtemp` in its own directory (not under the holder the worker's cwd lives in), is used only while an empty plain directory (`lstat`), and is removed by `dispose` with the scratch | "F4: a junction planted where the backup used to be is never written through" (junctions at `backup`, `backups`, `staging`, `tmp`), "F4: the backup directory is made at copy time ...", "F4: a staging directory that is a link, or is not empty, is refused" | WI-29 (`backup-beside-the-worker`, `backup-used-unchecked`, `linked-backup-accepted`, `non-empty-backup-accepted`) |
+
+LOW items fixed: `.cursor`, `.cursorrules`, `.windsurf`, `.windsurfrules` and `.mcp.json` are agent control paths (`writeScope.ts`; `.github` was already covered by `.git*`; WI-10 mutation `cursor-and-windsurf-files-in-scope`, adapter
+and scratch tests); a file with a hard-link count above one is refused when it would be copied back (real `linkSync` test; WI-30); what is judged in the scratch after the run is bounded by the export's own `maxFiles`
+and `maxBytes` (plus a small allowance for the records placed afterwards) and refused above them (WI-30); refusal text goes through `plainName`, a helper of this module that escapes control, bidirectional-override and
+other Unicode format characters (`codexCli.ts` and `inert` are unchanged; WI-30 `format-characters-shown-raw`, `refusal-paths-shown-raw`, `breach-paths-shown-raw`).
+
+LOW stated, not fixed: item 11 above (descendants not owned). Rule 9 (a write made and undone) now has a behavioural scenario test ("rule 9 as a scenario") besides the first one; the validator pins the comparison (manifest equality by hash), not the scenario.
+
+Checks for the fix round: `tsc -p tsconfig.json --noEmit` exit 0; `vitest run` on `scratchCheckout`, `codexImplementerScratch`, `codexImplementerAdapter`, `workerRoleSwap`, `writeScopeRealGit`, `loopContext`: 6 files, 199 tests passed, 0 skipped
+(the Windows-only tests ran: this is Windows with 8.3 on for `C:`); `val-projectos-worker-codex-implementer1a` PASS (173 named mutations killed, was 149), `context-manager1a` PASS (285), `worker-lifecycle-bounded1a` PASS,
+`kernel-followup1a` PASS (88), `kernel-role-review1a` PASS (44), `validate-no-secrets` PASS. No temporary directory or junction was left behind by the tests (checked in the temp directory afterwards).

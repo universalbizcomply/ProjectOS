@@ -22,6 +22,10 @@ The approved draft said the loop checks changed paths against the plan's `writeP
 **before** the write, by per-path `--allowedTools Edit(path)` grants the loop puts on its argv. Codex has no per-path grant: its sandbox covers the whole
 checkout, `.projectops/authority/` included. So this phase had to add the check. FR-003 and Rule 3 were rewritten in `4bfdb318`, committed alone before any code.
 
+**Review fix round (`fix(worker): close the review findings on the scratch checkout`):** the control-path set now also holds `.cursor`, `.cursorrules`, `.windsurf`, `.windsurfrules` and `.mcp.json` (`.github` is covered by `.git*`); the real-root
+snapshot that this document describes is taken AFTER the scratch copy-back, so it judges what landed. Residual 2 (reads) is unchanged, and a worker's leftover descendants (not owned by the spawn) could still write the scratch during a copy-back.
+See `PROJECTOS-WORKER-SCRATCH-CHECKOUT1A.md`, "Fix round".
+
 **Update (PROJECTOS-WORKER-SCRATCH-CHECKOUT1A):** the scope is now PREVENTATIVE on the route this phase built. Codex runs in a scratch copy and only granted changes are
 copied back; see `docs/finish/PROJECTOS-WORKER-SCRATCH-CHECKOUT1A.md`. The text below is what this phase built, and the snapshot it describes stays as the backstop.
 

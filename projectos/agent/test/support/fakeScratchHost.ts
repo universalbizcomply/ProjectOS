@@ -19,6 +19,8 @@ export interface FakeScratchScript {
   readonly disposeProblem?: string;
   /** Runs inside `sys.exec` of the worker, via the test's own codex callback; here for symmetry only. */
   readonly onDispose?: () => void;
+  /** Runs when the copy-back is called: a write that LANDS in the real tree together with the copy. */
+  readonly onCopyBack?: () => void;
 }
 
 export interface FakeScratch {
@@ -40,6 +42,7 @@ export function fakeScratchHost(script: FakeScratchScript): FakeScratch {
   };
   const scratch: ScratchCheckout = {
     root: FAKE_SCRATCH_ROOT,
+    skipped: [],
     scratchPathOf,
     placeFile(realPath) {
       events.push('placeFile');
@@ -61,6 +64,7 @@ export function fakeScratchHost(script: FakeScratchScript): FakeScratch {
     },
     copyBack() {
       events.push('copyBack');
+      script.onCopyBack?.();
       return script.copy ?? { kind: 'copied', paths: [] };
     },
     dispose() {

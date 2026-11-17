@@ -10,16 +10,19 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { nodeSystem } from '../src/system.js';
 import type { ExecResult, System } from '../src/system.js';
 import {
+  copyBack,
+  destinationProblem,
   judgeChanges,
   nodeScratchFs,
   nodeScratchHost,
+  plainName,
   safeRelativePath,
   scratchHostWith,
   type Manifest,
@@ -456,5 +459,235 @@ describe('rule 12: the scratch is removed on every path', () => {
     expect(refused.ok).toBe(false);
     expect(made).toHaveLength(1);
     expect(existsSync(made[0] as string)).toBe(false);
+  });
+});
+
+// ---- the independent review of 001822c4: four findings reproduced with real directories, and the LOW items ----
+
+const WIN = process.platform === 'win32';
+/** `\\?\` turns off Windows name normalisation, which is the only way to create a file named `NUL` or `CON.txt`. */
+const verbatim = (p: string): string => `\\\\?\\${p}`;
+/** Is 8.3 short-name generation on for the temp volume? (Only the alias-resolves check depends on it; the refusal tests do not.) */
+const eightDotThreeOn = (() => {
+  if (!WIN) return false;
+  const probe = mkdtempSync(join(tmpdir(), 'projectos-8dot3-'));
+  try {
+    writeFileSync(join(probe, 'a-long-probe-name.txt'), 'x');
+    return existsSync(join(probe, 'A-LONG~1.TXT'));
+  } catch {
+    return false;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+})();
+
+describe('review F1: 8.3 short names and other aliases of a control file', () => {
+  const CONTROL_FILES: Record<string, string> = {
+    'docs/.gitignore': 'ORIGINAL\n',
+    'docs/.gitattributes': 'ORIGINAL\n',
+    'docs/AGENTS.override.md': 'ORIGINAL\n',
+    'docs/.claude/settings.json': '{"original":true}\n',
+    'docs/.husky/pre-commit': 'original\n',
+  };
+  const ALIASES = ['GITIGN~1', 'GITATT~1', 'AGENTS~1.MD', 'CLAUDE~1/settings.json', 'HUSKY~1/pre-commit'];
+
+  it.skipIf(!eightDotThreeOn)('the machine really does alias the control files by their short names (so the next test is not vacuous)', () => {
+    for (const [rel, content] of Object.entries(CONTROL_FILES)) put(real, rel, content);
+    expect(readFileSync(join(real, 'docs', 'GITIGN~1'), 'utf8')).toBe('ORIGINAL\n');
+    expect(readFileSync(join(real, 'docs', 'CLAUDE~1', 'settings.json'), 'utf8')).toBe('{"original":true}\n');
+  });
+
+  it('F1: a short-name alias of a real control file is refused, whatever the grants, and the real control files are not overwritten', () => {
+    for (const [rel, content] of Object.entries(CONTROL_FILES)) put(real, rel, content);
+    const before = treeOf(real);
+    const { scratch, inspected } = inspectAfter((root) => {
+      for (const alias of ALIASES) put(root, `docs/${alias}`, 'EVIL\n');
+      put(root, 'docs/ok.md', 'fine\n');
+    });
+    expect(inspected.kind).toBe('refused');
+    expect(refusedPaths(inspected)).toEqual(['docs/AGENTS~1.MD', 'docs/CLAUDE~1', 'docs/GITATT~1', 'docs/GITIGN~1', 'docs/HUSKY~1']);
+    expect(scratch.copyBack().kind).toBe('refused');
+    expect(treeOf(real)).toEqual(before);
+  });
+
+  it('F1: a segment shaped like a short name (a tilde and a digit) is never a plain path, in any position', () => {
+    for (const bad of ['docs/GITIGN~1', 'docs/AGENTS~1.MD', 'docs/CLAUDE~1/settings.json', 'a~2/b.md', 'docs/x~9.txt']) expect(safeRelativePath(bad), bad).toBe(false);
+    expect(safeRelativePath('docs/tilde~name.md')).toBe(true);
+  });
+
+  it.skipIf(!WIN)('F1: a destination that exists under another spelling (case, on a case-insensitive volume) is refused: the canonical path must equal the expected one', () => {
+    put(real, 'docs/readme.md', 'original\n');
+    expect(destinationProblem(nodeScratchFs, real, 'docs/readme.md')).toBeNull();
+    if (!existsSync(join(real, 'DOCS'))) return; // a case-sensitive volume has no alias to refuse
+    expect(destinationProblem(nodeScratchFs, real, 'docs/README.md')).not.toBeNull();
+    expect(destinationProblem(nodeScratchFs, real, 'DOCS/readme.md')).not.toBeNull();
+    expect(destinationProblem(nodeScratchFs, real, 'DOCS/brand-new.md')).not.toBeNull();
+    expect(destinationProblem(nodeScratchFs, real, 'docs/brand-new.md')).toBeNull();
+  });
+
+  it('F1: the control-path set also covers the other agents\' control files, under a directory grant', () => {
+    const { inspected } = inspectAfter((root) => {
+      for (const rel of ['docs/.cursor/rules/a.mdc', 'docs/.cursorrules', 'docs/.windsurf/rules.md', 'docs/.windsurfrules', 'docs/.mcp.json']) put(root, rel, 'x\n');
+      put(root, 'docs/ok.md', 'fine\n');
+    });
+    expect(refusedPaths(inspected)).toEqual(['docs/.cursor/rules/a.mdc', 'docs/.cursorrules', 'docs/.mcp.json', 'docs/.windsurf/rules.md', 'docs/.windsurfrules']);
+  });
+});
+
+describe('review F2: Windows reserved device names', () => {
+  const RESERVED = ['NUL', 'nul', 'CON.txt', 'aux', 'AUX.', 'COM1', 'com9.log', 'COM0', 'LPT1.log', 'lpt9', 'PRN', 'CONIN$', 'CONOUT$', 'CLOCK$', 'COM\u00b9', 'COM\u00b2.txt', 'LPT\u00b3', 'Nul.tar.gz'];
+
+  it('F2: every reserved name is refused as a path segment, with or without extension, in any case and at any depth', () => {
+    for (const name of RESERVED) {
+      expect(safeRelativePath(name), name).toBe(false);
+      expect(safeRelativePath(`docs/${name}`), name).toBe(false);
+      expect(safeRelativePath(`${name}/x.md`), name).toBe(false);
+    }
+    for (const fine of ['console.md', 'docs/auxiliary.md', 'COM10.txt', 'comma.md', 'nullable.ts', 'docs/lpt.md']) expect(safeRelativePath(fine), fine).toBe(true);
+  });
+
+  it.skipIf(!WIN)('F2: real files with reserved names made in a scratch are refused, never copied, and never opened by the walk', () => {
+    const before = treeOf(real);
+    const scratch = openScratch();
+    expect(scratch.baseline()).toBeNull();
+    const made = ['NUL', 'CON.txt', 'aux', 'COM1', 'LPT1.log', 'CONIN$'].map((n) => join(scratch.root, 'docs', n));
+    for (const m of made) writeFileSync(verbatim(m), 'x');
+    try {
+      const inspected = scratch.inspect(GRANTS);
+      expect(inspected.kind).toBe('refused');
+      expect(refusedPaths(inspected).sort()).toEqual(['docs/NUL', 'docs/CON.txt', 'docs/aux', 'docs/COM1', 'docs/LPT1.log', 'docs/CONIN$'].sort());
+      expect(scratch.copyBack().kind).toBe('refused');
+      expect(treeOf(real)).toEqual(before);
+    } finally {
+      for (const m of made) rmSync(verbatim(m), { force: true });
+    }
+  });
+});
+
+describe('review F3: the export never follows a link out of the checkout', () => {
+  it('F3: files that git lists beneath an untracked junction are not exported, and are reported as skipped', () => {
+    const outside = join(base, 'outside');
+    put(outside, 'secret.txt', 'OUTSIDE-SECRET\n');
+    junction(outside, join(real, 'jl'));
+    junction(outside, join(real, 'docs', 'jd'));
+    const scratch = openScratch();
+    const tree = treeOf(scratch.root);
+    expect(Object.keys(tree).some((k) => k.endsWith('secret.txt'))).toBe(false);
+    expect(Object.keys(tree)).not.toContain('jl');
+    expect(Object.keys(tree)).not.toContain('docs/jd');
+    expect(scratch.skipped).toEqual(expect.arrayContaining(['jl/secret.txt', 'docs/jd/secret.txt']));
+    expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('OUTSIDE-SECRET\n');
+  });
+
+  it('F3: ordinary files and directories are still exported beside the skipped ones', () => {
+    junction(join(base, 'outside-empty'), join(real, 'jl'));
+    const scratch = openScratch();
+    expect(readFileSync(join(scratch.root, 'docs/sub/deep.md'), 'utf8')).toBe('one\n');
+    expect(scratch.skipped.every((p) => !p.startsWith('docs/sub'))).toBe(true);
+  });
+});
+
+describe('review F4: the backup location is neither predictable nor inside the worker\'s tree', () => {
+  it('F4: a junction planted where the backup used to be is never written through', () => {
+    const victim = join(base, 'victim');
+    mkdirSync(victim);
+    const scratch = openScratch();
+    expect(scratch.baseline()).toBeNull();
+    put(scratch.root, 'docs/plain.md', 'changed\n');
+    const holder = dirname(scratch.root);
+    for (const name of ['backup', 'backups', 'staging', 'tmp']) junction(victim, join(holder, name));
+    expect(scratch.inspect(GRANTS)).toMatchObject({ kind: 'clean', writes: 1 });
+    expect(scratch.copyBack()).toMatchObject({ kind: 'copied' });
+    expect(readFileSync(join(real, 'docs/plain.md'), 'utf8')).toBe('changed\n');
+    expect(readdirSync(victim)).toEqual([]);
+    expect(scratch.dispose()).toBeNull();
+    expect(readdirSync(victim)).toEqual([]);
+  });
+
+  it('F4: the backup directory is made at copy time, outside the scratch holder, and removed with the scratch', () => {
+    const made: string[] = [];
+    const recording: ScratchFs = { ...nodeScratchFs, makeTempDir: (prefix) => { const d = nodeScratchFs.makeTempDir(prefix); made.push(d); return d; } };
+    const scratch = openScratch(scratchHostWith(recording));
+    expect(made).toHaveLength(1);
+    expect(scratch.baseline()).toBeNull();
+    put(scratch.root, 'docs/plain.md', 'changed\n');
+    expect(scratch.inspect(GRANTS)).toMatchObject({ kind: 'clean', writes: 1 });
+    expect(scratch.copyBack()).toMatchObject({ kind: 'copied' });
+    expect(made).toHaveLength(2);
+    expect(dirname(made[1] as string)).toBe(dirname(made[0] as string));
+    expect(made[1]).not.toBe(made[0]);
+    expect(dirname(scratch.root)).toBe(made[0]);
+    expect((made[1] as string).startsWith(join(made[0] as string, 'checkout'))).toBe(false);
+    expect(made[1] as string).not.toContain(made[0] as string);
+    expect(scratch.dispose()).toBeNull();
+    expect(existsSync(made[1] as string)).toBe(false);
+    expect(existsSync(made[0] as string)).toBe(false);
+  });
+
+  it('F4: a staging directory that is a link, or is not empty, is refused before any real file is touched', () => {
+    const before = treeOf(real);
+    const victim = join(base, 'victim');
+    mkdirSync(victim);
+    const staging = join(base, 'staging-link');
+    junction(victim, staging);
+    const scratchRoot = join(base, 'scratch-root');
+    put(scratchRoot, 'docs/plain.md', 'changed\n');
+    const hash = createHash('sha256').update('changed\n').digest('hex');
+    expect(copyBack(nodeScratchFs, scratchRoot, real, [{ path: 'docs/plain.md', hash }], staging)).toMatchObject({ kind: 'failed' });
+    expect(readdirSync(victim)).toEqual([]);
+    const full = join(base, 'staging-full');
+    put(full, 'old.txt', 'old');
+    expect(copyBack(nodeScratchFs, scratchRoot, real, [{ path: 'docs/plain.md', hash }], full)).toMatchObject({ kind: 'failed' });
+    expect(treeOf(real)).toEqual(before);
+  });
+});
+
+describe('review LOW items', () => {
+  it('a file with more than one hard link is refused when it would be copied back', () => {
+    const before = treeOf(real);
+    const { scratch, inspected } = inspectAfter((root) => linkSync(join(root, 'src/other.ts'), join(root, 'docs/b.md')));
+    expect(inspected.kind).toBe('refused');
+    expect(refusedPaths(inspected)).toEqual(['docs/b.md']);
+    expect(scratch.copyBack().kind).toBe('refused');
+    expect(treeOf(real)).toEqual(before);
+  });
+
+  it('what is judged in the scratch after the run is bounded by the same limits as the export', () => {
+    const limited = scratchHostWith(nodeScratchFs, { maxFiles: 40, maxBytes: 20_000, maxEntries: 1000, maxPlacedBytes: 4096 });
+    const many = openScratch(limited);
+    expect(many.baseline()).toBeNull();
+    for (let i = 0; i < 60; i += 1) put(many.root, `docs/many/f${i}.md`, 'x');
+    expect(many.inspect(GRANTS)).toMatchObject({ kind: 'unreadable' });
+    const big = openScratch(limited);
+    expect(big.baseline()).toBeNull();
+    put(big.root, 'docs/big.bin', Buffer.alloc(100_000, 1));
+    const out = big.inspect(GRANTS);
+    expect(out).toMatchObject({ kind: 'unreadable' });
+    expect(big.copyBack().kind).not.toBe('copied');
+  });
+
+  it('refusal text escapes control, bidirectional-override and other format characters, and is bounded', () => {
+    const shown = plainName(`src/a\u202eb\u2066c\u200bd\u0007e\u2028f${'x'.repeat(400)}`);
+    expect(shown).toContain('\\u{202e}');
+    expect(shown).toContain('\\u{2066}');
+    expect(shown).toContain('\\u{200b}');
+    expect(shown).toContain('\\u{7}');
+    expect(shown).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]/);
+    expect(shown.length).toBeLessThanOrEqual(320);
+    expect(plainName('docs/ordinary é.md')).toBe('docs/ordinary é.md');
+  });
+
+  it('rule 9 as a scenario: a worker that writes, reads back and undoes leaves the real tree untouched and copies nothing (the validator pins the comparison, not this scenario)', () => {
+    const before = treeOf(real);
+    const { scratch, inspected } = inspectAfter((root) => {
+      put(root, 'docs/plain.md', 'temporarily different\n');
+      expect(readFileSync(join(root, 'docs/plain.md'), 'utf8')).toBe('temporarily different\n');
+      put(root, 'docs/plain.md', 'one\n');
+      put(root, 'src/other.ts', 'scribble\n');
+      put(root, 'src/other.ts', 'one\n');
+    });
+    expect(inspected).toMatchObject({ kind: 'clean', writes: 0 });
+    expect(scratch.copyBack()).toMatchObject({ kind: 'copied', paths: [] });
+    expect(treeOf(real)).toEqual(before);
   });
 });

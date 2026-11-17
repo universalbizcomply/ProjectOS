@@ -472,6 +472,10 @@ describe('write scope is judged on the candidate, not on Codex\'s sandbox', () =
     ['docs/.agents/skill.md'],
     ['docs/.claude/settings.json'],
     ['docs/.gitattributes'],
+    ['docs/.cursor/rules/a.mdc'],
+    ['docs/.cursorrules'],
+    ['docs/.windsurf/rules.md'],
+    ['docs/.mcp.json'],
   ])('treats %s as out of scope even beneath a directory grant', (rel) => {
     const dir = worker(['--allowedTools', 'Edit(docs),Write(docs)']);
     const { sys } = fakeWorld({ codex: (files) => { files[rel] = 'x'; files['docs/ok.md'] = 'fine'; return ok(CLEAN); } });
@@ -803,8 +807,18 @@ describe('PROJECTOS-WORKER-SCRATCH-CHECKOUT1A: the worker runs in a scratch chec
     const out = a.start(w.sys, scoped, briefOf(), BRIEF_PATH);
     expect(out.kind).toBe('refused');
     expect(detailOf(out)).toContain('validators/escaped.cjs');
-    expect(fake.events).not.toContain('copyBack');
-    expect(fake.events.at(-1)).toBe('dispose');
+    // review F1(c): the backstop now comes AFTER the copy-back (it judges what landed), so a clean scratch is still copied (nothing, here)
+    expect(fake.events.slice(-3)).toEqual(['inspect', 'copyBack', 'dispose']);
+  });
+
+  it('review F1(c): the real-root snapshot is taken after the copy-back, so a write that lands with the copy outside the grants is refused and named', () => {
+    const w = fakeWorld({});
+    const landing = withScratch({ onCopyBack: () => { w.files['docs/.gitignore'] = 'EVIL\n'; } });
+    const out = landing.adapter.start(w.sys, scoped, briefOf(), BRIEF_PATH);
+    expect(out.kind).toBe('refused');
+    expect(detailOf(out)).toContain('docs/.gitignore');
+    expect(landing.fake.events.indexOf('copyBack')).toBeGreaterThan(-1);
+    expect(landing.fake.events.at(-1)).toBe('dispose');
   });
 
   it('names at most twenty paths of a refusal, each without control characters', () => {

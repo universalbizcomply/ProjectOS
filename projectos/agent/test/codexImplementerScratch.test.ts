@@ -217,6 +217,20 @@ describe('PROJECTOS-WORKER-SCRATCH-CHECKOUT1A: the adapter with the real scratch
     expect(existsSync(join(real, 'src/feature.ts'))).toBe(true);
   });
 
+  it('review F1(c): a write that lands in the real tree with the copy-back is seen by the backstop, which is taken after the copy', () => {
+    const landing: ScratchFs = {
+      ...nodeScratchFs,
+      copyFile: (from, to) => {
+        nodeScratchFs.copyFile(from, to);
+        if (to.startsWith(real) && to.endsWith('feature.ts')) put(real, 'validators/landed.cjs', 'landed with the copy\n');
+      },
+    };
+    const out = run(systemWith((cwd) => { put(cwd, 'src/feature.ts', 'two\n'); }), landing);
+    expect(out.kind).toBe('refused');
+    if (out.kind === 'refused') expect(out.detail).toContain('validators/landed.cjs');
+    expect(gone()).toBe(true);
+  });
+
   it('a copy that fails part-way is reported and the real tree is restored', () => {
     const before = treeOf(real);
     let copies = 0;
