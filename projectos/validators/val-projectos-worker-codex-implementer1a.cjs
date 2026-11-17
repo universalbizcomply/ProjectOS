@@ -99,6 +99,10 @@ const TESTS = {
     "the adapter file imports no file system and runs no git of its own",
     "review F1(c): the real-root snapshot is taken after the copy-back, so a write that lands with the copy outside the grants is refused and named",
     "treats %s as out of scope even beneath a directory grant",
+    "recheck N3: a refusal after the copy-back says what the copy-back did",
+    "a real-root breach after %s names it in the refusal",
+    "an unreadable real root after %s names it in the refusal",
+    "recheck N4: a path with a bidirectional override is shown escaped in a refusal",
   ],
   "projectos/agent/test/scratchCheckout.test.ts": [
     "rule 1: holds the tracked and untracked files byte for byte, and never .git, an ignored file or an agent control path",
@@ -132,6 +136,11 @@ const TESTS = {
     "what is judged in the scratch after the run is bounded by the same limits as the export",
     "refusal text escapes control, bidirectional-override and other format characters, and is bounded",
     "rule 9 as a scenario",
+    // the recheck (N1, N4, N5, N6): real directories again
+    "N1: an honest edit is accepted when git",
+    "N4: a bidi override, zero-width, line-separator, byte-order-mark or tag character is not a plain path segment",
+    "N4: a real file named with a right-to-left override in a scratch is refused, never copied, and shown escaped",
+    "N5: each is a control path under a directory grant",
   ],
   "projectos/agent/test/codexImplementerScratch.test.ts": [
     "rule 3 and 10: one change outside the grants refuses the run, names it, and leaves the real tree byte-identical",
@@ -219,7 +228,7 @@ const PIN = {
   unsupportedSyntax: "const UNSUPPORTED_SYNTAX = /[?[\\]{}]|\\*\\*/;",
   changedByDigest: "if (before.get(path) === after.get(path)) continue;",
   breachRule: "if (isAgentControlPath(path) || !pathInGrants(path, scopes)) changed.push(path);",
-  agentSegments: String.raw`const AGENT_CONTROL_SEGMENT = /^(?:\.git.*|\.claude|\.codex|\.agents|\.husky|\.vscode|\.cursor(?:rules)?|\.windsurf(?:rules)?|\.mcp\.json)$/i;`,
+  agentSegments: String.raw`const AGENT_CONTROL_SEGMENT = /^(?:\.git.*|\.claude|\.codex|\.agents|\.husky|\.vscode|\.cursor(?:rules)?|\.windsurf(?:rules)?|\.mcp\.json|\.gemini|\.opencode|\.kiro|\.roo(?:rules)?|\.clinerules|\.continue|\.aider\.conf\.yml|\.aiderignore|\.codeium)$/i;`,
   agentFiles: String.raw`const AGENT_INSTRUCTION_FILE = /^(?:CLAUDE|AGENTS|GEMINI)(?:\.local|\.override)?\.md$/i;`,
   neutralised: "const run: GitRun = (args) => sys.exec('git', [...base, ...neutralisers, ...args], options);",
   neutraliserNull: "if (neutralisers === null) return null;",
@@ -252,10 +261,10 @@ const PIN = {
   baselineRefused: "if (baselined !== null) return { kind: 'refused'",
   inspected: "const inspected = scratch.inspect(scopes);",
   unreadableRefused: "if (inspected.kind === 'unreadable') {",
-  judgementRefused: "if (inspected.kind === 'refused') return refusedCopyBack(inspected.refusals);",
-  refusedRunKept: "if (outcome.kind === 'refused') return outcome;",
+  judgementRefused: "if (inspected.kind === 'refused') return { outcome: refusedCopyBack(inspected.refusals), copyNote: NOTHING_COPIED };",
+  refusedRunKept: "if (outcome.kind === 'refused') return { outcome, copyNote: NOTHING_COPIED };",
   copyCall: "const copied = scratch.copyBack();",
-  copiedOnly: "if (copied.kind === 'copied') return outcome;",
+  copiedOnly: "if (copied.kind === 'copied') return { outcome, copyNote: `the copy-back landed ${copied.paths.length} path(s)` };",
   copyPartial: "THE CHECKOUT MAY HOLD PART OF THE COPY",
   settleCalled: "const settled = settleScratch(scratch, scopes, outcomeFrom(",
   finallyDispose: "} finally {\n        cleanup = scratch.dispose();\n      }",
@@ -313,7 +322,18 @@ const PIN = {
   scShortRefused: "&& !SHORT_NAME_SHAPE.test(seg)",
   scShortNotExported: "if (hasShortNameShape(listed)) {\n      skip(listed);\n      continue;\n    }",
   scCanonicalExpected: "const expected = join(fs.realPath(realRoot), ...segments.slice(0, depth));",
-  scCanonicalCompared: "return fs.realPath(join(realRoot, ...segments.slice(0, depth))) === expected ? null : WHY.alias;",
+  scCanonicalCompared: "return sameSpelling(fs.realPath(join(realRoot, ...segments.slice(0, depth))), expected) ? null : WHY.alias;",
+  scSameSpelling: "const sameSpelling = (canonical: string, expected: string): boolean => canonical === expected || (process.platform === 'win32' && canonical.toLowerCase() === expected.toLowerCase());",
+  scFormatInName: String.raw`const FORMAT_IN_NAME = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;`,
+  scFormatRefused: "&& !FORMAT_IN_NAME.test(seg)",
+  scStepEscaped: "step = `copying ${plainName(w.path)}`;",
+  scBytesEscaped: "CopyProblem(`the bytes of ${plainName(w.path)} are not the bytes that were judged`)",
+  scStagingOwned: "owned.push(staging);",
+  adapterFailureNote: "const failure = `the copy-back failed: ${copied.reason}; ${copied.rolledBack ? 'the checkout was restored' : 'THE CHECKOUT MAY HOLD PART OF THE COPY'}`;",
+  adapterFailureNoteKept: "copyNote: failure };",
+  adapterBreachNote: "Copy-back: ${settled.copyNote}`,",
+  adapterAfterNullNote: "; ${settled.copyNote}` };",
+  adapterNothingCopied: "const NOTHING_COPIED = 'nothing was copied back';",
   scDeviceNames: String.raw`const RESERVED_DEVICE = /^(?:CON|PRN|AUX|NUL|COM[0-9\xb2\xb3\xb9]|LPT[0-9\xb2\xb3\xb9]|CONIN\$|CONOUT\$|CLOCK\$)$/i;`,
   scDeviceStrip: "RESERVED_DEVICE.test((segment.split('.')[0] ?? '').replace(/ +$/, ''))",
   scDeviceRefused: "&& !isReservedDevice(seg)",
@@ -506,7 +526,7 @@ function check(raw) {
     E("WI-21", "a copied file is no longer hashed at its destination, or a failed copy is no longer undone and reported as restored or not");
   }
   // WI-22 — removed on every path, and a failed removal is said.
-  if (!has(a, [PIN.finallyDispose, PIN.cleanupNoted, PIN.cleanupNote]) || !has(sc, [PIN.scDispose, PIN.scExportCleanup, PIN.scRemoveRetries])) {
+  if (!has(a, [PIN.finallyDispose, PIN.cleanupNoted, PIN.cleanupNote]) || !has(sc, [PIN.scDispose, PIN.scExportCleanup, PIN.scRemoveRetries, PIN.scStagingOwned])) {
     E("WI-22", "the scratch is no longer removed in a finally on every path, or a failed removal is swallowed");
   }
   // WI-23 — judge, then copy; a refused run copies nothing; the real-root snapshot stays the backstop and comes first.
@@ -532,7 +552,7 @@ function check(raw) {
   // deleting those tests fails WI-T. (The review reproduced F1 to F3 with real directories after text pins and logic tests had passed.) ----
   // WI-26 (F1) — an alias of a control file: 8.3 short-name shapes are refused, the destination must be its own canonical path, the backstop is
   // taken after the copy (WI-23), and the other agents' control files are control paths (WI-10).
-  if (!has(sc, [PIN.scShortShape, PIN.scShortRefused, PIN.scShortNotExported, PIN.scCanonicalExpected, PIN.scCanonicalCompared])) {
+  if (!has(sc, [PIN.scShortShape, PIN.scShortRefused, PIN.scShortNotExported, PIN.scCanonicalExpected, PIN.scCanonicalCompared, PIN.scSameSpelling])) {
     E("WI-26", "a path shaped like an 8.3 short name, or a destination that is not its own canonical path (a short name, another case), is no longer refused");
   }
   // WI-27 (F2) — Windows device names, in any case, with or without an extension, including the superscript digits.
@@ -550,6 +570,14 @@ function check(raw) {
   // WI-30 (LOW) — a hard-linked file is not copied back; the scratch is bounded after the run; refusal text escapes format characters.
   if (!has(sc, [PIN.scHardlink, PIN.scLinksRecorded, PIN.scPostRunBound, PIN.scFormatEscaped]) || !has(a, [PIN.adapterPlainNames, PIN.adapterPlainBreaches]) || /inert\(r\.path\)/.test(a)) {
     E("WI-30", "a hard-linked file can be copied back, what is judged after the run is unbounded, or a refusal shows control or bidirectional-format characters unescaped");
+  }
+  // WI-31 (recheck N4) — a format or bidirectional character is not a plain path segment, and no message prints a path unescaped.
+  if (!has(sc, [PIN.scFormatInName, PIN.scFormatRefused, PIN.scStepEscaped, PIN.scBytesEscaped])) {
+    E("WI-31", "a bidirectional override, zero-width, separator or other format character is allowed in a copied-back path, or a message prints a path without escaping it");
+  }
+  // WI-32 (recheck N3) — a refusal after the copy-back (a real-root breach, an unreadable real root) says what the copy-back did, including a partial one.
+  if (!has(a, [PIN.adapterFailureNote, PIN.adapterFailureNoteKept, PIN.adapterBreachNote, PIN.adapterAfterNullNote, PIN.adapterNothingCopied]) || count(a, "settled.copyNote") !== 2) {
+    E("WI-32", "a refusal after the copy-back no longer says plainly what the copy-back did (copied N paths, rolled back, or MAY HOLD PART OF THE COPY)");
   }
   // The reviewer file only gained exports, so the exit-proof reviewer is unchanged in behaviour.
   if (!PIN.codexExports.every((p) => cx.includes(p))) {
@@ -718,7 +746,19 @@ const MUTATIONS = [
   { name: "short-name-files-exported", rule: "WI-26", rel: SCRATCH_REL, from: PIN.scShortNotExported, to: "" },
   { name: "destination-alias-allowed", rule: "WI-26", rel: SCRATCH_REL, from: PIN.scCanonicalCompared, to: "return fs.realPath(join(realRoot, ...segments.slice(0, depth))) === expected ? null : null;" },
   { name: "canonical-root-not-used", rule: "WI-26", rel: SCRATCH_REL, from: PIN.scCanonicalExpected, to: "const expected = join(realRoot, ...segments.slice(0, depth));" },
-  { name: "cursor-and-windsurf-files-in-scope", rule: "WI-10", rel: SCOPE_REL, from: String.raw`|\.cursor(?:rules)?|\.windsurf(?:rules)?|\.mcp\.json)$/i;`, to: ")$/i;" },
+  { name: "cursor-and-windsurf-files-in-scope", rule: "WI-10", rel: SCOPE_REL, from: String.raw`|\.cursor(?:rules)?|\.windsurf(?:rules)?|\.mcp\.json`, to: "" },
+  { name: "more-agent-control-files-in-scope", rule: "WI-10", rel: SCOPE_REL, from: String.raw`|\.gemini|\.opencode|\.kiro|\.roo(?:rules)?|\.clinerules|\.continue|\.aider\.conf\.yml|\.aiderignore|\.codeium`, to: "" },
+  { name: "case-difference-refused-again", rule: "WI-26", rel: SCRATCH_REL, from: PIN.scSameSpelling, to: "const sameSpelling = (canonical: string, expected: string): boolean => canonical === expected;" },
+  { name: "any-difference-accepted", rule: "WI-26", rel: SCRATCH_REL, from: PIN.scSameSpelling, to: "const sameSpelling = (canonical: string, expected: string): boolean => true;" },
+  { name: "format-characters-allowed-in-a-path", rule: "WI-31", rel: SCRATCH_REL, from: PIN.scFormatRefused, to: "" },
+  { name: "format-class-narrowed", rule: "WI-31", rel: SCRATCH_REL, from: PIN.scFormatInName, to: String.raw`const FORMAT_IN_NAME = /[\p{Cc}]/u;` },
+  { name: "copy-step-shows-the-raw-path", rule: "WI-31", rel: SCRATCH_REL, from: PIN.scStepEscaped, to: "step = `copying ${w.path}`;" },
+  { name: "bytes-message-shows-the-raw-path", rule: "WI-31", rel: SCRATCH_REL, from: PIN.scBytesEscaped, to: "CopyProblem(`the bytes of ${w.path} are not the bytes that were judged`)" },
+  { name: "backup-location-not-owned", rule: "WI-22", rel: SCRATCH_REL, from: PIN.scStagingOwned, to: "" },
+  { name: "breach-refusal-hides-the-copy-back", rule: "WI-32", rel: ADAPTER_REL, from: PIN.adapterBreachNote, to: "`," },
+  { name: "unreadable-root-refusal-hides-the-copy-back", rule: "WI-32", rel: ADAPTER_REL, from: PIN.adapterAfterNullNote, to: "` };" },
+  { name: "failed-copy-note-lost", rule: "WI-32", rel: ADAPTER_REL, from: PIN.adapterFailureNoteKept, to: "copyNote: NOTHING_COPIED };" },
+  { name: "partial-copy-reported-as-restored", rule: "WI-32", rel: ADAPTER_REL, from: "copied.rolledBack ? 'the checkout was restored' : 'THE CHECKOUT MAY HOLD PART OF THE COPY'", to: "'the checkout was restored'" },
   { name: "device-names-allowed", rule: "WI-27", rel: SCRATCH_REL, from: PIN.scDeviceRefused, to: "" },
   { name: "nul-not-reserved", rule: "WI-27", rel: SCRATCH_REL, from: "|AUX|NUL|COM[0-9", to: "|AUX|COM[0-9" },
   { name: "superscript-ports-not-reserved", rule: "WI-27", rel: SCRATCH_REL, from: String.raw`COM[0-9\xb2\xb3\xb9]|LPT[0-9\xb2\xb3\xb9]`, to: "COM[0-9]|LPT[0-9]" },

@@ -155,6 +155,9 @@ export const WHY = {
 // eslint-disable-next-line no-control-regex
 const FORBIDDEN_IN_NAME = /[\u0000-\u001f<>:"|?*\\]/;
 
+/** A control character, or a Unicode format or separator character (bidirectional overrides and isolates, zero-width characters, the byte-order mark, tag characters, line and paragraph separators): a name that reads as another name. */
+const FORMAT_IN_NAME = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+
 /** A segment shaped like an 8.3 short name (`GITIGN~1`, `AGENTS~1.MD`): on a volume that generates them it can name a control file under another spelling. */
 const SHORT_NAME_SHAPE = /~[0-9]/;
 /** The Windows device names, with or without an extension (`NUL`, `CON.txt`, `com9.log`), including the superscript digits Windows also reserves. */
@@ -173,7 +176,9 @@ export const hasShortNameShape = (path: string): boolean => path.split('/').some
  */
 export function safeRelativePath(path: string): boolean {
   if (path === '' || path.length > MAX_PATH_CHARS || path.startsWith('/') || /^[A-Za-z]:/.test(path)) return false;
-  return path.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..' && !FORBIDDEN_IN_NAME.test(seg) && !/[. ]$/.test(seg) && !SHORT_NAME_SHAPE.test(seg) && !isReservedDevice(seg));
+  return path.split('/').every(
+    (seg) => seg !== '' && seg !== '.' && seg !== '..' && !FORBIDDEN_IN_NAME.test(seg) && !/[. ]$/.test(seg) && !SHORT_NAME_SHAPE.test(seg) && !isReservedDevice(seg) && !FORMAT_IN_NAME.test(seg),
+  );
 }
 
 /** A name from the scratch or from git, shown in a refusal: control characters and Unicode format characters (a bidirectional override, a zero-width space, a line separator) escaped, and cut short. */
@@ -314,8 +319,16 @@ export function destinationProblem(fs: ScratchFs, realRoot: string, rel: string)
     depth = i + 1;
   }
   const expected = join(fs.realPath(realRoot), ...segments.slice(0, depth));
-  return fs.realPath(join(realRoot, ...segments.slice(0, depth))) === expected ? null : WHY.alias;
+  return sameSpelling(fs.realPath(join(realRoot, ...segments.slice(0, depth))), expected) ? null : WHY.alias;
 }
+
+/**
+ * Is `canonical` the expected path? Exactly, except that on Windows a difference in CASE only is accepted: the volume is
+ * case-insensitive, so it is the same file (git's index may say `Docs` where the disk says `docs`). Anything that differs by
+ * more than case (a short name, another name) stays refused; the tilde-and-digit rule already stops short names, and the
+ * control-path judgement is case-insensitive, so accepting case opens nothing.
+ */
+const sameSpelling = (canonical: string, expected: string): boolean => canonical === expected || (process.platform === 'win32' && canonical.toLowerCase() === expected.toLowerCase());
 
 // ---- copy back ---------------------------------------------------------------------------------------------------------
 
@@ -388,7 +401,7 @@ export function copyBack(fs: ScratchFs, scratchRoot: string, realRoot: string, w
     if (writes.length > 0) requireEmptyPlainDirectory(fs, stagingDir);
     for (const [i, w] of writes.entries()) {
       const dest = underRoot(realRoot, w.path);
-      step = `copying ${w.path}`;
+      step = `copying ${plainName(w.path)}`;
       makeParents(fs, realRoot, w.path, undo);
       if (fs.stat(dest) === null) undo.push({ step: 'remove-file', dest });
       else {
@@ -397,7 +410,7 @@ export function copyBack(fs: ScratchFs, scratchRoot: string, realRoot: string, w
         undo.push({ step: 'restore', dest, backup });
       }
       fs.copyFile(underRoot(scratchRoot, w.path), dest);
-      if (fs.hashFile(dest) !== w.hash) throw new CopyProblem(`the bytes of ${w.path} are not the bytes that were judged`);
+      if (fs.hashFile(dest) !== w.hash) throw new CopyProblem(`the bytes of ${plainName(w.path)} are not the bytes that were judged`);
     }
     return { kind: 'copied', paths: writes.map((w) => w.path) };
   } catch (e) {

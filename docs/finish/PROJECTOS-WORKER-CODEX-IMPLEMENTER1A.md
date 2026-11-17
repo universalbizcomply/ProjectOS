@@ -26,6 +26,10 @@ checkout, `.projectops/authority/` included. So this phase had to add the check.
 snapshot that this document describes is taken AFTER the scratch copy-back, so it judges what landed. Residual 2 (reads) is unchanged, and a worker's leftover descendants (not owned by the spawn) could still write the scratch during a copy-back.
 See `PROJECTOS-WORKER-SCRATCH-CHECKOUT1A.md`, "Fix round".
 
+**Final round (`fix(worker): final round after the recheck on the scratch checkout`):** the control-path set also holds `.gemini`, `.opencode`, `.kiro`, `.roo(rules)`, `.clinerules`, `.continue`, `.aider.conf.yml`, `.aiderignore` and `.codeium`; a refusal that follows
+the copy-back now says what the copy-back did. Stated limits: a tilde and a digit anywhere in a name is over-broad (`a~1b.md` is skipped at export and refused on write); paths over 260 characters, `subst` drives and a UNC temp directory were not exercised.
+See `PROJECTOS-WORKER-SCRATCH-CHECKOUT1A.md`, "Final round".
+
 **Update (PROJECTOS-WORKER-SCRATCH-CHECKOUT1A):** the scope is now PREVENTATIVE on the route this phase built. Codex runs in a scratch copy and only granted changes are
 copied back; see `docs/finish/PROJECTOS-WORKER-SCRATCH-CHECKOUT1A.md`. The text below is what this phase built, and the snapshot it describes stays as the backstop.
 

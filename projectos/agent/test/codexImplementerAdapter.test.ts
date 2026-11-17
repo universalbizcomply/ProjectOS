@@ -476,6 +476,15 @@ describe('write scope is judged on the candidate, not on Codex\'s sandbox', () =
     ['docs/.cursorrules'],
     ['docs/.windsurf/rules.md'],
     ['docs/.mcp.json'],
+    ['docs/.gemini/settings.json'],
+    ['docs/.opencode/opencode.json'],
+    ['docs/.kiro/steering/a.md'],
+    ['docs/.roo/rules/a.md'],
+    ['docs/.clinerules'],
+    ['docs/.continue/config.json'],
+    ['docs/.aider.conf.yml'],
+    ['docs/.aiderignore'],
+    ['docs/.codeium/config.json'],
   ])('treats %s as out of scope even beneath a directory grant', (rel) => {
     const dir = worker(['--allowedTools', 'Edit(docs),Write(docs)']);
     const { sys } = fakeWorld({ codex: (files) => { files[rel] = 'x'; files['docs/ok.md'] = 'fine'; return ok(CLEAN); } });
@@ -819,6 +828,51 @@ describe('PROJECTOS-WORKER-SCRATCH-CHECKOUT1A: the worker runs in a scratch chec
     expect(detailOf(out)).toContain('docs/.gitignore');
     expect(landing.fake.events.indexOf('copyBack')).toBeGreaterThan(-1);
     expect(landing.fake.events.at(-1)).toBe('dispose');
+  });
+
+  describe('recheck N3: a refusal after the copy-back says what the copy-back did', () => {
+    const escaped = (files: Record<string, string>) => { files['validators/escaped.cjs'] = 'x'; return ok(CLEAN); };
+    const cases: [string, Partial<FakeScratchScript>, RegExp][] = [
+      ['a clean copy-back that landed paths', { copy: { kind: 'copied', paths: ['src/feature.ts', 'docs/a.md'] } }, /copy-back landed 2 path\(s\)/],
+      ['a failed copy-back that was rolled back', { copy: { kind: 'failed', reason: 'copying src/feature.ts failed (EIO)', rolledBack: true } }, /copy-back failed[\s\S]*EIO[\s\S]*checkout was restored/],
+      ['a failed copy-back that may hold part of the copy', { copy: { kind: 'failed', reason: 'copying src/feature.ts failed (EIO)', rolledBack: false } }, /THE CHECKOUT MAY HOLD PART OF THE COPY/],
+      ['a judgement that refused the copy-back', { inspection: { kind: 'refused', refusals: [{ path: 'x.ts', why: 'lies outside the write grants' }] } }, /nothing was copied back/],
+    ];
+
+    it.each(cases)('a real-root breach after %s names it in the refusal', (_name, script, words) => {
+      const { adapter: a } = withScratch(script);
+      const out = a.start(fakeWorld({ codex: escaped }).sys, scoped, briefOf(), BRIEF_PATH);
+      expect(out.kind).toBe('refused');
+      expect(detailOf(out)).toContain('validators/escaped.cjs');
+      expect(detailOf(out)).toMatch(words);
+    });
+
+    it.each(cases)('an unreadable real root after %s names it in the refusal', (_name, script, words) => {
+      const { adapter: a } = withScratch(script);
+      const out = a.start(fakeWorld({ gitFailsOnCall: 4 }).sys, scoped, briefOf(), BRIEF_PATH);
+      expect(out.kind).toBe('refused');
+      expect(detailOf(out)).toMatch(/could not be read after the run and the copy-back/);
+      expect(detailOf(out)).toMatch(words);
+    });
+
+    it('a refused run says that nothing was copied, in the same place', () => {
+      const { adapter: a } = withScratch();
+      const steered = jsonl({ type: 'item.completed', item: { id: 'c', type: 'mcp_tool_call', server: 's', tool: 't' } }, { type: 'turn.completed' });
+      const out = a.start(fakeWorld({ codex: (files) => { files['validators/escaped.cjs'] = 'x'; return ok(steered); } }).sys, scoped, briefOf(), BRIEF_PATH);
+      expect(detailOf(out)).toMatch(/nothing was copied back/);
+    });
+  });
+
+  it('recheck N4: a path with a bidirectional override is shown escaped in a refusal', () => {
+    const bidi = `src/a${String.fromCodePoint(0x202e)}b.ts`;
+    const { adapter: a } = withScratch({ inspection: { kind: 'refused', refusals: [{ path: bidi, why: 'is not a plain relative path inside the checkout' }] } });
+    const detail = detailOf(a.start(fakeWorld({}).sys, scoped, briefOf(), BRIEF_PATH));
+    expect(detail).toContain('src/a\\u{202e}b.ts');
+    expect(detail).not.toContain(String.fromCodePoint(0x202e));
+    const real = fakeWorld({ codex: (files) => { files[`validators/c${String.fromCodePoint(0x202e)}d.cjs`] = 'x'; return ok(CLEAN); } });
+    const breach = detailOf(withScratch().adapter.start(real.sys, scoped, briefOf(), BRIEF_PATH));
+    expect(breach).toContain('\\u{202e}');
+    expect(breach).not.toContain(String.fromCodePoint(0x202e));
   });
 
   it('names at most twenty paths of a refusal, each without control characters', () => {

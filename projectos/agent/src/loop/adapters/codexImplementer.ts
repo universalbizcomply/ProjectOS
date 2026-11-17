@@ -365,21 +365,29 @@ function prepareScratch(sys: System, scratch: ScratchCheckout, brief: WorkerBrie
  * After a run: judge the scratch against the grants, and copy back only when the run itself was not refused. A refused run (steered,
  * failed turn, overflow) copies nothing, so it leaves the real tree byte-identical; a completed or timed-out run keeps its granted work.
  */
-function settleScratch(scratch: ScratchCheckout, scopes: readonly string[], outcome: WorkerOutcome): WorkerOutcome {
+function settleScratch(scratch: ScratchCheckout, scopes: readonly string[], outcome: WorkerOutcome): Settled {
   const inspected = scratch.inspect(scopes);
   if (inspected.kind === 'unreadable') {
-    return { kind: 'refused', detail: `the scratch checkout could not be read after the run, so what the worker wrote cannot be judged and the run is not certified: ${inspected.reason}` };
+    return {
+      outcome: { kind: 'refused', detail: `the scratch checkout could not be read after the run, so what the worker wrote cannot be judged and the run is not certified: ${inspected.reason}` },
+      copyNote: NOTHING_COPIED,
+    };
   }
-  if (inspected.kind === 'refused') return refusedCopyBack(inspected.refusals);
-  if (outcome.kind === 'refused') return outcome;
+  if (inspected.kind === 'refused') return { outcome: refusedCopyBack(inspected.refusals), copyNote: NOTHING_COPIED };
+  if (outcome.kind === 'refused') return { outcome, copyNote: NOTHING_COPIED };
   const copied = scratch.copyBack();
-  if (copied.kind === 'copied') return outcome;
-  if (copied.kind === 'refused') return refusedCopyBack(copied.refusals);
-  return {
-    kind: 'refused',
-    detail: `copying the worker's changes back failed: ${copied.reason}; ${copied.rolledBack ? 'the checkout was restored' : 'THE CHECKOUT MAY HOLD PART OF THE COPY'}, and nothing is certified`,
-  };
+  if (copied.kind === 'copied') return { outcome, copyNote: `the copy-back landed ${copied.paths.length} path(s)` };
+  if (copied.kind === 'refused') return { outcome: refusedCopyBack(copied.refusals), copyNote: NOTHING_COPIED };
+  const failure = `the copy-back failed: ${copied.reason}; ${copied.rolledBack ? 'the checkout was restored' : 'THE CHECKOUT MAY HOLD PART OF THE COPY'}`;
+  return { outcome: { kind: 'refused', detail: `copying the worker's changes back failed: ${failure}, and nothing is certified` }, copyNote: failure };
 }
+
+/** What `settleScratch` decided, and what the copy-back did, so a later refusal can say both (the copy-back may already have landed). */
+interface Settled {
+  readonly outcome: WorkerOutcome;
+  readonly copyNote: string;
+}
+const NOTHING_COPIED = 'nothing was copied back';
 
 function refusedCopyBack(refusals: readonly Refusal[]): WorkerOutcome {
   return {
@@ -449,7 +457,7 @@ export function codexImplementerAdapterWith(instructions: InstructionBuilders, s
           // actually landed, copy-back included, not what the tree looked like before it.
           const settled = settleScratch(scratch, scopes, outcomeFrom(result, worker.timeoutMs, instruction, scratch.root));
           const after = candidateSnapshot(sys, root);
-          if (after === null) return { kind: 'refused', detail: 'the checkout could not be read after the run and the copy-back, so what reached it cannot be judged and the run is not certified' };
+          if (after === null) return { kind: 'refused', detail: `the checkout could not be read after the run and the copy-back, so what reached it cannot be judged and the run is not certified; ${settled.copyNote}` };
           const breaches = scopeBreaches(before, after, scopes);
           if (breaches.length > 0) {
             const shown = breaches.slice(0, 20).map(plainName);
@@ -457,10 +465,10 @@ export function codexImplementerAdapterWith(instructions: InstructionBuilders, s
               kind: 'refused',
               detail:
                 `the real checkout changed ${breaches.length} path(s) outside the write grants although the worker ran in a scratch copy: ${shown.join(', ')}${breaches.length > shown.length ? ', …' : ''}. ` +
-                'Something reached the real tree by another route; the paths are left in the tree for the owner and nothing is certified',
+                `Something reached the real tree by another route; the paths are left in the tree for the owner and nothing is certified. Copy-back: ${settled.copyNote}`,
             };
           }
-          return settled;
+          return settled.outcome;
         }
         return outcomeFrom(result, worker.timeoutMs, instruction, scratch.root);
       };

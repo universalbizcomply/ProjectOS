@@ -10,7 +10,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -515,14 +515,46 @@ describe('review F1: 8.3 short names and other aliases of a control file', () =>
     expect(safeRelativePath('docs/tilde~name.md')).toBe(true);
   });
 
-  it.skipIf(!WIN)('F1: a destination that exists under another spelling (case, on a case-insensitive volume) is refused: the canonical path must equal the expected one', () => {
+  it.skipIf(!WIN)('F1: a destination that exists under another spelling (a different name) is refused; only a case difference is accepted (N1)', () => {
     put(real, 'docs/readme.md', 'original\n');
     expect(destinationProblem(nodeScratchFs, real, 'docs/readme.md')).toBeNull();
-    if (!existsSync(join(real, 'DOCS'))) return; // a case-sensitive volume has no alias to refuse
-    expect(destinationProblem(nodeScratchFs, real, 'docs/README.md')).not.toBeNull();
-    expect(destinationProblem(nodeScratchFs, real, 'DOCS/readme.md')).not.toBeNull();
-    expect(destinationProblem(nodeScratchFs, real, 'DOCS/brand-new.md')).not.toBeNull();
+    // the canonical path differs by MORE than case (as an 8.3 alias or any other name would): refused
+    const renamed: ScratchFs = { ...nodeScratchFs, realPath: (p) => (p.endsWith('readme.md') ? join(dirname(p), 'something-else.md') : nodeScratchFs.realPath(p)) };
+    expect(destinationProblem(renamed, real, 'docs/readme.md')).not.toBeNull();
+    const parentRenamed: ScratchFs = { ...nodeScratchFs, realPath: (p) => nodeScratchFs.realPath(p).replace(/docs/, 'other-dir') };
+    expect(destinationProblem(parentRenamed, real, 'docs/readme.md')).not.toBeNull();
+    // a difference in case only is accepted on Windows
+    const shouted: ScratchFs = { ...nodeScratchFs, realPath: (p) => (p.endsWith('readme.md') ? join(dirname(p), 'README.MD') : nodeScratchFs.realPath(p)) };
+    expect(destinationProblem(shouted, real, 'docs/readme.md')).toBeNull();
+    if (!existsSync(join(real, 'DOCS'))) return; // a case-sensitive volume has no case alias
+    expect(destinationProblem(nodeScratchFs, real, 'docs/README.md')).toBeNull();
+    expect(destinationProblem(nodeScratchFs, real, 'DOCS/readme.md')).toBeNull();
+    expect(destinationProblem(nodeScratchFs, real, 'DOCS/brand-new.md')).toBeNull();
     expect(destinationProblem(nodeScratchFs, real, 'docs/brand-new.md')).toBeNull();
+  });
+
+  it.skipIf(!WIN)('N1: an honest edit is accepted when git\'s index case differs from the case on disk, and lands on the existing file', () => {
+    const repo = join(base, 'repo-case');
+    mkdirSync(repo);
+    execFileSync('git', ['init', '-q', repo]);
+    const g = (...a: string[]) => execFileSync('git', ['-C', repo, ...a], { stdio: ['ignore', 'pipe', 'pipe'] });
+    g('config', 'user.email', 't@projectos.invalid');
+    g('config', 'user.name', 't');
+    put(repo, 'Docs/file.md', 'one\n');
+    g('add', '-A');
+    g('commit', '-q', '-m', 'base');
+    renameSync(join(repo, 'Docs'), join(repo, 'tmp-rename'));
+    renameSync(join(repo, 'tmp-rename'), join(repo, 'docs')); // the disk says `docs`, the index says `Docs`
+    if (!existsSync(join(repo, 'DOCS'))) return; // a case-sensitive volume cannot be in this state
+    real = repo;
+    const scratch = openScratch();
+    expect(scratch.baseline()).toBeNull();
+    put(scratch.root, 'Docs/file.md', 'two\n');
+    expect(scratch.inspect(['Docs'])).toMatchObject({ kind: 'clean', writes: 1 });
+    expect(scratch.copyBack()).toMatchObject({ kind: 'copied', paths: ['Docs/file.md'] });
+    expect(readFileSync(join(repo, 'docs', 'file.md'), 'utf8')).toBe('two\n');
+    expect(readdirSync(repo).filter((n) => n.toLowerCase() === 'docs')).toEqual(['docs']);
+    expect(readdirSync(join(repo, 'docs'))).toEqual(['file.md']);
   });
 
   it('F1: the control-path set also covers the other agents\' control files, under a directory grant', () => {
@@ -689,5 +721,44 @@ describe('review LOW items', () => {
     expect(inspected).toMatchObject({ kind: 'clean', writes: 0 });
     expect(scratch.copyBack()).toMatchObject({ kind: 'copied', paths: [] });
     expect(treeOf(real)).toEqual(before);
+  });
+});
+
+// ---- the recheck (N4, N5) ----
+
+const FORMAT_CHARS = [0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069, 0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x2028, 0x2029, 0xfeff, 0xe0041].map((c) => String.fromCodePoint(c));
+
+describe('recheck N4: format and bidirectional characters in a path', () => {
+  it('N4: a bidi override, zero-width, line-separator, byte-order-mark or tag character is not a plain path segment, in any position', () => {
+    for (const ch of FORMAT_CHARS) {
+      expect(safeRelativePath(`docs/a${ch}b.md`), ch.codePointAt(0)?.toString(16)).toBe(false);
+      expect(safeRelativePath(`${ch}docs/a.md`)).toBe(false);
+      expect(safeRelativePath(`docs/a.md${ch}`)).toBe(false);
+    }
+    expect(safeRelativePath('docs/ordinary é file.md')).toBe(true);
+  });
+
+  it('N4: a real file named with a right-to-left override in a scratch is refused, never copied, and shown escaped', () => {
+    const before = treeOf(real);
+    const name = `a${String.fromCodePoint(0x202e)}b.md`;
+    const { scratch, inspected } = inspectAfter((root) => put(root, `docs/${name}`, 'x\n'));
+    expect(inspected.kind).toBe('refused');
+    expect(refusedPaths(inspected)).toEqual([`docs/${name}`]);
+    expect(scratch.copyBack().kind).toBe('refused');
+    expect(treeOf(real)).toEqual(before);
+    expect(plainName(`docs/${name}`)).toBe('docs/a\\u{202e}b.md');
+  });
+});
+
+describe('recheck N5: more agents\' control files', () => {
+  const MORE = ['.gemini/settings.json', '.opencode/opencode.json', '.kiro/steering/a.md', '.roo/rules/a.md', '.roorules', '.clinerules', '.continue/config.json', '.aider.conf.yml', '.aiderignore', '.codeium/config.json'];
+
+  it('N5: each is a control path under a directory grant, so a granted directory cannot carry it', () => {
+    const { inspected } = inspectAfter((root) => {
+      for (const rel of MORE) put(root, `docs/${rel}`, 'x\n');
+      put(root, 'docs/ok.md', 'fine\n');
+    });
+    expect(inspected.kind).toBe('refused');
+    expect(refusedPaths(inspected).sort()).toEqual(MORE.map((m) => `docs/${m}`).sort());
   });
 });
