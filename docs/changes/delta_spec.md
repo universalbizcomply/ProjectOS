@@ -266,3 +266,93 @@ Constitution check: no PROTECTED file edited beyond the registration-only lists;
 **Not in this phase:** making the Codex implementer a context-pointable kind (`CONTEXT_POINTABLE_KINDS`, pinned by `val-projectos-context-manager1a` CM-20): until then a run that has stored context REFUSES for a Codex implementer (`CONTEXT_NOT_POINTABLE`), truthfully, and the exit proof on a project with stored context needs that follow-up (put it in the Stage 3 carry-forwards phase); 4.2 role broker wiring; 4.3 isolation and idempotency keys; the Stage 3 carry-forwards (proposal door, taint enforcement, index directory, owner verifier; their own next phase); `val-cd-b4` (Rust host, protected, owner approval); the live swap proof.
 
 **As built (2026-11-17).** The scope check does not use `computeCandidateIdentity`: the independent review showed it cannot see ignored paths, the gatekeeper asking records or non-ASCII names, so `writeScope.ts` takes its own snapshot (see `docs/finish/PROJECTOS-WORKER-CODEX-IMPLEMENTER1A.md`). FR-003 stands as rewritten; the instrument changed, not the rule.
+
+---
+
+# Plan v1.37 (draft) — Stage 3 carry-forwards, phases A and B
+
+**Status:** APPROVED by the owner 2026-11-17 ("Approved all, build A and B in parallel"). Drafted at plan branch `fe125030`. The carry-forward
+items were collected read-only from the Stage 3 finish docs and checked in code; the full item table is in the finish docs of these phases.
+Owner answers recorded (all as recommended): proposals will live in git-ignored `proposals/` directories (phase C, not here); the production
+reviewer and verifier is a typed terminal confirmation by the owner; the deletion ledger is anchored by the owner committing it; PX-12 may move
+for a deterministic summariser kind (phase C); taint enforcement is deferred to the 4.2 work.
+
+Phase C (PROPOSAL-DOOR-WIRING1A: the door call in `runner.ts`, `SkillStatePorts`, `.gitignore`, PX-12) waits for B and has its own section later.
+
+## Phase A — PROJECTOS-CONTEXT-CODEX1A
+
+**Why:** a Codex implementer is refused whenever a run has stored context (`CONTEXT_NOT_POINTABLE`), so the Stage 4 exit proof cannot run on a
+project that has memory. This makes the kind context-pointable.
+
+**Existing code found.** `CONTEXT_POINTABLE_KINDS = [CLAUDE_CODE_CLI]` and `contextPointerPathOf` (`agent/src/loop/adapters/claudeCodeCli.ts`); the
+instruction builders already take a `contextPath`; `InstructionBuilders` and the refusal of a brief naming `records.contextPath`
+(`adapters/codexImplementer.ts`); the runner gate (`runner.ts`, `CONTEXT_NOT_POINTABLE`); pins CM-20 (`val-projectos-context-manager1a.cjs`) and
+WI-3 (`val-projectos-worker-codex-implementer1a.cjs`).
+
+**ADDED.** Tests only: the pointer is on the Codex command line as a project-relative path; no pointer for a path outside the root; the correction
+sentence carries it; one loop-context case with kind `codex-implementer-cli`. No new source file, no new validator.
+
+**MODIFIED.**
+- `adapters/claudeCodeCli.ts`: the list becomes `[CLAUDE_CODE_CLI, CODEX_IMPLEMENTER]`, and the registry entry passes `contextPointerPathOf` to the factory.
+- `adapters/codexImplementer.ts`: `InstructionBuilders` gains the pointer-path function (injected, so the file still imports nothing from the Claude
+  adapter); the refusal is removed; both sentences receive the pointer.
+- `val-projectos-context-manager1a.cjs` (CM-20 pin and its mutation) and `val-projectos-worker-codex-implementer1a.cjs` (the `contextRefused` pin
+  becomes a pin on the pointer being passed, with mutations): moved with the rule, never deleted.
+- `agent/test/codexImplementerAdapter.test.ts`, `agent/test/loopContext.test.ts`; `docs/finish/PROJECTOS-WORKER-CODEX-IMPLEMENTER1A.md` (item 6 struck).
+
+**PROTECTED (untouched).** Baseline §4 in full; `workers.ts`, `candidateIdentity.ts`, `verification.ts`, `commands/run.ts`; `validate-all.cjs` and
+`cached-runner.cjs` (nothing is registered); `codexCli.ts`, `writeScope.ts`, the context ledger logic.
+
+**Rules.**
+1. A Codex implementer is told where the stored-context file is.
+2. The path on the command line is project-relative and under `.projectops/execution/`.
+3. A path outside the root puts no pointer on the command line.
+4. The correction sentence carries the pointer too.
+5. A worker kind not in the list is still refused before the retrieval is recorded.
+6. The write-scope check still runs with context present, and the placed context file is never counted as a breach or as the worker's change.
+7. The adapter imports nothing from the Claude adapter.
+
+**Reviews:** ECC `security-reviewer` (independent). One recheck at most.
+
+## Phase B — PROJECTOS-MEMORY-OWNER-COMMANDS1A
+
+**Why:** Stage 3 shipped the memory rules with no command the owner can run: nothing builds the search index, nothing deletes, nothing lists or
+decides a proposal, and the owner verifier is a port with no production implementation.
+
+**Existing code found (extend, never rebuild).** `rebuildProject`, `collectDocumentSources`, `collectStoreSources`, `openProjectSearchIndex` (search);
+`deleteMemoryItem`, `deleteDerivedIndex`, `readCommittedDecisionTexts`, `gitRunnerOver`, `checkoutIdentityOf`, the deletion ledger
+(`.projectops/memory-deletions`); `approveMemoryProposal` and the proposal queue; the typed TTY confirmation pattern used for the tenant receipt
+(`agent/src/commands/tenant.ts`); the installation index directory already chosen in `runner.ts` (`<state>/search-index`). None has a production caller.
+
+**ADDED.**
+- `projectos/agent/src/commands/memory.ts`: `projectos memory index rebuild`, `memory delete`, `memory proposals`, `memory approve`, `memory reject`.
+- `projectos/agent/src/memory/ownerTerminalVerifier.ts`: the production owner verifier. Both streams must be a TTY; the owner types a confirmation
+  bound to the item, its hash, the tenant and the project; it answers exactly `true` or refuses. Passed as a parameter, never read from context.
+- Tests in `projectos/agent/test/`; validator `projectos/validators/val-projectos-memory-owner-commands1a.cjs` with named mutations;
+  `docs/finish/PROJECTOS-MEMORY-OWNER-COMMANDS1A.md`.
+
+**MODIFIED.**
+- `projectos/agent/src/cli.ts`: one `memory` case and its help lines.
+- `projectos/agent/src/index.ts`: export the new agent names, keeping the PM-16 / PK-16 writer bans as they are.
+- `projectos/validators/validate-all.cjs`, `projectos/speed/cached-runner.cjs`: registration only, both lists identical, appended at the end.
+  `validate-all.cjs` is PROTECTED; registration-only, approved as before.
+- Any Stage 3 validator that forbids these call sites is narrowed to the exact new call site with a named mutation, never deleted. If a rule cannot
+  be narrowed that way, the phase stops and asks.
+
+**PROTECTED (untouched).** Baseline §4 in full. In particular `commands/run.ts`, `loop/workers.ts`, `action-registry.json` and `actionRegistry.ts`
+(`memory-delete` stays P5, `memory-index-rebuild` P2, approving a proposal stays the existing P5 `approve`), credential custody, the broker, the host,
+the SQL. No change to `runner.ts` in this phase (the proposal door is phase C).
+
+**Rules.**
+1. No memory command decides anything without the owner at a terminal: a piped or redirected stream refuses, and so does any answer that is not the exact typed confirmation.
+2. The confirmation is bound to the item, its content hash, the tenant and the project; a confirmation for another item approves nothing.
+3. `memory delete` refuses an item a committed decision cites, and refuses when the committed decisions cannot be read.
+4. Every deletion appends to the deletion ledger before the item is removed, and the command prints the ledger head for the owner to commit.
+5. `memory index rebuild` writes only the per-project derived index under the installation state directory, records the commit it was built at, and never writes inside the project tree.
+6. `memory approve` turns a pending proposal into approved memory only through the existing approval rule and the provenance replacement check; `memory reject` removes nothing but the pending proposal.
+7. A project is identified from the installation's tenant registry for the checkout, never from an argument.
+8. Every command prints a refusal with its reason and the next step; none prints stored text unfenced.
+
+**Reviews:** ECC `security-reviewer` (independent, mandatory: deletion and owner proof). One recheck at most.
+
+**Not in A or B:** the proposal door wiring, the skill reviewer verifier's use in skill promotion, taint enforcement, PX-12.
