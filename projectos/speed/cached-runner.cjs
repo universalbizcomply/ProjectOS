@@ -200,6 +200,8 @@ const MODULES = [
   "val-projectos-port-computer1a",
   // PROJECTOS-WORKER-CODEX-IMPLEMENTER1A - a Codex implementer kind so implementer and reviewer providers swap by configuration: the one workspace-write sandbox the adapter sets, nothing widens it, write scope judged on the candidate before and after the run (Codex has no per-path grant), no credential in or out, never reviews or resumes, bounded, nothing in the loop depends on VS Code.
   "val-projectos-worker-codex-implementer1a",
+  // PROJECTOS-MEMORY-OWNER-COMMANDS1A - the owner commands for memory: a typed terminal confirmation bound to the item, hash, tenant and project; no decision without a terminal; no deletion of a cited item; the deletion ledger before the removal; the index written only under the installation state; the project from the registry, never an argument; stored text fenced.
+  "val-projectos-memory-owner-commands1a",
   // PROJECTOS-MEMORY-STORES1A - the six memory classes on existing stores; one index file per tenant and project; an injected clock and file system; no credential, over-cap body or hidden text reaches a prompt; one proposal door; a worker's direct write to the memory or skill store is refused.
   "val-projectos-memory-stores1a",
   // PROJECTOS-MEMORY-PROVENANCE1A - committed decisions outrank recollection; decisions, plan memory and approved memory are read from committed bytes and a differing working copy is refused; a citation from an index built before HEAD is marked stale; retention per class; deleting approved memory is the P5 action memory-delete, owner only, and every deletion is recorded.
@@ -210,8 +212,6 @@ const MODULES = [
   "val-projectos-skills-adopt1a",
   // PROJECTOS-RESUME1A - a new worker continues a half-done phase from retrieved state: the work record read for four closed fields; earlier findings and evidence labelled worker-authored and ranked below every decision; the dirty paths and hashes the loop observed, a path outside the phase write paths refusing the run; evidence marked stale after HEAD moves; the work record stays non-authority.
   "val-projectos-resume1a",
-  // PROJECTOS-MEMORY-OWNER-COMMANDS1A - the owner commands for memory: a typed terminal confirmation bound to the item, hash, tenant and project; no decision without a terminal; no deletion of a cited item; the deletion ledger before the removal; the index written only under the installation state; the project from the registry, never an argument; stored text fenced.
-  "val-projectos-memory-owner-commands1a",
   // PROJECTOS-CONNECTOR-CONTRACT1A — the connector rules with no connector: registry, release gate, receipt, error vocabulary.
   "val-projectos-connector-contract1a",
   // PROJECTOS-MEMORY-EXIT-PROOF1A - the Stage 3 exit proof over the recorded live run: a cut-off phase resumed by one fresh continue, the retrieval ledger, worker text never ranked as a decision, spend under the cap; a manifest pins every evidence file.
