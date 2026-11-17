@@ -10,14 +10,14 @@
  * Nothing consults the registry to choose a worker, and a well-formed registry is not an approval of anything.
  * Registry text is data: it is printed inert and capped.
  */
-import { ROLE_IDS, selectForRole, type KnownRoleSources, type RoleEntry, type RoleRefusal, type RoleRegistry } from '@projectos/core';
+import { MAX_ROLE_REGISTRY_BYTES, ROLE_IDS, selectForRole, type KnownRoleSources, type RoleEntry, type RoleRefusal, type RoleRegistry } from '@projectos/core';
 import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';
 import type { CommandContext, CommandResult } from '../context.js';
 import { fail, join, ok } from '../context.js';
 import type { Flags } from '../flags.js';
 import { loadGovernedContext, refusalLines } from '../governedContext.js';
 import { GATEKEEPER_CONFIG_REL, loadGatekeeperConfig } from '../loop/gatekeeperConfig.js';
-import { authorisedWorkers, committedExecutionProblems } from '../loop/workers.js';
+import { argvGrants, authorisedWorkers, committedExecutionProblems } from '../loop/workers.js';
 import type { System } from '../system.js';
 
 export const ROLE_REGISTRY_REL = '.projectops/provider-roles.json';
@@ -26,6 +26,8 @@ const USAGE = 'Use: roles (it takes no arguments; it only reports)';
 const MAX_PRINTED = 160;
 const MAX_REASONS = 5;
 const GIT_READ_BYTES = 65536;
+/** Stands in for a committed file larger than the read bound, so the registry judge answers TOO_LARGE rather than NOT_COMMITTED. */
+const OVERSIZE_TEXT = ' '.repeat(MAX_ROLE_REGISTRY_BYTES + 1);
 
 export type RoleSources = { readonly ok: true; readonly known: KnownRoleSources; readonly lines: readonly string[] } | { readonly ok: false; readonly lines: readonly string[] };
 
@@ -44,11 +46,12 @@ function committedRead(sys: System, root: string): (path: string) => { text: str
     const base = ['--no-replace-objects', '-C', root];
     const head = sys.exec('git', [...base, 'rev-parse', 'HEAD'], options);
     const shown = sys.exec('git', [...base, 'show', `HEAD:./${path}`], options);
+    if (head.code === 0 && shown.failure === 'output-overflow') return { text: OVERSIZE_TEXT, commit: head.stdout.trim() };
     return head.code === 0 && shown.code === 0 ? { text: shown.stdout, commit: head.stdout.trim() } : null;
   };
 }
 
-const sameBytes = (a: string, b: string): boolean => a.replace(/^﻿/, '').replace(/\r\n/g, '\n') === b.replace(/^﻿/, '').replace(/\r\n/g, '\n');
+const sameBytes = (a: string, b: string): boolean => a.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n') === b.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
 
 function committedTransportId(sys: System, root: string): string | null {
   const found = committedRead(sys, root)(GATEKEEPER_CONFIG_REL);
@@ -73,13 +76,14 @@ export const productionRoleSources: RoleSourcesPort = (ctx) => {
   if (drift.length > 0) return { ok: false, lines: ['REFUSED (EXECUTION_NOT_COMMITTED):', ...drift.map((p) => `  - ${inert(p)}`)] };
   const workers = authorisedWorkers(gc.context);
   if (!workers.ok) return { ok: false, lines: ['REFUSED (NO_AUTHORISED_WORKERS):', ...workers.problems.slice(0, MAX_REASONS).map((p) => `  - ${inert(p)}`)] };
+  const knownWorkers = workers.workers.map((w) => ({ workerId: w.workerId, grants: argvGrants(w.args) }));
   const gatekeeper = loadGatekeeperConfig(ctx.sys, ctx.root, 'not-needed');
   const transportId = committedTransportId(ctx.sys, ctx.root);
   if (gatekeeper.ok && transportId !== null && transportId === gatekeeper.config.transport.transportId) {
-    return { ok: true, known: { workerIds: workers.workers.map((w) => w.workerId), gatekeeperTransportId: transportId, rateCards: gatekeeper.config.rateCards }, lines: [] };
+    return { ok: true, known: { workers: knownWorkers, gatekeeperTransportId: transportId, rateCards: gatekeeper.config.rateCards }, lines: [] };
   }
   const why = gatekeeper.ok ? 'its transport differs from the committed record' : gatekeeper.reasons.slice(0, 1).map((r) => inert(r, 120)).join('');
-  return { ok: true, known: { workerIds: workers.workers.map((w) => w.workerId), gatekeeperTransportId: null, rateCards: {} }, lines: [`gatekeeper route: none usable here (${why})`] };
+  return { ok: true, known: { workers: knownWorkers, gatekeeperTransportId: null, rateCards: {} }, lines: [`gatekeeper route: none usable here (${why})`] };
 };
 
 const costText = (entry: RoleEntry): string => (entry.cost.class === 'metered' ? `metered, model ${inert(entry.cost.model, 60)}` : 'unmetered');

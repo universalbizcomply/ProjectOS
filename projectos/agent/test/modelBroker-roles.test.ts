@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { KnownRoleSources } from '@projectos/core';
+import { parseRoleRegistry, type KnownRoleSources } from '@projectos/core';
+import { roleBindingProblems } from '../src/loop/reviewRoles.js';
+import { argvGrants, type AuthorisedWorker } from '../src/loop/workers.js';
 import { loadCommittedRoleRegistry } from '../src/modelBroker/index.js';
 import { ROLE_REGISTRY_REL, roles, type RoleSourcesPort } from '../src/commands/roles.js';
 import { parseArgs, run as cli } from '../src/cli.js';
@@ -8,7 +10,7 @@ import type { ExecResult, System } from '../src/system.js';
 const COMMIT = '3'.repeat(40);
 const PATH = '.projectops/provider-roles.json';
 const CARD = { model: 'gpt-5.6-terra', inputMicroUsdPerMillion: 1250000, outputMicroUsdPerMillion: 10000000 };
-const KNOWN: KnownRoleSources = { workerIds: ['claude-local', 'claude-reviewer'], gatekeeperTransportId: 'openai-primary', rateCards: { 'gpt-5.6-terra': CARD } };
+const KNOWN: KnownRoleSources = { workers: [{ workerId: 'claude-local', grants: ['Write(.projectops/execution/*.findings.json)'] }, { workerId: 'claude-reviewer', grants: ['Read', 'Grep', 'Glob'] }], gatekeeperTransportId: 'openai-primary', rateCards: { 'gpt-5.6-terra': CARD } };
 const GOOD = {
   schema: 1,
   roles: {
@@ -157,7 +159,7 @@ describe('`projectos roles` is a read-only report from committed bytes', () => {
 
   it('refuses a committed registry that names a worker the project does not authorise', () => {
     const { sys } = fake({ [PATH]: GOOD_TEXT }, { [PATH]: GOOD_TEXT });
-    const r = roles({ sys, root: '/proj' }, {}, [], sourcesOf({ ...KNOWN, workerIds: ['claude-local'] }));
+    const r = roles({ sys, root: '/proj' }, {}, [], sourcesOf({ ...KNOWN, workers: [{ workerId: 'claude-local', grants: [] }] }));
     expect(r.code).toBe(2);
     expect(r.lines.join('\n')).toContain('UNKNOWN_WORKER');
   });
@@ -199,5 +201,60 @@ describe('`projectos roles` through the command line', () => {
     const r = cli({ sys, root: '/proj', platformStopStateDir: null } as Parameters<typeof cli>[0], ['help']);
     expect(r.lines.join('\n')).toMatch(/^\s*roles\b/m);
     expect(parseArgs(['roles']).command).toBe('roles');
+  });
+});
+
+describe('a committed file over the read bound is TOO_LARGE, not missing (review round, LOW 6)', () => {
+  it('reports TOO_LARGE with exit 2 when git output overflows the read bound', () => {
+    const f = fake({ [PATH]: GOOD_TEXT }, { [PATH]: GOOD_TEXT });
+    const sys: System = { ...f.sys, exec: (cmd, args, options) => (args.includes('show') ? { code: 1, stdout: '', stderr: '', failure: 'output-overflow' } : f.sys.exec(cmd, args, options)) };
+    const r = roles({ sys, root: '/proj' }, {}, [], sourcesOf(KNOWN));
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('TOO_LARGE');
+    expect(r.lines.join('\n')).not.toContain('NOT_COMMITTED');
+  });
+
+  it('a file that is simply not committed is still NOT_COMMITTED', () => {
+    const f = fake({}, { [PATH]: GOOD_TEXT });
+    expect(roles({ sys: f.sys, root: '/proj' }, {}, [], sourcesOf(KNOWN)).lines.join('\n')).toContain('NOT_COMMITTED');
+  });
+});
+
+describe('the registry agrees with the loop on what a reviewer may hold (review round, MEDIUM 1)', () => {
+  const worker = (workerId: string, args: string[] = []): AuthorisedWorker => ({ workerId, kind: 'k', command: '/bin/w', args, timeoutMs: 1000 });
+  const registryFor = (reviewerArgs: string[]) => {
+    const known: KnownRoleSources = {
+      ...KNOWN,
+      workers: [
+        { workerId: 'impl', grants: [] },
+        { workerId: 'rev', grants: argvGrants(reviewerArgs) },
+      ],
+    };
+    const doc = { schema: 1, roles: { implementer: { ...GOOD.roles.implementer, workerId: 'impl' }, reviewer: { ...GOOD.roles.reviewer, workerId: 'rev' } } };
+    return parseRoleRegistry(JSON.stringify(doc), known);
+  };
+  const cases: [string, string[]][] = [
+    ['a writer', ['--allowedTools', 'Write(.projectops/execution/*.findings.json)']],
+    ['reads only', ['--allowedTools', 'Read']],
+    ['a read and a shell', ['--allowedTools', 'Read', 'Bash']],
+    ['an ambiguous grant', ['--allowedTools', 'Read((x) Bash(*)']],
+    ['no grants at all', []],
+    ['reads with a pattern', ['--allowedTools', 'Read', 'Grep(src/**)', 'Glob']],
+    ['PowerShell', ['--allowedTools', 'PowerShell']],
+    ['a repeated flag', ['--allowedTools', 'Read', '--allowed-tools', 'Edit']],
+    ['space separated grants', ['--allowedTools', 'Read Bash']],
+  ];
+  it.each(cases)('agrees with roleBindingProblems on %s', (_name, args) => {
+    const theirs = roleBindingProblems(worker('impl'), worker('rev', args)).some((p) => p.includes('non-read grants'));
+    const ours = (() => {
+      const r = registryFor(args);
+      return !r.ok && r.refusals.some((x) => x.code === 'REVIEWER_NOT_READ_ONLY');
+    })();
+    expect(ours).toBe(theirs);
+  });
+
+  it('the cases include both outcomes, so the agreement is not vacuous', () => {
+    const outcomes = new Set(cases.map(([, args]) => roleBindingProblems(worker('impl'), worker('rev', args)).length > 0));
+    expect(outcomes).toEqual(new Set([true, false]));
   });
 });

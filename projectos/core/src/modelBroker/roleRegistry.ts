@@ -53,7 +53,11 @@ export type RoleRefusalCode =
   | 'BAD_NOTES'
   | 'SAME_WORKER'
   | 'BAD_SOURCES'
-  | 'NOT_COMMITTED';
+  | 'NOT_COMMITTED'
+  | 'CAPABILITY_MISMATCH'
+  | 'NO_IMPLEMENTER'
+  | 'REVIEWER_NOT_READ_ONLY'
+  | 'DUPLICATE_KEY';
 
 export interface RoleRefusal {
   readonly code: RoleRefusalCode;
@@ -84,9 +88,15 @@ export interface RoleRegistry {
 
 export type RoleParse = { readonly ok: true; readonly registry: RoleRegistry } | { readonly ok: false; readonly refusals: readonly RoleRefusal[] };
 
+/** One authorised worker: its id and every tool grant its configured arguments carry, already parsed by the caller. */
+export interface KnownRoleWorker {
+  readonly workerId: string;
+  readonly grants: readonly string[];
+}
+
 /** What is already authorised, as plain values the caller read from the committed records. */
 export interface KnownRoleSources {
-  readonly workerIds: readonly string[];
+  readonly workers: readonly KnownRoleWorker[];
   readonly gatekeeperTransportId: string | null;
   readonly rateCards: Readonly<Record<string, RateCard>>;
 }
@@ -105,8 +115,20 @@ const CREDENTIAL_NAME = /key|secret|token|cred|passw|endpoint|url|uri|auth|heade
 const LONG_ALNUM_RUN = /[A-Za-z0-9]{24}/;
 const KEY_PREFIX = /(?:^|[^A-Za-z0-9])(?:sk-|ghp_|gho_|xox[abp]-|AKIA)/;
 const URL_SHAPED = /:\/\/|www\./i;
+// Controls, C1, zero-width and bidi characters, line and paragraph separators, the byte-order mark, and tag characters (surrogate pairs).
 // eslint-disable-next-line no-control-regex
-const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]|\udb40[\udc00-\udc7f]/;
+/** The only tools a reviewer may hold: reading. The loop's `roleBindingProblems` test, over plain data. */
+const READ_ONLY_GRANT = /^(Read|Grep|Glob|LS)(\(.*\))?$/;
+/** Which role a capability belongs to: each role carries its own required one and none that is another's. */
+const CAPABILITY_OWNER: Readonly<Record<RoleCapability, RoleId>> = Object.freeze({
+  implement: 'implementer',
+  review: 'reviewer',
+  'gatekeeper-review': 'gatekeeper',
+  'plan-authoring': 'gatekeeper',
+  'closure-question': 'gatekeeper',
+});
+const REQUIRED_CAPABILITY: Readonly<Record<RoleId, RoleCapability>> = Object.freeze({ implementer: 'implement', reviewer: 'review', gatekeeper: 'gatekeeper-review' });
 const MAX_DEPTH = 6;
 const MAX_ENTRIES = 64;
 
@@ -158,6 +180,15 @@ function snapshotOf(value: unknown, at: string, depth: number): Snapshot {
   return { value: Object.freeze(copy), refusals };
 }
 
+/** The snapshot, with a hostile object (a Proxy whose traps throw, a revoked one) answered as a refusal, never a throw. */
+function safeSnapshot(raw: unknown): Snapshot {
+  try {
+    return snapshotOf(raw, 'registry', 0);
+  } catch {
+    return { value: undefined, refusals: [refusal('NOT_A_RECORD', 'registry', 'the registry could not be read as plain data', 'Write it as plain JSON text, numbers, lists and records only.')] };
+  }
+}
+
 const asRecord = (value: unknown): Readonly<Record<string, unknown>> | null =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Readonly<Record<string, unknown>>) : null;
 
@@ -172,7 +203,16 @@ function nameProblems(record: Readonly<Record<string, unknown>>, allowed: readon
     );
 }
 
-function capabilityProblems(raw: unknown, at: string): RoleRefusal[] {
+/** Each role carries its own required capability, and none that belongs to another role. */
+function bindingProblems(role: RoleId, list: readonly string[], at: string): RoleRefusal[] {
+  const foreign = list.filter((item) => CAPABILITY_OWNER[item as RoleCapability] !== role);
+  const missing = list.includes(REQUIRED_CAPABILITY[role]) ? [] : [REQUIRED_CAPABILITY[role]];
+  if (foreign.length === 0 && missing.length === 0) return [];
+  const reason = `${at}.capabilities ${missing.length > 0 ? `lacks ${missing[0]}` : 'carries a capability that belongs to another role'}`;
+  return [refusal('CAPABILITY_MISMATCH', `${at}.capabilities`, reason, `A ${role} carries ${REQUIRED_CAPABILITY[role]}${role === 'gatekeeper' ? ' and may add plan-authoring and closure-question' : ' only'}.`)];
+}
+
+function capabilityProblems(role: RoleId, raw: unknown, at: string): RoleRefusal[] {
   const list = Array.isArray(raw) ? (raw as readonly unknown[]) : null;
   if (list === null || list.length === 0 || list.length > ROLE_CAPABILITIES.length) {
     return [refusal('BAD_CAPABILITIES', `${at}.capabilities`, `${at}.capabilities is not a short non-empty list`, `List one or more of ${ROLE_CAPABILITIES.join(', ')}.`)];
@@ -181,6 +221,7 @@ function capabilityProblems(raw: unknown, at: string): RoleRefusal[] {
   const outside = list.filter((item) => !(typeof item === 'string' && (ROLE_CAPABILITIES as readonly string[]).includes(item)));
   if (outside.length > 0) out.push(refusal('UNKNOWN_CAPABILITY', `${at}.capabilities`, `${at}.capabilities names ${outside.length} capability(ies) outside the closed list`, `Use only ${ROLE_CAPABILITIES.join(', ')}; a new one is a reviewed change to the registry code.`));
   if (new Set(list).size !== list.length) out.push(refusal('BAD_CAPABILITIES', `${at}.capabilities`, `${at}.capabilities repeats a capability`, 'List each capability once.'));
+  if (out.length === 0) out.push(...bindingProblems(role, list as readonly string[], at));
   return out;
 }
 
@@ -217,8 +258,18 @@ function routeProblems(role: RoleId, row: Readonly<Record<string, unknown>>, kno
     return ok ? [] : [refusal('UNKNOWN_TRANSPORT', `${at}.transportId`, `${at}.transportId is not the committed gatekeeper transport`, 'Name the transportId in .projectops/gatekeeper.json, or remove the gatekeeper role when no gatekeeper is committed.')];
   }
   const id = row['workerId'];
-  const ok = typeof id === 'string' && known.workerIds.includes(id);
-  return ok ? [] : [refusal('UNKNOWN_WORKER', `${at}.workerId`, `${at}.workerId is not a worker the project authorises`, 'Name a workerId in the committed execution.workers of .projectops/project-config.json.')];
+  const worker = typeof id === 'string' ? known.workers.find((w) => w.workerId === id) : undefined;
+  if (worker === undefined) return [refusal('UNKNOWN_WORKER', `${at}.workerId`, `${at}.workerId is not a worker the project authorises`, 'Name a workerId in the committed execution.workers of .projectops/project-config.json.')];
+  return role === 'reviewer' ? reviewerProblems(worker, at) : [];
+}
+
+/** A reviewer only reads: every grant, parsed, is a read and none is ambiguous. The loop's `roleBindingProblems` test over plain data. */
+function reviewerProblems(worker: KnownRoleWorker, at: string): RoleRefusal[] {
+  const parens = (grant: string, ch: string): number => grant.split(ch).length - 1;
+  const ambiguous = (grant: string): boolean => parens(grant, '(') > 1 || parens(grant, ')') > 1 || parens(grant, '(') !== parens(grant, ')');
+  const bad = worker.grants.filter((grant) => ambiguous(grant) || !READ_ONLY_GRANT.test(grant));
+  if (bad.length === 0) return [];
+  return [refusal('REVIEWER_NOT_READ_ONLY', `${at}.workerId`, `the reviewer ${safeName(worker.workerId)} holds ${bad.length} non-read grant(s); a reviewer only reads`, 'Name a worker whose committed grants are reads only (Read, Grep, Glob, LS), or leave the reviewer out.')];
 }
 
 interface RoleRead {
@@ -233,7 +284,7 @@ function readRole(role: RoleId, raw: unknown, known: KnownRoleSources): RoleRead
   const refusals = [
     ...nameProblems(row, role === 'gatekeeper' ? GATEKEEPER_ROLE_KEYS : WORKER_ROLE_KEYS, at),
     ...routeProblems(role, row, known, at),
-    ...capabilityProblems(row['capabilities'], at),
+    ...capabilityProblems(role, row['capabilities'], at),
     ...costProblems(row['cost'], known, at),
     ...notesProblems(row['notes'], at),
   ];
@@ -253,8 +304,8 @@ function sourceProblems(known: KnownRoleSources): RoleRefusal[] {
   const ok =
     typeof known === 'object' &&
     known !== null &&
-    Array.isArray(known.workerIds) &&
-    known.workerIds.every((id) => typeof id === 'string') &&
+    Array.isArray(known.workers) &&
+    known.workers.every((w) => typeof w === 'object' && w !== null && typeof w.workerId === 'string' && Array.isArray(w.grants) && w.grants.every((g: unknown) => typeof g === 'string')) &&
     (known.gatekeeperTransportId === null || typeof known.gatekeeperTransportId === 'string') &&
     typeof known.rateCards === 'object' &&
     known.rateCards !== null;
@@ -281,7 +332,7 @@ function buildRegistry(entries: readonly RoleEntry[]): RoleRegistry {
 export function validateRoleRegistry(raw: unknown, known: KnownRoleSources): RoleParse {
   const bad = sourceProblems(known);
   if (bad.length > 0) return { ok: false, refusals: bad };
-  const snap = snapshotOf(raw, 'registry', 0);
+  const snap = safeSnapshot(raw);
   if (snap.refusals.length > 0) return { ok: false, refusals: snap.refusals.slice(0, MAX_ROLE_REFUSALS) };
   const top = asRecord(snap.value);
   if (top === null) return { ok: false, refusals: [refusal('NOT_A_RECORD', 'registry', 'the registry is not a record', 'Write it as { "schema": 1, "roles": { ... } }.')] };
@@ -295,12 +346,46 @@ export function validateRoleRegistry(raw: unknown, known: KnownRoleSources): Rol
       ? refusal('CREDENTIAL_FIELD', `roles.${safeName(n)}`, 'a role is named like a key, a credential or an address', 'Remove it; roles are implementer, reviewer and gatekeeper.')
       : refusal('UNKNOWN_ROLE', `roles.${safeName(n)}`, 'this role is not one the registry holds', `Roles are ${ROLE_IDS.join(', ')}.`)));
   if (names.length === 0) refusals.push(refusal('NO_ROLES', 'registry.roles', 'the registry names no role', 'Name at least the implementer.'));
+  else if (!names.includes('implementer')) refusals.push(refusal('NO_IMPLEMENTER', 'roles.implementer', 'the registry names no implementer', 'Name the implementer: the worker that does the work a reviewer then reviews.'));
   const read = ROLE_IDS.filter((role) => names.includes(role)).map((role) => readRole(role, roles[role], known));
   for (const one of read) refusals.push(...one.refusals);
   const entries = read.flatMap((one) => (one.entry === null ? [] : [one.entry]));
   const clash = sharedWorker(roles);
   if (clash !== null) refusals.push(refusal('SAME_WORKER', 'roles', `the implementer and the reviewer are both ${safeName(clash)}; a worker never reviews its own work`, 'Name a different worker for the reviewer.'));
   return refusals.length > 0 ? { ok: false, refusals: Object.freeze(refusals.slice(0, MAX_ROLE_REFUSALS)) } : { ok: true, registry: buildRegistry(entries) };
+}
+
+/**
+ * The first record key written twice in valid JSON text, decoded, or null. `JSON.parse` keeps the last of two equal keys, so a
+ * second `implementer` would quietly replace the first; this reads the text itself. Bounded by the size cap.
+ */
+function duplicateKey(text: string): string | null {
+  const scopes: (Set<string> | null)[] = [];
+  let last = '';
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i] as string;
+    if (c === '"') {
+      let end = i + 1;
+      while (end < text.length && text[end] !== '"') end += text[end] === '\\' ? 2 : 1;
+      const scope = scopes[scopes.length - 1];
+      if (scope !== undefined && scope !== null && (last === '{' || last === ',')) {
+        const key = JSON.parse(text.slice(i, end + 1)) as string;
+        if (scope.has(key)) return key;
+        scope.add(key);
+      }
+      i = end;
+      last = '"';
+    } else if (c === '{' || c === '[') {
+      scopes.push(c === '{' ? new Set<string>() : null);
+      last = c;
+    } else if (c === '}' || c === ']') {
+      scopes.pop();
+      last = c;
+    } else if (!/\s/.test(c)) {
+      last = c;
+    }
+  }
+  return null;
 }
 
 /** Judge registry text. The size is judged before anything is parsed. */
@@ -314,6 +399,10 @@ export function parseRoleRegistry(text: string, known: KnownRoleSources): RolePa
     parsed = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
   } catch {
     return { ok: false, refusals: [refusal('NOT_JSON', 'registry', 'the registry text is not JSON', 'Fix the JSON in .projectops/provider-roles.json and commit it.')] };
+  }
+  const twice = duplicateKey(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+  if (twice !== null) {
+    return { ok: false, refusals: [refusal('DUPLICATE_KEY', 'registry', `the key ${safeName(twice)} is written more than once; only the last would be read`, 'Write each key once.')] };
   }
   return validateRoleRegistry(parsed, known);
 }

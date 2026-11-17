@@ -53,6 +53,7 @@ export {
 export type {
   CostClass,
   KnownRoleSources,
+  KnownRoleWorker,
   RoleCapability,
   RoleCost,
   RoleEntry,

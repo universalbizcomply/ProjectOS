@@ -12,7 +12,11 @@ import {
 
 const CARD = { model: 'gpt-5.6-terra', inputMicroUsdPerMillion: 1250000, outputMicroUsdPerMillion: 10000000 };
 const KNOWN: KnownRoleSources = {
-  workerIds: ['claude-local', 'claude-reviewer', 'codex-local'],
+  workers: [
+    { workerId: 'claude-local', grants: ['Write(.projectops/execution/*.findings.json)', 'Edit(.projectops/execution/*.findings.json)'] },
+    { workerId: 'claude-reviewer', grants: ['Read', 'Grep', 'Glob'] },
+    { workerId: 'codex-local', grants: [] },
+  ],
   gatekeeperTransportId: 'openai-primary',
   rateCards: { 'gpt-5.6-terra': CARD },
 };
@@ -216,8 +220,8 @@ describe('what is read is a plain snapshot, taken once (rule 4, shape)', () => {
   });
 
   it('refuses a malformed set of known sources instead of accepting everything', () => {
-    expect(refusedCodes(validateRoleRegistry(GOOD, { ...KNOWN, workerIds: [] }))).toContain('UNKNOWN_WORKER');
-    expect(refusedCodes(validateRoleRegistry(GOOD, { workerIds: 'claude-local' } as unknown as KnownRoleSources))).toContain('BAD_SOURCES');
+    expect(refusedCodes(validateRoleRegistry(GOOD, { ...KNOWN, workers: [] }))).toContain('UNKNOWN_WORKER');
+    expect(refusedCodes(validateRoleRegistry(GOOD, { workers: 'claude-local' } as unknown as KnownRoleSources))).toContain('BAD_SOURCES');
   });
 });
 
@@ -282,5 +286,133 @@ describe('selection returns an entry or nothing, never a verdict (rule 7)', () =
     const before = JSON.stringify(registry);
     selectForRole(registry, 'gatekeeper');
     expect(JSON.stringify(registry)).toBe(before);
+  });
+});
+
+describe('a role fits its worker and its capabilities (review round, MEDIUM 1)', () => {
+  it('refuses the swap: the reviewer may not be the worker that holds write grants', () => {
+    const swapped = withRole('implementer', { workerId: 'claude-reviewer' });
+    swapped.roles.reviewer = { ...swapped.roles.reviewer, workerId: 'claude-local' };
+    const r = validateRoleRegistry(swapped, KNOWN);
+    expect(refusedCodes(r)).toContain('REVIEWER_NOT_READ_ONLY');
+    expect(!r.ok && r.refusals.find((x) => x.code === 'REVIEWER_NOT_READ_ONLY')?.reason).toContain('claude-local');
+  });
+
+  it('refuses a reviewer with any non-read grant, an ambiguous grant, or an unbalanced one, and accepts reads and no grants', () => {
+    const asReviewer = (grants: string[]) => ({ ...KNOWN, workers: [...KNOWN.workers, { workerId: 'rev-x', grants }] });
+    const doc = withRole('reviewer', { workerId: 'rev-x' });
+    for (const grants of [['Read', 'Bash'], ['Write(a)'], ['PowerShell'], ['Read((x) Bash(*)'], ['Read(a))']]) {
+      expect(refusedCodes(validateRoleRegistry(doc, asReviewer(grants))), grants.join()).toContain('REVIEWER_NOT_READ_ONLY');
+    }
+    for (const grants of [[], ['Read'], ['Read', 'Grep(src/**)', 'Glob', 'LS']]) {
+      expect(validateRoleRegistry(doc, asReviewer(grants)).ok, grants.join()).toBe(true);
+    }
+  });
+
+  it('judges the implementer by nothing it holds: write grants are what an implementer has', () => {
+    expect(validateRoleRegistry(GOOD, KNOWN).ok).toBe(true);
+  });
+
+  it('binds capabilities to roles: each role must carry its own, and none that belongs to another', () => {
+    const cases: [string, string[]][] = [
+      ['gatekeeper', ['implement']],
+      ['gatekeeper', ['gatekeeper-review', 'implement']],
+      ['implementer', ['gatekeeper-review', 'plan-authoring']],
+      ['implementer', ['implement', 'review']],
+      ['implementer', ['review']],
+      ['reviewer', ['implement', 'review']],
+      ['reviewer', ['plan-authoring']],
+    ];
+    for (const [role, capabilities] of cases) {
+      expect(refusedCodes(validateRoleRegistry(withRole(role, { capabilities }), KNOWN)), `${role} ${capabilities.join()}`).toContain('CAPABILITY_MISMATCH');
+    }
+    expect(refusedCodes(validateRoleRegistry(withRole('gatekeeper', { capabilities: ['plan-authoring'] }), KNOWN))).toContain('CAPABILITY_MISMATCH');
+  });
+
+  it('a gatekeeper may carry any mix of the gatekeeper capabilities so long as it carries gatekeeper-review', () => {
+    for (const capabilities of [['gatekeeper-review'], ['gatekeeper-review', 'closure-question'], ['closure-question', 'gatekeeper-review', 'plan-authoring']]) {
+      expect(validateRoleRegistry(withRole('gatekeeper', { capabilities }), KNOWN).ok, capabilities.join()).toBe(true);
+    }
+  });
+
+  it('requires an implementer: a registry with only a reviewer or only the gatekeeper is refused', () => {
+    const onlyReviewer = { schema: 1, roles: { reviewer: GOOD.roles.reviewer } };
+    const onlyGatekeeper = { schema: 1, roles: { gatekeeper: GOOD.roles.gatekeeper } };
+    for (const doc of [onlyReviewer, onlyGatekeeper]) {
+      const r = validateRoleRegistry(doc, KNOWN);
+      expect(refusedCodes(r)).toContain('NO_IMPLEMENTER');
+      expect(!r.ok && r.refusals.find((x) => x.code === 'NO_IMPLEMENTER')?.next).toMatch(/implementer/);
+    }
+    expect(refusedCodes(validateRoleRegistry({ schema: 1, roles: {} }, KNOWN))).not.toContain('NO_IMPLEMENTER');
+  });
+});
+
+describe('a hostile object cannot make validation throw (review round, LOW 3)', () => {
+  it('refuses a Proxy whose ownKeys throws, and a revoked Proxy, as NOT_A_RECORD', () => {
+    const hostile = new Proxy({}, { ownKeys() { throw new Error('boom'); } });
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    for (const roles of [hostile, proxy]) {
+      let r: RoleParse | undefined;
+      expect(() => { r = validateRoleRegistry({ schema: 1, roles }, KNOWN); }).not.toThrow();
+      expect(r && refusedCodes(r)).toContain('NOT_A_RECORD');
+    }
+    expect(refusedCodes(validateRoleRegistry(hostile, KNOWN))).toContain('NOT_A_RECORD');
+  });
+
+  it('a getPrototypeOf trap that throws is refused the same way', () => {
+    const hostile = new Proxy({}, { getPrototypeOf() { throw new Error('boom'); } });
+    expect(refusedCodes(validateRoleRegistry({ schema: 1, roles: hostile }, KNOWN))).toContain('NOT_A_RECORD');
+  });
+});
+
+describe('notes carry no invisible or reordering characters (review round, LOW 4)', () => {
+  it.each([
+    ['a C1 control', 'a\u0085b'],
+    ['a zero-width space', 'a\u200bb'],
+    ['a left-to-right mark', 'a\u200eb'],
+    ['a line separator', 'a\u2028b'],
+    ['a paragraph separator', 'a\u2029b'],
+    ['a bidi override', 'a\u202eb'],
+    ['a bidi isolate', 'a\u2066b'],
+    ['a byte-order mark', 'a\uFEFFb'],
+    ['a tag character', 'a\u{E0041}b'],
+    ['a DEL', 'a\u007fb'],
+  ])('refuses %s', (_name, notes) => {
+    expect(refusedCodes(validateRoleRegistry(withRole('implementer', { notes }), KNOWN))).toContain('BAD_NOTES');
+  });
+
+  it('still accepts ordinary text with accents and punctuation', () => {
+    expect(validateRoleRegistry(withRole('implementer', { notes: 'The owner login: caf\u00e9, no price (none recorded).' }), KNOWN).ok).toBe(true);
+  });
+});
+
+describe('a key written twice is refused, not resolved to the last (review round, LOW 5)', () => {
+  const text = JSON.stringify(GOOD, null, 2);
+  it('refuses a duplicate implementer role, a duplicate field inside a role and a duplicate top-level key', () => {
+    const dupRole = text.replace('"implementer": {', '"implementer": { "workerId": "claude-reviewer", "capabilities": ["implement"], "cost": {"class":"unmetered"}, "notes": "x" },\n    "implementer": {');
+    const dupField = text.replace('"workerId": "claude-local",', '"workerId": "claude-local", "workerId": "claude-reviewer",');
+    const dupTop = text.replace('"schema": 1,', '"schema": 1, "schema": 1,');
+    for (const t of [dupRole, dupField, dupTop]) {
+      const r = parseRoleRegistry(t, KNOWN);
+      expect(refusedCodes(r)).toContain('DUPLICATE_KEY');
+    }
+  });
+
+  it('sees through an escaped spelling of the same key', () => {
+    const t = text.replace('"workerId": "claude-local",', '"workerId": "claude-local", "worker\\u0049d": "claude-reviewer",');
+    expect(refusedCodes(parseRoleRegistry(t, KNOWN))).toContain('DUPLICATE_KEY');
+  });
+
+  it('does not mistake the same key in two different records, or a repeated string value, for a duplicate', () => {
+    expect(parseRoleRegistry(text, KNOWN).ok).toBe(true);
+    const t = text.replace('"notes": "the owner login"', '"notes": "notes"');
+    expect(parseRoleRegistry(t, KNOWN).ok).toBe(true);
+  });
+
+  it('names the key, never a value', () => {
+    const t = text.replace('"schema": 1,', '"schema": 1, "schema": 1,');
+    const r = parseRoleRegistry(t, KNOWN);
+    expect(!r.ok && r.refusals.find((x) => x.code === 'DUPLICATE_KEY')?.reason).toContain('schema');
   });
 });
