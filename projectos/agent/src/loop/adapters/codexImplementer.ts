@@ -37,7 +37,7 @@ import type { WorkerBrief } from '../brief.js';
 import type { AuthorisedWorker, WorkerAdapter, WorkerOutcome } from '../workers.js';
 import { ambiguousGrants, argvGrants } from '../workers.js';
 import { candidateSnapshot, grantScopes, scopeBreaches } from '../writeScope.js';
-import { CODEX_REPLY_WITHHELD, WINDOWS_SANDBOX, commandProblem, credentialShaped, inert } from './codexCli.js';
+import { CODEX_REPLY_WITHHELD, WINDOWS_SANDBOX, commandProblem, credentialShaped, inert, innerCommand } from './codexCli.js';
 
 export const CODEX_IMPLEMENTER = 'codex-implementer-cli';
 
@@ -204,6 +204,23 @@ export interface ImplementerRun {
   readonly denials: readonly string[];
 }
 
+/**
+ * A command that reads a secret file or the environment. A workspace-write sandbox restricts WRITES, not reads, so
+ * `cat .env` stays inside the checkout and `commandProblem` passes it, and the output would go to the provider.
+ * A tripwire on the command text, like the others: it can be dodged, and it may refuse a run that read a file
+ * with such a name.
+ */
+const SECRET_FILE_NAMES =
+  String.raw`(?:^|[\\/\s'"=(;,|&<>])(?:\.env(?!\.(?:example|sample|template)\b)(?:\.[\w.-]+)?|\.npmrc|\.netrc|\.pgpass|\.pypirc|id_rsa|id_ed25519|credentials(?:\.json)?|\.aws|\.ssh|\.kube|\.docker[\\/]config\.json)(?=$|[\\/\s'"&;|)])`;
+const ENVIRONMENT_READS = String.raw`homedir\s*\(|process\.env|\bprintenv\b|\b(?:Get-ChildItem|gci|dir|ls)\s+env:|\$env:`;
+const SECRET_READ = new RegExp(`${SECRET_FILE_NAMES}|${ENVIRONMENT_READS}`, 'i');
+
+/** Free text from the provider or its stderr reaches a stop detail and the evidence: bounded, inert, and withheld whole if credential-shaped. */
+function safeText(text: string, instruction: string): string {
+  const clean = inert(text);
+  return credentialShaped(clean, instruction) ? '<withheld: credential-shaped text>' : clean;
+}
+
 /** Items that neither act nor read beyond the checkout. A file change is expected of an implementer. */
 const NEUTRAL_ITEMS: ReadonlySet<string> = new Set(['agent_message', 'reasoning', 'todo_list', 'file_change']);
 
@@ -226,8 +243,8 @@ export function readImplementerEvents(stdout: string, context: { readonly root: 
     const e = ev as Record<string, unknown>;
     const type = e['type'];
     if (type === 'turn.completed') turnCompleted = true;
-    else if (type === 'turn.failed') failure = inert((e['error'] as Record<string, unknown> | undefined)?.['message']) || 'the turn failed';
-    else if (type === 'error') failure = inert(e['message']) || 'the run reported an error';
+    else if (type === 'turn.failed') failure = safeText(String((e['error'] as Record<string, unknown> | undefined)?.['message'] ?? ''), context.instruction) || 'the turn failed';
+    else if (type === 'error') failure = safeText(String(e['message'] ?? ''), context.instruction) || 'the run reported an error';
     else if (type === 'item.started' || type === 'item.completed') {
       const item = e['item'];
       if (item === null || typeof item !== 'object' || Array.isArray(item)) continue;
@@ -235,14 +252,15 @@ export function readImplementerEvents(stdout: string, context: { readonly root: 
       const itemType = typeof it['type'] === 'string' ? it['type'] : 'unknown';
       const id = typeof it['id'] === 'string' ? it['id'] : `${itemType}#${denials.size}`;
       if (itemType === 'command_execution') {
-        const problem = commandProblem(it, context.root);
+        const reported = typeof it['command'] === 'string' ? innerCommand(it['command']) : '';
+        const problem = commandProblem(it, context.root) ?? (SECRET_READ.test(reported) ? 'command_execution: reads a secret file or the environment' : null);
         if (problem !== null && !denials.has(id)) denials.set(id, problem);
       } else if (itemType === 'agent_message') {
         if (type === 'item.completed' && typeof it['text'] === 'string' && credentialShaped(it['text'], context.instruction)) {
           denials.set(`${CODEX_REPLY_WITHHELD}#reply`, CODEX_REPLY_WITHHELD);
         }
       } else if (itemType === 'error') {
-        if (failure === null) failure = inert(it['message']) || 'the run reported an error item';
+        if (failure === null) failure = safeText(String(it['message'] ?? ''), context.instruction) || 'the run reported an error item';
       } else if (!NEUTRAL_ITEMS.has(itemType)) {
         denials.set(id, `${inert(itemType)}: an item an implementer is not expected to use`);
       }
@@ -279,10 +297,10 @@ function outcomeFrom(r: { code: number; stdout: string; stderr: string; failure?
     return {
       kind: 'refused',
       detail:
-        `the Codex executable could not be started${r.stderr.trim() === '' ? '' : `: ${inert(r.stderr.trim())}`}` + ' — nothing ran, so this is not a run that failed',
+        `the Codex executable could not be started${r.stderr.trim() === '' ? '' : `: ${safeText(r.stderr.trim(), instruction)}`}` + ' — nothing ran, so this is not a run that failed',
     };
   }
-  if (r.code !== 0) return { kind: 'completed', exitCode: r.code, stdout: '', stderr: inert(r.stderr.trim().split(/\r?\n/).slice(-1)[0] ?? ''), providerRef: null };
+  if (r.code !== 0) return { kind: 'completed', exitCode: r.code, stdout: '', stderr: safeText(r.stderr.trim().split(/\r?\n/).slice(-1)[0] ?? '', instruction), providerRef: null };
   const run = readImplementerEvents(r.stdout, { root, instruction });
   if (run.failure !== null) return { kind: 'refused', detail: `the Codex worker's turn failed: ${run.failure}` };
   if (run.denials.length > 0) {

@@ -20,7 +20,13 @@
  *   WI-9  "the adapter exists, so it is wired"          — and the kind is configurable but never runs; and a cycle with the
  *         Claude adapter would make the registry depend on load order
  *   WI-10 "the scope check can be approximate"          — a prefix of a name is not a parent directory, a glob is one path
- *         segment, git runs isolated, an unreadable candidate refuses
+ *         segment, and `.git*`, `.claude`, `.codex`, `.agents`, CLAUDE.md and AGENTS(.override).md are out of scope under
+ *         any grant
+ *   WI-12 "git is only reading"                         — a filter driver the worker wrote would run inside the check
+ *         itself; git runs isolated, every driver is switched off, content is hashed raw, a partial read refuses
+ *   WI-13 "status shows what changed"                   — not an ignored path, not a committed change, not a file under a
+ *         skip-worktree flag or a new exclude pattern, not the origin of a rename; each is compared too
+ *         (ECC SECURITY 1-5 and Agency application-security-engineer F1, F2, F4, F5, F7, on the first build)
  *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT rule fires.
  * Comments are stripped first. Reads files; runs nothing, calls no provider, runs no Codex.
@@ -47,6 +53,15 @@ const TESTS = {
     "refuses when the candidate cannot be read after the run: a blind check is not a check",
     "reads git under the isolated environment with the config-driven programs switched off",
     "a credential-shaped reply",
+    "refuses a new git-ignored entry outside the grants",
+    "compares an ignored file by content, so an edit to an existing .env or owner control is seen",
+    "own gatekeeper asking records, which the candidate leaves out",
+    "refuses a commit, an index flag and an exclude pattern, each of which would hide a change from status",
+    "counts the origin of a rename as a removal, even when the new path is granted",
+    "switches off every filter driver the configuration defines at that moment, including one the worker added",
+    "reads a path with a space or non-ASCII characters as it is, and names it",
+    "withholds credential-shaped text from a failed turn, an error item and the stderr of an exit",
+    "refuses a command that %s",
     "has no review, and rejoin refuses without spawning, even with a handle",
   ],
   "projectos/agent/test/workerRoleSwap.test.ts": [
@@ -94,7 +109,13 @@ const PIN = {
   credentialArg: "if (CREDENTIAL_SHAPED.test(arg)) {\n      problems.push(CREDENTIAL_ARGUMENT);",
   replyWithheld: "credentialShaped(it['text'], context.instruction)",
   translated: "stdout: JSON.stringify({ type: 'result', is_error: false, session_id: null })",
-  commandChecked: "const problem = commandProblem(it, context.root);",
+  commandChecked: "const problem = commandProblem(it, context.root) ?? (SECRET_READ.test(reported) ? 'command_execution: reads a secret file or the environment' : null);",
+  secretFiles: String.raw`(?:\.env(?!\.(?:example|sample|template)\b)(?:\.[\w.-]+)?|\.npmrc|\.netrc|\.pgpass|\.pypirc|id_rsa|id_ed25519|credentials(?:\.json)?|\.aws|\.ssh|\.kube|`,
+  environmentReads: String.raw`homedir\s*\(|process\.env|\bprintenv\b|`,
+  safeText: "return credentialShaped(clean, instruction) ? '<withheld: credential-shaped text>' : clean;",
+  safeFailure: "failure = safeText(String((e['error'] as Record<string, unknown> | undefined)?.['message'] ?? ''), context.instruction) || 'the turn failed';",
+  safeStderr: "stderr: safeText(r.stderr.trim().split(/\\r?\\n/).slice(-1)[0] ?? '', instruction), providerRef: null };",
+  safeNotStarted: "`: ${safeText(r.stderr.trim(), instruction)}`",
   unknownItemDenied: "} else if (!NEUTRAL_ITEMS.has(itemType)) {",
   neutralItems: "new Set(['agent_message', 'reasoning', 'todo_list', 'file_change'])",
   failureRefused: "if (run.failure !== null) return { kind: 'refused'",
@@ -107,12 +128,28 @@ const PIN = {
   reviewerWired: "[CODEX_CLI]: codexCliAdapter,",
   dirBoundary: "(s.includes('*') ? globRegex(s).test(p) : p === s || p.startsWith(`${s}/`))",
   globOneSegment: ".replace(/\\*/g, '[^/]*')",
-  isolated: "{ isolatedGit: {} }",
+  isolated: "const options = { isolatedGit: {}, maxOutputBytes: MAX_GIT_OUTPUT_BYTES };",
   fsmonitorOff: "'core.fsmonitor=false'",
   scopeInside: "scope === '' || scope === '.' || scope.startsWith('/') || /^[A-Za-z]:/.test(scope) || scope.split('/').includes('..')",
   unsupportedSyntax: "const UNSUPPORTED_SYNTAX = /[?[\\]{}]|\\*\\*/;",
-  unreadable: "if (!candidate.ok) return null;",
-  changedByDigest: "if (before.get(path) !== after.get(path) && !pathInGrants(path, scopes)) changed.push(path);",
+  changedByDigest: "if (before.get(path) === after.get(path)) continue;",
+  breachRule: "if (isAgentControlPath(path) || !pathInGrants(path, scopes)) changed.push(path);",
+  agentSegments: String.raw`const AGENT_CONTROL_SEGMENT = /^(?:\.git.*|\.claude|\.codex|\.agents|\.husky|\.vscode)$/i;`,
+  agentFiles: String.raw`const AGENT_INSTRUCTION_FILE = /^(?:CLAUDE|AGENTS|GEMINI)(?:\.local|\.override)?\.md$/i;`,
+  neutralised: "const run: GitRun = (args) => sys.exec('git', [...base, ...neutralisers, ...args], options);",
+  neutraliserNull: "if (neutralisers === null) return null;",
+  noFilters: "run(['hash-object', '--no-filters', '-t', 'blob', '--', ...chunk]);",
+  partialHash: "if (failed(hashed) || lines.length !== chunk.length) return false;",
+  configDigest: "snapshot.set(REPOSITORY_CONFIGURATION, digest(config.stdout));",
+  headRecorded: "snapshot.set(REPOSITORY_HEAD, head.stdout.trim());",
+  excludesRecorded: "snapshot.set(REPOSITORY_EXCLUDES, digest(",
+  flagsRecorded: "if (token.length > 2 && token[0] !== 'H') snapshot.set(`${INDEX_FLAG_PREFIX}${token.slice(2)}`, token[0] as string);",
+  zStatus: "run(['status', '--porcelain=v1', '-z', '--untracked-files=all']);",
+  renameOrigin: "if (origin !== null) snapshot.set(origin, `${code}|renamed-from`);",
+  ignoredListed: "snapshot.set(path, 'ignored');",
+  ignoredHashed: "snapshot.set(path, `ignored|${blob}`)",
+  recordsExpanded: "run(['status', '--porcelain=v1', '-z', '--ignored', '--untracked-files=all', '--', '.projectops']);",
+  statusFailed: "if (failed(status)) return null;",
   codexExports: ["export const WINDOWS_SANDBOX:", "export function commandProblem(", "export function inert("],
 };
 
@@ -211,11 +248,11 @@ function check(raw) {
     E("WI-4", "the write scope is no longer judged on the candidate before and after the run, or an unreadable candidate or a breach no longer refuses it");
   }
   // WI-5 — no credential in, none out, and never the raw stream.
-  if (![PIN.scrub, PIN.credentialArg, PIN.replyWithheld, PIN.translated].every((p) => a.includes(p)) || /\benv\s*:/.test(a) || /stdout:\s*r\.stdout/.test(a)) {
+  if (![PIN.scrub, PIN.credentialArg, PIN.replyWithheld, PIN.translated].every((p) => a.includes(p)) || ![PIN.safeText, PIN.safeFailure, PIN.safeStderr, PIN.safeNotStarted].every((p) => a.includes(p)) || /[,{]\s*env\s*:/.test(a) || /stdout:\s*r\.stdout/.test(a)) {
     E("WI-5", "the Codex implementer can be handed a credential, a credential-shaped reply is no longer withheld, or the raw event stream reaches the outcome");
   }
   // WI-6 — a steered or failed run is refused.
-  if (![PIN.commandChecked, PIN.unknownItemDenied, PIN.neutralItems, PIN.failureRefused, PIN.denialsRefused, PIN.turnRequired].every((p) => a.includes(p))) {
+  if (![PIN.commandChecked, PIN.secretFiles, PIN.environmentReads, PIN.unknownItemDenied, PIN.neutralItems, PIN.failureRefused, PIN.denialsRefused, PIN.turnRequired].every((p) => a.includes(p))) {
     E("WI-6", "a command outside the checkout, a tool call, an unknown item, a failed turn or an unfinished run is no longer refused");
   }
   // WI-7 — bounded: one spawn, and it carries the bound.
@@ -233,8 +270,16 @@ function check(raw) {
     E("WI-9", "the codex-implementer-cli kind is not wired into BUILT_IN_ADAPTERS beside codex-cli, or its file imports the Claude adapter (a cycle)");
   }
   // WI-10 — the scope check is exact, isolated and fail-closed.
-  if (![PIN.dirBoundary, PIN.globOneSegment, PIN.isolated, PIN.fsmonitorOff, PIN.scopeInside, PIN.unsupportedSyntax, PIN.unreadable, PIN.changedByDigest].every((p) => w.includes(p))) {
-    E("WI-10", "the scope check is no longer exact (directory boundary, one-segment glob, contents compared), isolated from repository configuration, or fail-closed on an unreadable candidate");
+  if (![PIN.dirBoundary, PIN.globOneSegment, PIN.scopeInside, PIN.unsupportedSyntax, PIN.changedByDigest, PIN.breachRule, PIN.agentSegments, PIN.agentFiles].every((p) => w.includes(p))) {
+    E("WI-10", "the scope rule is no longer exact: directory boundary, one-segment glob, contents compared, agent and git control paths out of scope under any grant");
+  }
+  // WI-12 — git runs isolated and cannot be made to run the worker's program; an unreadable checkout refuses.
+  if (![PIN.isolated, PIN.fsmonitorOff, PIN.neutralised, PIN.neutraliserNull, PIN.noFilters, PIN.partialHash, PIN.statusFailed].every((p) => w.includes(p))) {
+    E("WI-12", "the scope snapshot no longer runs git isolated with every filter driver switched off, or a partial or failed read no longer refuses");
+  }
+  // WI-13 — what status cannot show is compared too.
+  if (![PIN.configDigest, PIN.headRecorded, PIN.excludesRecorded, PIN.flagsRecorded, PIN.zStatus, PIN.renameOrigin, PIN.ignoredListed, PIN.ignoredHashed, PIN.recordsExpanded].every((p) => w.includes(p))) {
+    E("WI-13", "the scope snapshot no longer covers ignored paths, the records under .projectops, both paths of a rename, non-ASCII names, or the git state that hides a change (configuration, HEAD, index flags, info/exclude)");
   }
   // The reviewer file only gained exports, so the exit-proof reviewer is unchanged in behaviour.
   if (!PIN.codexExports.every((p) => cx.includes(p))) {
@@ -274,6 +319,13 @@ const MUTATIONS = [
   { name: "credential-reply-passes", rule: "WI-5", rel: ADAPTER_REL, from: PIN.replyWithheld, to: "false" },
   { name: "raw-stream-returned", rule: "WI-5", rel: ADAPTER_REL, from: PIN.translated, to: "stdout: r.stdout" },
   { name: "outside-command-passes", rule: "WI-6", rel: ADAPTER_REL, from: PIN.commandChecked, to: "const problem: string | null = null;" },
+  { name: "secret-read-passes", rule: "WI-6", rel: ADAPTER_REL, from: " ?? (SECRET_READ.test(reported) ? 'command_execution: reads a secret file or the environment' : null);", to: ";" },
+  { name: "dotenv-read-passes", rule: "WI-6", rel: ADAPTER_REL, from: String.raw`(?:\.env(?!\.(?:example|sample|template)\b)(?:\.[\w.-]+)?|\.npmrc|`, to: String.raw`(?:\.npmrc|` },
+  { name: "environment-dump-passes", rule: "WI-6", rel: ADAPTER_REL, from: String.raw`homedir\s*\(|process\.env|\bprintenv\b|`, to: "" },
+  { name: "failure-text-unfiltered", rule: "WI-5", rel: ADAPTER_REL, from: PIN.safeText, to: "return clean;" },
+  { name: "turn-failure-unfiltered", rule: "WI-5", rel: ADAPTER_REL, from: PIN.safeFailure, to: "failure = inert((e['error'] as Record<string, unknown> | undefined)?.['message']) || 'the turn failed';" },
+  { name: "exit-stderr-unfiltered", rule: "WI-5", rel: ADAPTER_REL, from: "stderr: safeText(r.stderr.trim()", to: "stderr: inert(r.stderr.trim()" },
+  { name: "not-started-stderr-unfiltered", rule: "WI-5", rel: ADAPTER_REL, from: PIN.safeNotStarted, to: "`: ${inert(r.stderr.trim())}`" },
   { name: "unknown-item-passes", rule: "WI-6", rel: ADAPTER_REL, from: PIN.unknownItemDenied, to: "} else if (false) {" },
   { name: "tool-call-is-neutral", rule: "WI-6", rel: ADAPTER_REL, from: PIN.neutralItems, to: "new Set(['agent_message', 'reasoning', 'todo_list', 'file_change', 'mcp_tool_call'])" },
   { name: "failed-turn-passes", rule: "WI-6", rel: ADAPTER_REL, from: PIN.failureRefused, to: "if (false) return { kind: 'refused'" },
@@ -289,13 +341,29 @@ const MUTATIONS = [
   { name: "adapter-imports-the-claude-adapter", rule: "WI-9", rel: ADAPTER_REL, from: "import { ambiguousGrants, argvGrants } from '../workers.js';", to: "import { ambiguousGrants, argvGrants } from '../workers.js';\nimport { pointerInstruction } from './claudeCodeCli.js';" },
   { name: "prefix-is-a-parent", rule: "WI-10", rel: SCOPE_REL, from: PIN.dirBoundary, to: "(s.includes('*') ? globRegex(s).test(p) : p === s || p.startsWith(s))" },
   { name: "glob-spans-directories", rule: "WI-10", rel: SCOPE_REL, from: PIN.globOneSegment, to: ".replace(/\\*/g, '.*')" },
-  { name: "git-runs-with-repo-config", rule: "WI-10", rel: SCOPE_REL, from: PIN.isolated, to: "{}" },
-  { name: "fsmonitor-left-on", rule: "WI-10", rel: SCOPE_REL, from: PIN.fsmonitorOff, to: "'core.fsmonitor=true'" },
+  { name: "git-runs-with-user-config", rule: "WI-12", rel: SCOPE_REL, from: PIN.isolated, to: "const options = { maxOutputBytes: MAX_GIT_OUTPUT_BYTES };" },
+  { name: "fsmonitor-left-on", rule: "WI-12", rel: SCOPE_REL, from: PIN.fsmonitorOff, to: "'core.fsmonitor=true'" },
+  { name: "filter-drivers-left-on", rule: "WI-12", rel: SCOPE_REL, from: PIN.neutralised, to: "const run: GitRun = (args) => sys.exec('git', [...base, ...args], options);" },
+  { name: "unlisted-drivers-accepted", rule: "WI-12", rel: SCOPE_REL, from: PIN.neutraliserNull, to: "" },
+  { name: "hash-runs-clean-filters", rule: "WI-12", rel: SCOPE_REL, from: PIN.noFilters, to: "run(['hash-object', '-t', 'blob', '--', ...chunk]);" },
+  { name: "partial-hash-accepted", rule: "WI-12", rel: SCOPE_REL, from: PIN.partialHash, to: "if (false) return false;" },
+  { name: "failed-status-accepted", rule: "WI-12", rel: SCOPE_REL, from: PIN.statusFailed, to: "" },
+  { name: "configuration-not-compared", rule: "WI-13", rel: SCOPE_REL, from: PIN.configDigest, to: "" },
+  { name: "head-not-compared", rule: "WI-13", rel: SCOPE_REL, from: PIN.headRecorded, to: "" },
+  { name: "excludes-not-compared", rule: "WI-13", rel: SCOPE_REL, from: PIN.excludesRecorded, to: "void (" },
+  { name: "index-flags-not-compared", rule: "WI-13", rel: SCOPE_REL, from: PIN.flagsRecorded, to: "" },
+  { name: "status-read-quoted", rule: "WI-13", rel: SCOPE_REL, from: PIN.zStatus, to: "run(['status', '--porcelain=v1', '--untracked-files=all']);" },
+  { name: "rename-origin-dropped", rule: "WI-13", rel: SCOPE_REL, from: PIN.renameOrigin, to: "" },
+  { name: "ignored-paths-not-listed", rule: "WI-13", rel: SCOPE_REL, from: PIN.ignoredListed, to: "" },
+  { name: "ignored-files-not-hashed", rule: "WI-13", rel: SCOPE_REL, from: PIN.ignoredHashed, to: "void blob" },
+  { name: "projectops-records-not-expanded", rule: "WI-13", rel: SCOPE_REL, from: PIN.recordsExpanded, to: "run(['status', '--porcelain=v1', '-z', '--ignored', '--', 'none']);" },
+  { name: "agent-control-path-in-scope", rule: "WI-10", rel: SCOPE_REL, from: PIN.breachRule, to: "if (!pathInGrants(path, scopes)) changed.push(path);" },
+  { name: "codex-home-in-scope", rule: "WI-10", rel: SCOPE_REL, from: String.raw`|\.codex|\.agents|`, to: "|" },
+  { name: "agents-override-in-scope", rule: "WI-10", rel: SCOPE_REL, from: String.raw`(?:\.local|\.override)?`, to: String.raw`(?:\.local)?` },
   { name: "whole-checkout-grant-accepted", rule: "WI-10", rel: SCOPE_REL, from: "scope === '' || scope === '.' ||", to: "scope === '' ||" },
   { name: "parent-escape-grant-accepted", rule: "WI-10", rel: SCOPE_REL, from: " || scope.split('/').includes('..')", to: "" },
   { name: "glob-syntax-accepted", rule: "WI-10", rel: SCOPE_REL, from: PIN.unsupportedSyntax, to: "const UNSUPPORTED_SYNTAX = /^$/;" },
-  { name: "unreadable-candidate-passes", rule: "WI-10", rel: SCOPE_REL, from: PIN.unreadable, to: "if (false) return null;" },
-  { name: "changed-content-not-compared", rule: "WI-10", rel: SCOPE_REL, from: PIN.changedByDigest, to: "if (before.has(path) !== after.has(path) && !pathInGrants(path, scopes)) changed.push(path);" },
+  { name: "changed-content-not-compared", rule: "WI-10", rel: SCOPE_REL, from: PIN.changedByDigest, to: "if (before.has(path) === after.has(path)) continue;" },
   { name: "shared-helper-copied", rule: "WI-11", rel: CODEX_REL, from: "export function commandProblem(", to: "function commandProblem(" },
 ];
 

@@ -73,6 +73,9 @@ function fakeSystem(spawned: string[]): System {
         spawned.push(args.includes('read-only') ? 'codex-review' : 'codex-implement');
         return { code: 0, stdout: codexStream, stderr: '' };
       }
+      // git, for the Codex implementer's scope snapshot: a clean checkout with no filter drivers.
+      if (args.includes('--name-only')) return { code: 1, stdout: '', stderr: '' };
+      if (args.includes('rev-parse')) return { code: 0, stdout: args.includes('--git-path') ? '.git/info/exclude\n' : `${'a'.repeat(40)}\n`, stderr: '' };
       return { code: 0, stdout: '', stderr: '' };
     },
   };

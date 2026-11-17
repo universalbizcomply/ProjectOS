@@ -20,7 +20,7 @@ import {
   implementerSandboxProblem,
   readImplementerEvents,
 } from '../src/loop/adapters/codexImplementer.js';
-import { pathInGrants } from '../src/loop/writeScope.js';
+import { INDEX_FLAG_PREFIX, REPOSITORY_CONFIGURATION, REPOSITORY_EXCLUDES, REPOSITORY_HEAD, pathInGrants } from '../src/loop/writeScope.js';
 import { BUILT_IN_ADAPTERS, correctionInstruction, pointerInstruction } from '../src/loop/adapters/claudeCodeCli.js';
 import { CODEX_CLI } from '../src/loop/adapters/codexCli.js';
 import { roleBindingProblems } from '../src/loop/reviewRoles.js';
@@ -75,43 +75,74 @@ interface Call { readonly cmd: string; readonly args: readonly string[]; readonl
  * A fake System. `files` is the checkout: path -> content. `baseline` lists the paths git calls dirty at the
  * start. `codex` runs when the codex binary is called and may change `files`; its reply is what `exec` returns.
  */
+interface World {
+  /** Ignored entries as git lists them at its collapsed level. */
+  ignored: string[];
+  /** The repository's own configuration, as `git config --local --list` prints it. */
+  config: string;
+  /** Filter drivers the configuration defines. */
+  filters: string[];
+  /** Contents of ignored files (path -> content); a path here exists on disk. */
+  ignoredContent: Record<string, string>;
+  head: string;
+  /** The text of the repository's info/exclude file. */
+  exclude: string;
+  /** `git ls-files -v` tags that are not the ordinary `H`, as `tag path`. */
+  indexFlags: string[];
+  /** Raw extra status tokens, for a rename. */
+  statusExtra: string;
+}
+
 function fakeWorld(opts: {
   files?: Record<string, string>;
-  codex?: (files: Record<string, string>) => ExecResult;
+  ignored?: string[];
+  filters?: string[];
+  codex?: (files: Record<string, string>, world: World) => ExecResult;
   gitFailsOnCall?: number;
   evidenceExists?: boolean;
 }) {
   const files: Record<string, string> = { ...(opts.files ?? {}) };
+  const world: World = { ignored: [...(opts.ignored ?? [])], config: 'core.bare=false', filters: [...(opts.filters ?? [])], ignoredContent: {}, head: 'a'.repeat(40), exclude: '', indexFlags: [], statusExtra: '' };
   const calls: Call[] = [];
   let gitCalls = 0;
   const sys: System = {
     cwd: () => ROOT,
     now: () => '2026-11-17T12:00:00Z',
-    readText: () => null,
+    readText: (p) => (p === `${ROOT}/.git/info/exclude` ? world.exclude : null),
     writeText: () => undefined,
-    exists: (p) => (p === EVIDENCE_PATH ? opts.evidenceExists === true : Object.keys(files).some((f) => `${ROOT}/${f}` === p)),
+    exists: (p) => (p === EVIDENCE_PATH ? opts.evidenceExists === true : [...Object.keys(files), ...Object.keys(world.ignoredContent)].some((f) => `${ROOT}/${f}` === p)),
     listDir: () => [],
     renameFile: () => true,
     createExclusive: () => true,
     removeFile: () => true,
     exec: (cmd, args, options) => {
       calls.push({ cmd, args, options });
-      if (cmd === CODEX) return (opts.codex ?? (() => ok(CLEAN)))(files);
-      // git, as the candidate computation asks it
-      const verb = args.find((a) => a === 'status' || a === 'hash-object' || a === 'ls-files');
+      if (cmd === CODEX) return (opts.codex ?? (() => ok(CLEAN)))(files, world);
+      // git, as the scope snapshot asks it: configuration, filters, status (-z), hash-object, ignored status
+      const verb = args.find((a) => a === 'status' || a === 'hash-object' || a === 'config' || a === 'rev-parse' || a === 'ls-files');
+      if (verb === 'rev-parse') return ok(args.includes('--git-path') ? '.git/info/exclude\n' : `${world.head}\n`);
+      if (verb === 'ls-files') return ok(world.indexFlags.map((f) => `${f}\0`).join(''));
+      if (verb === 'config') {
+        if (args.includes('--name-only')) {
+          return world.filters.length === 0 ? { code: 1, stdout: '', stderr: '' } : ok(world.filters.map((f) => `filter.${f}.clean`).join('\n') + '\n');
+        }
+        return ok(world.config);
+      }
       if (verb === 'status') {
         gitCalls += 1;
         if (opts.gitFailsOnCall === gitCalls) return { code: 128, stdout: '', stderr: 'fatal: not a git repository' };
-        return ok(Object.keys(files).sort().map((f) => ` M ${f}`).join('\n') + '\n');
+        if (args.includes('.projectops')) return ok(Object.keys(world.ignoredContent).filter((p) => p.startsWith('.projectops/')).map((p) => `!! ${p}\0`).join(''));
+        if (args.includes('--ignored')) return ok(world.ignored.map((p) => `!! ${p}\0`).join(''));
+        return ok(Object.keys(files).sort().map((f) => ` M ${f}\0`).join('') + world.statusExtra);
       }
       if (verb === 'hash-object') {
         const paths = args.slice(args.indexOf('--') + 1);
-        return ok(paths.map((p) => `blob:${files[p] ?? ''}`).join('\n') + '\n');
+        return ok(paths.map((p) => `blob:${files[p] ?? world.ignoredContent[p] ?? ''}`).join('\n') + '\n');
       }
       return ok('');
     },
   };
-  return { sys, calls, files };
+  return { sys, calls, files, world };
 }
 
 const codexCalls = (calls: readonly Call[]) => calls.filter((c) => c.cmd === CODEX);
@@ -305,7 +336,7 @@ describe('write scope is judged on the candidate, not on Codex\'s sandbox', () =
   });
 
   it('refuses when the candidate cannot be read after the run: a blind check is not a check', () => {
-    const { sys } = fakeWorld({ gitFailsOnCall: 2 });
+    const { sys } = fakeWorld({ gitFailsOnCall: 4 });
     const out = adapter.start(sys, scoped, briefOf(), BRIEF_PATH);
     expect(out.kind).toBe('refused');
   });
@@ -319,6 +350,112 @@ describe('write scope is judged on the candidate, not on Codex\'s sandbox', () =
       expect(c.options?.isolatedGit).toBeDefined();
       expect(c.args).toContain('core.fsmonitor=false');
     }
+  });
+
+  it('refuses a new git-ignored entry outside the grants (node_modules, .env, dist), which the candidate never lists', () => {
+    const { sys } = fakeWorld({ ignored: ['dist/'], codex: (_f, w) => { w.ignored.push('node_modules/', '.env'); return ok(CLEAN); } });
+    const out = adapter.start(sys, scoped, briefOf(), BRIEF_PATH);
+    expect(out.kind).toBe('refused');
+    if (out.kind === 'refused') {
+      expect(out.detail).toContain('node_modules/');
+      expect(out.detail).toContain('.env');
+      expect(out.detail).not.toContain('dist/');
+    }
+  });
+
+  it('sees the loop\'s own gatekeeper asking records, which the candidate leaves out', () => {
+    const record = '.projectops/gatekeeper-interactive/GKREQ-aaaaaaaaaaaaaaaaaaaaaaaa.decision.json';
+    const { sys } = fakeWorld({ codex: (files) => { files[record] = '{"verdict":"APPROVE"}'; return ok(CLEAN); } });
+    const out = adapter.start(sys, scoped, briefOf(), BRIEF_PATH);
+    expect(out.kind).toBe('refused');
+    if (out.kind === 'refused') expect(out.detail).toContain(record);
+  });
+
+  it('refuses a change to the repository configuration, which would make the next git call run the worker\'s program', () => {
+    const { sys } = fakeWorld({ codex: (_f, w) => { w.config += '\0filter.x.clean=calc.exe'; return ok(CLEAN); } });
+    const out = adapter.start(sys, scoped, briefOf(), BRIEF_PATH);
+    expect(out.kind).toBe('refused');
+    if (out.kind === 'refused') expect(out.detail).toContain(REPOSITORY_CONFIGURATION);
+  });
+
+  it('switches off every filter driver the configuration defines at that moment, including one the worker added', () => {
+    const { sys, calls } = fakeWorld({ filters: ['lfs'], codex: (_f, w) => { w.filters.push('evil'); return ok(CLEAN); } });
+    adapter.start(sys, scoped, briefOf(), BRIEF_PATH);
+    const gitCalls = calls.filter((c) => c.cmd === 'git');
+    const codexAt = calls.findIndex((c) => c.cmd === CODEX);
+    const before = calls.slice(0, codexAt).filter((c) => c.cmd === 'git' && c.args.includes('hash-object') === false && c.args.includes('status'));
+    const after = calls.slice(codexAt + 1).filter((c) => c.cmd === 'git' && c.args.includes('status'));
+    expect(gitCalls.length).toBeGreaterThan(0);
+    expect(before.every((c) => c.args.includes('filter.lfs.clean=') && !c.args.includes('filter.evil.clean='))).toBe(true);
+    expect(after.every((c) => c.args.includes('filter.lfs.clean=') && c.args.includes('filter.evil.clean='))).toBe(true);
+    expect(calls.filter((c) => c.args.includes('hash-object')).every((c) => c.args.includes('--no-filters'))).toBe(true);
+  });
+
+  it('refuses when the filter drivers cannot be listed, and spawns nothing', () => {
+    const { sys, calls } = fakeWorld({});
+    const broken: System = { ...sys, exec: (cmd, args, o) => (args.includes('--name-only') ? { code: 128, stdout: '', stderr: 'bad' } : sys.exec(cmd, args, o)) };
+    expect(adapter.start(broken, scoped, briefOf(), BRIEF_PATH).kind).toBe('refused');
+    expect(codexCalls(calls)).toHaveLength(0);
+  });
+
+  it.each([
+    ['docs/.codex/config.toml'],
+    ['docs/AGENTS.override.md'],
+    ['docs/.agents/skill.md'],
+    ['docs/.claude/settings.json'],
+    ['docs/.gitattributes'],
+  ])('treats %s as out of scope even beneath a directory grant', (rel) => {
+    const dir = worker(['--allowedTools', 'Edit(docs),Write(docs)']);
+    const { sys } = fakeWorld({ codex: (files) => { files[rel] = 'x'; files['docs/ok.md'] = 'fine'; return ok(CLEAN); } });
+    const out = adapter.start(sys, dir, briefOf(), BRIEF_PATH);
+    expect(out.kind).toBe('refused');
+    if (out.kind === 'refused') {
+      expect(out.detail).toContain(rel);
+      expect(out.detail).not.toContain('docs/ok.md');
+    }
+  });
+
+  it('compares an ignored file by content, so an edit to an existing .env or owner control is seen', () => {
+    for (const path of ['.env', '.projectops/continuity/owner-control.json']) {
+      const w = fakeWorld({
+        ignored: path.startsWith('.projectops/') ? [] : [path],
+        codex: (_f, world) => { world.ignoredContent[path] = 'changed'; return ok(CLEAN); },
+      });
+      w.world.ignoredContent[path] = 'original';
+      const out = adapter.start(w.sys, scoped, briefOf(), BRIEF_PATH);
+      expect(out.kind).toBe('refused');
+      if (out.kind === 'refused') expect(out.detail).toContain(path);
+    }
+  });
+
+  it('refuses a commit, an index flag and an exclude pattern, each of which would hide a change from status', () => {
+    const cases: [string, (w: World) => void][] = [
+      [REPOSITORY_HEAD, (w) => { w.head = 'b'.repeat(40); }],
+      [`${INDEX_FLAG_PREFIX}src/hidden.ts`, (w) => { w.indexFlags.push('S src/hidden.ts'); }],
+      [REPOSITORY_EXCLUDES, (w) => { w.exclude = 'secret-*'; }],
+    ];
+    for (const [named, change] of cases) {
+      const { sys } = fakeWorld({ codex: (_f, w) => { change(w); return ok(CLEAN); } });
+      const out = adapter.start(sys, scoped, briefOf(), BRIEF_PATH);
+      expect(out.kind).toBe('refused');
+      if (out.kind === 'refused') expect(out.detail).toContain(named);
+    }
+  });
+
+  it('counts the origin of a rename as a removal, even when the new path is granted', () => {
+    const { sys } = fakeWorld({
+      codex: (_files, w) => { w.statusExtra = 'R  src/feature.ts\0docs/plain.md\0'; w.ignoredContent['src/feature.ts'] = 'moved'; return ok(CLEAN); },
+    });
+    const out = adapter.start(sys, scoped, briefOf(), BRIEF_PATH);
+    expect(out.kind).toBe('refused');
+    if (out.kind === 'refused') expect(out.detail).toContain('docs/plain.md');
+  });
+
+  it('reads a path with a space or non-ASCII characters as it is, and names it', () => {
+    const { sys } = fakeWorld({ codex: (files) => { files['src/my file é.ts'] = 'x'; return ok(CLEAN); } });
+    const out = adapter.start(sys, scoped, briefOf(), BRIEF_PATH);
+    expect(out.kind).toBe('refused');
+    if (out.kind === 'refused') expect(out.detail).toContain('src/my file é.ts');
   });
 
   it('reports a scope breach even when the run also timed out, and names the paths', () => {
@@ -363,6 +500,36 @@ describe('a run that may have been steered, failed or leaked is refused', () => 
     expect(run(jsonl({ type: 'thread.started', thread_id: 't' }, { type: 'turn.failed', error: { message: 'boom' } })).kind).toBe('refused');
     expect(run(withItem({ id: 'e', type: 'error', message: 'bad' })).kind).toBe('refused');
     expect(run(jsonl({ type: 'thread.started', thread_id: 't' })).kind).toBe('refused');
+  });
+
+  it.each([
+    ['reads a secret file', 'cat .env'],
+    ['reads a secret file by path', 'type config/.env.production'],
+    ['reads an ssh key', 'cat ./.ssh/id_rsa'],
+    ['dumps the environment', 'printenv'],
+    ['dumps the environment in PowerShell', 'Get-ChildItem env:'],
+    ['reads the home directory from a script', 'node -e "console.log(require(\'os\').homedir())"'],
+    ['reads process.env from a script', 'node -e "console.log(process.env.PATH)"'],
+  ])('refuses a command that %s', (_name, command) => {
+    expect(run(withItem({ id: 'c', type: 'command_execution', command, exit_code: 0, status: 'completed' })).kind).toBe('refused');
+  });
+
+  it.each([['cat .env.example'], ['git diff -- src/credentials.ts'], ['rg environment docs']])('does not refuse the ordinary command %s', (command) => {
+    expect(run(withItem({ id: 'c', type: 'command_execution', command, exit_code: 0, status: 'completed' })).kind).toBe('completed');
+  });
+
+  it('withholds credential-shaped text from a failed turn, an error item and the stderr of an exit', () => {
+    const key = 'sk-' + 'a'.repeat(30);
+    const failed = run(jsonl({ type: 'thread.started', thread_id: 't' }, { type: 'turn.failed', error: { message: `401 for ${key}` } }));
+    expect(failed.kind).toBe('refused');
+    if (failed.kind === 'refused') expect(failed.detail).not.toContain(key);
+    const item = run(withItem({ id: 'e', type: 'error', message: `bad ${key}` }));
+    if (item.kind === 'refused') expect(item.detail).not.toContain(key);
+    const exit = run(CLEAN, { code: 2, stderr: `Authorization: Bearer ${key}` });
+    expect(exit.kind).toBe('completed');
+    if (exit.kind === 'completed') expect(exit.stderr).not.toContain(key);
+    const gone = run('', { code: 1, failure: 'not-started', stderr: `cannot start ${key}` });
+    if (gone.kind === 'refused') expect(gone.detail).not.toContain(key);
   });
 
   it('names the denial in the refusal without echoing the text that tripped it', () => {
