@@ -356,3 +356,62 @@ the SQL. No change to `runner.ts` in this phase (the proposal door is phase C).
 **Reviews:** ECC `security-reviewer` (independent, mandatory: deletion and owner proof). One recheck at most.
 
 **Not in A or B:** the proposal door wiring, the skill reviewer verifier's use in skill promotion, taint enforcement, PX-12.
+
+---
+
+# Plan v1.37 (draft) — PROJECTOS-WORKER-SCRATCH-CHECKOUT1A (plan 4.3a)
+
+**Status:** APPROVED by the owner 2026-11-17 ("Approved all"). Drafted at plan branch `d6529fb2`.
+Owner answers recorded (all as recommended): the scratch is built from the working tree, not HEAD only, so a correction sees earlier work; the
+scratch holds no `node_modules` (Codex cannot run the tests; the loop's own checks decide); deleting a granted file is refused in this slice;
+reads of the real checkout by absolute path stay open until container or VM isolation, so D4 is not retired.
+
+**Why:** the Codex implementer's write scope is detective only (see `docs/finish/PROJECTOS-WORKER-CODEX-IMPLEMENTER1A.md`, "What this does NOT
+prove", items 2 to 5). Running the worker in a scratch copy and copying back only granted paths makes the scope preventative and leaves the real
+tree byte-identical after a refusal.
+
+**Existing code found.** The detective check (`agent/src/loop/writeScope.ts`: `grantScopes`, `pathInGrants`, `isAgentControlPath`,
+`candidateSnapshot`, `scopeBreaches`) stays as the backstop. The adapter (`adapters/codexImplementer.ts`) runs Codex with `--cd root` and
+`cwd: root`. The loop runs its checks, evidence and candidate identity in the real root AFTER the adapter returns (`runner.ts`), so a scratch
+inside the adapter changes nothing else: the copy-back is all the loop sees. The brief carries absolute real-root paths (`brief.ts`
+`repository.root`, `records.*`). Nothing in `agent/src` creates a worktree; a recursive copy of a worktree's `.git` mutates the real repository,
+so `.git` is never copied.
+
+**Options considered.** `git worktree add` (rejected: shares the real `.git` config, hooks and refs); `git clone --local` (rejected: keeps a remote
+pointing at the real repository and loses uncommitted correction work); container or VM (deferred: high cost; the only option that also closes
+reads by absolute path). Chosen: an adapter-local scratch export.
+
+**ADDED.**
+- `projectos/agent/src/loop/scratchCheckout.ts`: `exportScratch` (a fresh temp directory; the files git lists as tracked or untracked-not-ignored,
+  never `.git`, never an ignored file; then a standalone `git init` there with no remote), `manifestOf` (walks without following links; records file
+  hash, directory or link), `copyBack` (judges every difference first, writes nothing unless all are allowed).
+- Tests in `projectos/agent/test/` (real temp directories and real git, no worker, no provider).
+
+**MODIFIED.**
+- `adapters/codexImplementer.ts`: build the scratch; write a copy of the brief into it whose `repository.root` and record paths point into the
+  scratch, and place the existing evidence, findings, effects and stored-context files there; run Codex with `--cd` and `cwd` at the scratch and the
+  scratch brief path in the sentence; copy back; keep the existing real-root before/after snapshot as the backstop; remove the scratch in a `finally`.
+- `projectos/validators/val-projectos-worker-codex-implementer1a.cjs`: new rules with named mutations (no new validator, so no protected registration edit).
+- `docs/finish/PROJECTOS-WORKER-CODEX-IMPLEMENTER1A.md` (residuals 3 to 5) and its own finish doc.
+
+**PROTECTED (untouched).** Baseline §4 in full; `workers.ts`, `verification.ts`, `candidateIdentity.ts`, `localCandidateCommit.ts`,
+`pinnedValidators.ts`, `commands/run.ts`, `validate-all.cjs`, `cached-runner.cjs`; `runner.ts` is not edited either.
+
+**Rules.**
+1. The scratch never contains `.git`, a git-ignored file, or anything under an agent control path.
+2. The scratch is a standalone repository with no remote and no link to the real `.git`.
+3. A changed file outside the grants refuses the whole copy-back, and nothing is written to the real tree.
+4. A changed file under an agent control path is refused even beneath a directory grant.
+5. A new or changed symlink or junction anywhere in the scratch refuses.
+6. A file that became a directory, or a directory that became a file, refuses.
+7. A copy-back whose real destination passes through a link refuses.
+8. Deleting a granted file refuses in this slice.
+9. A write made and undone in the scratch leaves no trace in the real tree.
+10. A refused run leaves the real tree byte-identical to before.
+11. The worker-owned records (findings, effects) written in the scratch are copied back under the same rule as any granted path.
+12. The scratch is removed on every path, including a refusal, a timeout and a thrown error.
+
+**Reviews:** ECC `security-reviewer` (independent, mandatory); one recheck at most.
+
+**Not proven by this phase, and to say so:** whether Codex's Windows sandbox accepts a temp directory and a freshly initialised repository (needs a
+live Codex probe, which spends provider money and asks the owner first); copy time on a large repository; reads by absolute path stay open.
