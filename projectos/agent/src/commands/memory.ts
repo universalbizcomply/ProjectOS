@@ -42,6 +42,7 @@ import {
   decisionCitesItem,
   isProjectId,
   isTenantId,
+  memoryCharLimit,
   memoryClassOfPath,
   provenanceReplacementProblem,
   sha256Hex,
@@ -75,9 +76,12 @@ import {
 import {
   OWNER_CONFIRMATION_STATEMENT,
   fencedStoredText,
+  fencedWholeText,
+  indexDeletionClaimOf,
   proposalDecisionClaimOf,
   terminalAvailable,
   terminalDeletionVerifier,
+  terminalIndexVerifier,
   terminalProposalVerifier,
   visibleText,
   type OwnerTerminal,
@@ -91,6 +95,7 @@ import {
   nodeEnsureDirectory,
   nodeEntryProbe,
   openProjectSearchIndex,
+  projectIndexLocation,
   searchClockOver,
   searchHeadOver,
   type DocumentFs,
@@ -146,6 +151,10 @@ type LocalCode =
   | 'MEMORY_OWNER_NOT_CONFIRMED'
   | 'MEMORY_DELETE_CITED_BY_DECISION'
   | 'MEMORY_DELETE_DECISIONS_UNREADABLE'
+  | 'MEMORY_DELETE_PATH_SPELLING'
+  | 'MEMORY_DELETE_ITEM_CHANGED'
+  | 'MEMORY_TEXT_NOT_SHOWN_IN_FULL'
+  | 'MEMORY_DECISION_NOT_CHANGED_HERE'
   | 'MEMORY_INDEX_NO_STATE_DIRECTORY'
   | 'MEMORY_INDEX_UNAVAILABLE';
 
@@ -162,6 +171,10 @@ const NEXT_STEP: Readonly<Record<KnownCode, string>> = {
   MEMORY_OWNER_NOT_CONFIRMED: 'run the command again and retype the code exactly as it is shown',
   MEMORY_DELETE_CITED_BY_DECISION: 'a committed decision names this item; replace that decision with a new committed one first, then delete',
   MEMORY_DELETE_DECISIONS_UNREADABLE: 'the committed decisions could not all be read; check `git status` for this checkout and try again',
+  MEMORY_DELETE_PATH_SPELLING: 'give the path exactly as the directory spells it, in the same case, with no trailing dot or space and no ~1 short name; `git ls-files` shows it',
+  MEMORY_DELETE_ITEM_CHANGED: 'the item changed after it was read, so what was shown is not what would be deleted; run the command again',
+  MEMORY_TEXT_NOT_SHOWN_IN_FULL: 'the text is longer than the store allows, so it cannot be shown in full and is not asked about; reject the proposal',
+  MEMORY_DECISION_NOT_CHANGED_HERE: 'a decision is changed by committing a new decision, not by a proposal; reject this one',
   MEMORY_INDEX_NO_STATE_DIRECTORY: 'the installation has no state directory; run `projectos doctor`',
   MEMORY_INDEX_UNAVAILABLE: 'the index could not be opened or built; it is derived, so `projectos memory index delete` and a rebuild are safe',
   DELETE_REQUEST_INVALID: 'give --path, --reason (one line, 500 characters at most) and, if you give one, a --hash of 64 hex characters',
@@ -311,12 +324,56 @@ function decisionsOf(ctx: CommandContext, deps: MemoryCommandDeps): readonly str
   }
 }
 
-type CitedStop = 'cited' | 'unknown' | null;
+const BACKSLASH = String.fromCharCode(92);
+const SHORT_NAME = /~\d/;
+const TRAILING_DOT_OR_SPACE = /[. ]$/;
+
+/** A citation compared the way Windows compares a path: case-folded, one separator, no doubled ones. */
+const foldedCitation = (text: string): string => text.split(BACKSLASH).join('/').replace(/\/+/g, '/').toLowerCase();
+
+/** Whether a decision names the item by path or hash in ANY case or separator, which the core's exact match would miss. */
+function citedWhenFolded(texts: readonly string[] | null, path: string, hash: string): boolean {
+  if (texts === null) return false;
+  const wantedPath = foldedCitation(path);
+  const wantedHash = hash.toLowerCase();
+  return texts.some((text) => {
+    const folded = foldedCitation(text);
+    return folded.includes(wantedPath) || folded.includes(wantedHash);
+  });
+}
+
+/**
+ * The path must be spelled exactly as each directory holds it, segment by segment: a case difference, a trailing dot or space and an
+ * 8.3 short name are the same file on Windows but a different string to the citation check. A name no directory holds at all is left to
+ * the deletion rule, which records it as absent.
+ */
+function pathSpellingProblem(fs: DocumentFs, root: string, path: string): boolean {
+  const segments = path.split('/');
+  // A path that climbs, or names nothing, is not asked about here: the deletion rule refuses it, and no directory outside the checkout is listed.
+  if (path.length > 512 || segments.some((segment) => segment === '' || segment === '.' || segment === '..')) return false;
+  if (segments.some((segment) => TRAILING_DOT_OR_SPACE.test(segment) || SHORT_NAME.test(segment))) return true;
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index] as string;
+    const parent = index === 0 ? root : `${root}/${segments.slice(0, index).join('/')}`;
+    const names = fs.listDir(parent);
+    if (names.includes(segment)) continue;
+    if (names.some((name) => name.toLowerCase() === segment.toLowerCase())) return true;
+    return false;
+  }
+  return false;
+}
+
+type CitedStop = 'cited' | 'unknown' | 'changed' | null;
 
 /** The owner is not asked about an item the command will not remove: a cited or unknowable item is declined inside the ask, so the ledger records it. */
-function decliningCited(inner: OwnerDeletionVerifier, stop: { value: CitedStop }): OwnerDeletionVerifier {
+function decliningCited(inner: OwnerDeletionVerifier, stop: { value: CitedStop }, shown: { readonly hash: string | null; readonly citedFolded: boolean }): OwnerDeletionVerifier {
   return (claim: MemoryDeletionClaim) => {
-    if (claim.citedByDecision === true) {
+    // WHAT THE OWNER IS ASKED ABOUT IS WHAT THEY WERE SHOWN: the claim's hash must be the hash of the bytes displayed.
+    if (shown.hash !== null && claim.itemHash !== shown.hash) {
+      stop.value = 'changed';
+      return false;
+    }
+    if (claim.citedByDecision === true || shown.citedFolded) {
       stop.value = 'cited';
       return false;
     }
@@ -329,6 +386,7 @@ function decliningCited(inner: OwnerDeletionVerifier, stop: { value: CitedStop }
 }
 
 function deletionRefusal(code: MemoryDeletionRefusal, stop: CitedStop): CommandResult {
+  if (code === 'DELETE_OWNER_NOT_VERIFIED' && stop === 'changed') return refusal('MEMORY_DELETE_ITEM_CHANGED', 'the hash being asked about is not the hash of the text that was shown');
   if (code === 'DELETE_OWNER_NOT_VERIFIED' && stop === 'cited') return refusal('MEMORY_DELETE_CITED_BY_DECISION', 'a committed decision names this item (its path or its hash), so it is not deleted here');
   if (code === 'DELETE_OWNER_NOT_VERIFIED' && stop === 'unknown') return refusal('MEMORY_DELETE_DECISIONS_UNREADABLE', 'the committed decisions could not be read, so it is not known whether one relies on this item');
   return refusal(code, `the deletion was refused by rule ${code}`);
@@ -344,10 +402,15 @@ function deleteCommand(ctx: CommandContext, flags: Flags, who: { tenant: string;
   if (terminal === null) return needsTerminal();
 
   const { sys, root } = ctx;
-  const item = readRegularItem(documentFsOver(sys, deps.entryProbe), root, path);
+  const fs = documentFsOver(sys, deps.entryProbe);
+  if (pathSpellingProblem(fs, root, path)) {
+    return decided(refusal('MEMORY_DELETE_PATH_SPELLING', 'the path is not spelled as the directory spells it (case, a trailing dot or space, or a short name)'));
+  }
+  const item = readRegularItem(fs, root, path);
   const stop: { value: CitedStop } = { value: null };
-  const verifier = decliningCited(terminalDeletionVerifier(() => terminal, item === null ? [] : fencedStoredText('the item', item.text, 400)), stop);
   const itemHash = hash !== '' ? hash : (item?.hash ?? ZERO_HASH);
+  const citedFolded = citedWhenFolded(decisionsOf(ctx, deps), path, itemHash);
+  const verifier = decliningCited(terminalDeletionVerifier(() => terminal, item === null ? [] : fencedStoredText('the item', item.text, 400)), stop, { hash: item?.hash ?? null, citedFolded });
   const outcome = deleteMemoryItem(
     { owner: who, files: deletionFilesOver(sys), fs: documentFsOver(sys, deps.entryProbe), clock: searchClockOver(sys), committedDecisions: () => decisionsOf(ctx, deps), ownerVerifier: verifier },
     root,
@@ -414,34 +477,64 @@ function skippedReasons(skipped: readonly { readonly reason: string }[]): string
 function deleteIndex(ctx: CommandContext, flags: Flags, who: { tenant: string; project: string }, deps: MemoryCommandDeps): CommandResult {
   const directory = deps.indexDirectory();
   if (directory === null) return refusal('MEMORY_INDEX_NO_STATE_DIRECTORY', 'the installation has no state directory to keep the index in');
+  // THE TERMINAL IS ASKED FIRST, and a refusal here writes nothing: an agent with no terminal cannot fill the deletion ledger.
+  const terminal = terminalOf(deps);
+  if (terminal === null) return needsTerminal();
   const { sys, root } = ctx;
+  const where = projectIndexLocation(directory, who);
+  if (!where.ok) return refusal('MEMORY_INDEX_UNAVAILABLE', `the index file cannot be named for this tenant and project (${where.reason})`);
+  // NOTHING TO DELETE IS NOT AN ATTEMPT: no ledger entry is made for an index that is not there.
+  if (!sys.exists(where.location)) return { code: 0, lines: [`NOTHING TO DELETE: there is no derived index for tenant ${who.tenant}, project ${who.project}; \`memory index rebuild\` makes one.`] };
+  const indexFile = where.location.slice(where.location.lastIndexOf('/') + 1);
+  const claim = indexDeletionClaimOf({ action: 'memory-index-delete', tenant: who.tenant, project: who.project, root, indexFile });
+  if (terminalIndexVerifier(() => terminal)(claim) !== true) {
+    return decided(refusal('MEMORY_OWNER_NOT_CONFIRMED', 'what was typed is not the code for deleting this index, so nothing was deleted'));
+  }
   const reason = str(flags, 'reason', 'the derived index was deleted so it can be rebuilt');
   const outcome = deleteDerivedIndex({ owner: who, files: deletionFilesOver(sys), clock: searchClockOver(sys) }, root, directory, { tenant: who.tenant, project: who.project, reason });
   const ledger = ledgerLines(sys, root);
-  if (!outcome.ok) return { code: REFUSED_EXIT, lines: [...deletionRefusal(outcome.code, null).lines, ...ledger] };
-  return { code: 0, lines: [`INDEX DELETED for tenant ${who.tenant}, project ${who.project}; \`memory index rebuild\` makes it again.`, ...ledger] };
+  if (!outcome.ok) return decided({ code: REFUSED_EXIT, lines: [...deletionRefusal(outcome.code, null).lines, ...ledger] });
+  return decided({ code: 0, lines: [`INDEX DELETED for tenant ${who.tenant}, project ${who.project}; \`memory index rebuild\` makes it again.`, ...ledger] });
 }
 
 const OWNER_CALLER: MemoryCaller = Object.freeze({ author: 'owner-terminal', role: 'owner', session: 'typed-terminal' });
 const LIST_CAP = 20;
-const PROPOSAL_TEXT_CAP = 600;
 
 function proposalLine(proposal: MemoryProposal): string {
   const { author, proposedAt } = proposal.provenance;
   return `  ${proposal.id}  ${proposal.op} ${proposal.kind} on ${proposal.target}  by ${visibleText(author, 64)}  at ${visibleText(proposedAt, 40)}  hash ${proposal.proposalHash}`;
 }
 
-function showProposal(proposal: MemoryProposal): readonly string[] {
+/**
+ * THE WHOLE TEXT, OR NO QUESTION. The proposed text and the entry it would replace are shown to the last character, the cap being the
+ * store's own limit (`memoryCharLimit`), so the owner approves what they read. If anything would still be cut, there is no block and the
+ * caller refuses to ask: text the owner was not shown is never asked about.
+ */
+export function proposalTextBlocks(proposal: Pick<MemoryProposal, 'target' | 'content' | 'targetEntry'>): readonly string[] | null {
+  const cap = memoryCharLimit(proposal.target);
+  const proposed = proposal.content === null ? [] : fencedWholeText('proposed text', proposal.content, cap);
+  const replaced = proposal.targetEntry === null ? [] : fencedWholeText('the entry it would replace or remove', proposal.targetEntry, cap);
+  return proposed === null || replaced === null ? null : [...proposed, ...replaced];
+}
+
+/** Who proposed it, in which role, of what kind: inert, capped text. The role is what the queue file CLAIMS, and decides nothing here. */
+function proposalFacts(proposal: MemoryProposal): readonly string[] {
   const { author, authorRole, session, proposedAt } = proposal.provenance;
+  return [
+    `  proposed by ${visibleText(author, 64)}, role ${visibleText(authorRole, 32)} (as the queue file claims; it decides nothing), session ${visibleText(session, 64)}, at ${visibleText(proposedAt, 40)}`,
+    `  kind ${visibleText(proposal.kind, 16)}${proposal.ledgerRef === null ? '' : `, ledger reference ${visibleText(proposal.ledgerRef, 200)}`}`,
+  ];
+}
+
+function showProposal(proposal: MemoryProposal): readonly string[] {
+  const whole = proposalTextBlocks(proposal);
   return [
     `proposal ${proposal.id}: ${proposal.state}`,
     `  ${proposal.op} ${proposal.kind} on the ${proposal.target} store`,
-    `  proposed by ${visibleText(author, 64)} (${visibleText(authorRole, 32)}), session ${visibleText(session, 64)}, at ${visibleText(proposedAt, 40)}`,
+    ...proposalFacts(proposal),
     `  proposal hash ${proposal.proposalHash}`,
-    ...(proposal.ledgerRef === null ? [] : [`  ledger reference ${visibleText(proposal.ledgerRef, 200)}`]),
     ...(proposal.timeSensitive === null ? [] : [`  time-sensitive wording: ${visibleText(proposal.timeSensitive, 100)}`]),
-    ...(proposal.content === null ? [] : fencedStoredText('proposed text', proposal.content, PROPOSAL_TEXT_CAP)),
-    ...(proposal.targetEntry === null ? [] : fencedStoredText('the entry it would replace or remove', proposal.targetEntry, PROPOSAL_TEXT_CAP)),
+    ...(whole ?? [`  THE TEXT IS LONGER THAN THE STORE ALLOWS and is not shown in full, so this proposal cannot be approved or rejected here`, ...fencedStoredText('proposed text, cut', proposal.content ?? '', memoryCharLimit(proposal.target))]),
     `  decide it, in a terminal: projectos memory approve --id ${proposal.id}   or   projectos memory reject --id ${proposal.id}`,
   ];
 }
@@ -465,17 +558,23 @@ function proposalsCommand(ctx: CommandContext, flags: Flags): CommandResult {
   };
 }
 
-/** The rank rule, asked before the owner is: a summary or a worker's proposal does not stand in for what approved memory already holds. */
+/**
+ * The rank rule, asked before the owner is. A role read from the queue file is a claim, not proof, so it exempts nothing from the rule
+ * about decisions: through this command a proposal that would replace or remove an entry that is a decision (or that has no record of
+ * its origin, which is protected as one) is always refused. A decision is changed by committing a new decision. For any other entry,
+ * the owner's own non-summary writing is not a stand-in for it and goes to the owner, who is shown the author and role it claims.
+ */
 function replacementProblem(ctx: CommandContext, proposal: MemoryProposal): CommandResult | null {
   if (proposal.op === 'add') return null;
-  // The owner's own writing is the one thing the existing decision rule lets change an entry, and it is not a stand-in for anything.
-  if (proposal.provenance.authorRole === 'owner' && proposal.kind !== 'summary') return null;
   const store = readMemoryStore(ctx.sys, ctx.root, proposal.target);
   if (!store.ok) return memoryRefusal(store);
   const held = store.value.provenance.get(proposal.targetEntryHash ?? '')?.kind;
+  if (held === undefined || held === 'decision') {
+    return refusal('MEMORY_DECISION_NOT_CHANGED_HERE', `proposal ${proposal.id} would ${proposal.op} an entry that is a decision or has no record of its origin`);
+  }
+  if (proposal.provenance.authorRole === 'owner' && proposal.kind !== 'summary') return null;
   const writer = { kind: proposal.kind === 'summary' ? 'summary' : 'recollection' };
-  // An entry with no record of its origin is protected as a decision, as the decision rule does.
-  const target = { kind: held === undefined || held === 'decision' ? 'committed-decision' : 'approved-memory', path: `.projectops/memory/${proposal.target === 'user' ? 'USER' : 'MEMORY'}.md` };
+  const target = { kind: 'approved-memory', path: `.projectops/memory/${proposal.target === 'user' ? 'USER' : 'MEMORY'}.md` };
   const code = provenanceReplacementProblem(writer, target);
   return code === null ? null : refusal(code, `proposal ${proposal.id} would stand in for an entry that approved memory already holds`);
 }
@@ -503,10 +602,9 @@ function decideCommand(ctx: CommandContext, flags: Flags, who: { tenant: string;
     target: proposal.target,
     op: proposal.op,
   });
-  const extra = [
-    ...(proposal.content === null ? [] : fencedStoredText('proposed text', proposal.content, PROPOSAL_TEXT_CAP)),
-    ...(proposal.targetEntry === null ? [] : fencedStoredText('the entry it would replace or remove', proposal.targetEntry, PROPOSAL_TEXT_CAP)),
-  ];
+  const blocks = proposalTextBlocks(proposal);
+  if (blocks === null) return decided(refusal('MEMORY_TEXT_NOT_SHOWN_IN_FULL', `proposal ${proposal.id} holds text longer than the store allows, so it cannot be shown in full`));
+  const extra = [...proposalFacts(proposal), ...blocks];
   // Asked once, for this proposal and the hash just read. The role is the owner's only now, only for this one call.
   if (terminalProposalVerifier(() => terminal, extra)(claim) !== true) {
     return decided(refusal('MEMORY_OWNER_NOT_CONFIRMED', 'what was typed is not the code for this proposal, so it was not decided'));

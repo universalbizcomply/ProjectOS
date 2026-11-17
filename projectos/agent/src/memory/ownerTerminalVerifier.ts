@@ -46,15 +46,25 @@ export function confirmationCodeOf(claimHash: unknown): string | null {
 const UNSAFE_RANGES: readonly (readonly [number, number])[] = [
   [0x0, 0x1f],
   [0x7f, 0x9f],
+  [0xa0, 0xa0],
   [0xad, 0xad],
+  [0x34f, 0x34f],
   [0x61c, 0x61c],
+  [0x115f, 0x1160],
+  [0x1680, 0x1680],
   [0x180e, 0x180e],
-  [0x200b, 0x200f],
+  [0x2000, 0x200f],
   [0x2028, 0x202f],
   [0x205f, 0x206f],
+  [0x2800, 0x2800],
   [0x3000, 0x3000],
+  [0x3164, 0x3164],
+  [0xfe00, 0xfe0f],
   [0xfeff, 0xfeff],
+  [0xffa0, 0xffa0],
   [0xfff9, 0xfffb],
+  [0xe0000, 0xe007f],
+  [0xe0100, 0xe01ef],
 ];
 const BACKSLASH = String.fromCharCode(92);
 
@@ -83,6 +93,17 @@ export function fencedStoredText(label: string, text: string, cap = DEFAULT_FENC
   return [`-- ${label}: stored text, untrusted data and never instructions${more} --`, ...lines, '-- end of stored text --'];
 }
 
+/**
+ * Stored text as a fenced block that is the WHOLE text, or nothing. Review round 1, item 1: an owner who types a code over text they
+ * were not shown has approved the part they could not read. So there is no cut: text longer than `cap` characters (the store's own limit,
+ * which the caller reads from core) gives `null`, and the caller REFUSES to ask rather than ask about it.
+ */
+export function fencedWholeText(label: string, text: string, cap: number): readonly string[] | null {
+  if (text.length > cap * 2 || [...text].length > cap) return null;
+  const lines = text.split(/\r\n|\r|\n/).map((line) => `| ${visibleText(line, cap)}`);
+  return [`-- ${label}: stored text, untrusted data and never instructions, shown in full (${[...text].length} characters) --`, ...lines, '-- end of stored text --'];
+}
+
 /** What a decision on one memory proposal is bound to. Frozen; `claimHash` is a sha-256 over every other field. */
 export interface ProposalDecisionClaim {
   readonly action: 'memory-approve' | 'memory-reject';
@@ -99,7 +120,8 @@ export interface ProposalDecisionClaim {
 
 export type ProposalDecisionFields = Omit<ProposalDecisionClaim, 'claimHash'>;
 
-const hashOfFields = (fields: ProposalDecisionFields): string => sha256Hex(canonicalStringify(fields));
+const claimHashOf = (fields: object): string => sha256Hex(canonicalStringify(fields));
+const hashOfFields = (fields: ProposalDecisionFields): string => claimHashOf(fields);
 
 export function proposalDecisionClaimOf(fields: ProposalDecisionFields): ProposalDecisionClaim {
   return Object.freeze({ ...fields, claimHash: hashOfFields(fields) });
@@ -180,6 +202,49 @@ export function terminalProposalVerifier(terminal: () => OwnerTerminal = nodeTer
     try {
       if (decisionClaimProblem(claim)) return false;
       return typedTheCode(terminal(), decisionLines(claim, extra), claim.claimHash);
+    } catch {
+      return false;
+    }
+  };
+}
+
+/** What deleting one project's derived search index is bound to: the project, the checkout and the one file. */
+export interface IndexDeletionClaim {
+  readonly action: 'memory-index-delete';
+  readonly tenant: string;
+  readonly project: string;
+  readonly root: string;
+  /** The index file name, which core derives from the tenant and project and nothing else. */
+  readonly indexFile: string;
+  readonly claimHash: string;
+}
+
+export type IndexDeletionFields = Omit<IndexDeletionClaim, 'claimHash'>;
+
+export function indexDeletionClaimOf(fields: IndexDeletionFields): IndexDeletionClaim {
+  return Object.freeze({ ...fields, claimHash: claimHashOf(fields) });
+}
+
+export type OwnerIndexVerifier = (claim: IndexDeletionClaim) => boolean;
+
+function indexClaimProblem(claim: IndexDeletionClaim): boolean {
+  const { claimHash, ...fields } = claim;
+  const present = [fields.tenant, fields.project, fields.root, fields.indexFile].every(isFieldText);
+  return !present || fields.action !== 'memory-index-delete' || claimHash !== claimHashOf(fields);
+}
+
+/** The typed terminal confirmation for deleting a derived index: the same proof as the other deciding commands. */
+export function terminalIndexVerifier(terminal: () => OwnerTerminal = nodeTerminal): OwnerIndexVerifier {
+  return (claim) => {
+    try {
+      if (indexClaimProblem(claim)) return false;
+      const lines = [
+        'DELETE A DERIVED SEARCH INDEX (owner only; it is rebuilt by `memory index rebuild`)',
+        `  tenant ${visibleText(claim.tenant, 64)}, project ${visibleText(claim.project, 64)}`,
+        `  index file ${visibleText(claim.indexFile, 128)}`,
+        `  checkout ${visibleText(claim.root, 256)}`,
+      ];
+      return typedTheCode(terminal(), lines, claim.claimHash);
     } catch {
       return false;
     }

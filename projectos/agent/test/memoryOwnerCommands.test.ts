@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   MEMORY_DELETION_LEDGER_DIR,
   buildMemoryProposal,
+  memoryCharLimit,
   memoryEntryHash,
   searchIndexFileName,
   sha256Hex,
@@ -13,11 +14,12 @@ import {
 } from '@projectos/core';
 import { HELP, readOnlyUnderPlatformStop, run } from '../src/cli.js';
 import type { CommandContext } from '../src/context.js';
-import { memory, type MemoryCommandDeps } from '../src/commands/memory.js';
+import { memory, proposalTextBlocks, type MemoryCommandDeps } from '../src/commands/memory.js';
 import { proposeMemoryWrite, memoryStorePath, memoryProvenancePath, readMemoryStore, approveMemoryProposal, memoryDir } from '../src/memory/index.js';
 import {
   confirmationCodeOf,
   fencedStoredText,
+  fencedWholeText,
   proposalDecisionClaimOf,
   terminalDeletionVerifier,
   terminalProposalVerifier,
@@ -43,7 +45,7 @@ interface World {
   readonly writes: string[];
   readonly sys: System;
   readonly ctx: CommandContext;
-  readonly state: { head: string | null; tick: number };
+  readonly state: { head: string | null; tick: number; insensitive: boolean; afterRead: ((path: string) => void) | null };
   /** Called with the ledger's file names at the moment a file is removed. */
   readonly onRemove: ((path: string, ledgerNames: readonly string[]) => void)[];
 }
@@ -56,7 +58,8 @@ const childNames = (files: Map<string, string>, path: string): readonly string[]
 function world(initial: Record<string, string> = { [`${ROOT}/${ITEM}`]: ITEM_TEXT }): World {
   const files = new Map(Object.entries(initial));
   const writes: string[] = [];
-  const state: World['state'] = { head: HEAD_A, tick: 0 };
+  const state: World['state'] = { head: HEAD_A, tick: 0, insensitive: false, afterRead: null };
+  const keyOf = (path: string): string => (state.insensitive ? ([...files.keys()].find((key) => key.toLowerCase() === path.toLowerCase()) ?? path) : path);
   const onRemove: World['onRemove'] = [];
   const exec = (cmd: string, args: readonly string[]): ExecResult => {
     const joined = args.join(' ');
@@ -68,12 +71,16 @@ function world(initial: Record<string, string> = { [`${ROOT}/${ITEM}`]: ITEM_TEX
   const sys: System = {
     cwd: () => ROOT,
     now: () => new Date(Date.UTC(2026, 10, 17, 10, 0, state.tick++)).toISOString(),
-    readText: (path) => files.get(path) ?? null,
+    readText: (path) => {
+      const held = files.get(keyOf(path)) ?? null;
+      state.afterRead?.(path);
+      return held;
+    },
     writeText: (path, content) => {
       writes.push(path);
       files.set(path, content);
     },
-    exists: (path) => files.has(path),
+    exists: (path) => files.has(keyOf(path)),
     listDir: (path) => childNames(files, path),
     renameFile: (from, to) => {
       writes.push(to);
@@ -92,7 +99,7 @@ function world(initial: Record<string, string> = { [`${ROOT}/${ITEM}`]: ITEM_TEX
     removeFile: (path) => {
       writes.push(path);
       for (const watcher of onRemove) watcher(path, childNames(files, LEDGER));
-      files.delete(path);
+      files.delete(keyOf(path));
       return true;
     },
     exec,
@@ -100,9 +107,11 @@ function world(initial: Record<string, string> = { [`${ROOT}/${ITEM}`]: ITEM_TEX
   return { files, writes, sys, ctx: { sys, root: ROOT }, state, onRemove };
 }
 
-const probeOver = (files: Map<string, string>): EntryProbe => (path) => {
-  if (files.has(path)) return { kind: 'file', size: (files.get(path) ?? '').length, mtimeMs: 1 };
-  return [...files.keys()].some((name) => name.startsWith(`${path}/`)) ? { kind: 'directory', size: 0, mtimeMs: 1 } : null;
+const probeOver = (files: Map<string, string>, state?: { readonly insensitive: boolean }): EntryProbe => (path) => {
+  const fold = (text: string): string => (state?.insensitive === true ? text.toLowerCase() : text);
+  const held = [...files.keys()].find((key) => fold(key) === fold(path));
+  if (held !== undefined) return { kind: 'file', size: (files.get(held) ?? '').length, mtimeMs: 1 };
+  return [...files.keys()].some((name) => fold(name).startsWith(fold(`${path}/`))) ? { kind: 'directory', size: 0, mtimeMs: 1 } : null;
 };
 
 interface Terminal extends OwnerTerminal {
@@ -143,7 +152,7 @@ function depsOver(w: World, over: Partial<MemoryCommandDeps> = {}): Partial<Memo
     identity: () => IDENTITY,
     terminal: () => terminal(),
     indexDirectory: () => indexDir,
-    entryProbe: probeOver(w.files),
+    entryProbe: probeOver(w.files, w.state),
     committedDecisions: () => [],
     ...over,
   };
@@ -458,7 +467,7 @@ describe('rule 5: index rebuild writes only the per-project derived index, at th
     expect(printed).not.toContain('walnut');
   });
 
-  it('index delete removes the one derived index of this project, with no owner, and records it', () => {
+  it('index delete removes the one derived index of this project, with the owner at a terminal, and records it', () => {
     const w = world(docs);
     rebuild(w);
     w.files.set(named(), 'the index file, as the fake disk sees it');
@@ -674,14 +683,6 @@ ${ZWSP}`;
     expect(visibleText('x'.repeat(500), 50).length).toBeLessThan(80);
   });
 
-  it('proposals caps what it shows of a long proposal', () => {
-    const w = world();
-    const long = propose(w, { content: 'x'.repeat(2000) });
-    const printed = text(memory(w.ctx, { id: long.id }, ['proposals'], depsOver(w)));
-    expect(printed.length).toBeLessThan(4000);
-    expect(printed).toContain('cut after');
-  });
-
   it('the list shows ids and hashes only, and no proposal text', () => {
     const w = world();
     propose(w, { content: 'A fact nobody should see in the list.' });
@@ -746,3 +747,316 @@ describe('the command is reached from the CLI, and the emergency stop allows onl
 void buildMemoryProposal;
 void memoryEntryHash;
 void approveMemoryProposal;
+
+// ---------------------------------------------------------------------------------------------------------
+// REVIEW ROUND 1 (independent security review): items 1 to 6. Each was reproduced against real files first.
+// ---------------------------------------------------------------------------------------------------------
+
+describe('review item 1: the owner is shown the whole text, or is not asked', () => {
+  const TAIL = 'TAIL-PAYLOAD-AFTER-THE-OLD-CUT';
+  const longBody = `The build uses Node 24. ${'x'.repeat(1500)} ${TAIL}`;
+
+  it('the approve prompt shows a 2000-character proposal to its last word, with no cut notice', () => {
+    const w = world({});
+    const proposal = propose(w, { content: longBody });
+    const t = terminal();
+    const result = memory(w.ctx, { id: proposal.id }, ['approve'], depsOver(w, { terminal: () => t }));
+    expect(result.code).toBe(0);
+    expect(t.asked[0]).toContain(TAIL);
+    expect(t.asked[0]).not.toContain('cut after');
+  });
+
+  it('reject shows the whole text too, and so does proposals --id', () => {
+    const w = world({});
+    const proposal = propose(w, { content: longBody });
+    const shown = text(memory(w.ctx, { id: proposal.id }, ['proposals'], depsOver(w)));
+    expect(shown).toContain(TAIL);
+    expect(shown).not.toContain('cut after');
+    const t = terminal();
+    memory(w.ctx, { id: proposal.id }, ['reject'], depsOver(w, { terminal: () => t }));
+    expect(t.asked[0]).toContain(TAIL);
+  });
+
+  it('the entry a replace would remove is shown whole as well', () => {
+    const w = world({});
+    const first = propose(w, { content: `Old entry ${'y'.repeat(1200)} OLD-TAIL` }, 'owner');
+    memory(w.ctx, { id: first.id }, ['approve'], depsOver(w));
+    const replace = propose(w, { op: 'replace', kind: 'fact', content: 'New short entry.', oldText: 'Old entry' }, 'owner');
+    const t = terminal();
+    memory(w.ctx, { id: replace.id }, ['approve'], depsOver(w, { terminal: () => t }));
+    expect(t.asked[0]).toContain('OLD-TAIL');
+  });
+
+  it('proposalTextBlocks gives the whole text up to the store limits and nothing past them', () => {
+    const limit = memoryCharLimit('memory');
+    expect(proposalTextBlocks({ target: 'memory', content: 'z'.repeat(limit), targetEntry: null })).not.toBeNull();
+    expect(proposalTextBlocks({ target: 'memory', content: 'z'.repeat(limit + 1), targetEntry: null })).toBeNull();
+    expect(proposalTextBlocks({ target: 'user', content: 'z'.repeat(memoryCharLimit('user') + 1), targetEntry: null })).toBeNull();
+    expect(proposalTextBlocks({ target: 'memory', content: 'a', targetEntry: 'z'.repeat(limit + 1) })).toBeNull();
+  });
+
+  it('a single very long line is not cut inside the block', () => {
+    const block = fencedWholeText('x', 'q'.repeat(1500), 2200);
+    expect(block).not.toBeNull();
+    expect((block ?? []).join('\n')).toContain('q'.repeat(1500));
+  });
+
+  it('fencedWholeText refuses what it would have to cut', () => {
+    expect(fencedWholeText('x', 'q'.repeat(2201), 2200)).toBeNull();
+  });
+});
+
+describe('review item 2: a role read from the queue file never lets a decision entry be replaced or removed', () => {
+  const DECISION = 'DECISION: production deploys need owner sign-off.';
+  const decisionWorld = (): World => {
+    const w = world({});
+    const made = propose(w, { kind: 'decision', content: DECISION, ledgerRef: '.projectops/closure/decisions/d1.json' }, 'owner');
+    expect(memory(w.ctx, { id: made.id }, ['approve'], depsOver(w)).code).toBe(0);
+    return w;
+  };
+
+  it('a proposal that claims the owner and replaces a decision entry is refused, and nobody is asked', () => {
+    const w = decisionWorld();
+    const forged = propose(w, { op: 'replace', kind: 'fact', content: 'Deploys need no sign-off.', oldText: 'production deploys' }, 'owner');
+    const t = terminal();
+    const result = memory(w.ctx, { id: forged.id }, ['approve'], depsOver(w, { terminal: () => t }));
+    expect(text(result)).toContain('REFUSED (MEMORY_DECISION_NOT_CHANGED_HERE)');
+    expect(text(result)).toContain('next:');
+    expect(t.asked).toEqual([]);
+    expect(storeEntries(w)).toEqual([DECISION]);
+    expect(stateOnFile(w, forged.id)).toBe('pending');
+  });
+
+  it('a remove of a decision entry is refused the same way', () => {
+    const w = decisionWorld();
+    const removal = propose(w, { op: 'remove', kind: 'fact', oldText: 'production deploys' }, 'owner');
+    const result = memory(w.ctx, { id: removal.id }, ['approve'], depsOver(w));
+    expect(text(result)).toContain('MEMORY_DECISION_NOT_CHANGED_HERE');
+    expect(storeEntries(w)).toEqual([DECISION]);
+  });
+
+  it('an entry with no record of its origin is protected as a decision', () => {
+    const w = world({});
+    w.files.set(memoryStorePath(ROOT, 'memory'), 'An entry nobody recorded.');
+    const replace = propose(w, { op: 'replace', kind: 'fact', content: 'Another entry.', oldText: 'An entry nobody' }, 'owner');
+    const result = memory(w.ctx, { id: replace.id }, ['approve'], depsOver(w));
+    expect(text(result)).toContain('MEMORY_DECISION_NOT_CHANGED_HERE');
+    expect(storeEntries(w)).toEqual(['An entry nobody recorded.']);
+  });
+
+  it('the prompt shows who proposed it, in which role, of what kind, and its ledger reference', () => {
+    const w = world({});
+    const proposal = propose(w, { kind: 'decision', content: 'A decision to record.', ledgerRef: '.projectops/closure/decisions/d9.json' });
+    const t = terminal();
+    memory(w.ctx, { id: proposal.id }, ['approve'], depsOver(w, { terminal: () => t }));
+    const prompt = t.asked[0] ?? '';
+    expect(prompt).toContain('worker-1');
+    expect(prompt).toContain('implementer');
+    expect(prompt).toContain('decision');
+    expect(prompt).toContain('.projectops/closure/decisions/d9.json');
+  });
+
+  it('an owner-authored change to an entry that is not a decision still goes to the owner for the typed code', () => {
+    const w = world({});
+    const first = propose(w, { content: 'The build uses Node 24.' }, 'owner');
+    memory(w.ctx, { id: first.id }, ['approve'], depsOver(w));
+    const replace = propose(w, { op: 'replace', kind: 'fact', content: 'The build uses Node 25.', oldText: 'The build uses Node 24.' }, 'owner');
+    const t = terminal();
+    expect(memory(w.ctx, { id: replace.id }, ['approve'], depsOver(w, { terminal: () => t })).code).toBe(0);
+    expect(t.asked).toHaveLength(1);
+    expect(storeEntries(w)).toEqual(['The build uses Node 25.']);
+  });
+});
+
+describe('review item 3: a path spelled another way, or cited in another case, is not deleted', () => {
+  const RUN = '.projectops/execution/run1.json';
+  const RUN_TEXT = '{"run":1}\n';
+  const runWorld = (insensitive: boolean): World => {
+    const w = world({ [`${ROOT}/${RUN}`]: RUN_TEXT });
+    w.state.insensitive = insensitive;
+    return w;
+  };
+  const cites = (...texts: string[]) => ({ committedDecisions: () => texts });
+
+  it.each([
+    ['upper case', '.projectops/execution/RUN1.JSON'],
+    ['mixed case', '.projectops/execution/Run1.Json'],
+    ['a directory in another case', '.projectops/EXECUTION/run1.json'],
+    ['a trailing dot', '.projectops/execution/run1.json.'],
+    ['a trailing space', '.projectops/execution/run1.json '],
+    ['an 8.3 short name', '.projectops/execution/RUN1~1.JSON'],
+    ['a short name in the directory', '.projectops/EXECUT~1/run1.json'],
+  ])('refuses %s as a spelling the directory does not hold, with no prompt and no ledger entry', (_name, spelled) => {
+    const w = runWorld(true);
+    const t = terminal();
+    const result = remove(w, deleteFlags({ path: spelled }), { terminal: () => t, ...cites('{"decision":"rely on .projectops/execution/run1.json"}') });
+    expect(text(result)).toContain('REFUSED (MEMORY_DELETE_PATH_SPELLING)');
+    expect(text(result)).toContain('next:');
+    expect(t.asked).toEqual([]);
+    expect(w.files.has(`${ROOT}/${RUN}`)).toBe(true);
+    expect(ledgerEntries(w)).toEqual([]);
+  });
+
+  it('the exact spelling is still a deletion when nothing cites it: the positive control', () => {
+    const w = runWorld(true);
+    expect(remove(w, deleteFlags({ path: RUN }), cites('nothing relevant')).code).toBe(0);
+    expect(w.files.has(`${ROOT}/${RUN}`)).toBe(false);
+  });
+
+  it('a decision that cites the path in another case still protects it', () => {
+    const w = runWorld(false);
+    const result = remove(w, deleteFlags({ path: RUN }), cites('{"decision":"rely on .PROJECTOPS/Execution/RUN1.JSON"}'));
+    expect(text(result)).toContain('MEMORY_DELETE_CITED_BY_DECISION');
+    expect(w.files.has(`${ROOT}/${RUN}`)).toBe(true);
+  });
+
+  it('a decision that cites it with backslashes, or doubled separators, still protects it', () => {
+    const back = String.fromCharCode(92);
+    for (const cited of [`.projectops${back}execution${back}run1.json`, `.projectops//execution//run1.json`, `.projectops${back}${back}execution${back}${back}run1.json`]) {
+      const w = runWorld(false);
+      const result = remove(w, deleteFlags({ path: RUN }), cites(`{"decision":"${cited}"}`));
+      expect(text(result)).toContain('MEMORY_DELETE_CITED_BY_DECISION');
+      expect(w.files.has(`${ROOT}/${RUN}`)).toBe(true);
+    }
+  });
+
+  it('a decision that names the hash in upper case still protects it', () => {
+    const w = runWorld(false);
+    const result = remove(w, deleteFlags({ path: RUN }), cites(`pinned ${sha256Hex(RUN_TEXT).toUpperCase()}`));
+    expect(text(result)).toContain('MEMORY_DELETE_CITED_BY_DECISION');
+  });
+
+  it('a path no directory holds at all is left to the deletion rule, which records it', () => {
+    const w = runWorld(false);
+    const result = remove(w, deleteFlags({ path: '.projectops/execution/other.json' }));
+    expect(text(result)).toContain('DELETE_ITEM_ABSENT');
+    expect(ledgerEntries(w).at(-1)).toMatchObject({ outcome: 'refused', code: 'DELETE_ITEM_ABSENT' });
+  });
+});
+
+describe('review item 4: index delete needs the owner at a terminal and writes nothing for nothing', () => {
+  const docs = { [`${ROOT}/docs/guide.md`]: '# Guide\n\nThe walnut plan is final.\n' };
+  const fileName = (): string => {
+    const named = searchIndexFileName({ tenant: TENANT, project: PROJECT });
+    if (!named.ok) throw new Error('no file name');
+    return `${indexDir}/${named.fileName}`;
+  };
+  const del = (w: World, over: Partial<MemoryCommandDeps> = {}) => memory(w.ctx, { reason: 'rebuild from scratch' }, ['index', 'delete'], depsOver(w, over));
+
+  it('five calls with no terminal write no ledger entry and say why', () => {
+    const w = world(docs);
+    for (let call = 0; call < 5; call += 1) {
+      const result = del(w, { terminal: () => terminal({ tty: false }) });
+      expect(text(result)).toContain('REFUSED (MEMORY_OWNER_NEEDS_A_TERMINAL)');
+    }
+    expect(w.writes).toEqual([]);
+    expect(ledgerEntries(w)).toEqual([]);
+  });
+
+  it('with a terminal and no index there is nothing to delete, and nothing is written', () => {
+    const w = world(docs);
+    const result = del(w);
+    expect(result.code).toBe(0);
+    expect(text(result)).toContain('NOTHING TO DELETE');
+    expect(w.writes).toEqual([]);
+  });
+
+  it('a wrong answer deletes nothing and writes no ledger entry', () => {
+    const w = world(docs);
+    w.files.set(fileName(), 'index');
+    const result = del(w, { terminal: () => terminal({ answer: () => 'no' }) });
+    expect(text(result)).toContain('REFUSED (MEMORY_OWNER_NOT_CONFIRMED)');
+    expect(w.files.has(fileName())).toBe(true);
+    expect(w.writes).toEqual([]);
+  });
+
+  it('with the exact code the index is deleted and the deletion is recorded', () => {
+    const w = world(docs);
+    w.files.set(fileName(), 'index');
+    const result = del(w);
+    expect(result.code).toBe(0);
+    expect(w.files.has(fileName())).toBe(false);
+    expect(ledgerEntries(w).map((entry) => entry['outcome'])).toEqual(['authorised', 'deleted']);
+  });
+
+  it('the code asked for is bound to this tenant, this project and this index file', () => {
+    const w = world(docs);
+    w.files.set(fileName(), 'index');
+    const t = terminal({ answer: () => 'no' });
+    del(w, { terminal: () => t });
+    expect(t.asked[0]).toContain(TENANT);
+    expect(t.asked[0]).toContain(PROJECT);
+  });
+});
+
+describe('review item 5: invisible and look-alike characters are made visible', () => {
+  const probes: readonly [string, number][] = [
+    ['a tag character', 0xe0041],
+    ['the end of the tag block', 0xe007f],
+    ['a variation selector', 0xfe0f],
+    ['the first variation selector', 0xfe00],
+    ['a supplementary variation selector', 0xe0100],
+    ['the last supplementary variation selector', 0xe01ef],
+    ['a combining grapheme joiner', 0x34f],
+    ['a hangul filler', 0x3164],
+    ['a braille blank', 0x2800],
+    ['a no-break space', 0xa0],
+    ['an en quad', 0x2000],
+    ['a hair space', 0x200a],
+    ['a hangul choseong filler', 0x115f],
+    ['a hangul jungseong filler', 0x1160],
+    ['a mongolian vowel separator', 0x180e],
+    ['a halfwidth hangul filler', 0xffa0],
+    ['an ogham space', 0x1680],
+    ['a zero width space', 0x200b],
+    ['a bidirectional override', 0x202e],
+    ['an escape', 0x1b],
+    ['a next line', 0x85],
+  ];
+  it.each(probes)('%s is shown as an escape, never raw', (_name, codePoint) => {
+    const raw = `a${String.fromCodePoint(codePoint)}b`;
+    const shown = visibleText(raw);
+    expect(shown).not.toContain(String.fromCodePoint(codePoint));
+    expect(shown).toContain(`${String.fromCharCode(92)}u{${codePoint.toString(16)}}`);
+  });
+
+  it('ordinary text, including accents and CJK, is left alone', () => {
+    const plain = 'Café notes: build uses Node 24 中文.';
+    expect(visibleText(plain)).toBe(plain);
+  });
+});
+
+describe('review item 6: what was shown is what is deleted', () => {
+  it('an item that changed after it was shown, with the new hash given by --hash, is not deleted', () => {
+    const SWAPPED = '# Memory\n\n- A different entry, swapped in after the owner looked.\n';
+    const w = world();
+    let reads = 0;
+    w.state.afterRead = (path) => {
+      if (path === `${ROOT}/${ITEM}` && (reads += 1) === 1) w.files.set(`${ROOT}/${ITEM}`, SWAPPED);
+    };
+    const t = terminal();
+    const result = remove(w, deleteFlags({ hash: sha256Hex(SWAPPED) }), { terminal: () => t });
+    expect(text(result)).toContain('REFUSED (MEMORY_DELETE_ITEM_CHANGED)');
+    expect(text(result)).toContain('next:');
+    expect(t.asked).toEqual([]);
+    expect(w.files.has(`${ROOT}/${ITEM}`)).toBe(true);
+  });
+
+  it('an item that changed after it was shown, with no --hash, is refused by the rule and kept', () => {
+    const w = world();
+    let reads = 0;
+    w.state.afterRead = (path) => {
+      if (path === `${ROOT}/${ITEM}` && (reads += 1) === 1) w.files.set(`${ROOT}/${ITEM}`, 'swapped');
+    };
+    const result = remove(w, deleteFlags());
+    expect(result.code).not.toBe(0);
+    expect(w.files.has(`${ROOT}/${ITEM}`)).toBe(true);
+  });
+
+  it('the prompt carries the hash of the bytes it displays', () => {
+    const w = world();
+    const t = terminal({ answer: () => 'no' });
+    remove(w, deleteFlags(), { terminal: () => t });
+    expect(t.asked[0]).toContain(ITEM_HASH);
+  });
+});

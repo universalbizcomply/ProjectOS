@@ -24,7 +24,19 @@
  *   OC-9  "it is built, so it is reachable"            - the CLI reaches it, the emergency stop lets only the read through,
  *         the package exports it, and production passes it no dependencies
  *   OC-10 "node is handy"                              - nothing here imports a node module, a process or the network
- *   OC-11 "the memory rules forbid the call sites"     - the memory validator names this one call site and keeps refusing others
+ *   OC-11 "the memory rules forbid the call sites"     - the memory validator names this one call site and keeps refusing others, and
+ *         names this file as the ONLY importer of the two deletion entry points
+ *
+ * REVIEW ROUND 1 (independent security review, APPROVE WITH CHANGES), each reproduced with real files first:
+ *   OC-12 "600 characters are enough to show"         - the owner is shown the WHOLE text up to the store's own limit, or is not asked
+ *   OC-13 "the queue file says it is the owner"       - no role read from a file lets a decision entry be replaced or removed here;
+ *         the prompt shows who proposed it, in which role, of what kind, with what ledger reference
+ *   OC-14 "RUN1.JSON is not run1.json"                - the path is spelled as each directory holds it (case, trailing dot or space,
+ *         8.3 short names refused) and a decision's citation is compared case-folded with one separator
+ *   OC-15 "an index is only derived"                  - `index delete` asks for the terminal first and writes no ledger entry for
+ *         a refusal or for an index that is not there
+ *   OC-16 "two reads are one read"                    - the hash asked about is the hash of the bytes that were shown
+ * and the invisible and look-alike character ranges that visibleText escapes (OC-8).
  *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT rule fires. Comments
  * are stripped first. Reads files; runs nothing and calls no provider.
@@ -74,6 +86,24 @@ const TESTS = {
     "visibleText makes control, invisible and bidirectional characters visible and caps the length",
     "a deletion prompt shows the item inside a fenced block too",
     "under the platform stop, only listing proposals still runs",
+    "the approve prompt shows a 2000-character proposal to its last word, with no cut notice",
+    "reject shows the whole text too, and so does proposals --id",
+    "the entry a replace would remove is shown whole as well",
+    "proposalTextBlocks gives the whole text up to the store limits and nothing past them",
+    "fencedWholeText refuses what it would have to cut",
+    "a proposal that claims the owner and replaces a decision entry is refused, and nobody is asked",
+    "a remove of a decision entry is refused the same way",
+    "an entry with no record of its origin is protected as a decision",
+    "the prompt shows who proposed it, in which role, of what kind, and its ledger reference",
+    "as a spelling the directory does not hold, with no prompt and no ledger entry",
+    "a decision that cites the path in another case still protects it",
+    "a decision that cites it with backslashes, or doubled separators, still protects it",
+    "a decision that names the hash in upper case still protects it",
+    "five calls with no terminal write no ledger entry and say why",
+    "with a terminal and no index there is nothing to delete, and nothing is written",
+    "a wrong answer deletes nothing and writes no ledger entry",
+    "is shown as an escape, never raw",
+    "an item that changed after it was shown, with the new hash given by --hash, is not deleted",
   ],
 };
 
@@ -93,14 +123,14 @@ const PIN = {
   catchClosed: "} catch {\n      return false;\n    }",
   // OC-2
   codeSlice: "claimHash.slice(0, OWNER_CONFIRMATION_LENGTH)",
-  hashOverFields: "const hashOfFields = (fields: ProposalDecisionFields): string => sha256Hex(canonicalStringify(fields));",
+  hashOverFields: "const claimHashOf = (fields: object): string => sha256Hex(canonicalStringify(fields));",
   claimOwnHash: "claimHash !== hashOfFields(fields)",
   claimGate: "if (decisionClaimProblem(claim)) return false;",
   claimBound: "tenant: who.tenant,\n    project: who.project,\n    root,\n    proposalId: proposal.id,\n    proposalHash: proposal.proposalHash,",
   deleteBound: "{ tenant: who.tenant, project: who.project, path, itemHash, reason },",
   reviewedHash: "const request = { id: proposal.id, reviewedHash: proposal.proposalHash };",
   // OC-3
-  citedStop: "if (claim.citedByDecision === true) {",
+  citedStop: "if (claim.citedByDecision === true || shown.citedFolded) {",
   unknownStop: "if (claim.citedByDecision !== false) {",
   decliningUsed: "const verifier = decliningCited(terminalDeletionVerifier(() => terminal,",
   citedMapped: "if (code === 'DELETE_OWNER_NOT_VERIFIED' && stop === 'cited') return refusal('MEMORY_DELETE_CITED_BY_DECISION'",
@@ -137,16 +167,50 @@ const PIN = {
   nextStep: "`  next: ${NEXT_STEP[code]}`",
   nextStepsTyped: "const NEXT_STEP: Readonly<Record<KnownCode, string>> = {",
   statement: "lines: [...result.lines, OWNER_CONFIRMATION_STATEMENT]",
-  fencedProposal: "fencedStoredText('proposed text', proposal.content, PROPOSAL_TEXT_CAP)",
+  fencedWholeProposed: "fencedWholeText('proposed text', proposal.content, cap)",
+  fencedWholeReplaced: "fencedWholeText('the entry it would replace or remove', proposal.targetEntry, cap)",
   fencedItem: "fencedStoredText('the item', item.text, 400)",
   fenceLine: String.raw`const lines = shown.split(/\r\n|\r|\n/).map((line) => ` + "`| ${visibleText(line, FENCE_LINE_CAP)}`);",
   fenceCap: "const shown = [...text.slice(0, cap * 2)].slice(0, cap).join('');",
   visibleMap: "const visible = (text: string): string => [...text].map((character) => (isUnsafe(character.codePointAt(0) ?? 0) ? escapeOf(character) : character)).join('');",
   rangeControl: "[0x0, 0x1f],",
   rangeBidi: "[0x2028, 0x202f],",
-  rangeInvisible: "[0x200b, 0x200f],",
+  rangeInvisible: "[0x2000, 0x200f],",
   visibleUsed: "const escaped = visible(shown);",
   reasonVisible: "`REFUSED (${code}): ${visibleText(reason, REASON_CAP)}`",
+  // OC-12
+  textBlocks: "export function proposalTextBlocks(proposal: Pick<MemoryProposal, 'target' | 'content' | 'targetEntry'>): readonly string[] | null {",
+  storeLimit: "const cap = memoryCharLimit(proposal.target);",
+  notShownRefused: "if (blocks === null) return decided(refusal('MEMORY_TEXT_NOT_SHOWN_IN_FULL'",
+  promptBlocks: "const extra = [...proposalFacts(proposal), ...blocks];",
+  wholeOrNull: "if (text.length > cap * 2 || [...text].length > cap) return null;",
+  wholeCap: "visibleText(line, cap)",
+  // OC-13
+  decisionRefused: "if (held === undefined || held === 'decision') {",
+  decisionCode: "refusal('MEMORY_DECISION_NOT_CHANGED_HERE'",
+  roleExemption: "if (proposal.provenance.authorRole === 'owner' && proposal.kind !== 'summary') return null;",
+  factsRole: "role ${visibleText(authorRole, 32)}",
+  factsKind: "kind ${visibleText(proposal.kind, 16)}${proposal.ledgerRef === null ? '' : `, ledger reference ${visibleText(proposal.ledgerRef, 200)}`}",
+  // OC-14
+  spellingGate: "if (pathSpellingProblem(fs, root, path)) {",
+  spellingCase: "if (names.some((name) => name.toLowerCase() === segment.toLowerCase())) return true;",
+  spellingDots: "segments.some((segment) => TRAILING_DOT_OR_SPACE.test(segment) || SHORT_NAME.test(segment))",
+  shortName: "const SHORT_NAME = /~\\d/;",
+  trailing: "const TRAILING_DOT_OR_SPACE = /[. ]$/;",
+  foldSeparators: "text.split(BACKSLASH).join('/').replace(/\\/+/g, '/').toLowerCase()",
+  foldUsed: "const citedFolded = citedWhenFolded(decisionsOf(ctx, deps), path, itemHash);",
+  foldHash: "const wantedHash = hash.toLowerCase();",
+  foldCompare: "return folded.includes(wantedPath) || folded.includes(wantedHash);",
+  spellingCode: "refusal('MEMORY_DELETE_PATH_SPELLING'",
+  // OC-15
+  indexTerminal: "const terminal = terminalOf(deps);\n  if (terminal === null) return needsTerminal();\n  const { sys, root } = ctx;\n  const where",
+  indexNothing: "if (!sys.exists(where.location)) return { code: 0, lines: [",
+  indexVerified: "terminalIndexVerifier(() => terminal)(claim) !== true",
+  indexClaimHash: "return !present || fields.action !== 'memory-index-delete' || claimHash !== claimHashOf(fields);",
+  // OC-16
+  shownHash: "if (shown.hash !== null && claim.itemHash !== shown.hash) {",
+  shownHashPassed: "{ hash: item?.hash ?? null, citedFolded }",
+  changedMapped: "stop === 'changed') return refusal('MEMORY_DELETE_ITEM_CHANGED'",
   // OC-9
   cliImport: "import { memory } from './commands/memory.js';",
   cliCase: "case 'memory':\n      return memory(ctx, flags, positionals);",
@@ -158,7 +222,16 @@ const PIN = {
   // OC-11
   pmNarrowed: '"projectos/agent/src/commands/memory.ts": ["approveMemoryProposal", "rejectMemoryProposal", "listPendingMemoryProposals", "loadMemoryProposal", "readMemoryStore"]',
   pmStillRefuses: 'E("PM-16", `${rel} calls',
+  pmDeletionSites: 'const DELETION_CALL_SITES = ["projectos/agent/src/commands/memory.ts"];',
+  pmDeletionRefuses: 'E("PM-16", `${rel} names a deletion entry point, and only the owner commands may`);',
 };
+
+/** Every range visibleText escapes: control, no-break and other spaces, fillers, selectors, tags, bidirectional marks and the byte order mark. */
+const RANGE_PINS = [
+  "[0x0, 0x1f],", "[0x7f, 0x9f],", "[0xa0, 0xa0],", "[0xad, 0xad],", "[0x34f, 0x34f],", "[0x61c, 0x61c],", "[0x115f, 0x1160],", "[0x1680, 0x1680],",
+  "[0x180e, 0x180e],", "[0x2000, 0x200f],", "[0x2028, 0x202f],", "[0x205f, 0x206f],", "[0x2800, 0x2800],", "[0x3000, 0x3000],", "[0x3164, 0x3164],",
+  "[0xfe00, 0xfe0f],", "[0xfeff, 0xfeff],", "[0xffa0, 0xffa0],", "[0xfff9, 0xfffb],", "[0xe0000, 0xe007f],", "[0xe0100, 0xe01ef],",
+];
 
 const FORBIDDEN_NODE = /from\s+['"]node:|require\(|\bchild_process\b|\bfetch\(|\bprocess\.(?:env|argv|stdin|stdout)\b/;
 const SECOND_PROMPT = /\b(?:readSync|writeSync|createInterface|readline)\b/;
@@ -229,17 +302,17 @@ function check(raw) {
   const pm = raw[PM_REL].replace(/\r\n/g, "\n");
 
   // OC-1 - nothing is decided without the owner at a terminal.
-  if (!has(v, PIN.ttyBoth, PIN.typedExactly, PIN.failClosed, PIN.tenantTerminalShared) || count(v, PIN.catchClosed) < 2 || SECOND_PROMPT.test(v)) {
+  if (!has(v, PIN.ttyBoth, PIN.typedExactly, PIN.failClosed, PIN.tenantTerminalShared) || count(v, PIN.catchClosed) < 3 || SECOND_PROMPT.test(v)) {
     E("OC-1", "the verifier no longer needs both streams to be a terminal and the exact code, fails closed on a throw, or brings its own prompt instead of the tenant receipt's");
   }
   if (!has(tn, PIN.tenantTerminalExported)) E("OC-1", "the tenant receipt's terminal is no longer the one this verifier reuses");
-  if (!has(m, PIN.availableUsed, PIN.askedExactlyTrue, PIN.verifierGiven, PIN.ownerOnlyNow) || count(m, PIN.needsTerminal) !== 2 || count(m, PIN.terminalFirst) !== 2) {
+  if (!has(m, PIN.availableUsed, PIN.askedExactlyTrue, PIN.verifierGiven, PIN.ownerOnlyNow) || count(m, PIN.needsTerminal) !== 3 || count(m, PIN.terminalFirst) !== 3) {
     E("OC-1", "a deletion, an approval or a rejection no longer asks for a terminal first, or accepts anything but the verifier answering exactly true");
   }
   if (ROLE_FLAGS.test(m) || SECOND_PROMPT.test(m)) E("OC-1", "a command-line role, --yes or --confirm is read, or the command prompts for itself");
 
   // OC-2 - the confirmation is bound.
-  if (!has(v, PIN.codeSlice, PIN.hashOverFields, PIN.claimOwnHash, PIN.claimGate) || !has(m, PIN.claimBound, PIN.deleteBound, PIN.reviewedHash)) {
+  if (!has(v, PIN.codeSlice, PIN.hashOverFields, PIN.claimOwnHash, PIN.claimGate, PIN.indexClaimHash) || !has(m, PIN.claimBound, PIN.deleteBound, PIN.reviewedHash)) {
     E("OC-2", "the typed code is no longer bound to the item, its hash, the tenant and the project, or a claim whose hash is not its own is no longer refused");
   }
 
@@ -274,10 +347,10 @@ function check(raw) {
   }
 
   // OC-8 - a refusal is a code, a reason and a next step; stored text is fenced, capped and made visible.
-  if (!has(m, PIN.refusalFn, PIN.nextStep, PIN.nextStepsTyped, PIN.statement, PIN.reasonVisible) || count(m, PIN.fencedProposal) < 2 || !has(m, PIN.fencedItem) || UNFENCED_STORED.test(m)) {
+  if (!has(m, PIN.refusalFn, PIN.nextStep, PIN.nextStepsTyped, PIN.statement, PIN.reasonVisible) || !has(m, PIN.fencedWholeProposed, PIN.fencedWholeReplaced, PIN.fencedItem) || UNFENCED_STORED.test(m)) {
     E("OC-8", "a refusal no longer names a code, a reason and a next step, a decision no longer says what a typed confirmation proves, or stored text is printed outside a fence");
   }
-  if (!has(v, PIN.fenceLine, PIN.visibleMap, PIN.rangeControl, PIN.rangeBidi, PIN.rangeInvisible, PIN.visibleUsed) || count(v, PIN.fenceCap) < 2) {
+  if (!has(v, PIN.fenceLine, PIN.visibleMap, PIN.rangeControl, PIN.rangeBidi, PIN.rangeInvisible, PIN.visibleUsed, ...RANGE_PINS) || count(v, PIN.fenceCap) < 2) {
     E("OC-8", "the fence no longer prefixes every line, caps the text and makes control, invisible and bidirectional characters visible");
   }
 
@@ -290,8 +363,42 @@ function check(raw) {
   if (FORBIDDEN_NODE.test(m) || FORBIDDEN_NODE.test(v)) E("OC-10", "the command or the verifier reaches a node module, the process or the network directly");
 
   // OC-11 - the memory validator names this call site, and keeps refusing the others.
-  if (!has(pm, PIN.pmNarrowed, PIN.pmStillRefuses)) {
+  if (!has(pm, PIN.pmNarrowed, PIN.pmStillRefuses, PIN.pmDeletionSites, PIN.pmDeletionRefuses)) {
     E("OC-11", "the memory validator no longer names exactly the owner commands as a call site of the queue's entry points, or no longer refuses any other");
+  }
+
+  // OC-12 - the whole text, or no question.
+  const iBlocks = m.indexOf(PIN.notShownRefused);
+  const iAsked = m.indexOf(PIN.askedExactlyTrue);
+  if (!has(m, PIN.textBlocks, PIN.storeLimit, PIN.notShownRefused, PIN.promptBlocks) || !has(v, PIN.wholeOrNull, PIN.wholeCap) || iBlocks < 0 || iAsked < 0 || !(iBlocks < iAsked) || /PROPOSAL_TEXT_CAP/.test(m)) {
+    E("OC-12", "the owner is no longer shown the whole text up to the store's own limit, or is asked about text that would be cut");
+  }
+
+  // OC-13 - a role in a queue file exempts nothing about decisions, and the prompt says who proposed it.
+  const iDecision = m.indexOf(PIN.decisionRefused);
+  const iRole = m.indexOf(PIN.roleExemption);
+  if (!has(m, PIN.decisionRefused, PIN.decisionCode, PIN.roleExemption, PIN.promptBlocks) || iDecision < 0 || iRole < 0 || !(iDecision < iRole) || !has(m, PIN.factsRole, PIN.factsKind)) {
+    E("OC-13", "a role read from the queue file can again let a decision entry be replaced or removed, or the prompt no longer shows the author, role, kind and ledger reference");
+  }
+
+  // OC-14 - the spelling of the path and the fold of the citation.
+  if (!has(m, PIN.spellingGate, PIN.spellingCase, PIN.spellingDots, PIN.shortName, PIN.trailing, PIN.foldUsed, PIN.foldHash, PIN.foldCompare, PIN.spellingCode) || !m.includes(PIN.foldSeparators.replace("text.split", "text.split"))) {
+    E("OC-14", "a path spelled in another case, with a trailing dot or space or as a short name, can be deleted, or a decision's citation in another case or with other separators no longer protects the item");
+  }
+
+  // OC-15 - index delete asks for the terminal first, writes nothing for nothing.
+  const body = m.slice(Math.max(0, m.indexOf("function deleteIndex(")), m.indexOf("const OWNER_CALLER"));
+  const iTerm = body.indexOf("if (terminal === null) return needsTerminal();");
+  const iNothing = body.indexOf(PIN.indexNothing);
+  const iVerify = body.indexOf(PIN.indexVerified);
+  const iDelete = body.indexOf("deleteDerivedIndex(");
+  if (!has(m, PIN.indexTerminal, PIN.indexNothing, PIN.indexVerified) || !has(v, PIN.indexClaimHash) || iTerm < 0 || !(iTerm < iNothing && iNothing < iVerify && iVerify < iDelete)) {
+    E("OC-15", "`index delete` no longer asks for the terminal first and the typed code before it deletes, or writes a ledger entry for a refusal or for an index that is not there");
+  }
+
+  // OC-16 - what was shown is what is deleted.
+  if (!has(m, PIN.shownHash, PIN.shownHashPassed, PIN.changedMapped)) {
+    E("OC-16", "the hash asked about is no longer required to be the hash of the bytes that were shown");
   }
   return errors;
 }
@@ -312,7 +419,8 @@ const MUTATIONS = [
   { name: "the-owner-role-is-a-guest-role", rule: "OC-1", rel: MEM_REL, from: PIN.ownerOnlyNow, to: "const OWNER_CALLER: MemoryCaller = Object.freeze({ author: 'owner-terminal', role: 'implementer', session: 'typed-terminal' });" },
   // OC-2
   { name: "code-is-the-whole-hash-prefix-of-nothing", rule: "OC-2", rel: VER_REL, from: PIN.codeSlice, to: "claimHash.slice(0, 0)" },
-  { name: "claim-hash-not-over-every-field", rule: "OC-2", rel: VER_REL, from: PIN.hashOverFields, to: "const hashOfFields = (fields: ProposalDecisionFields): string => sha256Hex(canonicalStringify({ proposalId: fields.proposalId }));" },
+  { name: "claim-hash-not-over-every-field", rule: "OC-2", rel: VER_REL, from: PIN.hashOverFields, to: "const claimHashOf = (fields: object): string => sha256Hex(canonicalStringify({}));" },
+  { name: "index-claim-hash-trusted", rule: "OC-2", rel: VER_REL, from: PIN.indexClaimHash, to: "return !present || fields.action !== 'memory-index-delete';" },
   { name: "handed-over-claim-trusted", rule: "OC-2", rel: VER_REL, from: PIN.claimOwnHash, to: "false" },
   { name: "claim-gate-dropped", rule: "OC-2", rel: VER_REL, from: PIN.claimGate, to: "" },
   { name: "claim-leaves-out-the-project", rule: "OC-2", rel: MEM_REL, from: PIN.claimBound, to: "tenant: who.tenant,\n    project: 'none',\n    root,\n    proposalId: proposal.id,\n    proposalHash: proposal.proposalHash," },
@@ -330,7 +438,7 @@ const MUTATIONS = [
   { name: "ledger-head-not-printed", rule: "OC-4", rel: MEM_REL, from: PIN.ledgerHead, to: "`deletion ledger: ${ledger.count} entries`," },
   { name: "item-removed-by-the-command", rule: "OC-4", rel: MEM_REL, from: "  const outcome = deleteMemoryItem(", to: "  sys.removeFile(`${root}/${path}`);\n  const outcome = deleteMemoryItem(" },
   { name: "deletion-skips-the-recorded-rule", rule: "OC-4", rel: MEM_REL, from: PIN.deleteThroughRule, to: "const outcome = { ok: true as const, path, itemHash, recorded: true }; void (" },
-  { name: "ledger-not-printed-for-an-index", rule: "OC-4", rel: MEM_REL, from: "  const ledger = ledgerLines(sys, root);\n  if (!outcome.ok) return { code: REFUSED_EXIT, lines: [...deletionRefusal(outcome.code, null).lines, ...ledger] };", to: "  const ledger: readonly string[] = [];\n  if (!outcome.ok) return { code: REFUSED_EXIT, lines: [...deletionRefusal(outcome.code, null).lines, ...ledger] };" },
+  { name: "ledger-not-printed-for-an-index", rule: "OC-4", rel: MEM_REL, from: "  const ledger = ledgerLines(sys, root);\n  if (!outcome.ok) return decided({ code: REFUSED_EXIT, lines: [...deletionRefusal(outcome.code, null).lines, ...ledger] });", to: "  const ledger: readonly string[] = [];\n  if (!outcome.ok) return decided({ code: REFUSED_EXIT, lines: [...deletionRefusal(outcome.code, null).lines, ...ledger] });" },
   // OC-5
   { name: "head-taken-after-the-sources", rule: "OC-5", rel: MEM_REL, from: PIN.headFirst, to: "const builtAt: string | null = null;" },
   { name: "build-commit-not-recorded", rule: "OC-5", rel: MEM_REL, from: PIN.builtAtGiven, to: "{}" },
@@ -357,13 +465,25 @@ const MUTATIONS = [
   { name: "next-steps-not-exhaustive", rule: "OC-8", rel: MEM_REL, from: PIN.nextStepsTyped, to: "const NEXT_STEP: Readonly<Record<string, string>> = {" },
   { name: "decision-without-the-statement", rule: "OC-8", rel: MEM_REL, from: PIN.statement, to: "lines: [...result.lines]" },
   { name: "refusal-reason-printed-raw", rule: "OC-8", rel: MEM_REL, from: PIN.reasonVisible, to: "`REFUSED (${code}): ${reason}`" },
-  { name: "proposal-text-printed-raw", rule: "OC-8", rel: MEM_REL, from: PIN.fencedProposal, to: "`${proposal.content}`" },
+  { name: "proposal-text-printed-raw", rule: "OC-8", rel: MEM_REL, from: PIN.fencedWholeProposed, to: "`${proposal.content}`" },
   { name: "item-text-printed-raw", rule: "OC-8", rel: MEM_REL, from: PIN.fencedItem, to: "item.text" },
   { name: "fence-lines-not-prefixed", rule: "OC-8", rel: VER_REL, from: PIN.fenceLine, to: String.raw`const lines = shown.split(/\r\n|\r|\n/).map((line) => visibleText(line, FENCE_LINE_CAP));` },
   { name: "fence-uncapped", rule: "OC-8", rel: VER_REL, from: PIN.fenceCap, to: "const shown = text;" },
   { name: "control-characters-not-visible", rule: "OC-8", rel: VER_REL, from: PIN.visibleUsed, to: "const escaped = shown;" },
   { name: "bidirectional-characters-pass", rule: "OC-8", rel: VER_REL, from: PIN.rangeBidi, to: "[0x2028, 0x2028]," },
   { name: "escape-character-passes", rule: "OC-8", rel: VER_REL, from: PIN.rangeControl, to: "[0x0, 0x8]," },
+  { name: "tag-characters-pass", rule: "OC-8", rel: VER_REL, from: "[0xe0000, 0xe007f],", to: "" },
+  { name: "variation-selectors-pass", rule: "OC-8", rel: VER_REL, from: "[0xfe00, 0xfe0f],", to: "" },
+  { name: "supplementary-variation-selectors-pass", rule: "OC-8", rel: VER_REL, from: "[0xe0100, 0xe01ef],", to: "" },
+  { name: "grapheme-joiner-passes", rule: "OC-8", rel: VER_REL, from: "[0x34f, 0x34f],", to: "" },
+  { name: "hangul-filler-passes", rule: "OC-8", rel: VER_REL, from: "[0x3164, 0x3164],", to: "" },
+  { name: "braille-blank-passes", rule: "OC-8", rel: VER_REL, from: "[0x2800, 0x2800],", to: "" },
+  { name: "no-break-space-passes", rule: "OC-8", rel: VER_REL, from: "[0xa0, 0xa0],", to: "" },
+  { name: "jamo-fillers-pass", rule: "OC-8", rel: VER_REL, from: "[0x115f, 0x1160],", to: "" },
+  { name: "mongolian-separator-passes", rule: "OC-8", rel: VER_REL, from: "[0x180e, 0x180e],", to: "" },
+  { name: "spaces-and-zero-width-pass", rule: "OC-8", rel: VER_REL, from: "[0x2000, 0x200f],", to: "" },
+  { name: "halfwidth-filler-passes", rule: "OC-8", rel: VER_REL, from: "[0xffa0, 0xffa0],", to: "" },
+  { name: "ogham-space-passes", rule: "OC-8", rel: VER_REL, from: "[0x1680, 0x1680],", to: "" },
   // OC-9
   { name: "command-not-reached-from-the-cli", rule: "OC-9", rel: CLI_REL, from: PIN.cliCase, to: "case 'memory':\n      return { code: 1, lines: [] };" },
   { name: "every-memory-command-runs-under-the-stop", rule: "OC-9", rel: CLI_REL, from: PIN.stopCase, to: "case 'memory':\n      return true;" },
@@ -375,7 +495,35 @@ const MUTATIONS = [
   { name: "verifier-imports-a-node-module", rule: "OC-10", rel: VER_REL, from: "export type OwnerTerminal = TenantReceiptTerminal;", to: "import { readFileSync } from 'node:fs';\nexport type OwnerTerminal = TenantReceiptTerminal;" },
   // OC-11
   { name: "memory-validator-forgets-the-call-site", rule: "OC-11", rel: PM_REL, from: PIN.pmNarrowed, to: '"projectos/agent/src/commands/nothing.ts": ["approveMemoryProposal"]' },
+  { name: "deletion-entry-points-open-to-every-file", rule: "OC-11", rel: PM_REL, from: PIN.pmDeletionRefuses, to: "void 0;" },
+  { name: "deletion-importer-moved", rule: "OC-11", rel: PM_REL, from: PIN.pmDeletionSites, to: 'const DELETION_CALL_SITES = ["projectos/agent/src/commands/nothing.ts"];' },
   { name: "memory-validator-stops-refusing", rule: "OC-11", rel: PM_REL, from: PIN.pmStillRefuses, to: 'E("PM-16", `${rel} is fine and calls' },
+  { name: "cap-back-to-six-hundred", rule: "OC-12", rel: MEM_REL, from: PIN.storeLimit, to: "const cap = 600;" },
+  { name: "cut-text-is-asked-about", rule: "OC-12", rel: MEM_REL, from: PIN.notShownRefused, to: "if (false) return decided(refusal('MEMORY_TEXT_NOT_SHOWN_IN_FULL'" },
+  { name: "the-block-is-left-out-of-the-prompt", rule: "OC-12", rel: MEM_REL, from: PIN.promptBlocks, to: "const extra = [...proposalFacts(proposal)];" },
+  { name: "whole-text-quietly-cut", rule: "OC-12", rel: VER_REL, from: PIN.wholeOrNull, to: "" },
+  { name: "long-lines-cut-inside-the-block", rule: "OC-12", rel: VER_REL, from: PIN.wholeCap, to: "visibleText(line, 200)" },
+  { name: "a-role-in-the-file-opens-a-decision", rule: "OC-13", rel: MEM_REL, from: PIN.decisionRefused, to: "if ((held === undefined || held === 'decision') && proposal.provenance.authorRole !== 'owner') {" },
+  { name: "an-entry-with-no-record-is-replaceable", rule: "OC-13", rel: MEM_REL, from: PIN.decisionRefused, to: "if (held === 'decision') {" },
+  { name: "the-exemption-comes-before-the-decision-rule", rule: "OC-13", rel: MEM_REL, from: PIN.decisionRefused, to: "if (proposal.provenance.authorRole === 'owner' && proposal.kind !== 'summary') return null;\n  if (held === undefined || held === 'decision') {" },
+  { name: "the-prompt-leaves-out-who-proposed-it", rule: "OC-13", rel: MEM_REL, from: PIN.promptBlocks, to: "const extra = [...blocks];" },
+  { name: "the-role-is-not-shown", rule: "OC-13", rel: MEM_REL, from: PIN.factsRole, to: "role hidden" },
+  { name: "the-ledger-reference-is-not-shown", rule: "OC-13", rel: MEM_REL, from: PIN.factsKind, to: "kind ${visibleText(proposal.kind, 16)}" },
+  { name: "another-case-is-another-file", rule: "OC-14", rel: MEM_REL, from: PIN.spellingCase, to: "if (false) return true;" },
+  { name: "the-spelling-check-is-skipped", rule: "OC-14", rel: MEM_REL, from: PIN.spellingGate, to: "if (false) {" },
+  { name: "a-trailing-dot-or-space-passes", rule: "OC-14", rel: MEM_REL, from: PIN.spellingDots, to: "segments.some((segment) => SHORT_NAME.test(segment))" },
+  { name: "a-short-name-passes", rule: "OC-14", rel: MEM_REL, from: PIN.spellingDots, to: "segments.some((segment) => TRAILING_DOT_OR_SPACE.test(segment))" },
+  { name: "the-fold-is-case-sensitive", rule: "OC-14", rel: MEM_REL, from: PIN.foldSeparators, to: "text.split(BACKSLASH).join('/').replace(/\\\\/+/g, '/')" },
+  { name: "the-fold-keeps-backslashes", rule: "OC-14", rel: MEM_REL, from: PIN.foldSeparators, to: "text.replace(/\\\\/+/g, '/').toLowerCase()" },
+  { name: "the-folded-citation-is-not-used", rule: "OC-14", rel: MEM_REL, from: PIN.foldUsed, to: "const citedFolded = false;" },
+  { name: "the-hash-citation-is-case-sensitive", rule: "OC-14", rel: MEM_REL, from: PIN.foldHash, to: "const wantedHash = hash;" },
+  { name: "a-folded-hash-is-not-compared", rule: "OC-14", rel: MEM_REL, from: PIN.foldCompare, to: "return folded.includes(wantedPath);" },
+  { name: "index-delete-without-a-terminal", rule: "OC-15", rel: MEM_REL, from: PIN.indexTerminal, to: "const { sys, root } = ctx;\n  const where" },
+  { name: "index-delete-records-nothing-to-delete", rule: "OC-15", rel: MEM_REL, from: PIN.indexNothing, to: "if (false) return { code: 0, lines: [" },
+  { name: "index-delete-skips-the-typed-code", rule: "OC-15", rel: MEM_REL, from: PIN.indexVerified, to: "terminalIndexVerifier(() => terminal)(claim) === undefined" },
+  { name: "the-shown-hash-is-not-compared", rule: "OC-16", rel: MEM_REL, from: PIN.shownHash, to: "if (false) {" },
+  { name: "the-shown-hash-is-not-passed", rule: "OC-16", rel: MEM_REL, from: PIN.shownHashPassed, to: "{ hash: null, citedFolded }" },
+  { name: "a-changed-item-reads-as-a-typo", rule: "OC-16", rel: MEM_REL, from: PIN.changedMapped, to: "stop === 'changed') return refusal('MEMORY_OWNER_NOT_CONFIRMED'" },
 ];
 
 /** Every named mutation must be killed by its own rule. Applied to CRLF-folded text, as `check` reads it. */

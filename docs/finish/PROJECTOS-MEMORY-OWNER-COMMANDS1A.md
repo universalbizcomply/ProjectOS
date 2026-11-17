@@ -19,7 +19,7 @@ Stage 3 shipped the memory rules with no command the owner can run. This phase a
 ## What was added
 
 - `projectos/agent/src/commands/memory.ts` (the five commands, plus `memory index delete`), `projectos/agent/src/memory/ownerTerminalVerifier.ts` (the verifier, the proposal claim, the fence).
-- `projectos/agent/test/memoryOwnerCommands.test.ts` (57 tests), validator `projectos/validators/val-projectos-memory-owner-commands1a.cjs` (68 named mutations).
+- `projectos/agent/test/memoryOwnerCommands.test.ts` (109 tests after review round 1), validator `projectos/validators/val-projectos-memory-owner-commands1a.cjs` (109 named mutations after review round 1; 68 at the first commit).
 - `cli.ts`: the `memory` case, its help line, and the platform-stop classification (only `memory proposals` is read-only). `index.ts`: exports.
 
 ### Commands and their refusals
@@ -116,3 +116,48 @@ After the commit (the new files tracked): `val-projectos-port-credit1a` PASS (19
 1. **Should a worker's or a summary's proposal be able to replace or remove approved memory if the owner approves it?** Today the rank rule says no (it can only add), because `provenanceReplacementProblem` ranks a worker's text below approved memory. The alternative is to let the owner's typed approval override the rank for a non-decision entry, which loosens the rule. Say which.
 2. **Should the command also refuse deleting a path no decision cites but that a plan cites?** Only committed decisions are checked, as the deletion rule does.
 3. **Real-terminal acceptance:** one run in PowerShell, as above, is the proof this was not done with fakes alone.
+
+## Review round 1 (independent security review: APPROVE WITH CHANGES)
+
+The reviewer reproduced items 1 to 4 with real files. Each item was written as a failing test first (41 of the new tests failed against the first commit, for the reason each item names), then fixed, then pinned in the validator with named mutations, each killed by its own rule. Final validator output: `PASS (109 named mutations killed)`. `val-projectos-port-memory1a`: `PASS (20 rules; 211 named mutations killed)`.
+
+| # | Finding | Fix | Tests (`memoryOwnerCommands.test.ts`, "review item N") | Validator rule, named mutations |
+|---|---|---|---|---|
+| 1 | The owner approved text they could not read: the prompt and `proposals --id` cut a proposal at 600 characters, the store allows 2200 | The whole text and the whole entry it would replace are shown (`proposalTextBlocks`, cap = `memoryCharLimit(target)`, the store's own constants), per-line cutting removed (`fencedWholeText`). If anything would still be cut there is no block, and `approve` and `reject` refuse with `MEMORY_TEXT_NOT_SHOWN_IN_FULL` before asking | a 2000-character tail payload is in the approve prompt and in `proposals --id`; the replaced entry is whole; limits and long lines; the cut case gives `null` | OC-12: `cap-back-to-six-hundred`, `cut-text-is-asked-about`, `the-block-is-left-out-of-the-prompt`, `whole-text-quietly-cut`, `long-lines-cut-inside-the-block` |
+| 2 | A queue file claiming `authorRole: owner` skipped the provenance check, so a decision entry was replaced; the prompt showed no author | No exemption from a role read from a file for a decision: through `memory approve`, a replace or remove of an entry that is a decision, or has no record of its origin, is always `MEMORY_DECISION_NOT_CHANGED_HERE` (a decision is changed by committing a new decision). The prompt and `proposals --id` show the author, the role the file claims (and that it decides nothing), the session, the kind and the ledger reference, as inert capped text | forged-owner replace and remove of a decision entry refused with nobody asked; an entry with no record protected; the prompt shows author, role, kind, ledger reference; an owner-authored change to a non-decision entry still goes to the typed code | OC-13: `a-role-in-the-file-opens-a-decision`, `an-entry-with-no-record-is-replaceable`, `the-exemption-comes-before-the-decision-rule`, `the-prompt-leaves-out-who-proposed-it`, `the-role-is-not-shown`, `the-ledger-reference-is-not-shown` |
+| 3 | On Windows `RUN1.JSON` deleted an item a decision cites as `run1.json` (`decisionCitesItem` is a case-sensitive substring test) | The given path must be spelled as each parent directory lists it, segment by segment (case, trailing dot or space and an 8.3 `~1` segment are `MEMORY_DELETE_PATH_SPELLING`, with no prompt and no ledger entry); and a decision's citation is compared case-folded with one separator (backslashes and doubled separators folded), for the path and for the hash, in addition to the core rule | upper, mixed, directory case, trailing dot, trailing space, `~1` in the name and in a directory, on a case-insensitive fake disk; citation in another case, with backslashes and doubled separators; upper-case hash | OC-14: `another-case-is-another-file`, `the-spelling-check-is-skipped`, `a-trailing-dot-or-space-passes`, `a-short-name-passes`, `the-fold-is-case-sensitive`, `the-fold-keeps-backslashes`, `the-folded-citation-is-not-used`, `the-hash-citation-is-case-sensitive`, `a-folded-hash-is-not-compared` |
+| 4 | `index delete` needed no terminal and wrote a `refused` entry into the project tree on every call | It asks for the terminal first and then the typed code (a claim over tenant, project, checkout and index file name: `indexDeletionClaimOf`, `terminalIndexVerifier`). It writes no ledger entry when the terminal check refuses, when the answer is wrong, or when there is no index (`NOTHING TO DELETE`) | five calls with no terminal write nothing; no index writes nothing; a wrong answer writes nothing; the exact code deletes and records | OC-15: `index-delete-without-a-terminal`, `index-delete-records-nothing-to-delete`, `index-delete-skips-the-typed-code`; OC-2: `index-claim-hash-trusted` |
+| 5 | `visibleText` passed invisible and look-alike characters raw | Ranges added: U+E0000-E007F, U+FE00-FE0F, U+E0100-E01EF, U+034F, U+3164, U+2800, U+00A0, U+2000-U+200F (the whole run of spaces and marks), U+115F-1160, U+180E, and also U+FFA0 and U+1680 | one test per character, 21 characters; ordinary accents and CJK untouched | OC-8: `tag-characters-pass`, `variation-selectors-pass`, `supplementary-variation-selectors-pass`, `grapheme-joiner-passes`, `hangul-filler-passes`, `braille-blank-passes`, `no-break-space-passes`, `jamo-fillers-pass`, `mongolian-separator-passes`, `spaces-and-zero-width-pass`, `halfwidth-filler-passes`, `ogham-space-passes` |
+| 6 | The item text shown came from one read and the hash from another | The verifier wrapper declines when the hash asked about is not the hash of the bytes displayed (`MEMORY_DELETE_ITEM_CHANGED`); the owner is not asked. The rule's own re-read after the answer is unchanged | an item swapped after it was shown, with the swapped item's hash given by `--hash`, is refused and not asked about; with no `--hash` the rule refuses it; the prompt carries the displayed hash | OC-16: `the-shown-hash-is-not-compared`, `the-shown-hash-is-not-passed`, `a-changed-item-reads-as-a-typo` |
+| 7 | Nothing stopped another agent file calling `deleteMemoryItem` or `deleteDerivedIndex` | `val-projectos-port-memory1a` PM-16 now refuses any product source other than `commands/memory.ts` that names either function (`DELETION_CALL_SITES`), and requires that file to call both | (validator) | PM-16 in the memory validator: `another-agent-file-deletes-memory`, `another-agent-file-deletes-an-index`; OC-11: `deletion-entry-points-open-to-every-file`, `deletion-importer-moved` |
+
+### Decisions taken in this round
+
+- **Item 2 keeps one path for non-decision entries.** The rule the reviewer named is about decisions, and it is now absolute through this command. For an entry that is not a decision, an owner-authored non-summary change still skips the rank rule, as before, because without that no entry could ever be replaced or removed here; the owner is now shown the author and role the file claims and types the code. A worker's or a summary's change to approved memory is still refused by the rank rule.
+- **The deletion prompt still cuts the item at 400 characters, with a visible cut notice.** Item 1 is about approving text that later reaches workers; a deletion shows the path, the class, the hash and the first 400 characters, and the item remains in git. An item can be up to 1 MiB, so a whole-text rule there would make large execution records undeletable. If the owner wants the same refuse-when-cut rule for deletions, it is one cap.
+- **`index delete` now needs the typed code,** not only a terminal, as the other deciding commands do.
+
+### Owner questions added
+
+4. **Is an explicit owner-only replace path for a decision entry wanted later?** Today a decision is never changed by a proposal, whatever role the file claims; the owner changes a decision by committing it. A path where the owner, at a terminal, replaces a decision entry would be new authority and needs its own phase and approval.
+
+### Owner acceptance item: what the typed code proves
+
+**The confirmation code is printed in the prompt, so a pseudo-terminal driven by an agent can satisfy it.** The code proves that something with a TTY on both streams retyped the code shown to it. It does not prove a person was there. This is the same strength of proof as `tenant receipt`, and `OWNER_CONFIRMATION_STATEMENT` says so on every decision answer. Accept it as that, or ask for a stronger proof (for example a code shown on a second device or only on the screen) as its own phase.
+
+### Checks of this round
+
+| Check | Result |
+|---|---|
+| `tsc -p tsconfig.json --noEmit` | exit 0 (the test config shows only the `skillLoad.test.ts` error present at the base) |
+| `vitest run test/memoryOwnerCommands.test.ts` | 109 passed |
+| Whole agent suite, once | 137 of 138 files; 4392 passed, 10 skipped; the one failing file is the same `tenantSidecar.test.ts` (no `control-center/node_modules` in this worktree) |
+| `val-projectos-memory-owner-commands1a` | PASS (109 named mutations killed) |
+| `val-projectos-port-memory1a` | PASS (20 rules; 211 named mutations killed) |
+| `val-projectos-memory-provenance1a` | PASS (204 text and 125 behavioural mutations) |
+| `val-projectos-memory-stores1a` | PASS (198 text and 84 behavioural mutations) |
+| `val-projectos-kernel-followup1a` | PASS (88 named mutations) |
+| `val-projectos-context-manager1a`, `port-search1a`, `connector-contract1a` | PASS (285; 22 files; 293) |
+| `validate-no-secrets` | PASS |
+
+Files changed in this round: `commands/memory.ts`, `memory/ownerTerminalVerifier.ts`, `test/memoryOwnerCommands.test.ts`, `val-projectos-memory-owner-commands1a.cjs`, `val-projectos-port-memory1a.cjs`, this file. No PROTECTED file, no `core/src` file and no registration list was touched in this round.

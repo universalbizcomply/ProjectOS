@@ -207,6 +207,12 @@ const MEMORY_CALL_SITES = { "projectos/agent/src/context/contextPorts.ts": ["rea
  * write a store or take its lock. The owner, at a terminal, is what makes approve and reject reachable (val-projectos-memory-owner-commands1a, OC-1 to OC-6).
  */
 const OWNER_COMMAND_CALL_SITES = { "projectos/agent/src/commands/memory.ts": ["approveMemoryProposal", "rejectMemoryProposal", "listPendingMemoryProposals", "loadMemoryProposal", "readMemoryStore"] };
+/**
+ * PM-16, REVIEW ROUND 1 OF PROJECTOS-MEMORY-OWNER-COMMANDS1A: the two DELETION entry points (`deleteMemoryItem`, `deleteDerivedIndex`) have exactly one
+ * product importer, the owner commands. Naming either one anywhere else in a product source is refused, so no other agent file can delete memory.
+ */
+const DELETION_CALL_SITES = ["projectos/agent/src/commands/memory.ts"];
+const DELETION_NAME = /(?<![.\w])(?:deleteMemoryItem|deleteDerivedIndex)\b/;
 /** A CALL of a memory entry point: the name, then an argument list, and not a method of something else. */
 const MEMORY_CALL = /(?<![.\w])(?:loadMemoryBlock|readMemoryStore|proposeMemoryWrite|approveMemoryProposal|rejectMemoryProposal|listPendingMemoryProposals|loadMemoryProposal|writeMemoryEntries|writeMemoryProvenance|underMemoryLock)\(/g;
 /** Every product source (a package's `src`) except this port's own directories. Read once, so a mutation can name any of them. */
@@ -873,6 +879,13 @@ function textProblems(raw) {
   for (const [rel, names] of Object.entries({ ...MEMORY_CALL_SITES, ...OWNER_COMMAND_CALL_SITES })) {
     if (typeof raw[rel] !== "string" || !names.every((name) => memoryCallsIn(raw[rel]).includes(name))) E("PM-16", `${rel}, the call site this phase adds, no longer calls ${names.join(", ")}`);
   }
+  for (const rel of PRODUCT_SOURCES) {
+    if (typeof raw[rel] !== "string" || DELETION_CALL_SITES.includes(rel)) continue;
+    if (DELETION_NAME.test(withoutComments(raw[rel]))) E("PM-16", `${rel} names a deletion entry point, and only the owner commands may`);
+  }
+  for (const rel of DELETION_CALL_SITES) {
+    if (typeof raw[rel] !== "string" || !/\bdeleteMemoryItem\(/.test(withoutComments(raw[rel])) || !/\bdeleteDerivedIndex\(/.test(withoutComments(raw[rel]))) E("PM-16", `${rel}, the one importer of the deletion entry points, no longer calls them`);
+  }
 
   // PM-17: core stays pure.
   for (const rel of CORE_SOURCES) {
@@ -1101,6 +1114,8 @@ const MUTATIONS = [
   T("the-owner-commands-propose-a-write", "PM-16", "projectos/agent/src/commands/memory.ts", "export interface MemoryCommandDeps {", "export const proposeOne = (sys: never) => proposeMemoryWrite(sys, '/', {} as never, {} as never);\nexport interface MemoryCommandDeps {"),
   T("the-owner-commands-write-the-store", "PM-16", "projectos/agent/src/commands/memory.ts", "export interface MemoryCommandDeps {", "export const writeOne = (sys: never) => writeMemoryEntries(sys, '/', 'memory', []);\nexport interface MemoryCommandDeps {"),
   T("the-owner-commands-no-longer-decide", "PM-16", "projectos/agent/src/commands/memory.ts", "approveMemoryProposal(sys, root, OWNER_CALLER, request)", "({ ok: false } as never)"),
+  T("another-agent-file-deletes-memory", "PM-16", "projectos/agent/src/closureGate.ts", "import type { System } from './system.js';", "import type { System } from './system.js';\nexport const del = (p: never) => deleteMemoryItem(p, '/', {});"),
+  T("another-agent-file-deletes-an-index", "PM-16", "projectos/agent/src/context/contextPorts.ts", "export interface ContextDraftOffer {", "export const dropIndex = (p: never) => deleteDerivedIndex(p, '/', '/', {});\nexport interface ContextDraftOffer {"),
   // PM-17
   T("core-reads-a-file", "PM-17", STORE, "import { createHash } from 'node:crypto';", "import { createHash } from 'node:crypto';\nimport { readFileSync } from 'node:fs';"),
   T("core-imports-the-agent", "PM-17", PROPOSAL, "import { createHash } from 'node:crypto';", "import { createHash } from 'node:crypto';\nimport { join } from '../../../agent/src/context.js';"),
