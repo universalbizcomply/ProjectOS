@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "a521220f9992d498",
+  "objective": "Plan v1.41: remove .projectops/provider-roles.json from the PROJECTOS-PROVIDER-ROLES1A write list: no worker may be granted a governance record, so the committed registry is a lead edit named in the owner-approved delta spec (2026-11-17).",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "40e3b167d57770dd80a72d34067e553b0b7ba63a",
+  "submittedAt": "2026-11-17T14:21:14.192Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
