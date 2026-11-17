@@ -280,6 +280,11 @@ const REFUSED_UNDER_STOP: readonly (readonly string[])[] = [
   ['workforce'],
   ['mcp', 'token', '--create'],
   ['tenant', 'receipt', '--blob', 'a'],
+  ['memory', 'index', 'rebuild'],
+  ['memory', 'index', 'delete'],
+  ['memory', 'delete', '--path', 'p', '--reason', 'r'],
+  ['memory', 'approve', '--id', 'mem-x'],
+  ['memory', 'reject', '--id', 'mem-x'],
   ['an-unknown-command'],
 ];
 
@@ -298,6 +303,7 @@ const READ_ONLY_UNDER_STOP: readonly (readonly string[])[] = [
   ['prompt', '--phase', 'P'],
   ['tenant'],
   ['tenant', 'show'],
+  ['memory', 'proposals'],
   ['closure'],
   ['closure', 'status', '--id', 'P'],
   ['phase'],

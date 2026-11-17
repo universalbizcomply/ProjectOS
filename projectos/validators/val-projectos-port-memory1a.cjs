@@ -201,6 +201,12 @@ const withoutComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, " ").replace
  * point, and the one site may call that one.
  */
 const MEMORY_CALL_SITES = { "projectos/agent/src/context/contextPorts.ts": ["readMemoryStore"] };
+/**
+ * PM-16, NARROWED AGAIN BY PROJECTOS-MEMORY-OWNER-COMMANDS1A (plan 4.1): the owner commands are one more call site, and they may call the
+ * queue's READ and DECIDE entry points: list, load, read the store for the provenance of an entry, approve and reject. They may not propose a write,
+ * write a store or take its lock. The owner, at a terminal, is what makes approve and reject reachable (val-projectos-memory-owner-commands1a, OC-1 to OC-6).
+ */
+const OWNER_COMMAND_CALL_SITES = { "projectos/agent/src/commands/memory.ts": ["approveMemoryProposal", "rejectMemoryProposal", "listPendingMemoryProposals", "loadMemoryProposal", "readMemoryStore"] };
 /** A CALL of a memory entry point: the name, then an argument list, and not a method of something else. */
 const MEMORY_CALL = /(?<![.\w])(?:loadMemoryBlock|readMemoryStore|proposeMemoryWrite|approveMemoryProposal|rejectMemoryProposal|listPendingMemoryProposals|loadMemoryProposal|writeMemoryEntries|writeMemoryProvenance|underMemoryLock)\(/g;
 /** Every product source (a package's `src`) except this port's own directories. Read once, so a mutation can name any of them. */
@@ -860,11 +866,11 @@ function textProblems(raw) {
   for (const rel of PRODUCT_SOURCES) {
     if (typeof raw[rel] !== "string") continue;
     const called = memoryCallsIn(raw[rel]);
-    const allowed = MEMORY_CALL_SITES[rel];
+    const allowed = MEMORY_CALL_SITES[rel] ?? OWNER_COMMAND_CALL_SITES[rel];
     const refused = allowed === undefined ? called : called.filter((name) => !allowed.includes(name));
     if (refused.length > 0) E("PM-16", `${rel} calls ${refused.join(", ")}${allowed === undefined ? ", and this phase adds no call site there" : `, and the only entry point this phase lets it call is ${allowed.join(", ")}`}`);
   }
-  for (const [rel, names] of Object.entries(MEMORY_CALL_SITES)) {
+  for (const [rel, names] of Object.entries({ ...MEMORY_CALL_SITES, ...OWNER_COMMAND_CALL_SITES })) {
     if (typeof raw[rel] !== "string" || !names.every((name) => memoryCallsIn(raw[rel]).includes(name))) E("PM-16", `${rel}, the call site this phase adds, no longer calls ${names.join(", ")}`);
   }
 
@@ -1092,6 +1098,9 @@ const MUTATIONS = [
   T("the-one-call-site-proposes", "PM-16", "projectos/agent/src/context/contextPorts.ts", "export interface ContextDraftOffer {", "export const write = (sys: never) => proposeMemoryWrite(sys, '/', {} as never);\nexport interface ContextDraftOffer {"),
   T("the-retrieval-reads-the-store-around-the-port", "PM-16", "projectos/agent/src/context/contextRetrieval.ts", "export const MAX_DECISION_PHASES = 20;", "export const around = (sys: never) => readMemoryStore(sys, '/', 'memory');\nexport const MAX_DECISION_PHASES = 20;"),
   T("the-one-call-site-no-longer-reads", "PM-16", "projectos/agent/src/context/contextPorts.ts", "readMemoryStore: (target) => readMemoryStore(sys, root, target),", "readMemoryStore: (target) => ({ ok: true, value: { entries: [], provenance: new Map() } }),"),
+  T("the-owner-commands-propose-a-write", "PM-16", "projectos/agent/src/commands/memory.ts", "export interface MemoryCommandDeps {", "export const proposeOne = (sys: never) => proposeMemoryWrite(sys, '/', {} as never, {} as never);\nexport interface MemoryCommandDeps {"),
+  T("the-owner-commands-write-the-store", "PM-16", "projectos/agent/src/commands/memory.ts", "export interface MemoryCommandDeps {", "export const writeOne = (sys: never) => writeMemoryEntries(sys, '/', 'memory', []);\nexport interface MemoryCommandDeps {"),
+  T("the-owner-commands-no-longer-decide", "PM-16", "projectos/agent/src/commands/memory.ts", "approveMemoryProposal(sys, root, OWNER_CALLER, request)", "({ ok: false } as never)"),
   // PM-17
   T("core-reads-a-file", "PM-17", STORE, "import { createHash } from 'node:crypto';", "import { createHash } from 'node:crypto';\nimport { readFileSync } from 'node:fs';"),
   T("core-imports-the-agent", "PM-17", PROPOSAL, "import { createHash } from 'node:crypto';", "import { createHash } from 'node:crypto';\nimport { join } from '../../../agent/src/context.js';"),
