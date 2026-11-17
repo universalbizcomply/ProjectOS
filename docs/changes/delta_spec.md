@@ -415,3 +415,72 @@ reads by absolute path). Chosen: an adapter-local scratch export.
 
 **Not proven by this phase, and to say so:** whether Codex's Windows sandbox accepts a temp directory and a freshly initialised repository (needs a
 live Codex probe, which spends provider money and asks the owner first); copy time on a large repository; reads by absolute path stay open.
+
+---
+
+# Plan v1.37 — PROJECTOS-PROVIDER-ROLES1A (plan 4.2, first slice)
+
+**Status:** APPROVED by the owner 2026-11-17 ("Approved all"); in activated plan v1.37. Drafted at plan branch `3db082ae`.
+Owner answers recorded (all as recommended): the plan's `WAITING_GATEKEEPER` is the state the code calls `AWAITING_GATEKEEPER`, and no second
+name is added; `broker-call` (P3) stays the class for every model call, with no registry change; prices for providers outside the committed
+gatekeeper rate cards wait for the later broker slice.
+
+**Why:** plan 4.2 asks for a provider broker by role with a capability and cost registry. The ported model broker has no roles or capabilities and
+nothing committed to read, and the trusted broker cannot carry a second provider as it stands. The first useful slice is selection and recording
+only: no new network path, no credential, no money rule.
+
+**Existing code found.** Worker roles come from `.projectops/project-config.json` `execution.workers`, `defaultWorkerId`, `reviewerWorkerId`
+(`agent/src/loop/workers.ts`, PROTECTED: `authorisedWorkers`, `resolveWorker`, `resolveReviewer`). The gatekeeper route and its `rateCards` and
+`budget` are in `.projectops/gatekeeper.json` (`loop/gatekeeperConfig.ts`, PROTECTED). The cost side exists (`RateCard`, the spend ledger, the
+budget caps). The model broker (`core/src/modelBroker/`, `agent/src/modelBroker/committedConfig.ts` with its committed-bytes reader) is unwired and
+fenced by `val-projectos-port-providers1a` (PP-24: no importer outside the module). `broker-call` is already a registered P3 action.
+
+**ADDED.**
+- `.projectops/provider-roles.json` (committed, schema 1): for each role (`implementer`, `reviewer`, `gatekeeper`) a `workerId` or the gatekeeper
+  transport id, `capabilities` from a closed list, and a cost class (`unmetered`, or `metered` naming a model in the committed rate cards).
+- `projectos/core/src/modelBroker/roleRegistry.ts` (pure): parse and validate against what is authorised; `selectForRole` returns an entry or nothing.
+- `projectos/agent/src/commands/roles.ts`: `projectos roles`, a read-only report from committed bytes; a working-tree copy that differs is flagged.
+- Tests in `core/test` and `agent/test`; validator `val-projectos-provider-roles1a.cjs` with named mutations; a finish doc.
+
+**MODIFIED.**
+- `agent/src/modelBroker/committedConfig.ts`: one reader for the role registry, reusing the existing committed-bytes read.
+- `core/src/modelBroker/index.ts`: export the new file. `agent/src/cli.ts`: one `roles` case and its help line.
+- `val-projectos-port-providers1a.cjs` PP-24: narrowed to allow exactly `commands/roles.ts` importing exactly the registry reader, with a named
+  mutation for that file importing `callModel`; the rule stays for every other file.
+- `validate-all.cjs`, `cached-runner.cjs`: registration only, both lists identical, placed BEFORE `val-projectos-memory-stores1a` (the Stage 3
+  validators pin their own positions after it).
+
+**PROTECTED (untouched).** `loop/workers.ts`, `commands/run.ts`, `loop/gatekeeperConfig.ts`, the trusted broker, `credentialResolver.ts`,
+`action-registry.json`, `project-config.json`, `gatekeeper.json`, `closureTurn.ts`, `reconciliation.ts`. Nothing consults the registry to choose
+a worker in this slice.
+
+**Rules.**
+1. A role may name only a worker in the committed `execution.workers`, or the committed gatekeeper transport.
+2. A metered cost names a model in the committed rate cards; a zero price is refused.
+3. Capabilities come from a closed list; an unknown one is refused.
+4. A field named like a key, a credential or an endpoint is refused.
+5. The registry is read from committed bytes only; a working-tree-only change is refused.
+6. The implementer and reviewer roles may not resolve to the same worker.
+7. Selection returns an entry or nothing, never a verdict; a gatekeeper role reports awaiting when no decision exists.
+8. Nothing outside `commands/roles.ts` imports the model broker.
+
+**Reviews:** ECC `security-reviewer`. One recheck at most.
+
+# Plan v1.37 — PROJECTOS-HOST-SESSION-DIGEST-SEAL1A
+
+**Status:** APPROVED by the owner 2026-11-17 ("Approved all"), including the edit to a PROTECTED file; in activated plan v1.37.
+
+**Existing code found.** `val-cd-b4-sealed-expected-window-facts1a` (rule V2, since 2026-07-31) requires `session_digest` getters in host core to be
+`pub(crate)`. `AdmittedRequest::session_digest` was added `pub` on 2026-09-07 (`693bc75d`), after the rule, and is the validator's one failure in
+every full run since. A search of `projectos/host` found no caller of it outside the crate and no Rust test using it.
+
+**MODIFIED.** `projectos/host/core/src/ipc_session.rs`: `pub fn session_digest` on `AdmittedRequest` becomes `pub(crate) fn session_digest`. One line.
+
+**PROTECTED (untouched).** Everything else under `projectos/host`. No service install, start, ACL or registry change.
+
+**Rule.** No sealed binding digest has a public getter in host core.
+
+**Proof.** `cargo test` in `projectos/host/core` (doctests included) and a build and test of `projectos/host/windows-local-ipc`; the validator
+passes; every other `val-cd-b4` validator that reads `ipc_session.rs` still passes. If any dependant fails to compile, the phase stops and reports.
+
+**Review:** ECC `security-reviewer` reads the one-line diff and the cargo output.
