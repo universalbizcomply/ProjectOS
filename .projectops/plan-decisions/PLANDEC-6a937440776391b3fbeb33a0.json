@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-11-17T12:46:41.797Z",
   "note": "Owner, 2026-11-17: \"I approve plan v1.37, accept both\". Delta sections for the Stage 4 phases in docs/changes/delta_spec.md approved by the owner the same day (\"Approved all, build A and B in parallel\"). \"Both\" = the typed confirmation is the same strength of proof as the tenant receipt, and a decision is changed by committing it, not through memory approve.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-11-17T12:47:09.765Z"
 }
