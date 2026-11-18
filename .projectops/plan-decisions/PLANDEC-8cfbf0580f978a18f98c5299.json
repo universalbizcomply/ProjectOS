@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-11-18T15:09:13.283Z",
   "note": "Owner-approved plan amendment (owner, 2026-11-18: \"Yes to both, go ahead\", answering the lead's two questions: may plan v1.43 be recorded, and is the agency phase wording Implementer self-review plus Independent code review acceptable): the PROJECTOS-STAGE4-EXIT-PROOF1A phase entry is refined with two added dependencies, extra required validators and explicit exclusions; ProjectOS product code and the owner's earlier spend approval are unchanged.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-11-18T15:09:17.754Z"
 }
