@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-11-18T17:16:50.780Z",
   "note": "Owner-approved plan amendment (owner, 2026-11-18, interactive prompts): \"Approve as drafted (Recommended)\" (TypeScript fix), \"Separate phase, same amendment (Recommended)\" (Rust seal), \"Yes, record v1.44 (Recommended)\" (the amendment) and, when the first form was refused as a forward dependency, \"Drop the dependency (Recommended)\". This second form adds PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A and PROJECTOS-HOST-REQUEST-STORE-SEAL1A at the end of the plan with no dependency from PROJECTOS-STAGE4-EXIT-PROOF1A; the earlier recorded decision PLANDEC-767b9857ec5bda2c1b63a888 belongs to the refused first form and is not used. Asked first, per the owner's standing rule.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-11-18T17:16:54.628Z"
 }
