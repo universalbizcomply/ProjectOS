@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-767b9857ec5bda2c1b63a888",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "4085329b25152ebe8f2e6671c4be72cdae5ac8eb",
+  "draftId": "39b5a562e77b7d15",
+  "planDigest": "sha256:e5a8f0b174144204e02c6a9ca1f2454bae7f1d192d47ad69772eda192a841c4b",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-18T17:07:05.168Z",
+  "note": "Owner-approved plan amendment (owner, 2026-11-18, answering the lead's questions in the interactive prompt): \"Approve as drafted (Recommended)\" for the TypeScript fix, \"Separate phase, same amendment (Recommended)\" for the Rust seal, and \"Yes, record v1.44 (Recommended)\" for this amendment: PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A and PROJECTOS-HOST-REQUEST-STORE-SEAL1A are added and PROJECTOS-STAGE4-EXIT-PROOF1A depends on the first. Asked first, per the owner's standing rule to ask before every plan amendment.",
+  "recordedBy": "projectos plan decide"
+}
