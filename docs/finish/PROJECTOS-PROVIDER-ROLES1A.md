@@ -66,6 +66,9 @@ The new rule ids: **PR-13** (a role fits its capabilities and its worker) is new
 - **L3** The registry is not cross-checked against `execution.defaultWorkerId` and `execution.reviewerWorkerId`, so it can name a different implementer or reviewer than the loop uses.
 - **L5** `known` is read more than once (stateful hostile input could answer differently); only the registry input is snapshotted once. `known` is built by trusted code from committed records.
 - The gatekeeper transport id and the registry are read by two readers, each resolving HEAD once; a commit landing between the two could put them at different commits.
+- **Recheck L1** `canReview` is derived from the adapter's `review` step, not from the adapter's argument refusals (`codexArgProblems`): a `codex-cli` worker whose configured args the adapter rejects at review time still reports `canReview` and shows `assigned`. The report is recording only; nothing runs from it.
+- **Recheck L2** the `OVERSIZE_TEXT` doc comment in `commands/roles.ts` sits above the `IMPLEMENTER_KINDS` comment, detached from the constant it describes (cosmetic; left so no validator text pin moves).
+- **Recheck L4** `loop/workers.ts` looks a worker's kind up in the adapter table without an own-property guard (pre-existing, PROTECTED, not touched); this phase's `kindCapabilities` does guard it.
 
 ## Existing code found
 
@@ -159,7 +162,7 @@ All read from real output on this machine. Other builds were running at the same
 | agent `platformStop.test.ts`, **alias run** (with the new `roles` row and the "classifies every command" test) | 116 tests pass |
 | agent whole suite, **alias run**, once | 136 of 138 files pass; 4303 tests pass, 1 fails, 10 skipped. The two failing files are not this phase's. `tenantSidecar.test.ts` runs the plain `tsc -p tsconfig.json`, which reads the junction's core and so cannot see the new core exports (the same cause the port-providers finish doc records, and it goes green once the junction sees this core). `loopToolGrants.test.ts` "Every plan v1.9 phase carries writePaths" fails on `PROJECTOS-PROPOSAL-DOOR-WIRING1A` (writePath `.gitignore` is a bare filename) in `docs/projectos-finish-phases.json`, committed at `a0138a0f`, which this phase does not touch |
 | `val-projectos-provider-roles1a` | PASS (86 named mutations killed in the first build; 141 after fix round 2, see above) |
-| `val-projectos-port-providers1a` | PASS (17 real files judged; 225 text and 89 behavioural mutations killed) |
+| `val-projectos-port-providers1a` | PASS (17 real files judged; 234 text and 89 behavioural (after fix round 2) mutations killed) |
 | `val-projectos-kernel-followup1a` | PASS (88 named mutations killed) |
 | `validate-no-secrets` | PASS |
 | `val-projectos-port-credit1a` | PASS (197 real files judged; 157 fixture and 59 record mutations killed) |
@@ -183,7 +186,7 @@ worktree, with the real governed context, `authorisedWorkers` and `loadGatekeepe
 
 ```text
 exit 0
-Provider roles (committed at 816e83619749)
+Provider roles (read from commit 85f13d11de75)
   implementer: worker claude-local; capabilities implement; cost unmetered; assigned
   reviewer: worker claude-reviewer; capabilities review; cost unmetered; assigned
   gatekeeper: gatekeeper route openai-primary; capabilities gatekeeper-review, plan-authoring, closure-question; cost metered, model gpt-5.6-terra; awaiting: a decision is not held in this registry
