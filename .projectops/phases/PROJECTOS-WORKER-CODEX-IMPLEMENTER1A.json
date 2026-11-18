@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-WORKER-CODEX-IMPLEMENTER1A",
   "project": "ProjectOS",
   "objective": "Stage 4 plan 4.1a. A second implementer kind, codex-implementer-cli, runs codex exec headless from the brief path under the one workspace-write sandbox the adapter sets. Codex has no per-path grant, so write scope is judged by the adapter on a before and after snapshot of the checkout: detective, not preventative. It never reviews and never resumes, and no credential crosses in or out. No live Codex run was made and no worker entry is configured.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-18T14:11:21.890Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-18T14:11:23.716Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-WORKER-CODEX-IMPLEMENTER1A:owner-closure:5785b504"
     }
   ]
 }
