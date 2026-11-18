@@ -11,5 +11,6 @@
   "decidedBy": "Murad",
   "decidedAt": "2026-11-18T11:32:38.961Z",
   "note": "Owner-approved plan amendment (owner, 2026-11-18: \"yes, approved, go ahead\", answering the lead's question whether phase C may add val-projectos-port-skills1a.cjs to its write list and make the one-line PK-16 pin edit): the validator joins the PROJECTOS-PROPOSAL-DOOR-WIRING1A write list, limited to that one mutation pin, because the added state argument at the door call changes the pinned text.",
-  "recordedBy": "projectos plan decide"
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-11-18T11:32:50.299Z"
 }
