@@ -22,8 +22,9 @@
  *   DW-10 "a second caller is the same door"             - `runner.ts` is the only caller, and imports no propose, approve or write entry point
  *   DW-11 "print what was asked"                         - the output lines carry codes, indexes, ids and hashes, never worker text or a door message
  *   DW-12 "the queue the owner reads is the worker's"    - the loop gives the door a budget: the stores are measured the way the digest measures them and an entry that
- *         would take them past 6 MiB (under the 8 MiB the digest refuses above) is refused with a code before anything is written, so a worker cannot lock every later run out
- *   DW-R  "it is built, so it runs"                      - registered in both runners, identical, immediately before the memory stores validator
+ *         would take them past 6 MiB (under the 8 MiB the digest refuses above), or would reach the digest's entry-count bound (the roots, every directory and every file, counting the
+ *         file and the directories the entry creates), is refused with a code before anything is written, so a worker cannot lock every later run out
+ *   DW-R  "it is built, so it runs"                      - registered in both runners, identical, immediately before the provider roles validator (which is itself immediately before the memory stores validator)
  *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT rule fires. Comments are stripped first
  * (a mutation that only changes a comment is not a mutation). Reads files; runs nothing and calls no provider.
@@ -46,7 +47,7 @@ const VA = "projectos/validators/validate-all.cjs";
 const CR = "projectos/speed/cached-runner.cjs";
 const SRC = "projectos/agent/src";
 const THIS = "val-projectos-proposal-door-wiring1a";
-const NEXT = "val-projectos-memory-stores1a";
+const NEXT = "val-projectos-provider-roles1a";
 const FIXED = [RUNNER, DOOR, GUARD, STEP, BUDGET, DIGEST, MANAGER, PROVENANCE, GITIGNORE, VA, CR];
 
 const TESTS = {
@@ -87,6 +88,12 @@ const TESTS = {
     "applies to a memory entry too, and refuses when the stores cannot be measured",
     "measures what the digest measures: the size of every file under both store roots, and nothing outside them",
     "an entry that is already pending is a duplicate and costs the budget nothing",
+    "counts the way the digest counts: both roots, every directory and every file, and the digest reads exactly that many",
+    "refuses a memory entry with the stores %s",
+    "counts the directories the entry would create: a proposals directory that is not there yet is one more entry",
+    "with the proposals directory already there only the file is new, and a skill counts its own store roots",
+    "what the door accepts at the edge still digests, and the guard clears it",
+    "a run with the stores one entry under the bound refuses the entry, writes nothing, and the next attempt is not stopped by the guard",
     "is the deterministic kind when no drafter port exists, and the agent-model kind when one does",
     "the context manager applies the compaction it made itself under deterministic-selection, and the kernel accepts it",
     "records the agent-model kind for the same compaction when a drafter port wrote it",
@@ -169,13 +176,23 @@ const PIN = {
   askSkill: "  if (budget !== undefined && !budget(one)) return overBudget(one.index, 'skill');\n",
   runnerBudget: ", doorState, proposalBudgetOf(storeGuardFs, root)),",
   runnerBudgetImport: "import { proposalBudgetOf } from '../context/proposalBudget.js';",
-  budgetFits: "return used !== null && used + entryBytesBound(entry) <= PROPOSALS_BUDGET_BYTES;",
+  budgetFits: "return used.bytes + entryBytesBound(entry) <= PROPOSALS_BUDGET_BYTES;",
+  budgetNullRefusal: "if (used === null) return false;",
   budgetOverhead: "+ PROPOSAL_FILE_OVERHEAD_BYTES;",
   budgetEstimate: "Buffer.byteLength(JSON.stringify(own, null, 2), 'utf8')",
   budgetRoots: "const STORE_ROOTS: readonly string[] = ['.projectops/memory', '.projectops/skills'];",
   budgetLink: "if (stat === null || stat.kind === 'link') return false;",
-  budgetAgain: "return (entry) => {\n    const used = storeBytesNow(fs, root);",
+  budgetAgain: "return (entry) => {\n    const used = storeUsageNow(fs, root);",
   budgetUnmeasurable: "if (parent.kind !== 'directory') return null;",
+  budgetCountCheck: "if (used.entries + newEntriesFor(fs, root, entry) >= MAX_STORE_DIGEST_FILES) return false;",
+  budgetRootsCounted: "tally.entries += 1;\n    if (!addBytesUnder(fs, root, store, 1, tally)) return null;",
+  budgetWalkCount: "tally.entries += 1;\n    if (tally.entries > MAX_STORE_DIGEST_FILES) return false;",
+  budgetDepth: "if (depth > MAX_STORE_DIGEST_DEPTH) return false;",
+  budgetNewStore: "const store = entry.class === 'skill' ? '.projectops/skills' : '.projectops/memory';",
+  budgetNewDirs: "const missing = [store, `${store}/proposals`].filter((directory) => fs.stat(`${root}/${directory}`) === null).length;",
+  budgetNewFile: "return 1 + missing;",
+  budgetImport: "import { MAX_STORE_DIGEST_DEPTH, MAX_STORE_DIGEST_FILES } from '../memory/storeDigest.js';",
+  doorBudgetText: "Proposals that were already decided stay on disk and still count, and nothing removes them, so room comes back only when files are deleted by hand.",
   // DW-10
   runnerImport: "import { openProposalDoor } from '../memory/proposalDoor.js';",
   // DW-11
@@ -265,19 +282,39 @@ const MUTATIONS = [
   { name: "the-runner-does-not-import-the-budget", rule: "DW-12", rel: RUNNER, from: PIN.runnerBudgetImport, to: "const proposalBudgetOf = (..._args: unknown[]) => (): boolean => true;" },
   { name: "the-budget-is-at-the-digest-bound", rule: "DW-12", rel: BUDGET, from: "PROPOSALS_BUDGET_BYTES = 6 * 1024 * 1024;", to: "PROPOSALS_BUDGET_BYTES = 8 * 1024 * 1024;" },
   { name: "the-budget-leaves-no-room-for-the-file-overhead", rel: BUDGET, rule: "DW-12", from: "PROPOSAL_FILE_OVERHEAD_BYTES = 64 * 1024;", to: "PROPOSAL_FILE_OVERHEAD_BYTES = 3 * 1024 * 1024;" },
-  { name: "the-entry-size-is-not-counted", rule: "DW-12", rel: BUDGET, from: PIN.budgetFits, to: "return used !== null && used <= PROPOSALS_BUDGET_BYTES;" },
-  { name: "an-unmeasurable-store-counts-as-empty", rule: "DW-12", rel: BUDGET, from: PIN.budgetFits, to: "return used === null || used + entryBytesBound(entry) <= PROPOSALS_BUDGET_BYTES;" },
+  { name: "the-entry-size-is-not-counted", rule: "DW-12", rel: BUDGET, from: PIN.budgetFits, to: "return used.bytes <= PROPOSALS_BUDGET_BYTES;" },
+  { name: "an-unmeasurable-store-counts-as-empty", rule: "DW-12", rel: BUDGET, from: PIN.budgetNullRefusal, to: "" },
   { name: "the-estimate-leaves-out-the-fixed-overhead", rule: "DW-12", rel: BUDGET, from: PIN.budgetOverhead, to: "+ 0;" },
   { name: "the-estimate-ignores-the-text", rule: "DW-12", rel: BUDGET, from: PIN.budgetEstimate, to: "0" },
   { name: "the-skills-store-is-not-measured", rule: "DW-12", rel: BUDGET, from: PIN.budgetRoots, to: "const STORE_ROOTS: readonly string[] = ['.projectops/memory'];" },
   { name: "a-link-in-a-store-is-measured-as-a-file", rule: "DW-12", rel: BUDGET, from: PIN.budgetLink, to: "if (stat === null) return false;" },
-  { name: "the-stores-are-measured-once", rule: "DW-12", rel: BUDGET, from: PIN.budgetAgain, to: "const used = storeBytesNow(fs, root);\n  return (entry) => {" },
+  { name: "the-stores-are-measured-once", rule: "DW-12", rel: BUDGET, from: PIN.budgetAgain, to: "const used = storeUsageNow(fs, root);\n  return (entry) => {" },
   { name: "a-store-that-is-not-a-directory-is-skipped", rule: "DW-12", rel: BUDGET, from: PIN.budgetUnmeasurable, to: "if (parent.kind !== 'directory') return 0;" },
+  { name: "the-entry-count-is-not-checked", rule: "DW-12", rel: BUDGET, from: PIN.budgetCountCheck, to: "" },
+  { name: "the-entry-bound-is-passed-and-not-reached", rule: "DW-12", rel: BUDGET, from: "newEntriesFor(fs, root, entry) >= MAX_STORE_DIGEST_FILES) return false;", to: "newEntriesFor(fs, root, entry) > MAX_STORE_DIGEST_FILES) return false;" },
+  { name: "the-directories-an-entry-creates-are-not-counted", rule: "DW-12", rel: BUDGET, from: "newEntriesFor(fs, root, entry) >= MAX_STORE_DIGEST_FILES", to: "1 >= MAX_STORE_DIGEST_FILES" },
+  { name: "the-store-roots-are-not-counted", rule: "DW-12", rel: BUDGET, from: PIN.budgetRootsCounted, to: "if (!addBytesUnder(fs, root, store, 1, tally)) return null;" },
+  { name: "the-entry-bound-is-a-copy-of-the-digests", rule: "DW-12", rel: BUDGET, from: PIN.budgetCountCheck, to: "if (used.entries + newEntriesFor(fs, root, entry) >= 2000) return false;" },
+  { name: "the-walk-does-not-stop-at-the-digests-entry-bound", rule: "DW-12", rel: BUDGET, from: PIN.budgetWalkCount, to: "tally.entries += 1;" },
+  { name: "the-walk-does-not-stop-at-the-digests-depth", rule: "DW-12", rel: BUDGET, from: PIN.budgetDepth, to: "if (depth > 100) return false;" },
+  { name: "the-new-entries-ignore-the-skill-store", rule: "DW-12", rel: BUDGET, from: PIN.budgetNewStore, to: "const store = '.projectops/memory';" },
+  { name: "the-new-entries-ignore-the-missing-directories", rule: "DW-12", rel: BUDGET, from: PIN.budgetNewDirs, to: "const missing = 0;" },
+  { name: "the-new-file-is-not-counted", rule: "DW-12", rel: BUDGET, from: PIN.budgetNewFile, to: "return missing;" },
+  { name: "the-refusal-message-promises-room-the-owner-cannot-make", rule: "DW-12", rel: DOOR, from: PIN.doorBudgetText, to: "The owner decides what is waiting, and then it can be asked again." },
   // DW-R
   { name: "validate-all-omits-this-validator", rule: "DW-R", rel: VA, from: `  "${THIS}",\n`, to: "" },
   { name: "the-cached-runner-omits-this-validator", rule: "DW-R", rel: CR, from: `  "${THIS}",\n`, to: "" },
   { name: "the-validator-is-commented-out", rule: "DW-R", rel: VA, from: `  "${THIS}",`, to: `  // "${THIS}",` },
-  { name: "the-validator-runs-after-the-stores-validator", rule: "DW-R", rel: CR, from: `  "${THIS}",\n`, to: "" , also: [[`  "${NEXT}",`, `  "${NEXT}",\n  "${THIS}",`]] },
+  { name: "the-validator-runs-after-the-roles-validator", rule: "DW-R", rel: CR, from: `  "${THIS}",\n`, to: "" , also: [[`  "${NEXT}",`, `  "${NEXT}",\n  "${THIS}",`]] },
+  { name: "another-validator-is-put-between-this-one-and-the-roles-one", rule: "DW-R", rel: VA, from: `  "${THIS}",
+`, to: `  "${THIS}",
+  "val-projectos-memory-stores1a",
+` },
+  { name: "the-roles-comment-line-is-not-directly-after-this-entry", rule: "DW-R", rel: CR, from: "// PROJECTOS-PROVIDER-ROLES1A", to: "// PROJECTOS-PROVIDER-ROLES-1A" },
+  { name: "the-runners-list-different-validators-from-this-one-on", rule: "DW-R", rel: CR, from: `  "${NEXT}",
+`, to: `  "${NEXT}",
+  "val-projectos-not-in-the-other-runner",
+` },
 ];
 
 function read(rel) {
@@ -443,9 +480,11 @@ function check(raw) {
     const room = Number(digestBytes[1]) * 1048576 - Number(budgetBytes[1]) * 1048576 - Number(overheadBytes[1]) * 1024;
     if (Number(budgetBytes[1]) < 1 || room < 1048576) E("DW-12", "the budget plus one file's overhead is not at least 1 MiB under the bound the store digest refuses above");
   }
-  if (!has(budgetSrc, PIN.budgetFits, PIN.budgetOverhead, PIN.budgetEstimate, PIN.budgetRoots, PIN.budgetLink, PIN.budgetAgain, PIN.budgetUnmeasurable)) E("DW-12", "the budget does not measure both store roots as the digest does, count the entry, or refuse a store it cannot measure");
+  if (!has(budgetSrc, PIN.budgetCountCheck, PIN.budgetRootsCounted, PIN.budgetWalkCount, PIN.budgetDepth, PIN.budgetNewStore, PIN.budgetNewDirs, PIN.budgetNewFile, PIN.budgetImport) || /\b2000\b|\b2_000\b/.test(budgetSrc)) E("DW-12", "the budget does not count entries the way the digest counts them (the roots, every directory, every file, the new file and the directories it creates) against the digest's own bound");
+  if (!door.includes(PIN.doorBudgetText)) E("DW-12", "the budget refusal message does not say that decided proposals stay on disk and still count");
+  if (!has(budgetSrc, PIN.budgetNullRefusal, PIN.budgetFits, PIN.budgetOverhead, PIN.budgetEstimate, PIN.budgetRoots, PIN.budgetLink, PIN.budgetAgain, PIN.budgetUnmeasurable)) E("DW-12", "the budget does not measure both store roots as the digest does, count the entry, or refuse a store it cannot measure");
 
-  // DW-R: registered in both runners, identical, immediately before the memory stores validator
+  // DW-R: registered in both runners, identical, immediately before the provider roles validator
   const a = modulesOf(raw[VA]);
   const c = modulesOf(raw[CR]);
   for (const [name, list] of [["validate-all.cjs", a], ["cached-runner.cjs", c]]) {
@@ -455,7 +494,7 @@ function check(raw) {
   if (a !== null && c !== null && JSON.stringify(a.slice(a.indexOf(THIS) - 1)) !== JSON.stringify(c.slice(c.indexOf(THIS) - 1))) E("DW-R", "the two runners do not list the same validators from this one on");
   for (const rel of [VA, CR]) {
     const text = raw[rel].replace(/\r\n/g, "\n");
-    if (!new RegExp(`\\n  // PROJECTOS-PROPOSAL-DOOR-WIRING1A[^\\n]*\\n  "${THIS}",\\n  // PROJECTOS-MEMORY-STORES1A`).test(text)) E("DW-R", `${rel} has not got this validator's comment line and entry directly above the stores validator's`);
+    if (!new RegExp(`\\n  // PROJECTOS-PROPOSAL-DOOR-WIRING1A[^\\n]*\\n  "${THIS}",\\n  // PROJECTOS-PROVIDER-ROLES1A`).test(text)) E("DW-R", `${rel} has not got this validator's comment line and entry directly above the provider roles validator's`);
   }
   return errors;
 }

@@ -12,11 +12,11 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { assembleRunContext, summariserKindOf } from '../src/context/contextManager.js';
 import { beginStoreGuard, endStoreGuard, rebaseStoreGuard, type StoreGuardSystem } from '../src/context/contextStoreGuard.js';
-import { PROPOSALS_BUDGET_BYTES, proposalBudgetOf, storeBytesNow } from '../src/context/proposalBudget.js';
+import { PROPOSALS_BUDGET_BYTES, proposalBudgetOf, storeBytesNow, storeUsageNow } from '../src/context/proposalBudget.js';
 import { afterProposalDoor, doorCreatedPaths, doorOutcomeLines } from '../src/context/proposalDoorStep.js';
 import { openProposalDoor, type DoorEntryOutcome, type ProposalDoorCaller } from '../src/memory/proposalDoor.js';
 import { listPendingMemoryProposals } from '../src/memory/proposalQueue.js';
-import { MAX_STORE_DIGEST_TOTAL_BYTES, snapshotMemoryStores } from '../src/memory/storeDigest.js';
+import { MAX_STORE_DIGEST_FILES, MAX_STORE_DIGEST_TOTAL_BYTES, snapshotMemoryStores } from '../src/memory/storeDigest.js';
 import { isSkillMinted, type SkillStatePorts } from '../src/skills/skillMint.js';
 import { listPendingSkillProposals } from '../src/skills/skillQueue.js';
 import { nodeSystem } from '../src/system.js';
@@ -621,6 +621,8 @@ describe('DW-12: the proposals the door has made cannot grow the stores past wha
     expect(answers.map((answer) => answer.ok)).toEqual([...accepted.map(() => true), ...refused.map(() => false)]);
     expect(refused.every((answer) => !answer.ok && answer.code === 'PROPOSAL_DOOR_BUDGET')).toBe(true);
     expect(refused.map((answer) => (answer.ok ? '' : answer.message)).join(' ')).not.toContain('lorem');
+    // The message is fixed text: it says that a decided proposal still counts (nothing prunes it), and it carries none of the worker's text.
+    expect(refused.every((answer) => !answer.ok && answer.message.includes('stay on disk and still count') && !answer.message.includes('asked again'))).toBe(true);
     expect(filesUnder(w, SKILL_PROPOSALS)).toHaveLength(accepted.length);
     // The stores are under the budget, which is under what the digest bound refuses.
     const used = storeBytesNow(fs, ROOT);
@@ -683,4 +685,100 @@ describe('DW-12: the proposals the door has made cannot grow the stores past wha
     expect(first.entries[0]).toMatchObject({ ok: true, duplicate: false });
     expect(second.entries[0]).toMatchObject({ ok: true, duplicate: true });
   });
+});
+
+describe('DW-12, the entry-count bound: the digest refuses a store tree of more than MAX_STORE_DIGEST_FILES entries, roots and directories included', () => {
+  const caller: ProposalDoorCaller = { author: 'worker-1', role: 'implementer', session: 'sess-1' };
+  const state: SkillStatePorts = { checkout: () => ({ tenant: 'polygo', project: 'polygo' }), stateDir: STATE };
+  const recordOf = (...proposals: unknown[]): string => JSON.stringify({ ...baseRecord, proposals });
+  const FILLER_DIR = `${ROOT}/.projectops/memory/filler`;
+
+  /** Pad the stores with tiny files until the digest would count exactly `entries` entries (the roots and every directory counted, as the digest counts them). */
+  function holdEntries(w: World, entries: number): void {
+    const fs = contextPorts(w).fs;
+    w.files[`${FILLER_DIR}/first.txt`] = 'x';
+    const have = storeUsageNow(fs, ROOT)?.entries ?? 0;
+    expect(entries).toBeGreaterThanOrEqual(have);
+    for (let index = 0; index < entries - have; index += 1) w.files[`${FILLER_DIR}/f${index}.txt`] = 'x';
+    // Past the bound the digest cannot read the stores at all, and neither can the measure: that is `null`, never a count.
+    if (entries > MAX_STORE_DIGEST_FILES) expect(storeUsageNow(fs, ROOT)).toBeNull();
+    else expect(storeUsageNow(fs, ROOT)?.entries).toBe(entries);
+  }
+
+  it('counts the way the digest counts: both roots, every directory and every file, and the digest reads exactly that many', () => {
+    const w = world();
+    const fs = contextPorts(w).fs;
+    holdEntries(w, 40);
+    const snapshot = snapshotMemoryStores(ROOT, fs);
+    expect(snapshot.ok ? snapshot.snapshot.files.length : -1).toBe(40);
+    expect(storeUsageNow(fs, ROOT)?.entries).toBe(40);
+  });
+
+  it.each([
+    ['one under the bound', MAX_STORE_DIGEST_FILES - 1],
+    ['at the bound', MAX_STORE_DIGEST_FILES],
+    ['three over it, where the digest itself can no longer read the stores', MAX_STORE_DIGEST_FILES + 3],
+  ])('refuses a memory entry with the stores %s', (_name, entries) => {
+    const w = world();
+    holdEntries(w, entries);
+    const outcome = openProposalDoor(w.sys, ROOT, caller, recordOf(memoryAsk()), state, proposalBudgetOf(contextPorts(w).fs, ROOT));
+    expect(outcome.entries[0]).toMatchObject({ ok: false, class: 'memory', code: 'PROPOSAL_DOOR_BUDGET' });
+    expect(filesUnder(w, MEMORY_PROPOSALS)).toEqual([]);
+  });
+
+  it('counts the directories the entry would create: a proposals directory that is not there yet is one more entry', () => {
+    const fresh = world();
+    holdEntries(fresh, MAX_STORE_DIGEST_FILES - 3);
+    // The file and the proposals directory would make two: 1997 + 2 stays under the bound, so it is accepted ...
+    expect(openProposalDoor(fresh.sys, ROOT, caller, recordOf(memoryAsk()), state, proposalBudgetOf(contextPorts(fresh).fs, ROOT)).entries[0]).toMatchObject({ ok: true, duplicate: false });
+    const full = world();
+    holdEntries(full, MAX_STORE_DIGEST_FILES - 2);
+    // ... and 1998 + 2 reaches the bound, so it is not.
+    expect(openProposalDoor(full.sys, ROOT, caller, recordOf(memoryAsk()), state, proposalBudgetOf(contextPorts(full).fs, ROOT)).entries[0]).toMatchObject({ ok: false, code: 'PROPOSAL_DOOR_BUDGET' });
+  });
+
+  it('with the proposals directory already there only the file is new, and a skill counts its own store roots', () => {
+    const w = world();
+    w.files[`${MEMORY_PROPOSALS}/mem-aaaaaaaaaaaaaaaaaaaaaaaa.json`] = '{}';
+    holdEntries(w, MAX_STORE_DIGEST_FILES - 2);
+    expect(openProposalDoor(w.sys, ROOT, caller, recordOf(memoryAsk()), state, proposalBudgetOf(contextPorts(w).fs, ROOT)).entries[0]).toMatchObject({ ok: true, duplicate: false });
+    const next = world();
+    next.files[`${MEMORY_PROPOSALS}/mem-aaaaaaaaaaaaaaaaaaaaaaaa.json`] = '{}';
+    holdEntries(next, MAX_STORE_DIGEST_FILES - 1);
+    expect(openProposalDoor(next.sys, ROOT, caller, recordOf(memoryAsk()), state, proposalBudgetOf(contextPorts(next).fs, ROOT)).entries[0]).toMatchObject({ ok: false, code: 'PROPOSAL_DOOR_BUDGET' });
+    // A skill needs `.projectops/skills` and its proposals directory, neither of which exists in this world: two directories and the file.
+    const skills = world();
+    holdEntries(skills, MAX_STORE_DIGEST_FILES - 3);
+    expect(openProposalDoor(skills.sys, ROOT, caller, recordOf(skillAsk()), state, proposalBudgetOf(contextPorts(skills).fs, ROOT)).entries[0]).toMatchObject({ ok: false, code: 'PROPOSAL_DOOR_BUDGET' });
+    const roomy = world();
+    holdEntries(roomy, MAX_STORE_DIGEST_FILES - 4);
+    expect(openProposalDoor(roomy.sys, ROOT, caller, recordOf(skillAsk()), state, proposalBudgetOf(contextPorts(roomy).fs, ROOT)).entries[0]).toMatchObject({ ok: true, duplicate: false });
+  });
+
+  it('what the door accepts at the edge still digests, and the guard clears it', () => {
+    const w = world();
+    gitIgnoresProposals(w);
+    holdEntries(w, MAX_STORE_DIGEST_FILES - 3);
+    const fs = contextPorts(w).fs;
+    const baseline = beginStoreGuard(w.sys, ROOT, fs);
+    const outcome = openProposalDoor(w.sys, ROOT, caller, recordOf(memoryAsk()), state, proposalBudgetOf(fs, ROOT));
+    const after = afterProposalDoor(w.sys, ROOT, fs, baseline, outcome);
+    expect(outcome.entries[0]).toMatchObject({ ok: true });
+    expect(snapshotMemoryStores(ROOT, fs).ok).toBe(true);
+    expect(endStoreGuard(w.sys, ROOT, fs, after.baseline)).toEqual({ ok: true });
+  }, 60_000);
+
+  it('a run with the stores one entry under the bound refuses the entry, writes nothing, and the next attempt is not stopped by the guard', () => {
+    const w = world({ validatorExit: 1 });
+    gitIgnoresProposals(w);
+    holdEntries(w, MAX_STORE_DIGEST_FILES - 1);
+    for (const path of Object.keys(w.files)) if (path.startsWith(`${FILLER_DIR}/`)) w.hidden.add(path);
+    ask(w, [memoryAsk()]);
+    const wk = worker(w);
+    const result = run(w, wk);
+    expect(wk.calls.length).toBeGreaterThan(1);
+    expect(stopOf(result)?.code).not.toBe('SCOPE_DECISION');
+    expect(filesUnder(w, MEMORY_PROPOSALS)).toEqual([]);
+    expect(result.lines.some((line) => line.includes('REFUSED (PROPOSAL_DOOR_BUDGET)'))).toBe(true);
+  }, 120_000);
 });

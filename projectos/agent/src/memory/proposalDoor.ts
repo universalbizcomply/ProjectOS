@@ -50,7 +50,7 @@ const overBudget = (index: number, entryClass: 'memory' | 'skill'): DoorEntryOut
   index,
   class: entryClass,
   code: 'PROPOSAL_DOOR_BUDGET',
-  message: 'The memory and skill stores have no room left for this proposal, so it was not made. The owner decides what is waiting, and then it can be asked again.',
+  message: 'The memory and skill stores have no room left for this proposal, so it was not made. Proposals that were already decided stay on disk and still count, and nothing removes them, so room comes back only when files are deleted by hand.',
 });
 
 /** Who is asking, from the kernel. Never read from the record. */
