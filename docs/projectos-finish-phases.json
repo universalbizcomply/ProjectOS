@@ -2871,6 +2871,120 @@
         "secrets-handling",
         "payment-or-live-charge"
       ],
+      "phaseId": "PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A",
+      "title": "A worker is told what a finding is, and the scratch checkout has one baseline commit",
+      "description": "Found by the Stage 4 live exit proof (config B stopped at CORRECTION_EXHAUSTED on two findings the Codex worker wrote about the loop's own steps). Two changes, one phase. (1) The shared worker instruction (the one both claude-code-cli and, through injected builders, codex-implementer-cli receive) gains a fixed clause: a finding is a defect in the worker's own work, every real defect is still written at its true severity, and the independent code review, the checks and validators, the closing of the phase, and a missing Git history or a baseline that differs from the brief's repository.head are the loop's business and are not findings; reviews names only reviews the worker performed. No gate moves: an unresolved MEDIUM or LOW is still sent back, CRITICAL or HIGH still stops, and an implementer's claim still credits no independent review. (2) The scratch checkout records ONE initial commit of the exported tree right after git init, through the shared isolated git runner (no hook, no filter, no signing, no user or system configuration, no attributes or excludes file, raw bytes, fixed message and identity), so git rev-parse HEAD and git diff work inside it; a refused add or commit refuses the open and starts no worker. The scratch .git stays the worker's: it is never compared, copied back or run again by ProjectOS. No live provider call in this phase.",
+      "scope": "One new constant in the shared instruction, one commit step in the scratch export, tests first, two rules added to the existing Codex-implementer validator.",
+      "writePaths": [
+        "projectos/agent/src/loop/adapters/claudeCodeCli.ts",
+        "projectos/agent/src/loop/scratchCheckout.ts",
+        "projectos/agent/test/",
+        "projectos/validators/val-projectos-worker-codex-implementer1a.cjs",
+        "projectos/validators/val-projectos-context-manager1a.cjs",
+        "projectos/validators/val-projectos-kernel-followup1a.cjs",
+        "projectos/validators/val-projectos-kernel-role-review1a.cjs",
+        "projectos/validators/val-projectos-worker-lifecycle-bounded1a.cjs",
+        "docs/finish/",
+        "docs/changes/delta_spec.md",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, loop/workers.ts write grants, credential custody, the tenant or action registries, or any existing authority record.",
+        "No live provider call and no worker entry committed to project-config.json.",
+        "No change to loop/outcome.ts, loop/reviewRoles.ts, loop/runner.ts, loop/writeScope.ts, adapters/codexImplementer.ts, adapters/codexCli.ts or system.ts: no gate moves, the same instruction reaches Codex through the injected builders, and the shared git runner is reused, not edited.",
+        "No new validator and no edit to validate-all.cjs or speed/cached-runner.cjs: the new rules are added to the existing validator.",
+        "No change under projectos/host (the Rust follow-up is its own phase).",
+        "The four validators val-projectos-context-manager1a, val-projectos-kernel-followup1a, val-projectos-kernel-role-review1a and val-projectos-worker-lifecycle-bounded1a are granted only so a pin that moves with the clause cannot force a plan amendment; they are expected untouched, and the finish doc states any that were edited.",
+        "The scratch commit message carries no sha or other data from the real repository or the worker."
+      ],
+      "dependsOn": [
+        "PROJECTOS-WORKER-SCRATCH-CHECKOUT1A",
+        "PROJECTOS-WORKER-CODEX-IMPLEMENTER1A"
+      ],
+      "acceptanceCriteria": [
+        "Both worker instructions, the start sentence and the correction sentence, carry the same fixed findings clause, and the Codex implementer's prompt contains it on a start and on a correction; it names no phase, brief or record field.",
+        "The clause says a finding is a defect in the worker's own work with every real defect still written at its true severity; that the independent review, the checks and validators and the closing of the phase are the loop's own steps and not findings; that a missing Git history or a baseline that differs from the brief's repository.head is not a finding; and that reviews names only reviews the worker performed.",
+        "No gate moves: an unresolved MEDIUM or LOW finding is still sent back for correction, an unresolved CRITICAL or HIGH still stops, and an implementer's reviews still credits no independent review; every fragment the existing tests and validators pin is still present.",
+        "The scratch repository has exactly one commit whose tree holds exactly the exported files, every blob equal to the raw bytes of the file whatever the machine's git configuration (a global autocrlf, signing, excludes or attributes file, a hook), tested with real git and a hostile configuration.",
+        "git status in the scratch is clean and HEAD resolves right after the open; a worker in the scratch sees its own edit and only that in git diff.",
+        "A failed add or a failed commit refuses the open with a fixed reason, starts no worker and leaves no directory; the scratch .git, including a commit the worker makes, is never compared or copied back, and the real checkout's HEAD, index, refs and status are identical before and after the open.",
+        "Validator pins and named mutations, each killed only when its own rule fires; the real-directory tests are TESTS needles of the validator."
+      ],
+      "requiredValidators": [
+        "val-projectos-worker-codex-implementer1a",
+        "val-projectos-worker-lifecycle-bounded1a",
+        "val-projectos-context-manager1a",
+        "val-projectos-kernel-followup1a",
+        "val-projectos-kernel-role-review1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "ECC CODE review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
+      "phaseId": "PROJECTOS-HOST-REQUEST-STORE-SEAL1A",
+      "title": "RequestAdmissionStore no longer returns a session digest",
+      "description": "Follow-up left by PROJECTOS-HOST-SESSION-DIGEST-SEAL1A. The public sealed trait RequestAdmissionStore at projectos/host/core/src/ipc_session.rs still declares session_digest(&self) -> [u8; 32], so any downstream crate can read a store's session digest through the trait even though the getters on BoundIpcSession and AdmittedRequest are pub(crate). The method is replaced by a predicate, is_bound_to(&self, session: &BoundIpcSession) -> bool, used once by admit_request; the trait stays sealed and object-safe. Owner decision 2026-11-18: seal it. A protected-file edit in the dormant Rust host.",
+      "scope": "One trait method replaced by a predicate in host core, its doctests and one integration test, two compile-negative cases added to the existing sealed-facts validator; no other change under projectos/host.",
+      "writePaths": [
+        "projectos/host/core/src/ipc_session.rs",
+        "projectos/host/core/tests/ipc_session_authority.rs",
+        "projectos/validators/val-cd-b4-sealed-expected-window-facts1a.cjs",
+        "docs/finish/",
+        "docs/changes/delta_spec.md",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, loop/workers.ts write grants, credential custody, the tenant or action registries, or any existing authority record.",
+        "No live provider call and no worker entry committed to project-config.json.",
+        "No other change under projectos/host. If windows-local-ipc or service-host fails to compile because of the trait change, the phase stops and reports instead of editing them.",
+        "No service install, start, ACL or registry change.",
+        "mod sealed { pub trait Sealed {} } stays empty (val-cd-b4-ipc-session-authority1a pins it)."
+      ],
+      "dependsOn": [
+        "PROJECTOS-HOST-SESSION-DIGEST-SEAL1A"
+      ],
+      "acceptanceCriteria": [
+        "No public item of host core returns a store's session digest: a downstream generic call and a downstream concrete call of session_digest on a store do not compile (compile_fail doctests and validator negatives), beside a positive control.",
+        "A store answers only whether it is bound to a given session; a store from another session is still refused with StoreNotBoundToSession (existing test unchanged) and a new test shows is_bound_to true for its own session and false for another.",
+        "RequestAdmissionStore is still sealed and object-safe: cargo test passes in projectos/host/core with test-fixtures (doctests included) and projectos/host/windows-local-ipc builds and tests with &mut dyn RequestAdmissionStore unchanged.",
+        "val-cd-b4-sealed-expected-window-facts1a, val-cd-b4-ipc-session-authority1a and the other validators that read ipc_session.rs pass, and validate-all has no new failure."
+      ],
+      "requiredValidators": [
+        "val-cd-b4-sealed-expected-window-facts1a",
+        "val-cd-b4-ipc-session-authority1a",
+        "val-cd-b4-production-ipc-provider1a",
+        "val-cd-b4-runtime-ipc-permit-integration1a",
+        "val-cd-b4-owner-presence-integration1a",
+        "val-cd-b4-provider-authority-seam1a"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
       "phaseId": "PROJECTOS-STAGE4-EXIT-PROOF1A",
       "title": "Stage 4 exit proof: the same phase runs with implementer and reviewer providers swapped, and no code change",
       "description": "Live on the agency pilot (C:/dev/SEOAgency). One governed phase (SEO-AGENCY-STAGE4-PROOF1A, which writes site/colophon.txt) is run twice by the same ProjectOS runtime: config A (Claude implements, Codex reviews) and config B (Codex implements through codex-implementer-cli, Claude reviews). Each run is one bare projectos continue --execute on its own branch forked from one common BASE commit; the only difference between the runs is the committed worker config. A validator over the recorded evidence proves the runtime and source did not change, both reviewer records are provider-distinct approvals, the write scope held, metered spend stayed under the caps ($1.50 per run, $3.00 in total), and every attempt is recorded: a refusal of the Codex implementer is evidence and makes the proof NOT PROVEN, never green. Provider spend and the secrets-handling receipt are owner acts, already approved for this proof on 2026-11-18.",
@@ -2894,7 +3008,8 @@
         "PROJECTOS-WORKER-CODEX-IMPLEMENTER1A",
         "PROJECTOS-CONTEXT-CODEX1A",
         "PROJECTOS-WORKER-SCRATCH-CHECKOUT1A",
-        "PROJECTOS-PROVIDER-ROLES1A"
+        "PROJECTOS-PROVIDER-ROLES1A",
+        "PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A"
       ],
       "acceptanceCriteria": [
         "Both configs run the same agency phase live from one common BASE, each as one bare continue --execute with no --session and no human-written text, and both are recorded; a refusal of either is recorded as it is and makes the proof NOT PROVEN.",
