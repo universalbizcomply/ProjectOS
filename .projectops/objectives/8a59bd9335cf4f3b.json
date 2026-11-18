@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "8a59bd9335cf4f3b",
+  "objective": "Plan v1.43: refine the PROJECTOS-STAGE4-EXIT-PROOF1A phase entry: add the dependencies PROJECTOS-WORKER-CODEX-IMPLEMENTER1A and PROJECTOS-CONTEXT-CODEX1A, the required validators memory-exit-proof1a, resume1a and validate-no-secrets, the agency phase SEO-AGENCY-STAGE4-PROOF1A that writes site/colophon.txt, and explicit exclusions; the proof stays NOT PROVEN on any refusal; spend caps 1.50 per run and 3.00 in total (owner approved 2026-11-18).",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "8b65eed45f466258b53f5d232fd7a08e0ae4a4a5",
+  "submittedAt": "2026-11-18T15:08:55.021Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
