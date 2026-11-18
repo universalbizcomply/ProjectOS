@@ -604,3 +604,136 @@ Constitution check: no PROTECTED file edited beyond the two registration lists; 
 **Residuals to state, not hide:** reads by absolute path stay open under D4 (the Codex implementer can read anything the owner's user can read); the Codex implementer had never run live before this phase; Claude had never reviewed live through this adapter; `providerDistinct` is by worker kind; the evidence is copied by the lead from the agency checkout and the installation state, and a person who re-seals the manifest, notes and records consistently passes every rule; the proof shows what was recorded, not that a worker read or used the brief or the stored context; Codex and Claude spend is unmetered.
 
 **Not in this phase:** any fix to a defect the live run finds (its own plan phase); lifting D4; a no-resume or no-swap control run; the provider broker wiring (4.2 beyond the registry); the Rust `session_digest` follow-up.
+
+# Plan v1.44 — PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A (and PROJECTOS-HOST-REQUEST-STORE-SEAL1A, separate phase)
+
+**Status:** approved by the owner in Plan Mode style questions, 2026-11-18, section committed alone before any code. Answers (verbatim option labels): "Approve as drafted (Recommended)" (the TypeScript fix: the exact instruction text, the two PROTECTED-listed files, fail closed on a refused scratch commit, no real sha in the commit message); "Separate phase, same amendment (Recommended)" (the Rust seal); "Yes, record v1.44 (Recommended)" (the plan amendment); "No, let the re-run answer it (Recommended)" (no live Codex probe, so T008 is skipped). The re-run attempt ids and a fresh secrets-handling receipt per attempt need the owner's words again at that time (approval 8).
+Owner decisions this rests on (2026-11-18, verbatim intent, relayed by the lead): fix BOTH the shared worker instruction wording AND give the scratch checkout one initial commit; ALSO seal `RequestAdmissionStore::session_digest`; then re-run the exit proof (A and B). The amendment is a standing ask-first rule.
+
+**Why:** the Stage 4 live exit proof (`docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A.md`) stopped config B at `CORRECTION_EXHAUSTED`. The Codex worker wrote two unresolved findings about the LOOP's business: F1 MEDIUM "Independent code review remains outstanding" and F2 LOW "The checkout has no readable Git HEAD". `outcome.ts` `correctableFindings` sends every unresolved MEDIUM or LOW back to the worker; a worker cannot resolve either, so the loop re-ran it three times and stopped before the independent reviewer ran. The Claude worker in config A wrote one resolved finding and no such caveat. Both get the same sentence; the sentence never says what a finding is, and the scratch checkout (by design) has no commit.
+
+## Existing code found (B1)
+
+| What | Where | Consequence |
+|---|---|---|
+| The ONE shared instruction text: `RECORDS_CLAUSE` (the records shape) and `CHECKS_CLAUSE` (who runs checks), both appended by `pointerInstruction` and `correctionInstruction` | `projectos/agent/src/loop/adapters/claudeCodeCli.ts:58-64, 81-85, 120-146` | The new sentences go in this one file. Both builders already include `RECORDS_CLAUSE`, so one appended constant reaches both. |
+| The Codex implementer receives the builders by injection (`InstructionBuilders`) and wires them in `BUILT_IN_ADAPTERS`; it builds NO sentence of its own | `adapters/codexImplementer.ts:293-297, 428-430`; `claudeCodeCli.ts:327` | The same text reaches both adapters with no change to `codexImplementer.ts`. |
+| The loop: an unresolved LOW or MEDIUM is "work"; CRITICAL or HIGH stops; 3 corrections then `CORRECTION_EXHAUSTED` | `loop/outcome.ts:137-151, 275-300` (`MAX_CORRECTION_ATTEMPTS` 3 at line 24) | NOT changed. No gate is loosened; only what a worker is told to write changes. |
+| An implementer's `reviews` list credits ONLY self-reviews; an independent review is credited only from the reviewer record the loop wrote (D11) | `loop/reviewRoles.ts:33-42, 230-240`; `runner.ts:2179-2185, 2210-2229` | A worker that names the independent review in `reviews` credits nothing; telling it not to is safe. |
+| The scratch checkout: files git lists, minus `.git*` and agent control paths, then `git init -q --template=` and nothing else; `manifestOf` skips the scratch's own top-level `.git`; "nothing in it is ever run again" | `loop/scratchCheckout.ts:9-13, 224, 624-658` (init at 652-653) | One commit is added right after the init, inside the same export. The manifest, copy-back and real-root snapshot never read the scratch `.git`, so they are unaffected. |
+| The isolated git environment: system and user config = null device, system attributes off, hooks path = null device (every git call), a fixed identity, `LC_ALL=C`; plus the shared runner adds `core.fsmonitor=false`, `core.useReplaceRefs=false`, `protocol.allow=never` and neutralises every filter driver | `system.ts:113-161, 582-589`; `loop/writeScope.ts:160-167` | The commit is made through `isolatedGitRunner(sys, scratchRoot)`: no second isolation path (WI-25 pins that). |
+| `.gitattributes`, `.gitignore` and every `.git*` path are agent control paths and never copied | `writeScope.ts:54, 86-90`; `scratchCheckout.ts:471` | The scratch has no attributes or ignore file, so the commit cannot run a filter or convert line endings by attribute. |
+| Validators and tests pin the touched text | see MODIFIED | The write list below is complete; no new validator is added, so no edit to the protected `validate-all.cjs` / `cached-runner.cjs`. |
+| The earlier scratch phase already named this as the fallback: "If Codex insists on a trusted repository with history, the scratch would need an initial commit (not built)" | `docs/finish/PROJECTOS-WORKER-SCRATCH-CHECKOUT1A.md` residual 1 | The commit is the planned fix, not a new design. |
+
+## ADDED
+
+- `FINDINGS_CLAUSE` (a module constant, no code path) in `claudeCodeCli.ts`: the new shared sentences (exact text below).
+- A private helper `commitScratchBaseline(run, root)` in `scratchCheckout.ts` that makes the one commit, plus its refusal reason.
+- Tests, validator rules WI-33 and WI-34 with named mutations (in the EXISTING validator), a finish doc.
+
+### The exact new instruction text (to approve)
+
+Appended at the END of `RECORDS_CLAUSE`, as one constant `FINDINGS_CLAUSE` defined above it (so the pinned fragments before it do not move):
+
+> A finding is a defect in your OWN work: write down every real defect you find, at its true severity, and mark it resolved only when you have fixed it in this run. The independent code review, the required checks and validators, and the closing of the phase are ProjectOS's own steps and happen after you finish, so that they have not happened yet, or that you did not run them, is not a finding. The checkout you work in may have no Git history, or a Git baseline that is not the brief's `repository.head`; ProjectOS prepared it that way, so that is not a finding either, and you need not verify the baseline against it. In `reviews` name only reviews you yourself performed, never the independent review. Write the findings record from what is true now, not by keeping an entry that is not a defect in your own work. If you found no defect, write an empty `findings` list.
+
+It weakens nothing: it still demands every real defect at true severity; the independent review, checks and closure stay with the loop; `decideContinuation` and `creditedReviews` are untouched. It tells the worker to hide nothing. It carries no brief, phase, record or worker data (a constant). It contains none of the words the credential heuristics look for.
+
+## MODIFIED (exact files, and why each change is the smallest possible)
+
+1. `projectos/agent/src/loop/adapters/claudeCodeCli.ts` (PROTECTED per the v1.43 delta: `loop/adapters/*`): add `FINDINGS_CLAUSE`; change `RECORDS_CLAUSE` to end with `+ FINDINGS_CLAUSE`. Nothing else: not the builders, not the registry, not the pinned correction sentence.
+2. `projectos/agent/src/loop/scratchCheckout.ts` (PROTECTED per the v1.43 delta): after the unchanged `git init` line (and its unchanged refusal line) in `exportScratch`, obtain `isolatedGitRunner(sys, root)` and run `add` then `commit`; any failure is `fail('git could not record the scratch baseline commit')`, so no worker starts and the directory is removed by the existing `fail` cleanup. Update the header comment ("Nothing is committed in it"). No other function changes.
+   The two git calls (after `-c` overrides placed before the verb, none containing the text `core.fsmonitor`, which WI-25 forbids in this file):
+   - `add --all --force -- .` with `-c core.autocrlf=false -c core.safecrlf=false -c core.attributesFile=<null device> -c core.excludesFile=<null device>`;
+   - `commit -q --no-verify --no-gpg-sign --allow-empty -m <fixed message>` with `-c commit.gpgSign=false -c gc.auto=0 -c gc.autoDetach=false -c maintenance.auto=false`.
+   Fixed message, no data from the repository or the worker: `ProjectOS scratch baseline: the working tree of the governed checkout as exported for one worker run. This is not a commit of the governed repository.`
+   Identity: the isolated environment's fixed identity (`ProjectOS local candidate`, `local-candidate@projectos.invalid`, `system.ts:123-126`) is used as it is; nothing is set.
+3. Tests (all under `projectos/agent/test/`): `scratchCheckout.test.ts` (rule 2 test: its last two lines, which assert `status` is non-empty and `rev-parse HEAD` throws, are the pinned "no commit" behaviour and move to the opposite; new tests S1-S8), `codexImplementerScratch.test.ts` (S9), `codexImplementerAdapter.test.ts` (W7), `loopBrief.test.ts` and `loopWorkers.test.ts` (W1-W6, W9), `loopBriefContext.test.ts` (unchanged unless a clause is placed differently; it only calls the builders).
+4. `projectos/validators/val-projectos-worker-codex-implementer1a.cjs`: add WI-33 (instruction clause) and WI-34 (scratch commit) with named mutations, and TESTS needles for each new test. Existing pins stay: `PIN.scInit`, `PIN.scInitRefused`, `PIN.wired` are untouched; the one comment-sensitive pin (WI-25 `/core\.fsmonitor/` absent from `scratchCheckout.ts`) is kept true.
+5. Grant only, expected UNTOUCHED (they read `claudeCodeCli.ts` and I found no pin on the changed region; they are in `writePaths` so a pin I could not see does not force a fourth plan amendment; the finish doc reports any that were used): `val-projectos-context-manager1a.cjs`, `val-projectos-kernel-followup1a.cjs`, `val-projectos-kernel-role-review1a.cjs`, `val-projectos-worker-lifecycle-bounded1a.cjs`.
+6. `docs/06_Plan.md` (tick, date, commit, evidence), `docs/changes/delta_spec.md` (this section), `docs/finish/` (finish doc).
+7. The plan source (lead edit, by `plan draft` -> decide -> activate): this phase is added; `PROJECTOS-STAGE4-EXIT-PROOF1A.dependsOn` gains `PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A`; `PROJECTOS-HOST-REQUEST-STORE-SEAL1A` is added (below). Run the throwaway `writePathGrants` check on every phase before activating.
+
+## PROTECTED (do not touch)
+
+`00_Baseline_State.md` section 4 in full. In particular `loop/workers.ts`, `verification.ts`, `pinnedValidators.ts`, `candidateIdentity.ts`, `localCandidateCommit.ts`, `loop/outcome.ts` and `loop/reviewRoles.ts` (no gate moves), `loop/runner.ts`, `loop/writeScope.ts` (the shared runner is reused, not edited), `adapters/codexImplementer.ts` and `adapters/codexCli.ts` (the same text reaches Codex through the injected builders), `system.ts`, `commands/run.ts`, `validate-all.cjs`, `speed/cached-runner.cjs` (no new validator), the broker and credential router, closure authority and the owner floor, the tenant and action registries, every existing authority record, `projectos/host/**` (a separate phase), and `.projectops/**` governance records. No worker is granted a `.git*` file or a `.projectops` governance record by this phase.
+
+## Rules (each is one plain sentence and becomes a test)
+
+Wording
+1. Both worker instructions, the start sentence and the correction sentence, contain the same findings clause.
+2. The clause says a finding is a defect in the worker's own work and that every real defect is written at its true severity and marked resolved only when fixed.
+3. The clause says the independent code review, the checks and validators, and the closing of the phase are ProjectOS's own steps and are not findings.
+4. The clause says a missing Git history, or a Git baseline that differs from the brief's `repository.head`, is not a finding.
+5. The clause says `reviews` names only reviews the worker itself performed and never the independent review.
+6. The clause is a constant: two different brief paths yield instructions that are identical apart from the path, and neither carries a phase, brief or record field.
+7. The Codex implementer's prompt, on a start and on a correction, contains the same clause.
+8. No gate moves: an unresolved MEDIUM or LOW finding is still sent back, an unresolved CRITICAL or HIGH still stops, and an implementer's `reviews` still credits no independent review.
+9. Every fragment the existing tests and validators pin (the checks clause, the effects shape, "at the TOP LEVEL of that record", the correction's pointer to the reviewer record) is still present.
+
+Scratch commit
+10. The scratch repository has exactly one commit, and its tree holds exactly the files the export copied and no other.
+11. Every blob in that commit equals the raw bytes of the exported file, including a CRLF file and a binary file, whatever the machine's git configuration.
+12. The commit runs no hook, no filter, no signing program, and reads no system, user or global configuration, excludes file or attributes file.
+13. Right after the open, `git status` in the scratch reports nothing changed and `git rev-parse HEAD` resolves.
+14. A failed add or a failed commit refuses the open with a fixed reason, starts no worker and leaves no directory behind.
+15. The commit message and identity are fixed text and carry nothing from the real repository or the worker.
+16. The scratch's own `.git`, including a commit the worker makes there, is never compared or copied back, and the real checkout's HEAD, index, refs and status are identical before and after the open.
+17. A worker in the scratch can read `HEAD` and `git diff` shows exactly its own edit.
+18. The validator pins rules 1 to 17 with named mutations, each counted killed only when its own rule fires.
+
+## Tasks (tests first; each ticks `06_Plan.md` with date, commit and one line of evidence)
+
+- [ ] T001 RED, scratch: new real-git tests S1-S8 in `scratchCheckout.test.ts` (rules 10-16), including a hostile environment (a temporary `USERPROFILE` holding a global config with `core.autocrlf=true`, `commit.gpgsign=true` with a program that writes a marker file, a global excludes file and a global attributes file; a real-repo hook that writes a marker) and the two failure cases (a `System` whose `exec` fails for `add`, then for `commit`). Move the two "no commit" assertions. Run: they fail. (`vitest run test/scratchCheckout.test.ts` only.)
+- [ ] T002 RED, adapter: S9 in `codexImplementerScratch.test.ts` (Codex played by a function that runs real `git rev-parse HEAD` and `git diff --name-only` in its cwd) and W7 in `codexImplementerAdapter.test.ts`.
+- [ ] T003 RED, wording: W1-W6, W9 in `loopBrief.test.ts` / `loopWorkers.test.ts`.
+- [ ] T004 GREEN, `scratchCheckout.ts`: the commit (rules 10-16). Run the three scratch test files.
+- [ ] T005 GREEN, `claudeCodeCli.ts`: `FINDINGS_CLAUSE` (rules 1-7, 9). Run the wording tests plus `loopBriefContext`, `workerRoleSwap`, `loopOutcome` (rule 8, unchanged tests).
+- [ ] T006 Validator: WI-33, WI-34, TESTS needles, named mutations (each killed only by its rule); the four neighbour validators; `validate-no-secrets`; `tsc -p tsconfig.json --noEmit`; the agent suite once.
+- [ ] T007 Independent review (ECC `security-reviewer`, mandatory; brief it: reads by absolute path stay open (D4); the worker owns the scratch `.git`; no gate moved), fix round, one recheck; finish doc; tick the plan.
+- [ ] T008 Owner-gated live probe, ONLY IF the owner says yes (a live Codex call on the owner's login, no ProjectOS metering): resolve whether F2 was "no commit" or "dubious ownership" (FINDINGS U1). Skip if the owner prefers to let the re-run answer it.
+- [ ] T009 (separate phase `PROJECTOS-HOST-REQUEST-STORE-SEAL1A`, below.)
+- [ ] T010 The re-run (plan section 6 of `FINDINGS.md`): refresh the runtime, then A3 and B2 on branches from BASE2, each one bare `continue --execute`. Part of `PROJECTOS-STAGE4-EXIT-PROOF1A`, not of this phase.
+
+## Risks (stated, not hidden)
+
+1. **R1 the real cause of F2 may be Git's ownership check, not the missing commit.** `codexCli.ts:70` runs Codex with `windows.sandbox="elevated"`; if that sandbox runs commands as another Windows user, `git` in a scratch the owner's user created can fail with "dubious ownership", and the worker would report "no readable HEAD" either way. The commit would then not fix F2; the wording sentence still stops the worker from recording it as a finding. Unverified; T008 or the re-run answers it. The loop never relies on the worker's git.
+2. **R2 the scratch HEAD is not the brief's `repository.head`.** A worker comparing them could write a new finding. The clause (rule 4) says so; the commit message says the commit is not the governed repository's. The real sha is deliberately NOT put in the message (a worker could chase it; `git show <sha>` fails in a scratch).
+3. **R3 a worker may still record some other caveat** (for example "validate-site was not run by me") with `resolved:false`. Claude's A2 wrote exactly that with `resolved:true`. The clause tells it to write only defects; a residual is possible and is a result, not a hidden failure.
+4. **R4 cost on a large checkout.** `git add` hashes and zlib-compresses every exported file (bounded at 100,000 files and 1 GiB by the export) and writes loose objects: roughly the size of the tree again on disk, and time that grows with file count (not measured). The agency tree (271 files, 1.6 MiB) is negligible. `gc.auto=0`, `gc.autoDetach=false` and `maintenance.auto=false` stop git from starting a detached background gc that could outlive the run and lock the directory the cleanup must remove.
+5. **R5 fail closed on a refused commit** turns a git hiccup (an antivirus lock) into a refused open instead of a degraded run. Chosen on purpose: a silent no-commit run would bring F2 back unseen.
+6. **R6 the identity** reuses the "local candidate" identity of the isolated environment; the commit is in a throwaway repository nothing reads again, and the message says what it is.
+
+## Owner approvals needed (ask before the plan is amended)
+
+1. Edit two files the v1.43 delta lists as PROTECTED (`loop/adapters/claudeCodeCli.ts`, `loop/scratchCheckout.ts`): the smallest changes above. (Neither is in Baseline section 4 by name; `loop/adapters/*` and `scratchCheckout.ts` are in the v1.43 delta's PROTECTED list.)
+2. The exact instruction text above, since it changes what both providers are told.
+3. Fail closed when the scratch commit cannot be made (rule 14), rather than running without one.
+4. No real sha in the commit message (R2).
+5. Plan amendment v1.44: add `PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A` and `PROJECTOS-HOST-REQUEST-STORE-SEAL1A`; add the first to `PROJECTOS-STAGE4-EXIT-PROOF1A.dependsOn`.
+6. The Rust seal as its own phase (below), including the one public-API change in the PROTECTED host: `RequestAdmissionStore` loses the digest-returning method and gains a yes/no one.
+7. Optional: the T008 live Codex probe (a provider call on the owner's login, nothing metered by ProjectOS).
+8. The re-run (T010): new attempts A3 and B2, a fresh secrets-handling receipt per attempt, the same caps ($1.50 per run, $3.00 in total; $0.02 already spent), and a rebuilt throwaway runtime. Ask for the words again at that time; do not reuse the 2026-11-18 words for new attempt ids without the owner saying so.
+
+---
+
+# PROJECTOS-HOST-REQUEST-STORE-SEAL1A (the Rust follow-up, its own phase in the same amendment)
+
+**Why separate:** a PROTECTED security-boundary file (`projectos/host/**`), a different toolchain (cargo 1.96.1) and reviewer (ECC `security-reviewer`, rust-reviewer), a public-API change to a sealed trait, and zero coupling to the TypeScript runtime the exit proof re-runs. It can be built in parallel in its own worktree and merged or deferred without touching the re-run.
+
+**Existing code found.** `AdmittedRequest::session_digest` (line 693) and `BoundIpcSession::session_digest` (line 312) are already `pub(crate)` (`PROJECTOS-HOST-SESSION-DIGEST-SEAL1A`). The trait `RequestAdmissionStore` (declared line 498, supertrait `sealed::Sealed`) still declares `fn session_digest(&self) -> [u8; 32];` (line 500), implemented at line 571 and called once, at line 749 in `admit_request`. A trait method has no visibility, so the digest of a store is readable by any downstream crate through the trait. No caller outside `ipc_session.rs` was found in `projectos/host` or `control-center`; `windows-local-ipc` uses the trait only as `&mut dyn RequestAdmissionStore` (`host_composition.rs:1142, 1208`).
+
+**Options.** (a) Put the method on the private `sealed::Sealed` supertrait: rejected, `val-cd-b4-ipc-session-authority1a` pins `mod sealed { pub trait Sealed {} }` as empty (line 157), and a method on a supertrait stays callable through a generic bound (not compiled; unverified). (b) Make `admit_request` take the concrete in-memory store: rejected, it removes the trait the durable store is meant to implement and breaks `&mut dyn RequestAdmissionStore`. (c) Replace the value-returning method by a predicate. Chosen.
+
+**MODIFIED.** `projectos/host/core/src/ipc_session.rs` only: the trait declaration (lines 499-500) becomes `fn is_bound_to(&self, session: &BoundIpcSession) -> bool;` with a doc line; the impl (571-573) becomes `self.session_digest == session.session_digest()` (the crate-private getter, in scope inside the crate); line 749 becomes `if !store.is_bound_to(self) { return Err(StoreNotBoundToSession) }`; the compile-fail doctest (lines 478-488) implements `is_bound_to` instead, so it still fails because of the seal and not because a method is missing; one new `compile_fail` doctest proving a downstream generic `s.session_digest()` and a concrete `store.session_digest()` do not compile; one new positive doctest. Also `projectos/host/core/tests/ipc_session_authority.rs`: one test that a store is bound to its own session and not to another. Also `projectos/validators/val-cd-b4-sealed-expected-window-facts1a.cjs`: two NEGATIVES (a generic and a concrete read of a store's digest) beside `neg_ipc_session_digest`. Re-run, not edited: `val-cd-b4-ipc-session-authority1a`, `val-cd-b4-production-ipc-provider1a`, `val-cd-b4-runtime-ipc-permit-integration1a`, `val-cd-b4-owner-presence-integration1a`, `val-cd-b4-provider-authority-seam1a`.
+
+**PROTECTED.** Everything else under `projectos/host`; no service install, start, ACL or registry change; `host_composition.rs` and every other file in `windows-local-ipc` unless a compile error forces a one-line change, in which case the phase STOPS and reports.
+
+**Rules.**
+1. No public item of host core returns a store's session digest.
+2. A store answers only whether it is bound to a given session, and a store from another session is still refused with `StoreNotBoundToSession`.
+3. `RequestAdmissionStore` is still sealed (a downstream type cannot implement it) and still object-safe (`&mut dyn RequestAdmissionStore` compiles in `windows-local-ipc`).
+4. `session_digest` stays `pub(crate)` on `BoundIpcSession` and `AdmittedRequest`.
+
+**Verify (toolchain 1.96.1 from `rust-toolchain.toml`).** RED first: the new doctest and test fail or do not compile before the change. Then `cargo test --offline --features test-fixtures` and `cargo test --offline --doc` in `projectos/host/core`; `cargo test --offline` in `projectos/host/windows-local-ipc` (a compile break there means stop); a build of `projectos/host/service-host` if it builds on this machine; the five validators above plus `val-cd-b4-sealed-expected-window-facts1a`; then one `validate-all`. Review: ECC `security-reviewer` mandatory and independent; the builder is never the sole reviewer.
