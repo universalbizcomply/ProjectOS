@@ -9,8 +9,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { summariserKindOf } from '../src/context/contextManager.js';
+import { describe, expect, it, vi } from 'vitest';
+import { assembleRunContext, summariserKindOf } from '../src/context/contextManager.js';
 import { beginStoreGuard, endStoreGuard, rebaseStoreGuard, type StoreGuardSystem } from '../src/context/contextStoreGuard.js';
 import { doorCreatedPaths, doorOutcomeLines } from '../src/context/proposalDoorStep.js';
 import { openProposalDoor, type DoorEntryOutcome, type ProposalDoorCaller } from '../src/memory/proposalDoor.js';
@@ -21,7 +21,23 @@ import { nodeSystem } from '../src/system.js';
 import { nodeEntryProbe } from '../src/search/nodeHost.js';
 import { documentFsOver } from '../src/search/ports.js';
 import { EXECUTION, EVIDENCE_PATH, ROOT, SESSION, STATE, run, world, worker, type World } from './support/loopWorld.js';
-import { memoryFs } from './support/contextWorld.js';
+import { ENVELOPE_NOW, admittedRun, memoryFs, worldPorts, ROOT as CONTEXT_ROOT } from './support/contextWorld.js';
+
+/**
+ * DW-9 goes through the kernel's own compaction: every draft the context manager hands to `applyCompaction` is recorded here, then really applied,
+ * so the kind is read where the compaction is made and the kernel still accepts or refuses it as it always did.
+ */
+const appliedDrafts = vi.hoisted(() => [] as { readonly summarisedBy: string; readonly session: string }[]);
+vi.mock('@projectos/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@projectos/core')>();
+  return {
+    ...actual,
+    applyCompaction: (...args: Parameters<typeof actual.applyCompaction>): ReturnType<typeof actual.applyCompaction> => {
+      appliedDrafts.push({ summarisedBy: args[2].summarisedBy, session: args[2].session });
+      return actual.applyCompaction(...args);
+    },
+  };
+});
 
 const FINDINGS_PATH = `${EXECUTION}/${SESSION}.findings.json`;
 const MEMORY_PROPOSALS = `${ROOT}/.projectops/memory/proposals`;
@@ -349,13 +365,26 @@ describe('DW-7: the two proposals directories are git-ignored, and nothing else 
 });
 
 describe('DW-8: no door call on a refused worker, a dry run, or an unreadable findings record', () => {
-  it('a worker that refused makes no proposal', () => {
+  it.each([
+    ['exited non-zero', { kind: 'completed' as const, exitCode: 2, stdout: '', stderr: 'no', providerRef: null }, 'the worker exited 2 - no'],
+    ['said it refused', { kind: 'refused' as const, detail: 'the task is outside what this worker will do' }, 'the task is outside what this worker will do'],
+  ])('a worker that %s ends the run at WORKER_REFUSED and makes no proposal', (_name, outcome, detail) => {
     const w = world();
-    ask(w, [memoryAsk()]);
+    ask(w, [memoryAsk(), skillAsk()]);
     const failing = worker(w);
-    const refusing = { ...failing.registry, 'claude-code-cli': { ...failing.registry['claude-code-cli']!, start: () => ({ kind: 'completed' as const, exitCode: 2, stdout: '', stderr: 'no', providerRef: null }) } };
-    run(w, { ...failing, registry: refusing });
+    let starts = 0;
+    const refusing = { ...failing.registry, 'claude-code-cli': { ...failing.registry['claude-code-cli']!, start: () => (starts += 1, outcome) } };
+    const result = run(w, { ...failing, registry: refusing });
+    // The run stopped at the refusal itself: the stop is the worker's, it is the only attempt, and the loop never got as far as the door.
+    expect(result.ok).toBe(true);
+    expect(stopOf(result)?.code).toBe('WORKER_REFUSED');
+    expect(stopOf(result)?.detail).toContain(detail.replace(' - ', ' \u2014 '));
+    expect(starts).toBe(1);
+    expect(result.ok ? result.attempts : null).toBe(0);
+    expect(result.lines.some((line) => line.startsWith('attempt 1:'))).toBe(true);
+    expect(result.lines.some((line) => /proposal/i.test(line))).toBe(false);
     expect(filesUnder(w, MEMORY_PROPOSALS)).toEqual([]);
+    expect(filesUnder(w, SKILL_PROPOSALS)).toEqual([]);
   });
 
   it('a dry run makes no proposal and writes nothing', () => {
@@ -390,6 +419,44 @@ describe('DW-9: a deterministic compaction is recorded under a deterministic kin
   it('is the deterministic kind when no drafter port exists, and the agent-model kind when one does', () => {
     expect(summariserKindOf(undefined)).toBe('deterministic-selection');
     expect(summariserKindOf((): never => { throw new Error('not called'); })).toBe('agent-model');
+  });
+
+  /** Twelve committed decisions of about 5000 characters each: more than the context window holds, so the manager has to compact. */
+  const decisionIds = Array.from({ length: 12 }, (_, index) => `PHASE-${String(index).padStart(2, '0')}`);
+  const decisionTree = (): Record<string, string> =>
+    Object.fromEntries(decisionIds.map((id) => [`.projectops/closure/decisions/${id}.json`, `{"note":"${`BODY-${id} closed after review. `.repeat(167).slice(0, 5000)}"}`]));
+  const compactionRequest = {
+    envelope: admittedRun(),
+    sessionId: 'PHASE-abcdef012345-1a2b3c4d',
+    root: CONTEXT_ROOT,
+    query: 'booking panel',
+    dependsOn: decisionIds,
+    planMemoryPaths: [],
+    nowIso: ENVELOPE_NOW,
+  };
+
+  it('the context manager applies the compaction it made itself under deterministic-selection, and the kernel accepts it', () => {
+    appliedDrafts.length = 0;
+    const result = assembleRunContext(worldPorts({ tree: decisionTree() }).ports, compactionRequest);
+    expect(result.kind).toBe('ready');
+    expect(result.kind === 'ready' ? result.compactor : null).toBe('deterministic-selection');
+    expect(result.kind === 'ready' ? result.compactionId : null).toMatch(/^ctx-[0-9a-f]{24}$/);
+    expect(appliedDrafts).toEqual([{ summarisedBy: 'deterministic-selection', session: compactionRequest.sessionId }]);
+  });
+
+  it('records the agent-model kind for the same compaction when a drafter port wrote it', () => {
+    appliedDrafts.length = 0;
+    const drafter = (plan: { readonly summarise: readonly unknown[] }): { readonly text: string; readonly complete: true } => ({ text: `Summary of ${plan.summarise.length} earlier turns, by a model.`, complete: true });
+    const result = assembleRunContext({ ...worldPorts({ tree: decisionTree() }).ports, drafter: drafter as never }, compactionRequest);
+    expect(result.kind).toBe('ready');
+    expect(appliedDrafts.map((draft) => draft.summarisedBy)).toEqual(['agent-model']);
+  });
+
+  it('makes no draft at all when everything fits, so no kind is recorded for a compaction that did not happen', () => {
+    appliedDrafts.length = 0;
+    const result = assembleRunContext(worldPorts({ tree: {} }).ports, { ...compactionRequest, dependsOn: [] });
+    expect(result.kind === 'ready' ? result.compactor : null).toBe('none');
+    expect(appliedDrafts).toEqual([]);
   });
 });
 
