@@ -1,0 +1,10 @@
+{
+  "id": "B1",
+  "config": "B",
+  "branch": "s4proof-b",
+  "startedAt": "2026-11-18T15:20:24Z",
+  "endedAt": "2026-11-18T15:23:32Z",
+  "exitCode": 0,
+  "status": "stopped",
+  "reason": "STOPPED (CORRECTION_EXHAUSTED): 2 unresolved finding(s) at MEDIUM or LOW: MEDIUM F1, LOW F2 — still outstanding after 3 correction attempt(s). It resisted correction and is now a decision, not work."
+}

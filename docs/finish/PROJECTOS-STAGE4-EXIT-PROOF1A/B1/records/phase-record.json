@@ -1,0 +1,43 @@
+{
+  "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+  "project": "seo-agency",
+  "objective": "Add site/colophon.txt with exactly these four lines: '/* COLOPHON */', 'Site: SEO & Social Agency', 'Built with: static HTML and CSS', 'Proof: ProjectOS Stage 4, provider roles swapped'. Change no other file. This is the ProjectOS Stage 4 exit-proof phase: the same phase is run twice with the implementer and reviewer providers swapped, and only the committed worker configuration differs between the two runs.",
+  "status": "awaiting_review",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-18T15:20:29.586Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-18T15:20:29.587Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-18T15:21:11.420Z",
+      "note": "recorded by the autonomous loop (VALIDATING)"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-18T15:23:20.076Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-18T15:23:20.076Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    }
+  ]
+}

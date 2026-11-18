@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "seo-agency",
+  "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+  "state": "COMPLETE",
+  "sessionId": "SEO-AGENCY-STAGE4-PROOF1A-36b290555ce4-04f09197",
+  "attempt": 0,
+  "subjectCommit": "36b290555ce4492712823cf1159bb155063533ce",
+  "lastCompletedStep": "technical-continuation:push",
+  "lastStopCode": null,
+  "lastStopDetail": null,
+  "evidenceSessionId": null,
+  "gateDecisionId": "GKDEC-GKREQ-a5f35c81adef18e42694ea1d",
+  "nextCandidateAction": null,
+  "ownerRequired": false,
+  "updatedAt": "2026-11-18T15:18:59.385Z"
+}

@@ -1,0 +1,8 @@
+{
+  "schema": "projectos.stage4-exit-proof-source/1",
+  "attempt": "A2",
+  "preRunHead": "36b290555ce4492712823cf1159bb155063533ce",
+  "baseCommit": "bae55991e91dbfa21b93dfc459d10eb2a6078803",
+  "baseIsAncestor": true,
+  "sourceDigest": "sha256:6695b70a77544e389b11285f24341b994186362b60186d9ea895efc3baa52b15"
+}

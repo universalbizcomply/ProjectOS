@@ -1,0 +1,99 @@
+{
+  "projectId": "seo-agency",
+  "projectName": "SEO & Social Agency",
+  "projectType": "marketing",
+  "owner": "Murad",
+  "repo": "SEOAgency-remote/seo-agency",
+  "localPath": "C:/dev/SEOAgency",
+  "protectedBranches": [
+    "main"
+  ],
+  "productionFreeze": true,
+  "allowedActions": [
+    "inspect-repository",
+    "create-local-files",
+    "run-local-validation",
+    "produce-evidence-report"
+  ],
+  "forbiddenActions": [
+    "production-deploy",
+    "production-db-mutation",
+    "real-email-sms-whatsapp",
+    "payment-or-live-charge",
+    "use-secrets",
+    "force-push",
+    "use-openai-api",
+    "use-anthropic-api",
+    "post-to-social-media",
+    "run-vendored-autosocial"
+  ],
+  "approvalGates": [
+    "production-deploy",
+    "production-db-mutation",
+    "real-email-sms-whatsapp",
+    "payment-or-live-charge",
+    "secrets-handling",
+    "phase-closure"
+  ],
+  "secretsPolicy": {
+    "allowSecretsInRepo": false,
+    "redactionRequired": true,
+    "notes": "placeholders only"
+  },
+  "validators": [
+    "validate-project-config",
+    "validate-no-secrets",
+    "validate-forbidden-actions",
+    "validate-site"
+  ],
+  "evidenceRequirements": [
+    "evidence-pack",
+    "validator-results"
+  ],
+  "installStatus": "installed",
+  "planSources": [
+    ".projectops/plan/seo-agency-phases.json",
+    ".projectops/plan.json",
+    ".projectops/current-state.json",
+    ".projectops/plan-d3a98b71489dd6d0-6b74b96b09a0.json",
+    ".projectops/current-state-d3a98b71489dd6d0-6b74b96b09a0.json",
+    ".projectops/plan-26d56f7a4c3799e6-65d0dd7a7fce.json",
+    ".projectops/current-state-26d56f7a4c3799e6-65d0dd7a7fce.json",
+    ".projectops/plan-5647457d8935ad41-a6e85b376e94.json",
+    ".projectops/current-state-5647457d8935ad41-a6e85b376e94.json",
+    ".projectops/plan-f9ad8a97ad047835-19c2c0d5046b.json",
+    ".projectops/current-state-f9ad8a97ad047835-19c2c0d5046b.json",
+    ".projectops/plan-f3614f2ecf63116f-82af6c940086.json",
+    ".projectops/current-state-f3614f2ecf63116f-82af6c940086.json"
+  ],
+  "execution": {
+    "workers": [
+      {
+        "workerId": "claude-local",
+        "kind": "claude-code-cli",
+        "command": "C:/Users/murad/.local/bin/claude.exe",
+        "args": [
+          "--allowedTools",
+          "Write(.projectops/execution/*.findings.json),Edit(.projectops/execution/*.findings.json),Write(.projectops/execution/*.effects.json),Edit(.projectops/execution/*.effects.json)",
+          "--setting-sources",
+          "project",
+          "--model",
+          "sonnet"
+        ],
+        "timeoutMs": 1200000
+      },
+      {
+        "workerId": "codex-reviewer",
+        "kind": "codex-cli",
+        "command": "C:/Users/murad/AppData/Roaming/npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe",
+        "args": [],
+        "timeoutMs": 1200000
+      }
+    ],
+    "reviewerWorkerId": "codex-reviewer"
+  },
+  "planMemory": {
+    "planPath": ".projectops/plan-65a3796f0e3921a6-c5d2247fc05a.json",
+    "currentStatePath": ".projectops/current-state-65a3796f0e3921a6-c5d2247fc05a.json"
+  }
+}

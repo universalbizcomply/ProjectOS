@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "1.0.0",
+  "briefId": "SEO-AGENCY-STAGE4-PROOF1A@36b290555ce4492712823cf1159bb155063533ce",
+  "generatedAt": "2026-11-18T15:18:08.877Z",
+  "projectId": "seo-agency",
+  "projectName": "SEO & Social Agency",
+  "repository": {
+    "root": "C:\\dev\\SEOAgency",
+    "remote": "SEOAgency-remote/seo-agency",
+    "branch": "s4proof-a2",
+    "head": "36b290555ce4492712823cf1159bb155063533ce"
+  },
+  "plan": {
+    "path": "C:\\dev\\SEOAgency/.projectops/plan-269a8e553b5cf8f4-539795b02651.json",
+    "planId": "plan-269a8e553b5cf8f4-539795b02651",
+    "planVersion": "1.6"
+  },
+  "phase": {
+    "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+    "description": "Add site/colophon.txt with exactly these four lines: '/* COLOPHON */', 'Site: SEO & Social Agency', 'Built with: static HTML and CSS', 'Proof: ProjectOS Stage 4, provider roles swapped'. Change no other file. This is the ProjectOS Stage 4 exit-proof phase: the same phase is run twice with the implementer and reviewer providers swapped, and only the committed worker configuration differs between the two runs.",
+    "dependsOn": [
+      "SEO-AGENCY-MEMORY-PROOF1A"
+    ],
+    "acceptanceCriteria": [
+      "site/colophon.txt exists with the four lines exactly as described.",
+      "No file other than site/colophon.txt is changed by the phase's work.",
+      "The required validator validate-site passes."
+    ],
+    "riskLevel": "low",
+    "autonomyLevel": "gated-execution",
+    "requiredValidators": [
+      "validate-site"
+    ],
+    "requiredReviews": [
+      "Implementer self-review",
+      "Independent code review"
+    ],
+    "requiredBrowserProof": false,
+    "requiredOwnerGates": [
+      "secrets-handling",
+      "payment-or-live-charge"
+    ]
+  },
+  "records": {
+    "briefPath": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-36b290555ce4-04f09197.brief.json",
+    "findingsPath": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-36b290555ce4-04f09197.findings.json",
+    "effectsPath": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-36b290555ce4-04f09197.effects.json",
+    "evidencePath": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-36b290555ce4-04f09197.evidence.json",
+    "contextPath": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-36b290555ce4-04f09197.context.md",
+    "effectsContract": {
+      "location": "top-level",
+      "valueType": "boolean",
+      "requiredFields": [
+        "productionTouched",
+        "deploymentOccurred",
+        "databaseMutationOccurred",
+        "externalSendOccurred",
+        "paymentOccurred",
+        "rawSecretStored"
+      ]
+    }
+  },
+  "verification": {
+    "runner": "projectos",
+    "checkIds": []
+  },
+  "boundaries": {
+    "forbiddenActions": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "use-secrets",
+      "force-push",
+      "use-openai-api",
+      "use-anthropic-api",
+      "post-to-social-media",
+      "run-vendored-autosocial"
+    ],
+    "approvalGates": [
+      "production-deploy",
+      "production-db-mutation",
+      "real-email-sms-whatsapp",
+      "payment-or-live-charge",
+      "secrets-handling",
+      "phase-closure"
+    ],
+    "protectedBranches": [
+      "main"
+    ],
+    "productionFreeze": true
+  }
+}

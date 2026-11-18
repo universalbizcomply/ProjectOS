@@ -1,0 +1,13 @@
+{
+  "schema": "projectos.stage4-exit-proof-runtime/1",
+  "runtimeRoot": "C:/dev/ProjectOS-worktrees/exit-proof-runtime-v137",
+  "planBranchHead": "d47711561a82d64beeb865c9cf4f4506234a7a6a",
+  "runtimeHead": "d7c685d4afb509a2fd3990abe07631c4c24cc4f4",
+  "changedPathsVsPlanHead": [
+    "projectos/security/installation-project-allowlist.json"
+  ],
+  "worktreeClean": true,
+  "nodeVersion": "v24.14.1",
+  "gitVersion": "git version 2.55.0.windows.3",
+  "coreImportedFrom": "C:/dev/ProjectOS-worktrees/host-review-path1b/projectos/core (the plan worktree's core build, same source as the plan head)"
+}

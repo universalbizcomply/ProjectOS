@@ -1,0 +1,38 @@
+{
+  "schema": "projectos.stage4-exit-proof-setup/1",
+  "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+  "projectId": "seo-agency",
+  "baseCommit": "bae55991e91dbfa21b93dfc459d10eb2a6078803",
+  "previousWorkHead": "a12115808abc5885c95dc920b31bf54313e18aa2",
+  "planHead": "d47711561a82d64beeb865c9cf4f4506234a7a6a",
+  "capMicroUsdPerRun": 1500000,
+  "capMicroUsdTotal": 3000000,
+  "ownerApproval": {
+    "date": "2026-11-18",
+    "words": "Approved",
+    "context": "reply to the lead's request for approval of the live exit proof, a $3.00 total spend cap, the secrets-handling receipt and a new trivial agency phase writing site/colophon.txt; plan amendment v1.43 and the agency phase wording: \"Yes to both, go ahead\""
+  },
+  "attempts": [
+    {
+      "id": "A1",
+      "config": "A",
+      "branch": "s4proof-a",
+      "baseCommit": "d23044a63cb69641886ef13824fc0dd81d51f575",
+      "note": "BASE1: the phase text carried an acceptance sentence the loop cannot evidence (validate-site in a base copy and a phase's own copy); stopped CORRECTION_EXHAUSTED, kept as evidence"
+    },
+    {
+      "id": "A2",
+      "config": "A",
+      "branch": "s4proof-a2",
+      "baseCommit": "bae55991e91dbfa21b93dfc459d10eb2a6078803",
+      "note": "BASE2: the phase text corrected to 'The required validator validate-site passes.'"
+    },
+    {
+      "id": "B1",
+      "config": "B",
+      "branch": "s4proof-b",
+      "baseCommit": "bae55991e91dbfa21b93dfc459d10eb2a6078803",
+      "note": "BASE2 plus one swap commit that changes only the execution block of project-config.json (e845495)"
+    }
+  ]
+}

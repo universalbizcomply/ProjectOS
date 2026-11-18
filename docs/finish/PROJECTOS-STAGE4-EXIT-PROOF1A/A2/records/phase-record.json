@@ -1,0 +1,57 @@
+{
+  "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+  "project": "seo-agency",
+  "objective": "Add site/colophon.txt with exactly these four lines: '/* COLOPHON */', 'Site: SEO & Social Agency', 'Built with: static HTML and CSS', 'Proof: ProjectOS Stage 4, provider roles swapped'. Change no other file. This is the ProjectOS Stage 4 exit-proof phase: the same phase is run twice with the implementer and reviewer providers swapped, and only the committed worker configuration differs between the two runs.",
+  "status": "closed",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-18T15:18:09.489Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-18T15:18:09.490Z",
+      "note": "recorded by the autonomous loop (WAITING_AI)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-18T15:18:25.054Z",
+      "note": "recorded by the autonomous loop (VALIDATING)"
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-18T15:18:48.210Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-18T15:18:48.210Z",
+      "note": "recorded by the autonomous loop (AWAITING_GATE)"
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "advisor",
+      "at": "2026-11-18T15:18:59.386Z",
+      "note": "work complete; the loop recorded this and awaits the owner, after a recorded gate decision"
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "advisor",
+      "at": "2026-11-18T15:19:21.456Z",
+      "note": "closed by the closure transport on the record ProjectOS committed under the owner's closure-decision-commit grant (InstallationBrokerProviderAnswer) — closed by ChatGPT under the seo-agency-scoped phase-closure delegation, decision CLREQ-92922564cf38c55c3aaa11d7"
+    }
+  ]
+}

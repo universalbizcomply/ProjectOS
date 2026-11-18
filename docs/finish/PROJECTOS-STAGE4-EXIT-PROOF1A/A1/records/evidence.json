@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "SEO-AGENCY-STAGE4-PROOF1A-852048d4c6d6-761aec23",
+  "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+  "briefId": "SEO-AGENCY-STAGE4-PROOF1A@852048d4c6d64dea8c5ef5a1b4d10776a5aeb719",
+  "collectedAt": "2026-11-18T15:15:08.110Z",
+  "baseHead": "852048d4c6d64dea8c5ef5a1b4d10776a5aeb719",
+  "currentHead": "852048d4c6d64dea8c5ef5a1b4d10776a5aeb719",
+  "changedFiles": [
+    ".projectops/current-state-65a3796f0e3921a6-c5d2247fc05a.json",
+    ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-852048d4c6d6-761aec23.brief.json",
+    ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-852048d4c6d6-761aec23.effects.json",
+    ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-852048d4c6d6-761aec23.evidence.json",
+    ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-852048d4c6d6-761aec23.findings.json",
+    ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-852048d4c6d6-761aec23.invocation.json",
+    ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-852048d4c6d6-761aec23.reviewer.json",
+    ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-852048d4c6d6-761aec23.session.json",
+    ".projectops/phases/SEO-AGENCY-STAGE4-PROOF1A.json",
+    ".projectops/work.v1.json",
+    "site/colophon.txt"
+  ],
+  "diffStat": "...urrent-state-65a3796f0e3921a6-c5d2247fc05a.json | 25 +++++++++++-----------\n .projectops/work.v1.json                           | 16 +++++++-------\n 2 files changed, 20 insertions(+), 21 deletions(-)",
+  "checks": [
+    {
+      "id": "validate-site",
+      "kind": "validator",
+      "passed": true,
+      "exitCode": 0,
+      "output": "validate-site: PASS (1 page(s))",
+      "at": "2026-11-18T15:15:07.886Z",
+      "timeoutMs": 5400000
+    }
+  ],
+  "requiredReviews": [
+    "Implementer self-review",
+    "Independent code review"
+  ],
+  "effectsSha256": "395ccc50ae59801088461594d8b4ea31dbf0464630a785ce657d194558f2571f",
+  "findingsSha256": "2e167f1d4976ce560b926500ca4fc37d06a3784d0853e836608ea73dd9dcc455",
+  "invocationId": "761aec23928b558e",
+  "storedContext": {
+    "schema": "projectos.stored-context/1",
+    "contextPath": ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-852048d4c6d6-761aec23.context.md",
+    "tenant": "agency-business",
+    "domain": "business",
+    "project": "seo-agency",
+    "envelopeId": "ENV-e6906cd7f88ad1bd5ae008cc",
+    "headCommit": "852048d4c6d64dea8c5ef5a1b4d10776a5aeb719",
+    "ledger": {
+      "seq": 5,
+      "entryHash": "sha256:b30a6d3e30c1605bd89dc62a4abfe3fc8c3c0a65b5724aba11f765e1c3a7c66e"
+    },
+    "ledgerNewest": {
+      "seq": 9,
+      "entryHash": "sha256:f03265926ba54489f6af5acc661547e02f4283e303e8be5c4fe92338256d6ff6"
+    },
+    "fileHash": "sha256:30783f5cb699aa323dc59ec45d96d11aac76c27184cdb1c14442914e0cacbf67",
+    "shown": [
+      {
+        "id": ".projectops/closure/decisions/SEO-AGENCY-MEMORY-PROOF1A.json",
+        "kind": "committed-decision",
+        "effectiveKind": "committed-decision",
+        "rank": 1,
+        "tier": 0,
+        "contentHash": "sha256:89bf85f22fdc04e18ef8fbba8d5b828ad6c4ce0b4229e30a860c8b312901be9f",
+        "bytes": 811,
+        "truncated": false,
+        "source": "committed",
+        "freshness": null,
+        "unverifiedClaim": false,
+        "overruledBy": []
+      },
+      {
+        "id": ".projectops/current-state-65a3796f0e3921a6-c5d2247fc05a.json",
+        "kind": "plan-memory",
+        "effectiveKind": "plan-memory",
+        "rank": 2,
+        "tier": 1,
+        "contentHash": "sha256:3fb84049083f0c253c670821aafb780137f18b1d0c6ff61e2ccc4b582c1bb08f",
+        "bytes": 1050,
+        "truncated": false,
+        "source": "committed",
+        "freshness": null,
+        "unverifiedClaim": false,
+        "overruledBy": []
+      },
+      {
+        "id": ".projectops/plan-65a3796f0e3921a6-c5d2247fc05a.json",
+        "kind": "plan-memory",
+        "effectiveKind": "plan-memory",
+        "rank": 3,
+        "tier": 1,
+        "contentHash": "sha256:bb0e634ccd56245a3acbfa39ac338ff64f3521de93ee02c7fadd060167b97d61",
+        "bytes": 6081,
+        "truncated": true,
+        "source": "committed",
+        "freshness": null,
+        "unverifiedClaim": false,
+        "overruledBy": []
+      }
+    ],
+    "withheld": [],
+    "omitted": [],
+    "decisions": [],
+    "skills": [],
+    "compactor": "none",
+    "compactionId": null,
+    "estimatedTokens": 2682,
+    "taintsRun": true,
+    "placedAttempts": [
+      1,
+      2,
+      3,
+      4
+    ]
+  }
+}

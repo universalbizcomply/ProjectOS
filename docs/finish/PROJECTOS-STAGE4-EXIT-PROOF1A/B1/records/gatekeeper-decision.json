@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-4e5c5825cac7206b896fb77b",
+  "projectId": "seo-agency",
+  "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+  "subjectCommit": "f343c36c072140e1408f50006149da102bd174a5",
+  "requestDigest": "sha256:83c4583d7d42aec0b2fd8c202c0871cab3a2866011176f5a5f9d7c16c516f4f4",
+  "decision": "DO_NOT_PROCEED",
+  "reason": "Continuation to commit or push is not approved because a MEDIUM unresolved finding remains: no independent review record exists. Additionally, the unreadable Git HEAD prevents verification of the stated baseline and complete change set. Although validate-site passed and no external or production effects occurred, these unresolved assurance gaps make the candidate insufficiently verified for continuation.",
+  "allowedActions": [],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "deploy",
+    "external-send",
+    "database-mutation",
+    "payment-or-live-charge",
+    "secrets-handling"
+  ],
+  "ownerApprovalRequired": false,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-11-18T15:23:23.000Z",
+  "provenance": "InstallationBrokerProviderAnswer",
+  "providerResponseId": "resp_0243dbd0b46ea27a006afdc2eb0e6887d28e5c5bd27edc7ee9"
+}

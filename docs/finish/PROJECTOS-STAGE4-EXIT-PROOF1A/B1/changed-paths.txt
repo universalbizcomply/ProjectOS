@@ -1,0 +1,13 @@
+.projectops/current-state-d37a36fddf468da1-539795b02651.json
+.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-f343c36c0721-572a355b.brief.json
+.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-f343c36c0721-572a355b.effects.json
+.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-f343c36c0721-572a355b.evidence.json
+.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-f343c36c0721-572a355b.findings.json
+.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-f343c36c0721-572a355b.invocation.json
+.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-f343c36c0721-572a355b.session.json
+.projectops/gatekeeper-decisions/GKDEC-GKREQ-4e5c5825cac7206b896fb77b.json
+.projectops/gatekeeper-ledger.json
+.projectops/gatekeeper-thread.json
+.projectops/phases/SEO-AGENCY-STAGE4-PROOF1A.json
+.projectops/work.v1.json
+site/colophon.txt

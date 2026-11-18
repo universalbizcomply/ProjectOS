@@ -1,0 +1,4 @@
+/* COLOPHON */
+Site: SEO & Social Agency
+Built with: static HTML and CSS
+Proof: ProjectOS Stage 4, provider roles swapped

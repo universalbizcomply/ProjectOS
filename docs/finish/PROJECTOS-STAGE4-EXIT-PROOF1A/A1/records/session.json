@@ -1,0 +1,15 @@
+{
+  "startedAt": "2026-11-18T15:13:25.129Z",
+  "providerRef": "2b30b114-9143-4e00-ae87-23698a5eacd8",
+  "state": "rejoined",
+  "exitCode": 0,
+  "corrections": 3,
+  "invocationId": "761aec23928b558e",
+  "sessionId": "SEO-AGENCY-STAGE4-PROOF1A-852048d4c6d6-761aec23",
+  "workerId": "claude-local",
+  "kind": "claude-code-cli",
+  "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+  "briefId": "SEO-AGENCY-STAGE4-PROOF1A@852048d4c6d64dea8c5ef5a1b4d10776a5aeb719",
+  "briefPath": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-852048d4c6d6-761aec23.brief.json",
+  "timedOut": false
+}

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "seo-agency",
+  "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+  "state": "BLOCKED",
+  "sessionId": "SEO-AGENCY-STAGE4-PROOF1A-f343c36c0721-572a355b",
+  "attempt": 3,
+  "subjectCommit": "f343c36c072140e1408f50006149da102bd174a5",
+  "lastCompletedStep": "checks ran for attempt 4",
+  "lastStopCode": "CORRECTION_EXHAUSTED",
+  "lastStopDetail": "2 unresolved finding(s) at MEDIUM or LOW: MEDIUM F1, LOW F2 — still outstanding after 3 correction attempt(s). It resisted correction and is now a decision, not work.",
+  "evidenceSessionId": null,
+  "gateDecisionId": null,
+  "nextCandidateAction": null,
+  "ownerRequired": true,
+  "updatedAt": "2026-11-18T15:23:32.315Z"
+}

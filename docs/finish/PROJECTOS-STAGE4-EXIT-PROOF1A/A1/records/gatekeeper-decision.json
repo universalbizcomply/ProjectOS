@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0.0",
+  "recordKind": "gatekeeper-decision-evidence",
+  "decisionId": "GKDEC-GKREQ-443e78c677ec5538a68effae",
+  "projectId": "seo-agency",
+  "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+  "subjectCommit": "852048d4c6d64dea8c5ef5a1b4d10776a5aeb719",
+  "requestDigest": "sha256:8d4f47fe02571a588847f8e0a40090ec605c18de900d5c1466bade3fae856c0b",
+  "decision": "AWAITING_OWNER",
+  "reason": "The sole unresolved finding is MEDIUM and concerns missing ProjectOS-generated proof of a base-copy validation pass. The candidate demonstrates only one passing validate-site check for the phase copy. The correction mechanism cannot amend evidence records or run validators, and its writable scope is empty, so no further delegated correction is possible. An owner decision is required on whether the available evidence is sufficient to accept and continue.",
+  "allowedActions": [],
+  "forbiddenActions": [
+    "commit",
+    "push",
+    "phase-closure",
+    "secrets-handling",
+    "payment-or-live-charge"
+  ],
+  "ownerApprovalRequired": true,
+  "decidedBy": "ChatGPT",
+  "decidedAt": "2026-11-18T15:15:13.000Z",
+  "provenance": "InstallationBrokerProviderAnswer",
+  "providerResponseId": "resp_0bf2ffec44f0394f006afdc1017ed887d29c171875f630781c"
+}
