@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "5b5702e6a43b8cc5",
+  "objective": "Plan v1.40: remove .gitignore from the PROJECTOS-PROPOSAL-DOOR-WIRING1A write list: no worker may be granted a git control file, so the two .gitignore lines are a lead edit named in the owner-approved delta spec (2026-11-17).",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "dddbdec702eb524ea1cf8c1bf593182b80048911",
+  "submittedAt": "2026-11-17T14:09:48.694Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}

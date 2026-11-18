@@ -2668,7 +2668,6 @@
         "projectos/core/src/context/",
         "projectos/core/test/",
         "projectos/agent/test/",
-        ".gitignore",
         "projectos/validators/val-projectos-proposal-door-wiring1a.cjs",
         "projectos/validators/val-projectos-port-context1a.cjs",
         "projectos/validators/val-projectos-memory-stores1a.cjs",
@@ -2680,13 +2679,16 @@
         "docs/06_Plan.md",
         "projectos/validators/val-projectos-context-manager1a.cjs",
         "projectos/core/src/context/provenance.ts",
-        "projectos/core/test/context-hardening.test.ts"
+        "projectos/core/test/context-hardening.test.ts",
+        "projectos/validators/val-projectos-port-skills1a.cjs"
       ],
       "exclusions": [
         "No change to closure authority, the owner floor, gatekeeper composition, loop/workers.ts write grants, credential custody, the tenant or action registries, or any existing authority record.",
         "No live provider call and no worker entry committed to project-config.json unless the phase says so.",
         "commands/run.ts (isFoldableRunRecord) is not edited.",
-        "Nothing writes approved memory or promotes a skill by itself: the owner decides with the memory commands."
+        "val-projectos-port-skills1a.cjs may change only the one mutation pin for the proposal door call (PK-16), to follow the added state argument; owner-approved 2026-11-18.",
+        "Nothing writes approved memory or promotes a skill by itself: the owner decides with the memory commands.",
+        "The two .gitignore lines are a lead edit recorded in the delta spec: no worker may be granted a git control file, so .gitignore is not in the write list."
       ],
       "dependsOn": [
         "PROJECTOS-MEMORY-OWNER-COMMANDS1A"
@@ -2782,7 +2784,6 @@
         "projectos/agent/src/commands/roles.ts",
         "projectos/agent/src/cli.ts",
         "projectos/agent/test/",
-        ".projectops/provider-roles.json",
         "projectos/validators/val-projectos-provider-roles1a.cjs",
         "projectos/validators/val-projectos-port-providers1a.cjs",
         "projectos/validators/validate-all.cjs",
@@ -2795,7 +2796,8 @@
         "No change to closure authority, the owner floor, gatekeeper composition, loop/workers.ts write grants, credential custody, the tenant or action registries, or any existing authority record.",
         "No live provider call and no worker entry committed to project-config.json unless the phase says so.",
         "loop/workers.ts, commands/run.ts, gatekeeperConfig.ts and the trusted broker are not edited: nothing consults the registry to choose a worker yet.",
-        "No price for a provider that is not already in the committed gatekeeper rate cards."
+        "No price for a provider that is not already in the committed gatekeeper rate cards.",
+        "The committed .projectops/provider-roles.json is a lead edit named in the delta spec: no worker may be granted a governance record, so it is not in the write list."
       ],
       "dependsOn": [
         "PROJECTOS-WORKER-CODEX-IMPLEMENTER1A"

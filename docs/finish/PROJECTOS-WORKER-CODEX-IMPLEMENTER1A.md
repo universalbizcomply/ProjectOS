@@ -22,6 +22,17 @@ The approved draft said the loop checks changed paths against the plan's `writeP
 **before** the write, by per-path `--allowedTools Edit(path)` grants the loop puts on its argv. Codex has no per-path grant: its sandbox covers the whole
 checkout, `.projectops/authority/` included. So this phase had to add the check. FR-003 and Rule 3 were rewritten in `4bfdb318`, committed alone before any code.
 
+**Review fix round (`fix(worker): close the review findings on the scratch checkout`):** the control-path set now also holds `.cursor`, `.cursorrules`, `.windsurf`, `.windsurfrules` and `.mcp.json` (`.github` is covered by `.git*`); the real-root
+snapshot that this document describes is taken AFTER the scratch copy-back, so it judges what landed. Residual 2 (reads) is unchanged, and a worker's leftover descendants (not owned by the spawn) could still write the scratch during a copy-back.
+See `PROJECTOS-WORKER-SCRATCH-CHECKOUT1A.md`, "Fix round".
+
+**Final round (`fix(worker): final round after the recheck on the scratch checkout`):** the control-path set also holds `.gemini`, `.opencode`, `.kiro`, `.roo(rules)`, `.clinerules`, `.continue`, `.aider.conf.yml`, `.aiderignore` and `.codeium`; a refusal that follows
+the copy-back now says what the copy-back did. Stated limits: a tilde and a digit anywhere in a name is over-broad (`a~1b.md` is skipped at export and refused on write); paths over 260 characters, `subst` drives and a UNC temp directory were not exercised.
+See `PROJECTOS-WORKER-SCRATCH-CHECKOUT1A.md`, "Final round".
+
+**Update (PROJECTOS-WORKER-SCRATCH-CHECKOUT1A):** the scope is now PREVENTATIVE on the route this phase built. Codex runs in a scratch copy and only granted changes are
+copied back; see `docs/finish/PROJECTOS-WORKER-SCRATCH-CHECKOUT1A.md`. The text below is what this phase built, and the snapshot it describes stays as the backstop.
+
 The check is **detective, not preventative**. The adapter reads the grants from the argv the loop composed, never forwards them to Codex, snapshots the
 checkout before and after the run, and refuses the run naming every path that changed outside the grants. The write has already happened; the paths are
 left in the tree for the owner and nothing is certified.
@@ -68,12 +79,18 @@ Accepted and fixed: ECC 1 to 6, Agency F1, F2, F4, F5, F7. Not fixed, stated bel
 4. **A write made and undone during the run is not seen**, nor a path under `.git` other than configuration, HEAD, index flags and `info/exclude`.
    Whether Codex's Windows sandbox makes `.git` read-only was not verified.
 5. **After a refusal the tree is left as the worker left it.** The owner restores it; nothing does so automatically.
+
+   **Residuals 3 to 5, status after PROJECTOS-WORKER-SCRATCH-CHECKOUT1A:** CLOSED for every write made inside the scratch: the scratch holds no `node_modules`, so there is no existing ignored
+   directory to plant in; a write made and undone leaves the same manifest and no trace; the scratch's `.git` is never copied and never run again; and after a refusal the real tree is
+   byte-identical (the owner has nothing to restore). STILL TRUE, narrower: a new `dist/` or any new file outside the grants still refuses the run (now harmlessly, in the scratch);
+   and a write that reaches the REAL tree by another route (an absolute path, a link the sandbox allows) is still only detected by the real-root snapshot, after the fact, and left for the owner.
+   Residual 2 (reads) is NOT closed: the worker can still read anything the owner's user can read by absolute path, so D4 stands until container or VM isolation.
 6. ~~**Stored context is not handed to a Codex implementer.** The kind is not in `CONTEXT_POINTABLE_KINDS` (pinned by `val-projectos-context-manager1a`
    CM-20), so a run that has stored context refuses for it. The exit proof on a project with stored context needs that follow-up.~~
    CLOSED by PROJECTOS-CONTEXT-CODEX1A (see `docs/finish/PROJECTOS-CONTEXT-CODEX1A.md`): the kind is context-pointable and both sentences name the file.
 7. **The worker executable should be `codex.exe`, not the npm `.cmd` shim.**
 
-The real fix for 2 to 5 is to run the worker in a scratch checkout and copy back only granted paths. That is Stage 4.3.
+The real fix for 2 to 5 was to run the worker in a scratch checkout and copy back only granted paths: built in PROJECTOS-WORKER-SCRATCH-CHECKOUT1A (plan 4.3a). It closes 3 to 5 as stated above; it does not close 2.
 
 ## Owner decisions this leaves
 

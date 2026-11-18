@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-1d2397bfe1de055c109767c3",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "08c70177ffea899dcc2d1771fe74e5769a168b2b",
+  "draftId": "a521220f9992d498",
+  "planDigest": "sha256:d68fb2693bdbb52a6a6d81f1f12fa126cf2db2a39e9b67147e1a6d1392517a13",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-17T14:21:37.702Z",
+  "note": "Lead-recorded mechanical correction within the owner's approval of the role-registry phase (owner, 2026-11-17: \"Approved all\"): the committed .projectops/provider-roles.json is removed from the phase write list because no worker may be granted a governance record; it stays a lead edit named in the approved delta spec. The owner is told in plain words in the same session; if the owner objects, this is the decision to withdraw.",
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-11-17T14:21:52.601Z"
+}

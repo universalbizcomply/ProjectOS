@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-1e99bfd39dd3428f0e28b57e",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "b0f9b68f7dd3af6aa1cdf0f2671ab9ee1773676e",
+  "draftId": "f417782ed9381dd6",
+  "planDigest": "sha256:f1665de0df8054b4a770a452f0c23802c3a82ab2e95f0413c578c7f750882ac9",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-17T14:06:10.049Z",
+  "note": "Lead-recorded mechanical correction within the owner's approval of phase C (owner, 2026-11-17: \"Approve phase C, all three recommendations\"): the same write path, spelled ./.gitignore because the grant reader refuses a bare filename. The owner is told in plain words in the same session; if the owner objects, this decision is the one to withdraw.",
+  "recordedBy": "projectos plan decide",
+  "consumedAt": "2026-11-17T14:06:18.824Z"
+}
