@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-WORKER-SCRATCH-CHECKOUT1A",
   "project": "ProjectOS",
   "objective": "Stage 4 plan 4.3a. The adapter exports the tracked and untracked-not-ignored files to a fresh temporary directory (never .git, never an ignored file), runs Codex there, and copies back only changes inside the write grants; anything else refuses the whole copy-back and the real tree stays byte-identical. This makes the write scope preventative. Reads by absolute path stay open until container or VM isolation, so D4 is not retired.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-18T14:11:59.504Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-18T14:12:01.773Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-WORKER-SCRATCH-CHECKOUT1A:owner-closure:5785b504"
     }
   ]
 }
