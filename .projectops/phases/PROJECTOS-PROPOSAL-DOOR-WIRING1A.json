@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PROPOSAL-DOOR-WIRING1A",
   "project": "ProjectOS",
   "objective": "Stage 3 carry-forward C. A worker asks for a memory or skill write by a proposals entry in its findings; the loop turns it into a pending proposal after the store guard. Proposals live in git-ignored proposals directories (owner decision 2026-11-17), so a run that follows one is not refused for an untracked file. Adds a deterministic summariser kind, moving PX-12 with the rule.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-18T14:12:17.136Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-18T14:12:18.604Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PROPOSAL-DOOR-WIRING1A:owner-closure:5785b504"
     }
   ]
 }
