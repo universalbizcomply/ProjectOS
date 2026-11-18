@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-1c2554069793aabe517986a0",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "e51ae12b5d812d8c67e373ec2a77e1388b16423f",
+  "draftId": "f03dcb79016d0ccb",
+  "planDigest": "sha256:d59efbb1ac6a97d8e8befcf1da550c1b91fc8f38323dd2d32ff05864edc4e715",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-18T11:32:38.961Z",
+  "note": "Owner-approved plan amendment (owner, 2026-11-18: \"yes, approved, go ahead\", answering the lead's question whether phase C may add val-projectos-port-skills1a.cjs to its write list and make the one-line PK-16 pin edit): the validator joins the PROJECTOS-PROPOSAL-DOOR-WIRING1A write list, limited to that one mutation pin, because the added state argument at the door call changes the pinned text.",
+  "recordedBy": "projectos plan decide"
+}
