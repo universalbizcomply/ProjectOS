@@ -2679,12 +2679,14 @@
         "docs/06_Plan.md",
         "projectos/validators/val-projectos-context-manager1a.cjs",
         "projectos/core/src/context/provenance.ts",
-        "projectos/core/test/context-hardening.test.ts"
+        "projectos/core/test/context-hardening.test.ts",
+        "projectos/validators/val-projectos-port-skills1a.cjs"
       ],
       "exclusions": [
         "No change to closure authority, the owner floor, gatekeeper composition, loop/workers.ts write grants, credential custody, the tenant or action registries, or any existing authority record.",
         "No live provider call and no worker entry committed to project-config.json unless the phase says so.",
         "commands/run.ts (isFoldableRunRecord) is not edited.",
+        "val-projectos-port-skills1a.cjs may change only the one mutation pin for the proposal door call (PK-16), to follow the added state argument; owner-approved 2026-11-18.",
         "Nothing writes approved memory or promotes a skill by itself: the owner decides with the memory commands.",
         "The two .gitignore lines are a lead edit recorded in the delta spec: no worker may be granted a git control file, so .gitignore is not in the write list."
       ],
