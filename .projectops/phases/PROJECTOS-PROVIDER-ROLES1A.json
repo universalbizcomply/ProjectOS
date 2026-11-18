@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-PROVIDER-ROLES1A",
   "project": "ProjectOS",
   "objective": "Stage 4 plan 4.2, first slice. A committed .projectops/provider-roles.json names, per role, an already-authorised worker or the committed gatekeeper route, its capabilities from a closed list and its cost class, and a read-only projectos roles report reads it from committed bytes. Selection and recording only: no new network path, no credential, no money rule. A gatekeeper role with no decision reports awaiting, never an approval.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-18T14:12:08.829Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-18T14:12:10.742Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-PROVIDER-ROLES1A:owner-closure:5785b504"
     }
   ]
 }
