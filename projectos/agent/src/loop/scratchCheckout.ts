@@ -10,7 +10,9 @@
  * WHAT THE SCRATCH HOLDS. The files git lists as tracked or untracked-and-not-ignored (isolated git, `-z`), minus `.git`, minus
  * anything under an agent control path (`isAgentControlPath`), minus a git-ignored file: that is what keeps `.env` and
  * `node_modules` out. Links are never copied. Then a standalone `git init` with no remote and no template, so Codex sees a
- * repository that is not the real one. Nothing is committed in it.
+ * repository that is not the real one, and ONE commit of exactly those files (PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A): a worker that
+ * runs `git` finds a readable HEAD and a diff that is its own edit, instead of an unborn branch it then reports as a finding. The
+ * commit is the scratch's own baseline, not the governed repository's history, and says so.
  *
  * HOW A CHANGE IS FOUND. Not with git (the worker owns the scratch's `.git`, and nothing in it is ever run again): a manifest of
  * the scratch is walked with `lstat` before and after, never following a link, and a file is compared by the SHA-256 of its
@@ -33,7 +35,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, copyFileSync, lstatSync, mkdirSync, mkdtempSync, openSync, readSync, readdirSync, realpathSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import type { System } from '../system.js';
+import type { ExecResult, System } from '../system.js';
 import { isAgentControlPath, isolatedGitRunner, pathInGrants } from './writeScope.js';
 
 export type EntryKind = 'file' | 'dir' | 'link' | 'other';
@@ -621,6 +623,52 @@ function openScratch(fs: ScratchFs, limits: ScratchLimits, realRoot: string, hol
   };
 }
 
+const NULL_DEVICE = process.platform === 'win32' ? 'NUL' : '/dev/null';
+
+/**
+ * The scratch's one commit message: FIXED TEXT. It carries nothing from the real repository (no sha, no path, no branch, no author)
+ * and nothing from the worker. The real sha is deliberately not in it: a worker could chase it, and `git show <sha>` fails in a scratch.
+ * The identity is the isolated environment's own fixed one (`LOCAL_CANDIDATE_GIT_IDENTITY`); nothing is set here.
+ */
+const SCRATCH_BASELINE_MESSAGE =
+  'ProjectOS scratch baseline: the working tree of the governed checkout as exported for one worker run. This is not a commit of the governed repository.';
+
+const SCRATCH_COMMIT_REFUSED = 'git could not record the scratch baseline commit';
+
+/**
+ * Commit exactly the exported files, as they are, once. Run through the SHARED isolated runner (no system or user configuration, hooks
+ * closed, fsmonitor off, filter drivers switched off, a fixed identity), so there is no second isolation path.
+ *
+ * What the command-scope overrides add, because repository-level keys and a worker-visible machine can still reach an add or a commit:
+ * no line-ending conversion and no safety refusal about it (the blob is the file's raw bytes, whatever `core.autocrlf` says); no excludes or
+ * attributes file; `--force` so an exclude pattern cannot drop a file; no hook, no signing; and no background maintenance, which could
+ * outlive the run and lock the directory the cleanup must remove. Nothing here reads a thing the export did not copy: the scratch holds no
+ * `.gitignore` and no `.gitattributes`.
+ *
+ * True when the commit was made; false on a failed listing of filter drivers, a failed add or a failed commit (the caller refuses the open).
+ */
+function commitScratchBaseline(sys: System, root: string): boolean {
+  const run = isolatedGitRunner(sys, root);
+  if (run === null) return false;
+  const done = (r: ExecResult): boolean => r.code === 0 && r.failure === undefined;
+  const added = run([
+    '-c', 'core.autocrlf=false',
+    '-c', 'core.safecrlf=false',
+    '-c', `core.attributesFile=${NULL_DEVICE}`,
+    '-c', `core.excludesFile=${NULL_DEVICE}`,
+    'add', '--all', '--force', '--', '.',
+  ]);
+  if (!done(added)) return false;
+  const committed = run([
+    '-c', 'commit.gpgSign=false',
+    '-c', 'gc.auto=0',
+    '-c', 'gc.autoDetach=false',
+    '-c', 'maintenance.auto=false',
+    'commit', '-q', '--no-verify', '--no-gpg-sign', '--allow-empty', '-m', SCRATCH_BASELINE_MESSAGE,
+  ]);
+  return done(committed);
+}
+
 /** Export a scratch of the checkout. On any failure the directory made so far is removed before the reason is returned. */
 function exportScratch(fs: ScratchFs, limits: ScratchLimits, sys: System, realRoot: string): OpenOutcome {
   let holder: string | null = null;
@@ -651,6 +699,8 @@ function exportScratch(fs: ScratchFs, limits: ScratchLimits, sys: System, realRo
     // A standalone repository: its own `.git`, no remote, no template (so no hook file), no link to the real one.
     const init = sys.exec('git', ['init', '-q', '--template=', root], { isolatedGit: {}, timeoutMs: 60_000 });
     if (init.code !== 0 || init.failure !== undefined) return fail('git could not initialise the scratch repository');
+    // ONE commit of exactly what was copied, so the worker's own git finds a HEAD. Refused whole (nothing starts) when it cannot be made.
+    if (!commitScratchBaseline(sys, root)) return fail(SCRATCH_COMMIT_REFUSED);
     return { ok: true, scratch: openScratch(fs, limits, realRoot, holder, copied.value.skipped) };
   } catch (e) {
     return fail(described('building the scratch', e));

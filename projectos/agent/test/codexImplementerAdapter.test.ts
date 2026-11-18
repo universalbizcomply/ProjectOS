@@ -30,6 +30,7 @@ import type { AuthorisedWorker, WorkerSession } from '../src/loop/workers.js';
 import type { WorkerBrief } from '../src/loop/brief.js';
 import type { ExecOptions, ExecResult, System } from '../src/system.js';
 import { fakeScratchHost, FAKE_SCRATCH_ROOT, type FakeScratchScript } from './support/fakeScratchHost.js';
+import { FINDINGS_CLAUSE_TEXT } from './support/findingsClause.js';
 
 const ROOT = 'C:/dev/candidate';
 const CODEX = 'C:/tools/codex/codex.exe';
@@ -200,6 +201,24 @@ describe('the Codex implementer command line', () => {
     const again = fakeWorld({ evidenceExists: true });
     adapter.start(again.sys, worker(), briefOf(), BRIEF_PATH);
     expect(codexCalls(again.calls)[0]?.args.at(-1)).toBe(correctionInstruction(SCRATCH_BRIEF_PATH));
+  });
+
+  it('W7 rule 7: the Codex prompt carries the same findings clause on a start and on a correction, and builds no sentence of its own', () => {
+    const first = fakeWorld({});
+    adapter.start(first.sys, worker(), briefOf(), BRIEF_PATH);
+    const start = codexCalls(first.calls)[0]?.args.at(-1) ?? '';
+    const again = fakeWorld({ evidenceExists: true });
+    adapter.start(again.sys, worker(), briefOf(), BRIEF_PATH);
+    const correction = codexCalls(again.calls)[0]?.args.at(-1) ?? '';
+    expect(start).toContain(FINDINGS_CLAUSE_TEXT);
+    expect(correction).toContain(FINDINGS_CLAUSE_TEXT);
+    // the very text the Claude worker is given, through the injected builders
+    expect(start).toBe(pointerInstruction(SCRATCH_BRIEF_PATH));
+    expect(correction).toBe(correctionInstruction(SCRATCH_BRIEF_PATH));
+    // with a stored-context file too
+    const withContext = fakeWorld({});
+    adapter.start(withContext.sys, worker(), briefOf({ contextPath: `${ROOT}/.projectops/execution/s1.context.md` }), BRIEF_PATH);
+    expect(codexCalls(withContext.calls)[0]?.args.at(-1)).toContain(FINDINGS_CLAUSE_TEXT);
   });
 
   it('refuses a worker with no attempt bound before anything is spawned', () => {
