@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-HOST-SESSION-DIGEST-SEAL1A",
   "project": "ProjectOS",
   "objective": "One line in the dormant Rust host: AdmittedRequest::session_digest at projectos/host/core/src/ipc_session.rs becomes pub(crate), as val-cd-b4-sealed-expected-window-facts1a has required since before that type existed. No caller outside the crate was found. The owner approved this protected-file edit on 2026-11-17.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-18T14:11:50.891Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-18T14:11:52.539Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-HOST-SESSION-DIGEST-SEAL1A:owner-closure:5785b504"
     }
   ]
 }
