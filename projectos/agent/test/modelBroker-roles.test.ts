@@ -2,15 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { parseRoleRegistry, type KnownRoleSources } from '@projectos/core';
 import { roleBindingProblems } from '../src/loop/reviewRoles.js';
 import { argvGrants, type AuthorisedWorker } from '../src/loop/workers.js';
+import { BUILT_IN_ADAPTERS } from '../src/loop/adapters/claudeCodeCli.js';
+import { CODEX_CLI, CODEX_NOT_AN_IMPLEMENTER } from '../src/loop/adapters/codexCli.js';
+import { CODEX_IMPLEMENTER } from '../src/loop/adapters/codexImplementer.js';
 import { loadCommittedRoleRegistry } from '../src/modelBroker/index.js';
-import { ROLE_REGISTRY_REL, roles, type RoleSourcesPort } from '../src/commands/roles.js';
+import { ROLE_REGISTRY_REL, kindCapabilities, roles, type RoleSourcesPort } from '../src/commands/roles.js';
 import { parseArgs, run as cli } from '../src/cli.js';
 import type { ExecResult, System } from '../src/system.js';
 
+const CLAUDE_KIND = 'claude-code-cli';
 const COMMIT = '3'.repeat(40);
 const PATH = '.projectops/provider-roles.json';
 const CARD = { model: 'gpt-5.6-terra', inputMicroUsdPerMillion: 1250000, outputMicroUsdPerMillion: 10000000 };
-const KNOWN: KnownRoleSources = { workers: [{ workerId: 'claude-local', grants: ['Write(.projectops/execution/*.findings.json)'] }, { workerId: 'claude-reviewer', grants: ['Read', 'Grep', 'Glob'] }], gatekeeperTransportId: 'openai-primary', rateCards: { 'gpt-5.6-terra': CARD } };
+const KNOWN: KnownRoleSources = { workers: [{ workerId: 'claude-local', grants: ['Write(.projectops/execution/*.findings.json)'], canImplement: true, canReview: true }, { workerId: 'claude-reviewer', grants: ['Read', 'Grep', 'Glob'], canImplement: true, canReview: true }], gatekeeperTransportId: 'openai-primary', rateCards: { 'gpt-5.6-terra': CARD } };
 const GOOD = {
   schema: 1,
   roles: {
@@ -77,6 +81,7 @@ describe('the role registry is read from committed bytes only (rule 5)', () => {
 /** An in-memory System: git answers from the committed map, the working tree from the other, and it counts what it is asked. */
 function fake(committed: Record<string, string>, working: Record<string, string>, head = COMMIT) {
   const execs: string[] = [];
+  const shownAt: string[] = [];
   const writes: string[] = [];
   const sys: System = {
     cwd: () => '/proj',
@@ -92,12 +97,13 @@ function fake(committed: Record<string, string>, working: Record<string, string>
       execs.push(`${cmd} ${args.join(' ')}`);
       if (cmd !== 'git') return { code: 1, stdout: '', stderr: 'no' };
       if (args.includes('rev-parse')) return head === '' ? { code: 128, stdout: '', stderr: 'no head' } : { code: 0, stdout: `${head}\n`, stderr: '' };
-      const spec = args.find((a) => a.startsWith('HEAD:'));
-      const text = spec === undefined ? undefined : committed[spec.replace(/^HEAD:\.\//, '')];
+      const spec = args.find((a) => /^[^:\s]+:\.\//.test(a));
+      shownAt.push(spec === undefined ? '' : spec.split(':')[0] as string);
+      const text = spec === undefined || spec.split(':')[0] !== head ? undefined : committed[spec.replace(/^[^:]+:\.\//, '')];
       return text === undefined ? { code: 128, stdout: '', stderr: 'no such path' } : { code: 0, stdout: text, stderr: '' };
     },
   };
-  return { sys, execs, writes };
+  return { sys, execs, writes, shownAt };
 }
 
 const sourcesOf = (known: KnownRoleSources): RoleSourcesPort => () => ({ ok: true, known, lines: [] });
@@ -159,7 +165,7 @@ describe('`projectos roles` is a read-only report from committed bytes', () => {
 
   it('refuses a committed registry that names a worker the project does not authorise', () => {
     const { sys } = fake({ [PATH]: GOOD_TEXT }, { [PATH]: GOOD_TEXT });
-    const r = roles({ sys, root: '/proj' }, {}, [], sourcesOf({ ...KNOWN, workers: [{ workerId: 'claude-local', grants: [] }] }));
+    const r = roles({ sys, root: '/proj' }, {}, [], sourcesOf({ ...KNOWN, workers: [{ workerId: 'claude-local', grants: [], canImplement: true, canReview: true }] }));
     expect(r.code).toBe(2);
     expect(r.lines.join('\n')).toContain('UNKNOWN_WORKER');
   });
@@ -173,11 +179,33 @@ describe('`projectos roles` is a read-only report from committed bytes', () => {
     expect(execs).toEqual([]);
   });
 
-  it('prints registry text inert and capped: a control character or escape cannot reach the terminal', () => {
-    const noisy = { ...GOOD, roles: { ...GOOD.roles, implementer: { ...GOOD.roles.implementer, notes: 'n'.repeat(23) + ' \u001b[2J' } } };
+  it('refuses a note that carries an escape, and the refusal itself prints no control character', () => {
+    const noisy = { ...GOOD, roles: { ...GOOD.roles, implementer: { ...GOOD.roles.implementer, notes: 'owner login \u001b[2J' } } };
     const { sys } = fake({ [PATH]: JSON.stringify(noisy) }, { [PATH]: JSON.stringify(noisy) });
     const r = roles({ sys, root: '/proj' }, {}, [], sourcesOf(KNOWN));
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('BAD_NOTES');
     expect(r.lines.join('\n')).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f]/);
+  });
+
+  it('prints an ACCEPTED registry inert: non-ASCII in a worker id and a note reaches the terminal as plain ASCII', () => {
+    const known: KnownRoleSources = { ...KNOWN, workers: [{ workerId: 'caf\u00e9-worker', grants: [], canImplement: true, canReview: true }, ...KNOWN.workers] };
+    const accented = { ...GOOD, roles: { ...GOOD.roles, implementer: { ...GOOD.roles.implementer, workerId: 'caf\u00e9-worker', notes: 'the caf\u00e9 login \u2014 owner' } } };
+    const { sys } = fake({ [PATH]: JSON.stringify(accented) }, { [PATH]: JSON.stringify(accented) });
+    const r = roles({ sys, root: '/proj' }, {}, [], sourcesOf(known));
+    const text = r.lines.join('\n');
+    expect(r.code).toBe(0);
+    expect(text).toContain('caf?-worker');
+    expect(text).toContain('the caf? login ? owner');
+    expect(text).toMatch(/^[\x20-\x7e\n]*$/);
+  });
+
+  it('caps a long accepted note when it prints it', () => {
+    const long = { ...GOOD, roles: { ...GOOD.roles, implementer: { ...GOOD.roles.implementer, notes: 'word '.repeat(80) } } };
+    const { sys } = fake({ [PATH]: JSON.stringify(long) }, { [PATH]: JSON.stringify(long) });
+    const note = roles({ sys, root: '/proj' }, {}, [], sourcesOf(KNOWN)).lines.find((l) => l.startsWith('    note: ')) as string;
+    expect(note.length).toBeLessThan(180);
+    expect(note.endsWith('...')).toBe(true);
   });
 
   it('caps what it prints when the registry is refused with many problems', () => {
@@ -226,8 +254,8 @@ describe('the registry agrees with the loop on what a reviewer may hold (review 
     const known: KnownRoleSources = {
       ...KNOWN,
       workers: [
-        { workerId: 'impl', grants: [] },
-        { workerId: 'rev', grants: argvGrants(reviewerArgs) },
+        { workerId: 'impl', grants: [], canImplement: true, canReview: true },
+        { workerId: 'rev', grants: argvGrants(reviewerArgs), canImplement: true, canReview: true },
       ],
     };
     const doc = { schema: 1, roles: { implementer: { ...GOOD.roles.implementer, workerId: 'impl' }, reviewer: { ...GOOD.roles.reviewer, workerId: 'rev' } } };
@@ -256,5 +284,81 @@ describe('the registry agrees with the loop on what a reviewer may hold (review 
   it('the cases include both outcomes, so the agreement is not vacuous', () => {
     const outcomes = new Set(cases.map(([, args]) => roleBindingProblems(worker('impl'), worker('rev', args)).length > 0));
     expect(outcomes).toEqual(new Set([true, false]));
+  });
+});
+
+describe('HEAD is resolved once, and the bytes are read at that commit (review round 2, LOW 4)', () => {
+  it('asks rev-parse once, reads the file by that sha and never by the name HEAD, and prints the sha it read', () => {
+    const { sys, execs, shownAt } = fake({ [PATH]: GOOD_TEXT }, { [PATH]: GOOD_TEXT });
+    const r = roles({ sys, root: '/proj' }, {}, [], sourcesOf(KNOWN));
+    expect(execs.filter((c) => c.includes('rev-parse')).length).toBe(1);
+    expect(shownAt).toEqual([COMMIT]);
+    expect(r.lines[0]).toBe(`Provider roles (read from commit ${COMMIT.slice(0, 12)})`);
+  });
+
+  it('a HEAD that moves after it was resolved cannot change which bytes are judged', () => {
+    const NEXT = '4'.repeat(40);
+    let asked = 0;
+    const base = fake({ [PATH]: GOOD_TEXT }, { [PATH]: GOOD_TEXT });
+    const sys: System = { ...base.sys, exec: (cmd, args, options) => (args.includes('rev-parse') ? ((asked += 1) === 1 ? { code: 0, stdout: `${COMMIT}\n`, stderr: '' } : { code: 0, stdout: `${NEXT}\n`, stderr: '' }) : base.sys.exec(cmd, args, options)) };
+    const r = roles({ sys, root: '/proj' }, {}, [], sourcesOf(KNOWN));
+    expect(r.code).toBe(0);
+    expect(r.lines[0]).toContain(COMMIT.slice(0, 12));
+    expect(base.shownAt).toEqual([COMMIT]);
+  });
+
+  it('refuses a rev-parse answer that is not a commit id, rather than passing it to git as a revision', () => {
+    const base = fake({ [PATH]: GOOD_TEXT }, { [PATH]: GOOD_TEXT });
+    const sys: System = { ...base.sys, exec: (cmd, args, options) => (args.includes('rev-parse') ? { code: 0, stdout: '--output=x\n', stderr: '' } : base.sys.exec(cmd, args, options)) };
+    expect(roles({ sys, root: '/proj' }, {}, [], sourcesOf(KNOWN)).code).toBe(2);
+    expect(base.shownAt).toEqual([]);
+  });
+});
+
+describe('the registry agrees with the adapter table on what each worker kind can do (review round 2, MEDIUM 1)', () => {
+  const kinds = [CLAUDE_KIND, CODEX_CLI, CODEX_IMPLEMENTER];
+  const worker = (kind: string): AuthorisedWorker => ({ workerId: 'w', kind, command: '/bin/w', args: [], timeoutMs: 1000 });
+  const throwingSys = new Proxy({}, { get: () => () => { throw new Error('the adapter touched the system'); } }) as unknown as System;
+  /** Whether `adapter.start` is the outright refusal a reviewer-only kind gives. Any other outcome, including a throw before work, is a kind that starts. */
+  const startRefusesAsReviewerOnly = (kind: string): boolean => {
+    try {
+      const out = (BUILT_IN_ADAPTERS[kind] as NonNullable<(typeof BUILT_IN_ADAPTERS)[string]>).start(throwingSys, worker(kind), {} as never, 'p');
+      return out.kind === 'refused' && out.detail === CODEX_NOT_AN_IMPLEMENTER;
+    } catch {
+      return false;
+    }
+  };
+
+  it('covers every built-in kind, so a new kind cannot be added without this table being asked about it', () => {
+    expect(Object.keys(BUILT_IN_ADAPTERS).sort()).toEqual([...kinds].sort());
+  });
+
+  it.each(kinds)('says what %s can do the way its adapter does', (kind) => {
+    const adapter = BUILT_IN_ADAPTERS[kind] as NonNullable<(typeof BUILT_IN_ADAPTERS)[string]>;
+    expect(kindCapabilities(kind)).toEqual({ canImplement: !startRefusesAsReviewerOnly(kind), canReview: adapter.review !== undefined });
+  });
+
+  it('the three kinds come out as the loop treats them', () => {
+    expect(kindCapabilities(CLAUDE_KIND)).toEqual({ canImplement: true, canReview: true });
+    expect(kindCapabilities(CODEX_CLI)).toEqual({ canImplement: false, canReview: true });
+    expect(kindCapabilities(CODEX_IMPLEMENTER)).toEqual({ canImplement: true, canReview: false });
+  });
+
+  it('a kind with no adapter can do nothing', () => {
+    expect(kindCapabilities('made-up-kind')).toEqual({ canImplement: false, canReview: false });
+    expect(kindCapabilities('toString')).toEqual({ canImplement: false, canReview: false });
+  });
+
+  it('through the registry: a codex-implementer worker named reviewer and a codex-cli worker named implementer are refused', () => {
+    const asKnown = (workerId: string, kind: string) => ({ workerId, grants: [], ...kindCapabilities(kind) });
+    const known: KnownRoleSources = { ...KNOWN, workers: [asKnown('claude-local', CLAUDE_KIND), asKnown('codex-impl', CODEX_IMPLEMENTER), asKnown('codex-rev', CODEX_CLI)] };
+    const doc = (implementer: string, reviewer: string) => JSON.stringify({ ...GOOD, roles: { implementer: { ...GOOD.roles.implementer, workerId: implementer }, reviewer: { ...GOOD.roles.reviewer, workerId: reviewer } } });
+    const codes = (text: string) => {
+      const r = parseRoleRegistry(text, known);
+      return r.ok ? [] : r.refusals.map((x) => x.code);
+    };
+    expect(codes(doc('claude-local', 'codex-impl'))).toEqual(['WORKER_CANNOT_REVIEW']);
+    expect(codes(doc('codex-rev', 'claude-local'))).toEqual(['WORKER_CANNOT_IMPLEMENT']);
+    expect(codes(doc('codex-impl', 'codex-rev'))).toEqual([]);
   });
 });

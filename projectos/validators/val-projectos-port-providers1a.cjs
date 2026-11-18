@@ -139,8 +139,9 @@ const OWN_RATECARD = /^\s*(?:export\s+)?(?:interface\s+RateCard\b|type\s+RateCar
 const NOT_RUN = /\b(?:it|test|describe|suite|bench)\.(?:skip|only|todo|fails|skipIf|runIf)\b|\.(?:skip|only)\(|\b(?:xit|fit|xdescribe|fdescribe)\(/;
 /** What the module exports that a caller would name. A later phase wires it; nothing may before then. */
 const EXPORTED_NAMES = /\b(?:bindingKeyOf|callModel|createProviderRegistry|loadCommittedBrokerConfig|detectLocalModels|parseCommittedPricing|retryModelCall|chooseRoute|createCooldownBook|createMemoryAttemptStore|isLoopbackHost|localEndpointProblem)\b/;
-const IMPORT_OF_MODULE = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"`][^'"`]*modelBroker[^'"`]*['"`]/;
-const IMPORT_OF_MODULE_G = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"`]([^'"`]*modelBroker[^'"`]*)['"`]/g;
+/** Case-insensitive: a Windows file system resolves '../ModelBroker/x.js' to the same directory. */
+const IMPORT_OF_MODULE = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"`][^'"`]*modelBroker[^'"`]*['"`]/i;
+const IMPORT_OF_MODULE_G = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"`]([^'"`]*modelBroker[^'"`]*)['"`]/gi;
 /** A load the text computes at run time: the roles report has no use for one, so it may hold none. */
 const DYNAMIC_LOAD = /\b(?:import|require)\s*\(/;
 /** A re-export, of any form: it would hand the module on to whoever imports the report. */
@@ -1452,6 +1453,8 @@ const MUTATIONS = [
   M("roles-ts-imports-the-whole-barrel", "PP-24", ROLES_CODE, "from '../modelBroker/committedConfig.js';", "from '../modelBroker/index.js';"),
   M("roles-ts-stops-importing-the-reader", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", ""),
   M("roles-ts-is-missing", "PP-24", ROLES_CODE, null, ""),
+  M("roles-ts-imports-by-another-case", "PP-24", ROLES_CODE, "from '../modelBroker/committedConfig.js'", "from '../ModelBroker/committedConfig.js'"),
+  M("roles-ts-calls-the-broker-by-another-case", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nimport { callModel } from '../MODELBROKER/callModel.js';"),
   M("roles-ts-loads-the-broker-by-template", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nconst later = import(`../modelBroker/callModel.js`);"),
   M("roles-ts-concatenates-the-broker-path", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nconst later = require('../model' + 'Broker/callModel.js');"),
   M("roles-ts-builds-the-path-in-a-template", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nconst later = import(`../model${'Broker'}/index.js`);"),
@@ -1731,6 +1734,9 @@ const SCAN_MUST_FIND = [
   "const m = import(`../model${'Broker'}/index.js`);",
   "const m = import(\n  '../modelBroker/index.js',\n);",
   "import '../modelBroker/index.js';",
+  "import { x } from '../ModelBroker/index.js';",
+  "const m = import('../MODELBROKER/index.js');",
+  "const m = import('../model' + 'broker/index.js');",
 ];
 const SCAN_MUST_LEAVE = [
   "import { x } from '../models/index.js';",

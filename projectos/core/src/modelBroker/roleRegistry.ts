@@ -57,6 +57,8 @@ export type RoleRefusalCode =
   | 'CAPABILITY_MISMATCH'
   | 'NO_IMPLEMENTER'
   | 'REVIEWER_NOT_READ_ONLY'
+  | 'WORKER_CANNOT_REVIEW'
+  | 'WORKER_CANNOT_IMPLEMENT'
   | 'DUPLICATE_KEY';
 
 export interface RoleRefusal {
@@ -88,10 +90,16 @@ export interface RoleRegistry {
 
 export type RoleParse = { readonly ok: true; readonly registry: RoleRegistry } | { readonly ok: false; readonly refusals: readonly RoleRefusal[] };
 
-/** One authorised worker: its id and every tool grant its configured arguments carry, already parsed by the caller. */
+/**
+ * One authorised worker: its id, every tool grant its configured arguments carry, and what its KIND can do, all read by the
+ * caller from the committed config and the built-in adapter table. A kind with no review step cannot be the reviewer, and a
+ * reviewer-only kind cannot be the implementer, whatever grants it holds.
+ */
 export interface KnownRoleWorker {
   readonly workerId: string;
   readonly grants: readonly string[];
+  readonly canImplement: boolean;
+  readonly canReview: boolean;
 }
 
 /** What is already authorised, as plain values the caller read from the committed records. */
@@ -115,9 +123,11 @@ const CREDENTIAL_NAME = /key|secret|token|cred|passw|endpoint|url|uri|auth|heade
 const LONG_ALNUM_RUN = /[A-Za-z0-9]{24}/;
 const KEY_PREFIX = /(?:^|[^A-Za-z0-9])(?:sk-|ghp_|gho_|xox[abp]-|AKIA)/;
 const URL_SHAPED = /:\/\/|www\./i;
-// Controls, C1, zero-width and bidi characters, line and paragraph separators, the byte-order mark, and tag characters (surrogate pairs).
+// Controls, C1, soft hyphen, Arabic letter mark, Mongolian vowel separator, zero-width and bidi characters, line and paragraph
+// separators, word joiner and the invisible and deprecated format controls (U+2060-U+206F), the byte-order mark, the interlinear
+// annotation controls, and tag characters (surrogate pairs).
 // eslint-disable-next-line no-control-regex
-const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]|\udb40[\udc00-\udc7f]/;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]|\udb40[\udc00-\udc7f]/;
 /** The only tools a reviewer may hold: reading. The loop's `roleBindingProblems` test, over plain data. */
 const READ_ONLY_GRANT = /^(Read|Grep|Glob|LS)(\(.*\))?$/;
 /** Which role a capability belongs to: each role carries its own required one and none that is another's. */
@@ -260,7 +270,8 @@ function routeProblems(role: RoleId, row: Readonly<Record<string, unknown>>, kno
   const id = row['workerId'];
   const worker = typeof id === 'string' ? known.workers.find((w) => w.workerId === id) : undefined;
   if (worker === undefined) return [refusal('UNKNOWN_WORKER', `${at}.workerId`, `${at}.workerId is not a worker the project authorises`, 'Name a workerId in the committed execution.workers of .projectops/project-config.json.')];
-  return role === 'reviewer' ? reviewerProblems(worker, at) : [];
+  if (role === 'reviewer') return worker.canReview ? reviewerProblems(worker, at) : [refusal('WORKER_CANNOT_REVIEW', `${at}.workerId`, `the worker ${safeName(worker.workerId)} is of a kind with no review step, so it cannot be the reviewer`, 'Name a worker whose kind can review (the loop refuses any other as the reviewer), or leave the reviewer out.')];
+  return worker.canImplement ? [] : [refusal('WORKER_CANNOT_IMPLEMENT', `${at}.workerId`, `the worker ${safeName(worker.workerId)} is of a kind that is never started as an implementer`, 'Name a worker whose kind can implement (a reviewer-only kind refuses to start).')];
 }
 
 /** A reviewer only reads: every grant, parsed, is a read and none is ambiguous. The loop's `roleBindingProblems` test over plain data. */
@@ -307,7 +318,7 @@ function sourceProblems(known: KnownRoleSources): RoleRefusal[] {
       typeof known === 'object' &&
       known !== null &&
       Array.isArray(known.workers) &&
-      known.workers.every((w) => typeof w === 'object' && w !== null && typeof w.workerId === 'string' && Array.isArray(w.grants) && w.grants.every((g: unknown) => typeof g === 'string')) &&
+      known.workers.every((w) => typeof w === 'object' && w !== null && typeof w.workerId === 'string' && Array.isArray(w.grants) && w.grants.every((g: unknown) => typeof g === 'string') && typeof w.canImplement === 'boolean' && typeof w.canReview === 'boolean') &&
       (known.gatekeeperTransportId === null || typeof known.gatekeeperTransportId === 'string') &&
       typeof known.rateCards === 'object' &&
       known.rateCards !== null;

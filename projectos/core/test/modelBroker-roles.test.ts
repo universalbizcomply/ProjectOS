@@ -13,9 +13,10 @@ import {
 const CARD = { model: 'gpt-5.6-terra', inputMicroUsdPerMillion: 1250000, outputMicroUsdPerMillion: 10000000 };
 const KNOWN: KnownRoleSources = {
   workers: [
-    { workerId: 'claude-local', grants: ['Write(.projectops/execution/*.findings.json)', 'Edit(.projectops/execution/*.findings.json)'] },
-    { workerId: 'claude-reviewer', grants: ['Read', 'Grep', 'Glob'] },
-    { workerId: 'codex-local', grants: [] },
+    { workerId: 'claude-local', grants: ['Write(.projectops/execution/*.findings.json)', 'Edit(.projectops/execution/*.findings.json)'], canImplement: true, canReview: true },
+    { workerId: 'claude-reviewer', grants: ['Read', 'Grep', 'Glob'], canImplement: true, canReview: true },
+    { workerId: 'codex-local', grants: [], canImplement: true, canReview: false },
+    { workerId: 'codex-reviewer', grants: [], canImplement: false, canReview: true },
   ],
   gatekeeperTransportId: 'openai-primary',
   rateCards: { 'gpt-5.6-terra': CARD },
@@ -234,7 +235,7 @@ describe('the implementer and the reviewer are never one worker (rule 6)', () =>
   });
 
   it('accepts two different workers, and a registry with only one of the two roles', () => {
-    expect(parseRoleRegistry(JSON.stringify(withRole('reviewer', { workerId: 'codex-local' })), KNOWN).ok).toBe(true);
+    expect(parseRoleRegistry(JSON.stringify(withRole('reviewer', { workerId: 'codex-reviewer' })), KNOWN).ok).toBe(true);
     const only = { schema: 1, roles: { implementer: GOOD.roles.implementer } };
     expect(validateRoleRegistry(only, KNOWN).ok).toBe(true);
   });
@@ -299,7 +300,7 @@ describe('a role fits its worker and its capabilities (review round, MEDIUM 1)',
   });
 
   it('refuses a reviewer with any non-read grant, an ambiguous grant, or an unbalanced one, and accepts reads and no grants', () => {
-    const asReviewer = (grants: string[]) => ({ ...KNOWN, workers: [...KNOWN.workers, { workerId: 'rev-x', grants }] });
+    const asReviewer = (grants: string[]) => ({ ...KNOWN, workers: [...KNOWN.workers, { workerId: 'rev-x', grants, canImplement: true, canReview: true }] });
     const doc = withRole('reviewer', { workerId: 'rev-x' });
     for (const grants of [['Read', 'Bash'], ['Write(a)'], ['PowerShell'], ['Read((x) Bash(*)'], ['Read(a))']]) {
       expect(refusedCodes(validateRoleRegistry(doc, asReviewer(grants))), grants.join()).toContain('REVIEWER_NOT_READ_ONLY');
@@ -347,6 +348,40 @@ describe('a role fits its worker and its capabilities (review round, MEDIUM 1)',
   });
 });
 
+describe('a role names a worker whose kind can do the role (review round 2, MEDIUM 1)', () => {
+  it('refuses a reviewer whose kind has no review, and says what to do', () => {
+    const r = validateRoleRegistry(withRole('reviewer', { workerId: 'codex-local' }), KNOWN);
+    expect(refusedCodes(r)).toContain('WORKER_CANNOT_REVIEW');
+    expect(!r.ok && r.refusals.find((x) => x.code === 'WORKER_CANNOT_REVIEW')?.reason).toContain('codex-local');
+    expect(!r.ok && r.refusals.find((x) => x.code === 'WORKER_CANNOT_REVIEW')?.next).toMatch(/review/);
+  });
+
+  it('refuses an implementer whose kind never implements', () => {
+    const r = validateRoleRegistry(withRole('implementer', { workerId: 'codex-reviewer' }), KNOWN);
+    expect(refusedCodes(r)).toContain('WORKER_CANNOT_IMPLEMENT');
+    expect(!r.ok && r.refusals.find((x) => x.code === 'WORKER_CANNOT_IMPLEMENT')?.reason).toContain('codex-reviewer');
+  });
+
+  it('accepts a reviewer that can review and an implementer that can implement, whatever else they can do', () => {
+    expect(validateRoleRegistry(withRole('reviewer', { workerId: 'codex-reviewer' }), KNOWN).ok).toBe(true);
+    expect(validateRoleRegistry(withRole('implementer', { workerId: 'codex-local' }), KNOWN).ok).toBe(true);
+  });
+
+  it('each flag judges its own role only: a reviewer-only kind may review, an implementer-only kind may implement', () => {
+    const onlyReview = { ...KNOWN, workers: [...KNOWN.workers.filter((w) => w.workerId !== 'claude-reviewer'), { workerId: 'claude-reviewer', grants: ['Read'], canImplement: false, canReview: true }] };
+    expect(validateRoleRegistry(GOOD, onlyReview).ok).toBe(true);
+    const onlyImplement = { ...KNOWN, workers: KNOWN.workers.map((w) => (w.workerId === 'claude-local' ? { ...w, canReview: false } : w)) };
+    expect(validateRoleRegistry(GOOD, onlyImplement).ok).toBe(true);
+  });
+
+  it('a source that does not say what a worker can do is refused as BAD_SOURCES, not guessed', () => {
+    const missing = { ...KNOWN, workers: KNOWN.workers.map((w) => ({ workerId: w.workerId, grants: w.grants })) } as unknown as KnownRoleSources;
+    expect(refusedCodes(validateRoleRegistry(GOOD, missing))).toEqual(['BAD_SOURCES']);
+    const text = { ...KNOWN, workers: KNOWN.workers.map((w) => ({ ...w, canReview: 'yes' })) } as unknown as KnownRoleSources;
+    expect(refusedCodes(validateRoleRegistry(GOOD, text))).toEqual(['BAD_SOURCES']);
+  });
+});
+
 describe('a hostile object cannot make validation throw (review round, LOW 3)', () => {
   it('refuses a Proxy whose ownKeys throws, and a revoked Proxy, as NOT_A_RECORD', () => {
     const hostile = new Proxy({}, { ownKeys() { throw new Error('boom'); } });
@@ -378,13 +413,16 @@ describe('a hostile object cannot make validation throw (review round, LOW 3)', 
     expect(called).toBe(0);
   });
 
-  it('a Proxy whose descriptor or get trap throws is refused the same way', () => {
-    const traps = [new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('boom'); }, ownKeys: () => ['a'] }), new Proxy([], { get() { throw new Error('boom'); } })];
-    for (const roles of traps) {
+  it('a Proxy whose descriptor or ownKeys trap is reached and throws is refused the same way', () => {
+    let reached = 0;
+    const descriptorTrap = new Proxy({}, { ownKeys: () => ['a'], getOwnPropertyDescriptor() { reached += 1; throw new Error('boom'); } });
+    const definePlain = new Proxy({ implementer: {} }, { ownKeys() { reached += 1; throw new Error('boom'); } });
+    for (const roles of [descriptorTrap, definePlain]) {
       let r: RoleParse | undefined;
       expect(() => { r = validateRoleRegistry({ schema: 1, roles }, KNOWN); }).not.toThrow();
-      expect(r && refusedCodes(r)).toContain('NOT_A_RECORD');
+      expect(r && refusedCodes(r)).toEqual(['NOT_A_RECORD']);
     }
+    expect(reached).toBe(2);
   });
 
   it('text that is not a string, and sources that throw when read, are typed refusals and never a throw', () => {
@@ -421,6 +459,16 @@ describe('notes carry no invisible or reordering characters (review round, LOW 4
     ['a byte-order mark', 'a\uFEFFb'],
     ['a tag character', 'a\u{E0041}b'],
     ['a DEL', 'a\u007fb'],
+    ['an Arabic letter mark', 'a\u061cb'],
+    ['a word joiner', 'a\u2060b'],
+    ['an invisible times', 'a\u2062b'],
+    ['an invisible plus', 'a\u2064b'],
+    ['a deprecated format control', 'a\u206ab'],
+    ['the last deprecated format control', 'a\u206fb'],
+    ['a soft hyphen', 'a\u00adb'],
+    ['a Mongolian vowel separator', 'a\u180eb'],
+    ['an interlinear annotation anchor', 'a\ufff9b'],
+    ['an interlinear annotation terminator', 'a\ufffbb'],
   ])('refuses %s', (_name, notes) => {
     expect(refusedCodes(validateRoleRegistry(withRole('implementer', { notes }), KNOWN))).toContain('BAD_NOTES');
   });

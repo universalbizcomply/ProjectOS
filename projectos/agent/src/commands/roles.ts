@@ -17,7 +17,9 @@ import { fail, join, ok } from '../context.js';
 import type { Flags } from '../flags.js';
 import { loadGovernedContext, refusalLines } from '../governedContext.js';
 import { GATEKEEPER_CONFIG_REL, loadGatekeeperConfig } from '../loop/gatekeeperConfig.js';
-import { argvGrants, authorisedWorkers, committedExecutionProblems } from '../loop/workers.js';
+import { BUILT_IN_ADAPTERS, CLAUDE_CODE_CLI } from '../loop/adapters/claudeCodeCli.js';
+import { CODEX_IMPLEMENTER } from '../loop/adapters/codexImplementer.js';
+import { argvGrants, authorisedWorkers, committedExecutionProblems, type AdapterRegistry } from '../loop/workers.js';
 import type { System } from '../system.js';
 
 export const ROLE_REGISTRY_REL = '.projectops/provider-roles.json';
@@ -27,6 +29,8 @@ const MAX_PRINTED = 160;
 const MAX_REASONS = 5;
 const GIT_READ_BYTES = 65536;
 /** Stands in for a committed file larger than the read bound, so the registry judge answers TOO_LARGE rather than NOT_COMMITTED. */
+/** The kinds that start a worker as the implementer. The agent test proves this against each adapter's own `start`. */
+const IMPLEMENTER_KINDS: readonly string[] = [CLAUDE_CODE_CLI, CODEX_IMPLEMENTER];
 const OVERSIZE_TEXT = ' '.repeat(MAX_ROLE_REGISTRY_BYTES + 1);
 
 export type RoleSources = { readonly ok: true; readonly known: KnownRoleSources; readonly lines: readonly string[] } | { readonly ok: false; readonly lines: readonly string[] };
@@ -40,15 +44,44 @@ function inert(text: unknown, max: number = MAX_PRINTED): string {
   return plain.length > max ? `${plain.slice(0, max)}...` : plain;
 }
 
+/** A full commit id, never a name or an option: what `rev-parse HEAD` answers, and the only thing handed back to git as a revision. */
+const COMMIT_ID = /^[0-9a-f]{40,64}$/;
+
+/**
+ * HEAD is resolved ONCE per reader, and every file is then read at that commit id, so the bytes judged and the commit
+ * printed cannot come from two different HEADs even if a commit lands between the two git calls.
+ */
 function committedRead(sys: System, root: string): (path: string) => { text: string; commit: string } | null {
-  return (path) => {
-    const options = { isolatedGit: {}, maxOutputBytes: GIT_READ_BYTES };
-    const base = ['--no-replace-objects', '-C', root];
-    const head = sys.exec('git', [...base, 'rev-parse', 'HEAD'], options);
-    const shown = sys.exec('git', [...base, 'show', `HEAD:./${path}`], options);
-    if (head.code === 0 && shown.failure === 'output-overflow') return { text: OVERSIZE_TEXT, commit: head.stdout.trim() };
-    return head.code === 0 && shown.code === 0 ? { text: shown.stdout, commit: head.stdout.trim() } : null;
+  const options = { isolatedGit: {}, maxOutputBytes: GIT_READ_BYTES };
+  const base = ['--no-replace-objects', '-C', root];
+  let resolved: string | null | undefined;
+  const commitId = (): string | null => {
+    if (resolved === undefined) {
+      const head = sys.exec('git', [...base, 'rev-parse', 'HEAD'], options);
+      const id = head.stdout.trim();
+      resolved = head.code === 0 && COMMIT_ID.test(id) ? id : null;
+    }
+    return resolved;
   };
+  return (path) => {
+    const commit = commitId();
+    if (commit === null) return null;
+    const shown = sys.exec('git', [...base, 'show', `${commit}:./${path}`], options);
+    if (shown.failure === 'output-overflow') return { text: OVERSIZE_TEXT, commit };
+    return shown.code === 0 ? { text: shown.stdout, commit } : null;
+  };
+}
+
+/**
+ * What a worker KIND can do, from the built-in adapter table the loop itself uses. A kind that can review has a `review` step
+ * (`independentReview` refuses any other as the reviewer). A kind that can implement is one of the two that start a worker:
+ * `codex-cli` is a reviewer only, and its `start` refuses. A kind with no adapter can do neither. Own properties only, so a
+ * kind named like an inherited member finds nothing.
+ */
+export function kindCapabilities(kind: string, adapters: AdapterRegistry = BUILT_IN_ADAPTERS): { readonly canImplement: boolean; readonly canReview: boolean } {
+  const adapter = Object.prototype.hasOwnProperty.call(adapters, kind) ? adapters[kind] : undefined;
+  if (adapter === undefined) return { canImplement: false, canReview: false };
+  return { canImplement: IMPLEMENTER_KINDS.includes(kind), canReview: adapter.review !== undefined };
 }
 
 const sameBytes = (a: string, b: string): boolean => a.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n') === b.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
@@ -76,7 +109,7 @@ export const productionRoleSources: RoleSourcesPort = (ctx) => {
   if (drift.length > 0) return { ok: false, lines: ['REFUSED (EXECUTION_NOT_COMMITTED):', ...drift.map((p) => `  - ${inert(p)}`)] };
   const workers = authorisedWorkers(gc.context);
   if (!workers.ok) return { ok: false, lines: ['REFUSED (NO_AUTHORISED_WORKERS):', ...workers.problems.slice(0, MAX_REASONS).map((p) => `  - ${inert(p)}`)] };
-  const knownWorkers = workers.workers.map((w) => ({ workerId: w.workerId, grants: argvGrants(w.args) }));
+  const knownWorkers = workers.workers.map((w) => ({ workerId: w.workerId, grants: argvGrants(w.args), ...kindCapabilities(w.kind) }));
   const gatekeeper = loadGatekeeperConfig(ctx.sys, ctx.root, 'not-needed');
   const transportId = committedTransportId(ctx.sys, ctx.root);
   if (gatekeeper.ok && transportId !== null && transportId === gatekeeper.config.transport.transportId) {
@@ -113,7 +146,7 @@ export function roles(ctx: CommandContext, _flags: Flags, positionals: readonly 
   const working = ctx.sys.readText(join(ctx.root, ...ROLE_REGISTRY_REL.split('/')));
   const differs = working === null || !sameBytes(working, loaded.text);
   const report = [
-    `Provider roles (committed at ${loaded.commit.slice(0, 12)})`,
+    `Provider roles (read from commit ${loaded.commit.slice(0, 12)})`,
     ...ROLE_IDS.flatMap((role) => roleLines(loaded.registry, role)),
     ...known.lines,
     'Selection and recording only: nothing consults this registry to choose a worker, and nothing in it is an approval.',

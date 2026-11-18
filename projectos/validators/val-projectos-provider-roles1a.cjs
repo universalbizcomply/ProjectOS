@@ -98,7 +98,6 @@ const TESTS = {
     "refuses a Proxy whose ownKeys throws, and a revoked Proxy, as NOT_A_RECORD",
     "a getPrototypeOf trap that throws is refused the same way",
     "a throwing getter is refused as ACCESSOR without being called, and a throwing toJSON is never called",
-    "a Proxy whose descriptor or get trap throws is refused the same way",
     "text that is not a string, and sources that throw when read, are typed refusals and never a throw",
     "selecting with a hostile role name returns nothing instead of throwing",
     "still accepts ordinary text with accents and punctuation",
@@ -106,6 +105,12 @@ const TESTS = {
     "sees through an escaped spelling of the same key",
     "does not mistake the same key in two different records, or a repeated string value, for a duplicate",
     "names the key, never a value",
+    "refuses a reviewer whose kind has no review, and says what to do",
+    "refuses an implementer whose kind never implements",
+    "accepts a reviewer that can review and an implementer that can implement, whatever else they can do",
+    "each flag judges its own role only: a reviewer-only kind may review, an implementer-only kind may implement",
+    "a source that does not say what a worker can do is refused as BAD_SOURCES, not guessed",
+    "a Proxy whose descriptor or ownKeys trap is reached and throws is refused the same way",
   ],
   "projectos/agent/test/modelBroker-roles.test.ts": [
     "loads a registry through the committed reader and asks for that one path: the positive control",
@@ -118,7 +123,17 @@ const TESTS = {
     "flags a working copy that differs from the committed one, and still shows the committed bytes",
     "refuses a registry that exists only in the working tree, and prints the next step",
     "refuses when there is no commit to read at, rather than reading the working tree",
-    "prints registry text inert and capped: a control character or escape cannot reach the terminal",
+    "refuses a note that carries an escape, and the refusal itself prints no control character",
+    "prints an ACCEPTED registry inert: non-ASCII in a worker id and a note reaches the terminal as plain ASCII",
+    "caps a long accepted note when it prints it",
+    "asks rev-parse once, reads the file by that sha and never by the name HEAD, and prints the sha it read",
+    "a HEAD that moves after it was resolved cannot change which bytes are judged",
+    "refuses a rev-parse answer that is not a commit id, rather than passing it to git as a revision",
+    "covers every built-in kind, so a new kind cannot be added without this table being asked about it",
+    "says what %s can do the way its adapter does",
+    "the three kinds come out as the loop treats them",
+    "a kind with no adapter can do nothing",
+    "through the registry: a codex-implementer worker named reviewer and a codex-cli worker named implementer are refused",
     "is dispatched, appears in help and stays available while the platform stop is engaged",
     "reports TOO_LARGE with exit 2 when git output overflows the read bound",
     "a file that is simply not committed is still NOT_COMMITTED",
@@ -180,7 +195,7 @@ const PIN = {
   snapshotGuarded: "return snapshotOf(raw, 'registry', 0);\n  } catch {",
   judgeGuarded: "return judgeRoleRegistry(raw, known);\n  } catch {",
   sourcesGuarded: "  } catch {\n    ok = false;",
-  controlChars: "const CONTROL_CHARS = /[\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2066-\\u2069\\ufeff]|\\udb40[\\udc00-\\udc7f]/;",
+  controlChars: "const CONTROL_CHARS = /[\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u061c\\u180e\\u200b-\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb]|\\udb40[\\udc00-\\udc7f]/;",
   controlTest: "if (CONTROL_CHARS.test(raw)) return bad('carries a control character');",
   duplicateCall: "const twice = duplicateKey(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);",
   duplicateRefused: "if (twice !== null) {",
@@ -206,10 +221,14 @@ const PIN = {
   parsedFromCommitted: "const parsed = parseRoleRegistry(found.text, params.known);",
   loaderUsed: "const loaded = loadCommittedRoleRegistry({ read: committedRead(ctx.sys, ctx.root), path: ROLE_REGISTRY_REL, known: known.known });",
   gitBase: "const base = ['--no-replace-objects', '-C', root];",
-  gitShow: "const shown = sys.exec('git', [...base, 'show', `HEAD:./${path}`], options);",
+  gitShow: "const shown = sys.exec('git', [...base, 'show', `${commit}:./${path}`], options);",
   gitOptions: "const options = { isolatedGit: {}, maxOutputBytes: GIT_READ_BYTES };",
   gitHead: "const head = sys.exec('git', [...base, 'rev-parse', 'HEAD'], options);",
-  gitBoth: "return head.code === 0 && shown.code === 0 ? { text: shown.stdout, commit: head.stdout.trim() } : null;",
+  gitBoth: "return shown.code === 0 ? { text: shown.stdout, commit } : null;",
+  gitResolvedOnce: "if (resolved === undefined) {",
+  gitCommitIdOnly: "resolved = head.code === 0 && COMMIT_ID.test(id) ? id : null;",
+  commitIdShape: "const COMMIT_ID = /^[0-9a-f]{40,64}$/;",
+  readFromLabel: "`Provider roles (read from commit ${loaded.commit.slice(0, 12)})`",
   workingCompared: "const differs = working === null || !sameBytes(working, loaded.text);",
   flagged: "return fail(2, [...report, `FLAGGED (WORKING_COPY_DIFFERS):",
   reportFromCommitted: "...ROLE_IDS.flatMap((role) => roleLines(loaded.registry, role)),",
@@ -234,16 +253,22 @@ const PIN = {
   bindingRefusal: "return [refusal('CAPABILITY_MISMATCH',",
   bindingUsed: "if (out.length === 0) out.push(...bindingProblems(role, list as readonly string[], at));",
   noImplementer: "else if (!names.includes('implementer')) refusals.push(refusal('NO_IMPLEMENTER',",
-  reviewerChecked: "return role === 'reviewer' ? reviewerProblems(worker, at) : [];",
+  reviewerChecked: "if (role === 'reviewer') return worker.canReview ? reviewerProblems(worker, at) : [refusal('WORKER_CANNOT_REVIEW',",
+  implementerKind: "return worker.canImplement ? [] : [refusal('WORKER_CANNOT_IMPLEMENT',",
+  sourceFlags: "typeof w.canImplement === 'boolean' && typeof w.canReview === 'boolean'",
   readOnlyGrant: "const READ_ONLY_GRANT = /^(Read|Grep|Glob|LS)(\\(.*\\))?$/;",
   nonReadGrants: "const bad = worker.grants.filter((grant) => ambiguous(grant) || !READ_ONLY_GRANT.test(grant));",
   nonReadClean: "if (bad.length === 0) return [];",
   nonReadRefusal: "return [refusal('REVIEWER_NOT_READ_ONLY',",
-  grantsRead: "const knownWorkers = workers.workers.map((w) => ({ workerId: w.workerId, grants: argvGrants(w.args) }));",
-  grantsImport: "import { argvGrants, authorisedWorkers, committedExecutionProblems } from '../loop/workers.js';",
+  grantsRead: "const knownWorkers = workers.workers.map((w) => ({ workerId: w.workerId, grants: argvGrants(w.args), ...kindCapabilities(w.kind) }));",
+  kindOwn: "const adapter = Object.prototype.hasOwnProperty.call(adapters, kind) ? adapters[kind] : undefined;",
+  kindTable: "return { canImplement: IMPLEMENTER_KINDS.includes(kind), canReview: adapter.review !== undefined };",
+  implementerKinds: "const IMPLEMENTER_KINDS: readonly string[] = [CLAUDE_CODE_CLI, CODEX_IMPLEMENTER];",
+  kindNoAdapter: "if (adapter === undefined) return { canImplement: false, canReview: false };",
+  grantsImport: "import { argvGrants, authorisedWorkers, committedExecutionProblems, type AdapterRegistry } from '../loop/workers.js';",
   // PR-5 (the read bound)
   oversizeText: "const OVERSIZE_TEXT = ' '.repeat(MAX_ROLE_REGISTRY_BYTES + 1);",
-  oversizeFound: "if (head.code === 0 && shown.failure === 'output-overflow') return { text: OVERSIZE_TEXT, commit: head.stdout.trim() };",
+  oversizeFound: "if (shown.failure === 'output-overflow') return { text: OVERSIZE_TEXT, commit };",
   // PR-9
   cliImport: "import { roles } from './commands/roles.js';",
   cliHelp: "'  roles                        Which authorised worker or route fills each role, from committed bytes (read-only)',",
@@ -259,7 +284,7 @@ const REACHES_OUT = /\bnode:|\bprocess\.|\bfetch\(|\brequire\(|\bimport\(|\bnew 
 const VERDICT_WORDS = /\b(?:verdict|approved|approve|granted|accepted)\b/i;
 /** Names that make the model broker callable, as the broker's own validator lists them. */
 const BROKER_NAMES = /\b(?:bindingKeyOf|callModel|createProviderRegistry|loadCommittedBrokerConfig|detectLocalModels|parseCommittedPricing|retryModelCall|chooseRoute|createCooldownBook|createMemoryAttemptStore|isLoopbackHost|localEndpointProblem)\b/;
-const BROKER_IMPORT = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"`]([^'"`]*modelBroker[^'"`]*)['"`]/g;
+const BROKER_IMPORT = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"`]([^'"`]*modelBroker[^'"`]*)['"`]/gi;
 /** A load computed at run time: the report has no use for one, so it holds none. */
 const DYNAMIC_LOAD = /\b(?:import|require)\s*\(/;
 /** A re-export of any form: it would hand the module on to whoever imports the report. */
@@ -492,15 +517,15 @@ function check(raw) {
     E("PR-4", "a key, credential or address field is no longer refused by name, an accessor is read, the input is read more than once or not as a frozen snapshot, the size is no longer judged before the parse, a hostile object can make the judge throw, a hidden or reordering character is let into notes, or a key written twice is read as its last value");
   }
   // PR-5
-  const pins5 = [PIN.oversizeText, PIN.oversizeFound, PIN.loaderUsed, PIN.gitBase, PIN.gitShow, PIN.gitOptions, PIN.gitHead, PIN.gitBoth, PIN.workingCompared, PIN.flagged, PIN.reportFromCommitted, PIN.refusedFirst];
+  const pins5 = [PIN.gitResolvedOnce, PIN.gitCommitIdOnly, PIN.commitIdShape, PIN.readFromLabel, PIN.oversizeText, PIN.oversizeFound, PIN.loaderUsed, PIN.gitBase, PIN.gitShow, PIN.gitOptions, PIN.gitHead, PIN.gitBoth, PIN.workingCompared, PIN.flagged, PIN.reportFromCommitted, PIN.refusedFirst];
   const workingReads = (C.match(/\.readText\(/g) || []).length;
   if (missing(K, [PIN.committedFound, PIN.committedRefusal, PIN.parsedFromCommitted]).length > 0 || missing(C, pins5).length > 0 || workingReads !== 1) {
     E("PR-5", "the registry is no longer read from committed bytes only: the reader does not refuse a copy with no commit, the report reads content from the working tree, or a differing working copy is no longer flagged");
   }
   // PR-13
-  const pins13 = [PIN.ownerImplement, PIN.ownerReview, PIN.ownerGatekeeper, PIN.requiredCapability, PIN.foreignFilter, PIN.missingRequired, PIN.bindingClean, PIN.bindingRefusal, PIN.bindingUsed, PIN.noImplementer, PIN.reviewerChecked, PIN.readOnlyGrant, PIN.nonReadGrants, PIN.nonReadClean, PIN.nonReadRefusal];
-  if (missing(R, pins13).length > 0 || missing(C, [PIN.grantsRead, PIN.grantsImport]).length > 0) {
-    E("PR-13", "a role no longer has to fit its capabilities and its worker: a reviewer or gatekeeper may claim an implement capability, an implementer may lack one, no implementer is required, or a reviewer may name a worker that holds a non-read grant");
+  const pins13 = [PIN.ownerImplement, PIN.ownerReview, PIN.ownerGatekeeper, PIN.requiredCapability, PIN.foreignFilter, PIN.missingRequired, PIN.bindingClean, PIN.bindingRefusal, PIN.bindingUsed, PIN.noImplementer, PIN.reviewerChecked, PIN.implementerKind, PIN.sourceFlags, PIN.readOnlyGrant, PIN.nonReadGrants, PIN.nonReadClean, PIN.nonReadRefusal];
+  if (missing(R, pins13).length > 0 || missing(C, [PIN.grantsRead, PIN.grantsImport, PIN.kindOwn, PIN.kindTable, PIN.implementerKinds, PIN.kindNoAdapter]).length > 0) {
+    E("PR-13", "a role no longer has to fit its capabilities and its worker: a reviewer or gatekeeper may claim an implement capability, an implementer may lack one, no implementer is required, or a reviewer may name a worker that holds a non-read grant, a worker whose kind has no review step may be the reviewer, or a reviewer-only kind may be the implementer");
   }
   // PR-6
   if (missing(R, [PIN.sharedWorker, PIN.sharedUsed, PIN.sharedRefused]).length > 0) E("PR-6", "the implementer and the reviewer may name the same worker");
@@ -586,7 +611,7 @@ const MUTATIONS = [
   { name: "reader-ignores-the-commit", rule: "PR-5", ...rep(CONFIG_REL, PIN.committedFound, "const found = { text: params.read(params.path)?.text ?? '', commit: 'x' };") },
   { name: "reader-judges-the-wrong-bytes", rule: "PR-5", ...rep(CONFIG_REL, PIN.parsedFromCommitted, "const parsed = parseRoleRegistry(params.path, params.known);") },
   { name: "no-committed-copy-is-not-refused", rule: "PR-5", ...rep(CONFIG_REL, PIN.committedRefusal, "code: 'NOT_JSON'") },
-  { name: "report-reads-the-working-tree", rule: "PR-5", ...rep(ROLES_REL, PIN.gitShow, "const shown = { code: 0, stdout: sys.readText(path) ?? '' };") },
+  { name: "report-reads-the-working-tree", rule: "PR-5", ...rep(ROLES_REL, PIN.gitShow, "const shown = { code: 0, stdout: sys.readText(path) ?? '', failure: undefined };") },
   { name: "replacement-objects-allowed", rule: "PR-5", ...rep(ROLES_REL, PIN.gitBase, "const base = ['-C', root];") },
   { name: "git-reads-run-unisolated", rule: "PR-5", ...rep(ROLES_REL, PIN.gitOptions, "const options = { maxOutputBytes: GIT_READ_BYTES };") },
   { name: "head-not-asked", rule: "PR-5", ...rep(ROLES_REL, PIN.gitBoth, "return shown.code === 0 ? { text: shown.stdout, commit: 'working' } : null;") },
@@ -648,12 +673,20 @@ const MUTATIONS = [
   { name: "hostile-sources-throw", rule: "PR-4", ...rep(REGISTRY_REL, PIN.sourcesGuarded, "  } catch (e) { throw e; } {\n    ok = false;") },
   { name: "tag-characters-pass-in-notes", rule: "PR-4", ...rep(REGISTRY_REL, "|\\udb40[\\udc00-\\udc7f]/;", "/;") },
   { name: "c1-controls-pass-in-notes", rule: "PR-4", ...rep(REGISTRY_REL, "\\u007f-\\u009f", "\\u007f") },
-  { name: "bidi-overrides-pass-in-notes", rule: "PR-4", ...rep(REGISTRY_REL, "\\u202a-\\u202e\\u2066-\\u2069", "") },
+  { name: "bidi-overrides-pass-in-notes", rule: "PR-4", ...rep(REGISTRY_REL, "\\u202a-\\u202e", "") },
+  { name: "invisible-format-controls-pass-in-notes", rule: "PR-4", ...rep(REGISTRY_REL, "\\u2060-\\u206f", "") },
+  { name: "soft-hyphen-passes-in-notes", rule: "PR-4", ...rep(REGISTRY_REL, "\\u00ad", "") },
+  { name: "arabic-mark-and-mongolian-separator-pass-in-notes", rule: "PR-4", ...rep(REGISTRY_REL, "\\u061c\\u180e", "") },
+  { name: "interlinear-annotation-controls-pass-in-notes", rule: "PR-4", ...rep(REGISTRY_REL, "\\ufff9-\\ufffb", "") },
   { name: "control-character-test-off", rule: "PR-4", ...rep(REGISTRY_REL, PIN.controlTest, "") },
   { name: "duplicate-key-not-asked", rule: "PR-4", ...rep(REGISTRY_REL, PIN.duplicateRefused, "if (false) {") },
   { name: "duplicate-key-not-seen", rule: "PR-4", ...rep(REGISTRY_REL, PIN.duplicateSeen, "") },
   { name: "keys-are-not-remembered", rule: "PR-4", ...rep(REGISTRY_REL, PIN.duplicateRemembered, "") },
   // PR-5 (review round: a file over the read bound)
+  { name: "head-resolved-on-every-read", rule: "PR-5", ...rep(ROLES_REL, PIN.gitResolvedOnce, "if (true) {") },
+  { name: "any-rev-parse-answer-is-a-commit", rule: "PR-5", ...rep(ROLES_REL, PIN.commitIdShape, "const COMMIT_ID = /^.*$/;") },
+  { name: "commit-id-not-asked-for", rule: "PR-5", ...rep(ROLES_REL, PIN.gitCommitIdOnly, "resolved = head.code === 0 ? id : null;") },
+  { name: "report-says-committed-at-head", rule: "PR-5", ...rep(ROLES_REL, PIN.readFromLabel, "`Provider roles (committed at HEAD)`") },
   { name: "oversize-file-reported-as-missing", rule: "PR-5", ...rep(ROLES_REL, PIN.oversizeFound, "") },
   { name: "oversize-stand-in-fits-the-cap", rule: "PR-5", ...rep(ROLES_REL, PIN.oversizeText, "const OVERSIZE_TEXT = ' '.repeat(1);") },
   // PR-8 (review round: spellings of an import the fence must still see)
@@ -677,7 +710,15 @@ const MUTATIONS = [
   { name: "mismatch-always-clean", rule: "PR-13", ...rep(REGISTRY_REL, PIN.bindingClean, "if (true) return [];") },
   { name: "capabilities-not-bound-to-roles", rule: "PR-13", ...rep(REGISTRY_REL, PIN.bindingUsed, "") },
   { name: "no-implementer-is-fine", rule: "PR-13", ...rep(REGISTRY_REL, PIN.noImplementer, "else if (false) refusals.push(refusal('NO_IMPLEMENTER',") },
-  { name: "reviewer-grants-not-asked", rule: "PR-13", ...rep(REGISTRY_REL, PIN.reviewerChecked, "return [];") },
+  { name: "reviewer-grants-not-asked", rule: "PR-13", ...rep(REGISTRY_REL, "worker.canReview ? reviewerProblems(worker, at) :", "false ? reviewerProblems(worker, at) :") },
+  { name: "reviewer-kind-not-asked", rule: "PR-13", ...rep(REGISTRY_REL, "worker.canReview ? reviewerProblems(worker, at) :", "true ? reviewerProblems(worker, at) :") },
+  { name: "implementer-kind-not-asked", rule: "PR-13", ...rep(REGISTRY_REL, "return worker.canImplement ? [] :", "return true ? [] :") },
+  { name: "worker-flags-not-judged", rule: "PR-13", ...rep(REGISTRY_REL, PIN.sourceFlags, "true") },
+  { name: "every-kind-can-implement", rule: "PR-13", ...rep(ROLES_REL, "canImplement: IMPLEMENTER_KINDS.includes(kind),", "canImplement: true,") },
+  { name: "review-not-read-from-the-adapter", rule: "PR-13", ...rep(ROLES_REL, "canReview: adapter.review !== undefined", "canReview: true") },
+  { name: "inherited-kind-finds-an-adapter", rule: "PR-13", ...rep(ROLES_REL, PIN.kindOwn, "const adapter = adapters[kind];") },
+  { name: "codex-cli-may-implement", rule: "PR-13", ...rep(ROLES_REL, PIN.implementerKinds, "const IMPLEMENTER_KINDS: readonly string[] = [CLAUDE_CODE_CLI, CODEX_IMPLEMENTER, 'codex-cli'];") },
+  { name: "unknown-kind-can-do-something", rule: "PR-13", ...rep(ROLES_REL, PIN.kindNoAdapter, "if (adapter === undefined) return { canImplement: true, canReview: true };") },
   { name: "reviewer-may-hold-a-shell", rule: "PR-13", ...rep(REGISTRY_REL, PIN.readOnlyGrant, "const READ_ONLY_GRANT = /^(Read|Grep|Glob|LS|Bash)(\\(.*\\))?$/;") },
   { name: "ambiguous-grant-allowed", rule: "PR-13", ...rep(REGISTRY_REL, PIN.nonReadGrants, "const bad = worker.grants.filter((grant) => !READ_ONLY_GRANT.test(grant));") },
   { name: "non-read-grant-not-refused", rule: "PR-13", ...rep(REGISTRY_REL, PIN.nonReadClean, "if (true) return [];") },

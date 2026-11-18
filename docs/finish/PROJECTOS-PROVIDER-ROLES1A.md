@@ -30,7 +30,7 @@ field that could say so.
 
 ## Fix round after the ECC review (APPROVE WITH CHANGES, 8 items)
 
-Each item has its test first, and its named mutation in `val-projectos-provider-roles1a.cjs` (now 125) or `val-projectos-port-providers1a.cjs`.
+Each item has its test first, and its named mutation in `val-projectos-provider-roles1a.cjs` (now 141) or `val-projectos-port-providers1a.cjs`.
 
 | # | Change | Pinned by |
 |---|---|---|
@@ -48,6 +48,24 @@ The registered validator position is unchanged: immediately before `val-projecto
 The new rule ids: **PR-13** (a role fits its capabilities and its worker) is new; PR-4 (hostile input, hidden characters, duplicate keys), PR-5 (read bound), PR-8 (import spellings) and PR-10 (the record is judged by the same capability binding) grew.
 
 **The report, run for real after the round** (`cli.run` with `nodeSystem` against this worktree, not committed): exit 0, the same three roles, so the committed reviewer `claude-reviewer` passes the real read-only grant check against its real committed args.
+
+## Fix round 2 (independent ECC review: APPROVE WITH CHANGES; the 8 earlier items verified fixed)
+
+| Item | Change | Pinned by |
+|---|---|---|
+| M1 | The registry now knows a worker's KIND. `KnownRoleWorker` carries `canImplement` and `canReview` (required; a source without them is `BAD_SOURCES`). A reviewer whose kind has no review step is refused `WORKER_CANNOT_REVIEW`; an implementer whose kind is never started as one is refused `WORKER_CANNOT_IMPLEMENT`. `roles.ts` fills them with `kindCapabilities(kind)` from the built-in adapter table (`BUILT_IN_ADAPTERS`, read, not edited): `canReview` is `adapter.review !== undefined`; `canImplement` is membership of `[claude-code-cli, codex-implementer-cli]` (the adapters expose no flag for it: `codex-cli`'s `start` refuses). A kind with no adapter, or named like an inherited member, can do neither. The agent test proves the table against each real adapter: it covers every key of `BUILT_IN_ADAPTERS` (a new kind fails it), compares `canReview` with `adapter.review`, and probes each adapter's own `start` against a system that throws on any touch (only `codex-cli` answers with its not-an-implementer refusal) | core `a role names a worker whose kind can do the role` (5 tests); agent `the registry agrees with the adapter table...` (4 tests plus one per kind); PR-13 +9 mutations |
+| L1 | `CONTROL_CHARS` also refuses U+00AD, U+061C, U+180E, U+2060-U+206F (word joiner, invisible and deprecated format controls) and U+FFF9-U+FFFB, ten more cases | core notes tests; PR-4 +4 mutations |
+| L4 | HEAD is resolved once per reader and validated as a commit id (hex, 40-64); the file is then read with `git show <sha>:./path`, never by the name HEAD, and the report says `Provider roles (read from commit <sha12>)`. A HEAD that moves between the two calls cannot change which bytes are judged. The gatekeeper transport id used by `productionRoleSources` is read by its own reader, so it has its own one resolution (see carry-forwards) | agent `HEAD is resolved once...` (3 tests); PR-5 +4 mutations |
+| L6 | The ESC-note agent test now asserts the refusal explicitly (`BAD_NOTES`, no control character printed), and a new test prints an ACCEPTED registry with non-ASCII in a worker id and a note and asserts plain ASCII output (the previous test could never reach the printed note, because the registry refuses ESC). The core Proxy test now uses a Proxy over a plain object whose traps are counted as reached, and asserts exactly `NOT_A_RECORD` | agent and core tests named in the validator's list |
+| L8 | The Converge stat below is the real one | this file |
+| L9 | The PP importer scan is case-insensitive on `modelBroker` (a Windows file system resolves `../ModelBroker` to the same directory); same flag in PR-8. The by-name exclusion of the module's own directories, tests and the two validator files from the scan is unchanged: it is by path name and is case-sensitive, so a file that spells its own path in another case is not excluded, which fails safe | PP: 3 scan samples, `roles-ts-imports-by-another-case`, `roles-ts-calls-the-broker-by-another-case` |
+
+## Carry-forwards (not fixed in this phase)
+
+- **L2** The cost class is not tied to the role or to the rate card beyond the model name: the rate-card map key is looked up, but `card.model` is not checked against that key.
+- **L3** The registry is not cross-checked against `execution.defaultWorkerId` and `execution.reviewerWorkerId`, so it can name a different implementer or reviewer than the loop uses.
+- **L5** `known` is read more than once (stateful hostile input could answer differently); only the registry input is snapshotted once. `known` is built by trusted code from committed records.
+- The gatekeeper transport id and the registry are read by two readers, each resolving HEAD once; a commit landing between the two could put them at different commits.
 
 ## Existing code found
 
@@ -134,13 +152,13 @@ All read from real output on this machine. Other builds were running at the same
 | core `npm run -s build` | exit 0 |
 | `grep -rn "from 'node:" projectos/core/src/modelBroker` | nothing listed (core stays browser-pure; PR-11 and PP-5 also judge it) |
 | core `npx vitest run` | 116 files, 5047 tests, all pass. A first run, under load from other builds, had 2 failures: `skills-round1.test.ts` (a 150 ms timing bound; passes alone, 73 of 73) and one I did not identify; the second whole run was clean |
-| core `modelBroker-roles.test.ts` | 42 tests pass in the first build; 69 after the fix round |
+| core `modelBroker-roles.test.ts` | 42 tests pass in the first build; 84 after fix round 2 |
 | agent typecheck, **alias run** (`tsc -p tsconfig.alias.json`) | exit 0 |
 | agent `typecheck:all`, **alias run** | 1 error: `test/skillLoad.test.ts(128,26)` `sort` on a `readonly string[]`. A file this phase does not touch |
-| agent `modelBroker-roles.test.ts`, **alias run** | 18 tests pass in the first build; 30 after the fix round |
+| agent `modelBroker-roles.test.ts`, **alias run** | 18 tests pass in the first build; 42 after fix round 2 |
 | agent `platformStop.test.ts`, **alias run** (with the new `roles` row and the "classifies every command" test) | 116 tests pass |
 | agent whole suite, **alias run**, once | 136 of 138 files pass; 4303 tests pass, 1 fails, 10 skipped. The two failing files are not this phase's. `tenantSidecar.test.ts` runs the plain `tsc -p tsconfig.json`, which reads the junction's core and so cannot see the new core exports (the same cause the port-providers finish doc records, and it goes green once the junction sees this core). `loopToolGrants.test.ts` "Every plan v1.9 phase carries writePaths" fails on `PROJECTOS-PROPOSAL-DOOR-WIRING1A` (writePath `.gitignore` is a bare filename) in `docs/projectos-finish-phases.json`, committed at `a0138a0f`, which this phase does not touch |
-| `val-projectos-provider-roles1a` | PASS (86 named mutations killed in the first build; 125 after the fix round, see above) |
+| `val-projectos-provider-roles1a` | PASS (86 named mutations killed in the first build; 141 after fix round 2, see above) |
 | `val-projectos-port-providers1a` | PASS (17 real files judged; 225 text and 89 behavioural mutations killed) |
 | `val-projectos-kernel-followup1a` | PASS (88 named mutations killed) |
 | `validate-no-secrets` | PASS |
@@ -187,19 +205,19 @@ registration lines in `validate-all.cjs` and `cached-runner.cjs` (2 added lines 
 ```text
  .projectops/provider-roles.json                    |  23 +
  projectos/agent/src/cli.ts                         |   6 +
- projectos/agent/src/commands/roles.ts              | 119 ++++
+ projectos/agent/src/commands/roles.ts              | 156 ++++
  projectos/agent/src/modelBroker/committedConfig.ts |  28 +
  projectos/agent/src/modelBroker/index.ts           |   4 +-
- projectos/agent/test/modelBroker-roles.test.ts     | 203 +++++++
+ projectos/agent/test/modelBroker-roles.test.ts     | 364 ++++++++++
  projectos/agent/test/platformStop.test.ts          |   1 +
- projectos/core/src/modelBroker/index.ts            |  26 +
- projectos/core/src/modelBroker/roleRegistry.ts     | 326 +++++++++++
- projectos/core/test/modelBroker-roles.test.ts      | 286 ++++++++++
+ projectos/core/src/modelBroker/index.ts            |  27 +
+ projectos/core/src/modelBroker/roleRegistry.ts     | 439 ++++++++++++
+ projectos/core/test/modelBroker-roles.test.ts      | 509 ++++++++++++++
  projectos/speed/cached-runner.cjs                  |   2 +
- .../validators/val-projectos-port-providers1a.cjs  |  42 +-
- .../validators/val-projectos-provider-roles1a.cjs  | 611 +++++++++++++++++++++
+ .../validators/val-projectos-port-providers1a.cjs  | 116 ++-
+ .../validators/val-projectos-provider-roles1a.cjs  | 781 +++++++++++++++++++++
  projectos/validators/validate-all.cjs              |   2 +
- 14 files changed, 1674 insertions(+), 5 deletions(-)
+ 14 files changed, 2449 insertions(+), 9 deletions(-)
 ```
 
 ## Residuals and what is not built
