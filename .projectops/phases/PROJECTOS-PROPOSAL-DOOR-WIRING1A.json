@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-PROPOSAL-DOOR-WIRING1A",
+  "project": "ProjectOS",
+  "objective": "Stage 3 carry-forward C. A worker asks for a memory or skill write by a proposals entry in its findings; the loop turns it into a pending proposal after the store guard. Proposals live in git-ignored proposals directories (owner decision 2026-11-17), so a run that follows one is not refused for an untracked file. Adds a deterministic summariser kind, moving PX-12 with the rule.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-18T14:12:13.079Z",
+      "note": "Owner-approved plan v1.42 (delta spec Phase C, owner 2026-11-17: Approve phase C, all three recommendations; v1.42 amendment 2026-11-18: yes, approved, go ahead, for the one PK-16 pin in val-projectos-port-skills1a). Built by an agent under the lead (Claude) in its own worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-18T14:12:13.883Z",
+      "note": "context/proposalDoorStep.ts, one door call per attempt in the loop runner, rebaseStoreGuard, state ports to proposeSkill, the deterministic-selection summariser kind, .gitignore lines, validator DW rules"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-18T14:12:14.763Z",
+      "note": "core 5091/5091, agent 4659/4659, control-center 952/952 at 5785b504 on the plan worktree after a rebuild of core and agent. validate-all 183 registered, 183 PASS, 0 FAIL, 2 retired."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-18T14:12:15.618Z",
+      "note": "Evidence: docs/finish/PROJECTOS-PROPOSAL-DOOR-WIRING1A.md (stacked at 5785b504)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-18T14:12:16.348Z",
+      "note": "closure tail only - no implementation. Reviews: Claude self-review; read-only audit of the WIP against DW-1 to DW-11; ECC security-reviewer APPROVE WITH CHANGES (HIGH-1 a worker could fill the store digest bound through the legitimate door and lock every later run; LOW-1 duplicate key ignoring the target); fix round (e585b157: a 6 MiB budget and target-keyed duplicates); one ECC recheck APPROVE WITH CHANGES (MEDIUM-1 entry-count bound not guarded; MEDIUM-2 wording that deciding frees room); final round fixed both (c2eec705) and was re-verified by the lead on the merged stack."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-18T14:12:17.136Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
