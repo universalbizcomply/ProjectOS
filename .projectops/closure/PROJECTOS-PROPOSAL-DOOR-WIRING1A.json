@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-PROPOSAL-DOOR-WIRING1A",
+  "evidenceSubjectHead": "5785b504163f97a6e2b3ec280aeb7a733fd4ea38",
+  "baselineCommit": "ef473593e2f51dce78d9fa8735689b760caf6dde",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-18T14:12:17.542Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-PROPOSAL-DOOR-WIRING1A, phase 54 of 55 of plan v1.42, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 5785b504 on the plan worktree (Stage 4 stack: Codex implementer worker kind, stored-context pointer, scratch checkout, owner memory commands, host digest seal, role registry and proposal door, merged on the plan worktree).",
+    "validatorsPass: val-projectos-proposal-door-wiring1a, val-projectos-memory-stores1a, val-projectos-skills-adopt1a, val-projectos-port-context1a, val-projectos-context-manager1a, val-projectos-port-skills1a and validate-no-secrets PASS on the merged stack at 5785b504. validate-all 183 registered, 183 PASS, 0 FAIL, 2 retired.",
+    "checksPass: core 5091/5091, agent 4659/4659, control-center 952/952 at 5785b504 on the plan worktree, normal package resolution, after a rebuild of core and agent.",
+    "reviewsComplete: Claude self-review; read-only audit of the WIP against DW-1 to DW-11; ECC security-reviewer APPROVE WITH CHANGES (HIGH-1 a worker could fill the store digest bound through the legitimate door and lock every later run; LOW-1 duplicate key ignoring the target); fix round (e585b157: a 6 MiB budget and target-keyed duplicates); one ECC recheck APPROVE WITH CHANGES (MEDIUM-1 entry-count bound not guarded; MEDIUM-2 wording that deciding frees room); final round fixed both (c2eec705) and was re-verified by the lead on the merged stack.",
+    "unresolved: zero CRITICAL/HIGH. No CRITICAL or HIGH finding is open. Carried in docs/finish/PROJECTOS-PROPOSAL-DOOR-WIRING1A.md: a proposal the owner rejects is re-proposed on later attempts of the same session; decided proposals are never pruned so the budget fills until files are deleted by hand; the door also runs after failed checks; the rebase absorbs by path not content; sameTarget substring collapse and a spurious oldText on an add; a few weak tests; concurrent loops not analysed; skill proposals can now be minted and independent review is the only barrier because nothing in the product calls the promotion function yet.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
