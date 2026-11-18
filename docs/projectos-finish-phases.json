@@ -2871,6 +2871,62 @@
         "secrets-handling",
         "payment-or-live-charge"
       ],
+      "phaseId": "PROJECTOS-STAGE4-EXIT-PROOF1A",
+      "title": "Stage 4 exit proof: the same phase runs with implementer and reviewer providers swapped, and no code change",
+      "description": "Live on the agency pilot (C:/dev/SEOAgency). One governed phase (SEO-AGENCY-STAGE4-PROOF1A, which writes site/colophon.txt) is run twice by the same ProjectOS runtime: config A (Claude implements, Codex reviews) and config B (Codex implements through codex-implementer-cli, Claude reviews). Each run is one bare projectos continue --execute on its own branch forked from one common BASE commit; the only difference between the runs is the committed worker config. A validator over the recorded evidence proves the runtime and source did not change, both reviewer records are provider-distinct approvals, the write scope held, metered spend stayed under the caps ($1.50 per run, $3.00 in total), and every attempt is recorded: a refusal of the Codex implementer is evidence and makes the proof NOT PROVEN, never green. Provider spend and the secrets-handling receipt are owner acts, already approved for this proof on 2026-11-18.",
+      "scope": "Run and record the Stage 4 exit proof; no product code.",
+      "writePaths": [
+        "projectos/validators/val-projectos-stage4-exit-proof1a.cjs",
+        "projectos/validators/validate-all.cjs",
+        "projectos/speed/cached-runner.cjs",
+        "docs/finish/",
+        "docs/changes/delta_spec.md",
+        "docs/06_Plan.md"
+      ],
+      "exclusions": [
+        "No change to closure authority, the owner floor, gatekeeper composition, loop/workers.ts write grants, credential custody, the tenant or action registries, or any existing authority record.",
+        "No product code changes; any defect found by the live run becomes its own plan phase, and the proof is then reported NOT PROVEN.",
+        "The agency's worker config is edited on agency branches only (the swap commit); ProjectOS's own project-config.json is untouched, and the temporary installation-allowlist commit lives on a throwaway runtime branch that is never merged and never pushed.",
+        "Nothing is pushed to any real remote; the loop's own technical continuation pushes only to the localhost agency remote.",
+        "A green proof does not lift D4: reads by absolute path stay open, the Codex implementer had never run live before this phase, and Claude had never reviewed live through its adapter."
+      ],
+      "dependsOn": [
+        "PROJECTOS-WORKER-CODEX-IMPLEMENTER1A",
+        "PROJECTOS-CONTEXT-CODEX1A",
+        "PROJECTOS-WORKER-SCRATCH-CHECKOUT1A",
+        "PROJECTOS-PROVIDER-ROLES1A"
+      ],
+      "acceptanceCriteria": [
+        "Both configs run the same agency phase live from one common BASE, each as one bare continue --execute with no --session and no human-written text, and both are recorded; a refusal of either is recorded as it is and makes the proof NOT PROVEN.",
+        "The source tree outside .projectops/ is identical across the two runs and the runtime differs from the plan head only by the temporary allowlist file; only the committed worker config differs.",
+        "Both reviewer records say the reviewer provider differs from the implementer provider, with an APPROVE and no findings.",
+        "The paths each run changed are the one write path plus the loop's own records, nothing else.",
+        "Metered spend is under the caps the owner approved: $1.50 per run and $3.00 in total; Codex and Claude spend is stated as unmetered.",
+        "Validator pin and named mutations, each killed only when its own rule fires."
+      ],
+      "requiredValidators": [
+        "val-projectos-stage4-exit-proof1a",
+        "val-projectos-worker-codex-implementer1a",
+        "val-projectos-memory-exit-proof1a",
+        "val-projectos-resume1a",
+        "validate-no-secrets"
+      ],
+      "requiredReviews": [
+        "Claude self-review",
+        "ECC SECURITY review",
+        "ECC CODE review"
+      ]
+    },
+    {
+      "riskLevel": "high",
+      "autonomyLevel": "gated-execution",
+      "requiredBrowserProof": false,
+      "requiredOwnerGates": [
+        "commit",
+        "push",
+        "secrets-handling",
+        "payment-or-live-charge"
+      ],
       "phaseId": "PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A",
       "title": "A worker is told what a finding is, and the scratch checkout has one baseline commit",
       "description": "Found by the Stage 4 live exit proof (config B stopped at CORRECTION_EXHAUSTED on two findings the Codex worker wrote about the loop's own steps). Two changes, one phase. (1) The shared worker instruction (the one both claude-code-cli and, through injected builders, codex-implementer-cli receive) gains a fixed clause: a finding is a defect in the worker's own work, every real defect is still written at its true severity, and the independent code review, the checks and validators, the closing of the phase, and a missing Git history or a baseline that differs from the brief's repository.head are the loop's business and are not findings; reviews names only reviews the worker performed. No gate moves: an unresolved MEDIUM or LOW is still sent back, CRITICAL or HIGH still stops, and an implementer's claim still credits no independent review. (2) The scratch checkout records ONE initial commit of the exported tree right after git init, through the shared isolated git runner (no hook, no filter, no signing, no user or system configuration, no attributes or excludes file, raw bytes, fixed message and identity), so git rev-parse HEAD and git diff work inside it; a refused add or commit refuses the open and starts no worker. The scratch .git stays the worker's: it is never compared, copied back or run again by ProjectOS. No live provider call in this phase.",
@@ -2973,63 +3029,6 @@
       "requiredReviews": [
         "Claude self-review",
         "ECC SECURITY review"
-      ]
-    },
-    {
-      "riskLevel": "high",
-      "autonomyLevel": "gated-execution",
-      "requiredBrowserProof": false,
-      "requiredOwnerGates": [
-        "commit",
-        "push",
-        "secrets-handling",
-        "payment-or-live-charge"
-      ],
-      "phaseId": "PROJECTOS-STAGE4-EXIT-PROOF1A",
-      "title": "Stage 4 exit proof: the same phase runs with implementer and reviewer providers swapped, and no code change",
-      "description": "Live on the agency pilot (C:/dev/SEOAgency). One governed phase (SEO-AGENCY-STAGE4-PROOF1A, which writes site/colophon.txt) is run twice by the same ProjectOS runtime: config A (Claude implements, Codex reviews) and config B (Codex implements through codex-implementer-cli, Claude reviews). Each run is one bare projectos continue --execute on its own branch forked from one common BASE commit; the only difference between the runs is the committed worker config. A validator over the recorded evidence proves the runtime and source did not change, both reviewer records are provider-distinct approvals, the write scope held, metered spend stayed under the caps ($1.50 per run, $3.00 in total), and every attempt is recorded: a refusal of the Codex implementer is evidence and makes the proof NOT PROVEN, never green. Provider spend and the secrets-handling receipt are owner acts, already approved for this proof on 2026-11-18.",
-      "scope": "Run and record the Stage 4 exit proof; no product code.",
-      "writePaths": [
-        "projectos/validators/val-projectos-stage4-exit-proof1a.cjs",
-        "projectos/validators/validate-all.cjs",
-        "projectos/speed/cached-runner.cjs",
-        "docs/finish/",
-        "docs/changes/delta_spec.md",
-        "docs/06_Plan.md"
-      ],
-      "exclusions": [
-        "No change to closure authority, the owner floor, gatekeeper composition, loop/workers.ts write grants, credential custody, the tenant or action registries, or any existing authority record.",
-        "No product code changes; any defect found by the live run becomes its own plan phase, and the proof is then reported NOT PROVEN.",
-        "The agency's worker config is edited on agency branches only (the swap commit); ProjectOS's own project-config.json is untouched, and the temporary installation-allowlist commit lives on a throwaway runtime branch that is never merged and never pushed.",
-        "Nothing is pushed to any real remote; the loop's own technical continuation pushes only to the localhost agency remote.",
-        "A green proof does not lift D4: reads by absolute path stay open, the Codex implementer had never run live before this phase, and Claude had never reviewed live through its adapter."
-      ],
-      "dependsOn": [
-        "PROJECTOS-WORKER-CODEX-IMPLEMENTER1A",
-        "PROJECTOS-CONTEXT-CODEX1A",
-        "PROJECTOS-WORKER-SCRATCH-CHECKOUT1A",
-        "PROJECTOS-PROVIDER-ROLES1A",
-        "PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A"
-      ],
-      "acceptanceCriteria": [
-        "Both configs run the same agency phase live from one common BASE, each as one bare continue --execute with no --session and no human-written text, and both are recorded; a refusal of either is recorded as it is and makes the proof NOT PROVEN.",
-        "The source tree outside .projectops/ is identical across the two runs and the runtime differs from the plan head only by the temporary allowlist file; only the committed worker config differs.",
-        "Both reviewer records say the reviewer provider differs from the implementer provider, with an APPROVE and no findings.",
-        "The paths each run changed are the one write path plus the loop's own records, nothing else.",
-        "Metered spend is under the caps the owner approved: $1.50 per run and $3.00 in total; Codex and Claude spend is stated as unmetered.",
-        "Validator pin and named mutations, each killed only when its own rule fires."
-      ],
-      "requiredValidators": [
-        "val-projectos-stage4-exit-proof1a",
-        "val-projectos-worker-codex-implementer1a",
-        "val-projectos-memory-exit-proof1a",
-        "val-projectos-resume1a",
-        "validate-no-secrets"
-      ],
-      "requiredReviews": [
-        "Claude self-review",
-        "ECC SECURITY review",
-        "ECC CODE review"
       ]
     }
   ]
