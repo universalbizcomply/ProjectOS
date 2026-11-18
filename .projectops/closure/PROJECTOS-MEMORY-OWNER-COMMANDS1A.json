@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-MEMORY-OWNER-COMMANDS1A",
+  "evidenceSubjectHead": "5785b504163f97a6e2b3ec280aeb7a733fd4ea38",
+  "baselineCommit": "ef473593e2f51dce78d9fa8735689b760caf6dde",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-18T14:11:43.534Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-MEMORY-OWNER-COMMANDS1A, phase 50 of 55 of plan v1.42, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 5785b504 on the plan worktree (Stage 4 stack: Codex implementer worker kind, stored-context pointer, scratch checkout, owner memory commands, host digest seal, role registry and proposal door, merged on the plan worktree).",
+    "validatorsPass: val-projectos-memory-owner-commands1a, val-projectos-port-memory1a, val-projectos-memory-stores1a, val-projectos-memory-provenance1a, val-projectos-kernel-followup1a and validate-no-secrets PASS on the merged stack at 5785b504. validate-all 183 registered, 183 PASS, 0 FAIL, 2 retired.",
+    "checksPass: core 5091/5091, agent 4659/4659, control-center 952/952 at 5785b504 on the plan worktree, normal package resolution, after a rebuild of core and agent.",
+    "reviewsComplete: Claude self-review; ECC security-reviewer APPROVE WITH CHANGES (items 1 to 4 and more reproduced with real files: the owner approved text they could not read, an author-role claim skipped the provenance check); fix round; one ECC recheck APPROVE WITH CHANGES (closed 1, 3, 4, 6, 7 and left five points); final round fixed the five points and was re-verified by the lead.",
+    "unresolved: zero CRITICAL/HIGH. No CRITICAL or HIGH finding is recorded as open. Residuals are named in docs/finish/PROJECTOS-MEMORY-OWNER-COMMANDS1A.md: the replacement check runs outside the memory lock; no skill reviewer verifier and no taint enforcement; owner question whether an owner-approved proposal may replace approved memory (today it may not). The owner accepted that the typed confirmation code is printed in the prompt, the same strength as the tenant receipt, and that a decision is changed by committing it, not through memory approve.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
