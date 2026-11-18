@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-WORKER-SCRATCH-CHECKOUT1A",
+  "project": "ProjectOS",
+  "objective": "Stage 4 plan 4.3a. The adapter exports the tracked and untracked-not-ignored files to a fresh temporary directory (never .git, never an ignored file), runs Codex there, and copies back only changes inside the write grants; anything else refuses the whole copy-back and the real tree stays byte-identical. This makes the write scope preventative. Reads by absolute path stay open until container or VM isolation, so D4 is not retired.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:55.067Z",
+      "note": "Owner-approved plan v1.42 (delta spec section PROJECTOS-WORKER-SCRATCH-CHECKOUT1A, owner 2026-11-17). Built by an agent under the lead (Claude) in its own worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:56.006Z",
+      "note": "loop/scratchCheckout.ts, the Codex adapter run through the scratch with copy-back of granted paths only, rules WI-14 onward added to the existing validator"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:56.821Z",
+      "note": "core 5091/5091, agent 4659/4659, control-center 952/952 at 5785b504 on the plan worktree after a rebuild of core and agent. validate-all 183 registered, 183 PASS, 0 FAIL, 2 retired."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:57.700Z",
+      "note": "Evidence: docs/finish/PROJECTOS-WORKER-SCRATCH-CHECKOUT1A.md (stacked at 5785b504)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:58.603Z",
+      "note": "closure tail only - no implementation. Reviews: ECC security-reviewer BLOCK then fix round, one recheck APPROVE WITH CHANGES, final round re-verified by the lead."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:59.504Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
