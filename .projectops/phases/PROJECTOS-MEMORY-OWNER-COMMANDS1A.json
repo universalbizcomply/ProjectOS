@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-MEMORY-OWNER-COMMANDS1A",
   "project": "ProjectOS",
   "objective": "Stage 3 carry-forward B. projectos memory index rebuild, index delete, delete, proposals, approve and reject, calling the existing memory rules, plus the production owner verifier: a typed terminal confirmation bound to the item, its content hash, the tenant and the project. The typed code is printed in the prompt, the same strength of proof as the tenant receipt (owner accepted 2026-11-17). memory approve never replaces or removes a decision: the owner changes a decision by committing it (owner accepted 2026-11-17).",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-18T14:11:43.194Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-18T14:11:44.894Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-MEMORY-OWNER-COMMANDS1A:owner-closure:5785b504"
     }
   ]
 }
