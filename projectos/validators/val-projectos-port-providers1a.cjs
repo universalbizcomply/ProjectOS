@@ -29,7 +29,8 @@
  *   PP-21 "rotate the keys"                      — and a credential is held, or rotated round a cap
  *   PP-22 "export it later"                      — and the next phase re-implements it
  *   PP-23 "register it later"                    — and nothing ever runs this file
- *   PP-24 "just one caller"                      — and "unwired" stops being true
+ *   PP-24 "just one caller"                      — and "unwired" stops being true (PROJECTOS-PROVIDER-ROLES1A: exactly the roles
+ *         report may import exactly the role registry reader, and nothing that can make a call)
  *   PP-25 "no usage, no cost"                    — and an answer with unreadable usage is free
  *   PP-26 "retry everything"                     — and a call that may have been dispatched is repeated
  *   PP-27 "custom means anywhere"                — and a custom endpoint reaches this machine or its network
@@ -83,6 +84,12 @@ const LISTING = "@listing";
 const TRACKED = "@tracked";
 /** A pseudo-file: every tracked source file that imports the module or names what it exports, outside it. */
 const IMPORTERS = "@importers";
+/** The one file outside the module allowed to import it (PROJECTOS-PROVIDER-ROLES1A), judged on its own text, not by being left off the list. */
+const ROLES_REL = "projectos/agent/src/commands/roles.ts";
+/** A pseudo-file: that file's comment-stripped code. */
+const ROLES_CODE = "@roles-code";
+/** That phase's validator quotes imports of the module in its own mutations; it runs nothing the module exports. */
+const ROLES_VALIDATOR_REL = "projectos/validators/val-projectos-provider-roles1a.cjs";
 
 const OPENCLAW = "c5b56f2505c4f6a5803125d2923e2934c5f750af";
 const HERMES = "d3e586881eacb132595edcbe4c170be8381e40c5";
@@ -101,6 +108,7 @@ const FALLBACK = core("fallback.ts");
 const CALL = core("callModel.ts");
 const KEYFILE = core("requestKey.ts");
 const BARREL = core("index.ts");
+const ROLE_REGISTRY = core("roleRegistry.ts");
 const CONFIG = agent("committedConfig.ts");
 const LOCAL = agent("localModels.ts");
 const AGENT_BARREL = agent("index.ts");
@@ -113,7 +121,7 @@ const PORTED = {
   [REGISTRY]: { source: "hermes-agent", sha: HERMES, paths: ["agent/provider_registry.py", "agent/provider_base.py"] },
   [COOLDOWN]: { source: "hermes-agent", sha: HERMES, paths: ["agent/fallback_cooldown.py"] },
 };
-const ORIGINAL = [ROUTES, PRICING, ENDPOINTS, POLICY, FALLBACK, CALL, KEYFILE, BARREL, CONFIG, LOCAL, AGENT_BARREL];
+const ORIGINAL = [ROUTES, PRICING, ENDPOINTS, POLICY, FALLBACK, CALL, KEYFILE, BARREL, ROLE_REGISTRY, CONFIG, LOCAL, AGENT_BARREL];
 const FILES = [...Object.keys(PORTED), ...ORIGINAL];
 const ORIGIN_LINE = "// Origin: original ProjectOS code";
 const piLineOf = (notices) => `// Also-Credits: pi-mono (${credit.parseNotices(notices).find((r) => r.kind === "NOTE" && r.id === "pi-mono")?.fields["Copyright"]}, MIT)`;
@@ -131,9 +139,33 @@ const OWN_RATECARD = /^\s*(?:export\s+)?(?:interface\s+RateCard\b|type\s+RateCar
 const NOT_RUN = /\b(?:it|test|describe|suite|bench)\.(?:skip|only|todo|fails|skipIf|runIf)\b|\.(?:skip|only)\(|\b(?:xit|fit|xdescribe|fdescribe)\(/;
 /** What the module exports that a caller would name. A later phase wires it; nothing may before then. */
 const EXPORTED_NAMES = /\b(?:bindingKeyOf|callModel|createProviderRegistry|loadCommittedBrokerConfig|detectLocalModels|parseCommittedPricing|retryModelCall|chooseRoute|createCooldownBook|createMemoryAttemptStore|isLoopbackHost|localEndpointProblem)\b/;
-const IMPORT_OF_MODULE = /(?:\bfrom\s+|\bimport\(\s*|\brequire\(\s*|\bimport\s+)['"][^'"]*modelBroker[^'"]*['"]/;
+/** Case-insensitive: a Windows file system resolves '../ModelBroker/x.js' to the same directory. */
+const IMPORT_OF_MODULE = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"`][^'"`]*modelBroker[^'"`]*['"`]/i;
+const IMPORT_OF_MODULE_G = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"`]([^'"`]*modelBroker[^'"`]*)['"`]/gi;
+/** A load the text computes at run time: the roles report has no use for one, so it may hold none. */
+const DYNAMIC_LOAD = /\b(?:import|require)\s*\(/;
+/** A re-export, of any form: it would hand the module on to whoever imports the report. */
+const REEXPORT = /\bexport\s+(?:type\s+)?(?:\*|\{[^}]*\})(?:\s+as\s+[A-Za-z_$][\w$]*)?\s*from\b/;
+/**
+ * The text with string concatenation and a quoted template part folded into one literal, so a specifier written as
+ * 'a' + 'b', or as a template with a quoted part, reads as the path it makes. Repeated, because folding can expose more.
+ */
+function foldSpecifiers(text) {
+  let out = text;
+  for (let i = 0; i < 8; i += 1) {
+    const next = out.replace(/(['"`])\s*\+\s*(['"`])/g, "").replace(/\$\{\s*(['"])([^'"`$]*)\1\s*\}/g, "$2");
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+/** Whether comment-stripped code imports the module, in any spelling the fold can read. */
+const namesTheModule = (code) => IMPORT_OF_MODULE.test(foldSpecifiers(code));
 /** The only tracked file outside the module allowed to say its name: the core barrel's one export line. */
 const ALLOWED_IMPORTERS = [CORE_BARREL_REL];
+/** What the roles report may take from the module: the one file, and exactly the registry reader. */
+const ROLES_IMPORT_SPEC = "../modelBroker/committedConfig.js";
+const ROLES_IMPORT_NAMES = ["loadCommittedRoleRegistry"];
 
 /** The dependency lists of both packages, whole. A new one is a deliberate change here, in TRD and by the owner. */
 const DEPENDENCIES = {
@@ -611,6 +643,24 @@ function headerProblems(raw, E) {
   }
 }
 
+/** The roles report's own imports of the module: one specifier, one name, and nothing that makes the broker callable. */
+function rolesReportProblems(raw) {
+  if (typeof raw !== "string" || raw.trim() === "") return ["the roles report (commands/roles.ts) is missing or empty, so what it imports cannot be judged"];
+  const codeText = foldSpecifiers(raw);
+  const specs = [...codeText.matchAll(IMPORT_OF_MODULE_G)].map((m) => m[1]);
+  const names = [...codeText.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+'([^']+)'/g)]
+    .filter((m) => m[2] === ROLES_IMPORT_SPEC)
+    .flatMap((m) => m[1].split(",").map((n) => n.replace(/^\s*type\s+/, "").trim()).filter(Boolean))
+    .sort();
+  const out = [];
+  if (specs.length !== 1 || specs[0] !== ROLES_IMPORT_SPEC) out.push(`the roles report imports ${specs.join(", ") || "nothing"} from the module, not only ${ROLES_IMPORT_SPEC}`);
+  if (JSON.stringify(names) !== JSON.stringify(ROLES_IMPORT_NAMES)) out.push(`the roles report takes ${names.join(", ") || "nothing"} from the reader file, not exactly ${ROLES_IMPORT_NAMES.join(", ")}`);
+  if (EXPORTED_NAMES.test(codeText)) out.push(`the roles report names ${EXPORTED_NAMES.exec(codeText)[0]}, which makes the broker callable`);
+  if (DYNAMIC_LOAD.test(codeText)) out.push("the roles report loads a module at run time (import() or require()), which no static check can follow");
+  if (REEXPORT.test(codeText)) out.push("the roles report re-exports from another file, which would hand the module on to its importers");
+  return out;
+}
+
 function check(raw) {
   const errors = [];
   const E = (rule, msg) => errors.push([rule, `${rule} ${RULE_NAMES[rule]}: ${msg}`]);
@@ -691,7 +741,8 @@ function check(raw) {
     if (modules === null || !modules.includes(THIS_VALIDATOR)) E("PP-23", `${THIS_VALIDATOR} is not registered in ${name}`);
   }
 
-  // PP-24: "unwired" is enforced. Only the core barrel's one export line may name the module.
+  // PP-24: "unwired" is enforced. Only the core barrel's one export line may name the module, and the roles report may import its one reader.
+  for (const problem of rolesReportProblems(raw[ROLES_CODE])) E("PP-24", problem);
   const importers = raw[IMPORTERS].split("\n").filter(Boolean).sort();
   if (JSON.stringify(importers) !== JSON.stringify([...ALLOWED_IMPORTERS].sort())) {
     E("PP-24", `outside the module, ${importers.filter((rel) => !ALLOWED_IMPORTERS.includes(rel)).join(", ") || "nothing"} names it, and ${ALLOWED_IMPORTERS.filter((rel) => !importers.includes(rel)).join(", ") || "nothing allowed is missing"}`);
@@ -1397,6 +1448,19 @@ const MUTATIONS = [
   M("validate-all-comments-this-validator-out", "PP-23", VA_REL, `  "${THIS_VALIDATOR}"`, `  // "${THIS_VALIDATOR}"`),
   M("an-agent-file-imports-the-broker", "PP-24", IMPORTERS, `${CORE_BARREL_REL}\n`, `${CORE_BARREL_REL}\nprojectos/agent/src/loop/runner.ts\n`),
   M("the-barrel-line-goes-and-the-record-with-it", "PP-24", IMPORTERS, `${CORE_BARREL_REL}\n`, ""),
+  M("roles-ts-imports-callmodel", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nimport { callModel } from '../modelBroker/callModel.js';"),
+  M("roles-ts-takes-the-broker-loader-too", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedBrokerConfig, loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';"),
+  M("roles-ts-imports-the-whole-barrel", "PP-24", ROLES_CODE, "from '../modelBroker/committedConfig.js';", "from '../modelBroker/index.js';"),
+  M("roles-ts-stops-importing-the-reader", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", ""),
+  M("roles-ts-is-missing", "PP-24", ROLES_CODE, null, ""),
+  M("roles-ts-imports-by-another-case", "PP-24", ROLES_CODE, "from '../modelBroker/committedConfig.js'", "from '../ModelBroker/committedConfig.js'"),
+  M("roles-ts-calls-the-broker-by-another-case", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nimport { callModel } from '../MODELBROKER/callModel.js';"),
+  M("roles-ts-loads-the-broker-by-template", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nconst later = import(`../modelBroker/callModel.js`);"),
+  M("roles-ts-concatenates-the-broker-path", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nconst later = require('../model' + 'Broker/callModel.js');"),
+  M("roles-ts-builds-the-path-in-a-template", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nconst later = import(`../model${'Broker'}/index.js`);"),
+  M("roles-ts-reexports-the-broker-barrel", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nexport * from '../modelBroker/index.js';"),
+  M("roles-ts-reexports-the-reader", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nexport { loadCommittedRoleRegistry as load } from '../modelBroker/committedConfig.js';"),
+  M("roles-ts-loads-something-at-run-time", "PP-24", ROLES_CODE, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nconst later = import(name);"),
   M("an-answer-with-no-usage-is-free", "PP-25", CALL, "const unreadable = usageProblem(result?.usage) ??", "const unreadable = null as string | null; void "),
   M("an-unreadable-answer-is-not-recorded", "PP-25", CALL, "    costMicroUsd: worst,\n    at: isoNow(run),", "    costMicroUsd: 0,\n    at: isoNow(run),"),
   M("an-unreadable-answer-is-accepted", "PP-25", CALL, "  if (unreadable !== null) {\n    // The provider answered", "  if (false) {\n    // The provider answered"),
@@ -1656,16 +1720,49 @@ function behaviour(raw) {
   });
 }
 
+/** What the importer scan must read as an import of the module, and what it must leave alone. The scan itself is not a text pin, so it is proved by samples. */
+const SCAN_MUST_FIND = [
+  "import { x } from '../modelBroker/index.js';",
+  "export * from '../modelBroker/index.js';",
+  "export {\n  a,\n  b\n} from '../modelBroker/callModel.js';",
+  "const m = await import('../modelBroker/index.js');",
+  "const m = require('../modelBroker/index.js');",
+  "const m = import(`../modelBroker/index.js`);",
+  "const m = require(`../modelBroker/index.js`);",
+  "const m = import('../model' + 'Broker/index.js');",
+  "const m = import('../' + 'model' + 'Broker/index.js');",
+  "const m = import(`../model${'Broker'}/index.js`);",
+  "const m = import(\n  '../modelBroker/index.js',\n);",
+  "import '../modelBroker/index.js';",
+  "import { x } from '../ModelBroker/index.js';",
+  "const m = import('../MODELBROKER/index.js');",
+  "const m = import('../model' + 'broker/index.js');",
+];
+const SCAN_MUST_LEAVE = [
+  "import { x } from '../models/index.js';",
+  "const note = 'the modelBroker is not wired';",
+  "export * from './commands/roles.js';",
+  "const m = import('../loop/runner.js');",
+];
+
+function scanSampleProblems() {
+  const errors = [];
+  for (const sample of SCAN_MUST_FIND) if (!namesTheModule(sample)) errors.push(`PP-M: the importer scan does not see: ${sample.replace(/\n/g, " ")}`);
+  for (const sample of SCAN_MUST_LEAVE) if (namesTheModule(sample)) errors.push(`PP-M: the importer scan flags an unrelated line: ${sample.replace(/\n/g, " ")}`);
+  return errors;
+}
+
 /** Every named mutation must fire its own rule, and only rules it declares. */
 function selfTest(raw) {
   const errors = [];
   for (const m of MUTATIONS) {
     const text = raw[m.rel];
-    if (text === null || text === undefined || !text.includes(m.from)) {
+    // A null `from` replaces the whole text: the file is gone.
+    if (text === null || text === undefined || (m.from !== null && !text.includes(m.from))) {
       errors.push(`PP-M: mutation '${m.name}' no longer applies to ${m.rel}; update the mutation with the rule`);
       continue;
     }
-    const fired = [...new Set(check({ ...raw, [m.rel]: text.split(m.from).join(m.to) }).map(([rule]) => rule))].sort();
+    const fired = [...new Set(check({ ...raw, [m.rel]: m.from === null ? m.to : text.split(m.from).join(m.to) }).map(([rule]) => rule))].sort();
     if (!fired.includes(m.rule)) {
       errors.push(`PP-M: mutation '${m.name}' survived; ${m.rule} did not fire`);
       continue;
@@ -1675,6 +1772,7 @@ function selfTest(raw) {
   }
   const names = MUTATIONS.map((m) => m.name);
   if (new Set(names).size !== names.length) errors.push("PP-M: two mutations share a name");
+  errors.push(...scanSampleProblems());
   errors.push(...behaviour(raw));
   const proved = new Set(MUTATIONS.map((m) => m.rule));
   for (const rule of Object.keys(RULE_NAMES)) {
@@ -1693,10 +1791,10 @@ function importersOf() {
   const tracked = spawnSync("git", ["-C", ROOT, "ls-files", "-z", "--", "projectos"], { encoding: "utf8", maxBuffer: 1 << 28 });
   if (tracked.status !== 0) return null;
   const inModule = (rel) => rel.startsWith(`${CORE_DIR}/`) || rel.startsWith(`${AGENT_DIR}/`) || /\/test\/modelBroker[-.]/.test(rel);
-  return tracked.stdout.split("\0").filter((rel) => /\.(?:[cm]?[jt]sx?)$/.test(rel) && !/(?:^|\/)(?:node_modules|dist)\//.test(rel) && !inModule(rel) && rel !== THIS_REL && fs.existsSync(path.join(ROOT, ...rel.split("/"))))
+  return tracked.stdout.split("\0").filter((rel) => /\.(?:[cm]?[jt]sx?)$/.test(rel) && !/(?:^|\/)(?:node_modules|dist)\//.test(rel) && !inModule(rel) && rel !== THIS_REL && rel !== ROLES_REL && rel !== ROLES_VALIDATOR_REL && fs.existsSync(path.join(ROOT, ...rel.split("/"))))
     .filter((rel) => {
       const code = withoutComments(normalise(fs.readFileSync(path.join(ROOT, ...rel.split("/")), "utf8")));
-      return IMPORT_OF_MODULE.test(code) || (EXPORTED_NAMES.test(code) && !/^projectos\/validators\//.test(rel));
+      return namesTheModule(code) || (EXPORTED_NAMES.test(code) && !/^projectos\/validators\//.test(rel));
     });
 }
 
@@ -1711,6 +1809,8 @@ function readAll() {
   raw[TRACKED] = tracked.status === 0 ? tracked.stdout.replace(/\r/g, "") : "";
   const importers = importersOf();
   raw[IMPORTERS] = importers === null ? "@git-unavailable\n" : importers.join("\n").concat("\n");
+  const rolesText = read(ROLES_REL);
+  raw[ROLES_CODE] = rolesText === null ? "" : withoutComments(rolesText);
   return raw;
 }
 

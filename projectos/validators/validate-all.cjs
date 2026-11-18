@@ -170,6 +170,8 @@ const MODULES = [
   "val-projectos-worker-codex-implementer1a",
   // PROJECTOS-MEMORY-OWNER-COMMANDS1A - the owner commands for memory: a typed terminal confirmation bound to the item, hash, tenant and project; no decision without a terminal; no deletion of a cited item; the deletion ledger before the removal; the index written only under the installation state; the project from the registry, never an argument; stored text fenced.
   "val-projectos-memory-owner-commands1a",
+  // PROJECTOS-PROVIDER-ROLES1A - a committed role registry names which already-authorised worker, or the committed gatekeeper route, fills each role, with capabilities from a closed list and a cost class; read from committed bytes, a differing working copy is flagged; selection and recording only, nothing consults it and only the roles report imports the model broker.
+  "val-projectos-provider-roles1a",
   // PROJECTOS-MEMORY-STORES1A - the six memory classes on existing stores; one index file per tenant and project; an injected clock and file system; no credential, over-cap body or hidden text reaches a prompt; one proposal door; a worker's direct write to the memory or skill store is refused.
   "val-projectos-memory-stores1a",
   // PROJECTOS-MEMORY-PROVENANCE1A - committed decisions outrank recollection; decisions, plan memory and approved memory are read from committed bytes and a differing working copy is refused; a citation from an index built before HEAD is marked stale; retention per class; deleting approved memory is the P5 action memory-delete, owner only, and every deletion is recorded.
