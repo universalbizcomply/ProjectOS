@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-HOST-SESSION-DIGEST-SEAL1A",
+  "project": "ProjectOS",
+  "objective": "One line in the dormant Rust host: AdmittedRequest::session_digest at projectos/host/core/src/ipc_session.rs becomes pub(crate), as val-cd-b4-sealed-expected-window-facts1a has required since before that type existed. No caller outside the crate was found. The owner approved this protected-file edit on 2026-11-17.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:47.124Z",
+      "note": "Owner-approved plan v1.42 (delta spec section PROJECTOS-HOST-SESSION-DIGEST-SEAL1A, owner 2026-11-17: Approved all, including the protected-file edit). Built by the lead; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:47.880Z",
+      "note": "pub fn session_digest on AdmittedRequest becomes pub(crate) fn session_digest in projectos/host/core/src/ipc_session.rs (one line, 72f7fcb7)"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:48.566Z",
+      "note": "core 5091/5091, agent 4659/4659, control-center 952/952 at 5785b504 on the plan worktree after a rebuild of core and agent. validate-all 183 registered, 183 PASS, 0 FAIL, 2 retired. cargo test green in host/core and host/windows-local-ipc."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:49.364Z",
+      "note": "Evidence: docs/finish/PROJECTOS-HOST-SESSION-DIGEST-SEAL1A.md (stacked at 5785b504)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:50.130Z",
+      "note": "closure tail only - no implementation. Review: ECC security-reviewer APPROVE on the one-line diff and the cargo output."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:50.891Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
