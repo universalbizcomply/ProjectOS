@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-PROVIDER-ROLES1A",
+  "project": "ProjectOS",
+  "objective": "Stage 4 plan 4.2, first slice. A committed .projectops/provider-roles.json names, per role, an already-authorised worker or the committed gatekeeper route, its capabilities from a closed list and its cost class, and a read-only projectos roles report reads it from committed bytes. Selection and recording only: no new network path, no credential, no money rule. A gatekeeper role with no decision reports awaiting, never an approval.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-18T14:12:04.492Z",
+      "note": "Owner-approved plan v1.42 (delta spec section PROJECTOS-PROVIDER-ROLES1A, owner 2026-11-17). Built by an agent under the lead (Claude) in its own worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-18T14:12:05.651Z",
+      "note": "core role registry reader, commands/roles.ts read-only report, committed provider-roles record, port-providers PP-24 import fence narrowed, validator PR rules"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-18T14:12:06.442Z",
+      "note": "core 5091/5091, agent 4659/4659, control-center 952/952 at 5785b504 on the plan worktree after a rebuild of core and agent. validate-all 183 registered, 183 PASS, 0 FAIL, 2 retired."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-18T14:12:07.251Z",
+      "note": "Evidence: docs/finish/PROJECTOS-PROVIDER-ROLES1A.md (stacked at 5785b504)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-18T14:12:08.035Z",
+      "note": "closure tail only - no implementation. Reviews: ECC security-reviewer APPROVE WITH CHANGES on bb1fb9a4 (8 items), fix round, one recheck."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-18T14:12:08.829Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
