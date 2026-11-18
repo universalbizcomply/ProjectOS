@@ -538,3 +538,69 @@ ignored today. This wires the door so each entry becomes one pending proposal th
 11. DW-11 Outcome lines carry codes, ids and hashes, never worker text.
 
 **Reviews:** ECC `security-reviewer`; one recheck at most.
+
+# Plan v1.43 — PROJECTOS-STAGE4-EXIT-PROOF1A (the Stage 4 exit proof)
+
+**Status:** section committed alone before any run or code, 2026-11-18. Owner approvals (verbatim): run the live exit proof, cap $1.50 per run and $3.00 in total, a new trivial agency phase writing `site/colophon.txt` in `C:/dev/SEOAgency`, the secrets-handling receipt ("Approved", 2026-11-18); plan amendment v1.43 and the agency phase wording "Implementer self-review" plus "Independent code review" ("Yes to both, go ahead", 2026-11-18).
+
+**Why this phase:** Stage 4 builds provider-role swappability. The exit test is: the same phase runs with the implementer and reviewer providers swapped, and no code change. Phases 4.1a (Codex implementer), 4.3a (scratch checkout) and the roles slice make the swap possible; this phase RUNS it live and judges the recorded evidence.
+
+## Existing code found (B1)
+
+| What | Where | Consequence |
+|---|---|---|
+| The swap is a committed-config change: `execution.workers`, `defaultWorkerId`, `reviewerWorkerId`; both directions are tested with fake spawns | `loop/workers.ts` (PROTECTED), `test/workerRoleSwap.test.ts` | No code change is needed or allowed; the proof differs only in `execution`. |
+| The Codex implementer kind: `codex exec --sandbox workspace-write`, closed argument allowlist, record grants read from argv and never forwarded, never reviews, never rejoins | `loop/adapters/codexImplementer.ts` | Never run live before this phase. A refusal is a possible and honest result. |
+| Scratch checkout: the worker runs in a copy, only granted paths are copied back, a refusal leaves the real tree byte-identical; the real-root snapshot stays as a backstop | `loop/scratchCheckout.ts`, `loop/writeScope.ts` | The write scope for Codex is preventative on this route; reads by absolute path stay open (D4). |
+| The reviewer side: `claude-code-cli` reviews with read-only grants plus a fixed `--disallowedTools` list (no shell); `codex-cli` reviews in a read-only sandbox; `providerDistinct` is `worker.kind !== implementer.kind` | `adapters/claudeCodeCli.ts`, `adapters/codexCli.ts`, `independentReview.ts` | Claude has never reviewed live through this adapter. Distinctness is by kind, not identity. |
+| Stage 3 exit proof: the structure, the evidence folder, the manifest, the named-mutation validator | `docs/finish/PROJECTOS-MEMORY-EXIT-PROOF1A.md`, `val-projectos-memory-exit-proof1a.cjs` | Followed one for one. The agency pilot, the throwaway runtime worktree plus a temporary allowlist commit, the localhost remote and the broker-metered gatekeeper are reused. |
+| Spend: `.projectops/gatekeeper.json` budget (`phaseHardStopAtMicroUsd` 1,500,000; day 2,000,000; total 5,000,000); Codex and Claude run on the owner's logins and are not metered | agency repo | The $1.50 per run cap is the committed phase cap; the $3.00 total is enforced by the runbook and judged by SP-7. |
+| The phase entry for this proof already exists in the plan source | `docs/projectos-finish-phases.json` (`PROJECTOS-STAGE4-EXIT-PROOF1A`) | This section refines it; it adds two dependencies and the registration-neighbour validators (see MODIFIED). |
+
+## ADDED
+
+- `docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A/` — the evidence: `setup.json`, `runtime.json`, `MANIFEST.json`, and one folder per attempt (`A/`, `B1/`, `B2/` only if declared) holding the run log, the times, the outcome, the source digest, the changed paths and the agency's own records.
+- `docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A.md` and `docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A-validator-notes.md` (the notes carry the sha256 of every run log, one `attempt <id>: <status>` line per attempt, and the statements "no product code", "no model call", "does not lift D4").
+- `projectos/validators/val-projectos-stage4-exit-proof1a.cjs` — rules SP-1 to SP-9 with named mutations, each counted killed only when its own rule fires.
+- In the agency (`C:/dev/SEOAgency`, local branches `s4proof-base`, `s4proof-a`, `s4proof-b`, `s4proof-b2` only if needed): one phase `SEO-AGENCY-STAGE4-PROOF1A` (writes `site/colophon.txt`), one plan v1.6 activation per branch, one secrets-handling receipt per branch, one swap commit on the config-B branches. These are agency records, not ProjectOS code.
+- In a throwaway runtime worktree of the plan branch: one TEMPORARY allowlist commit for `C:/dev/SEOAgency`. Never merged, never pushed.
+
+## MODIFIED (exact files and why)
+
+- `projectos/validators/validate-all.cjs` and `projectos/speed/cached-runner.cjs`: registration only, the new validator BEFORE `val-projectos-memory-stores1a` with a `// PROJECTOS-STAGE4-EXIT-PROOF1A` comment line above it, the two lists identical (the Stage 3 validators pin their own adjacency after that point, so it must not go last). `validate-all.cjs` is PROTECTED; this delta asks for the registration-only edit, as plans v1.36 and v1.37 did.
+- `docs/projectos-finish-phases.json`: this phase's entry gains `PROJECTOS-CONTEXT-CODEX1A` and `PROJECTOS-WORKER-CODEX-IMPLEMENTER1A` in `dependsOn` and the validators that read the two runner lists in `requiredValidators` (plan amendment: `plan draft` -> decide -> activate; run the throwaway `writePathGrants` check on every phase before activating).
+- `docs/06_Plan.md`: tick with date, commit and evidence. `docs/changes/delta_spec.md`: this section.
+- Every validator that reads `validate-all.cjs` or `cached-runner.cjs` is re-run before `validate-all`: `val-projectos-memory-exit-proof1a` (EP-9 pins itself last), `val-projectos-resume1a`, `val-projectos-connector-contract1a`, `val-projectos-port-computer1a`, `val-projectos-skills-adopt1a` (slow, background), `val-projectos-kernel-followup1a`.
+
+## PROTECTED (do not touch)
+
+Everything in `00_Baseline_State.md` section 4. In particular: `loop/workers.ts` (grants, `roleBindingProblems`, `committedExecutionProblems`), `loop/adapters/*` and `loop/scratchCheckout.ts` / `writeScope.ts` (a defect found by the proof becomes its own plan phase), the runner, `gatekeeperConfig.ts`, the broker and credential router, closure authority and the owner floor, the tenant and action registries, `projectos/security/installation-project-allowlist.json` on every branch except the throwaway one, every existing authority record, and `.projectops/project-config.json` of ProjectOS itself (the swap edits the AGENCY's config, on agency branches only). No worker is granted a `.git*` file or a `.projectops` governance record by this phase (`writePaths` is checked with `writePathGrants`).
+
+## Rules (each becomes a validator rule with named mutations)
+
+1. **SP-1** Every evidence file is covered by a committed manifest of sha256, and a changed, added or missing file fails.
+2. **SP-2** Both runs used one runtime that differs from the plan head only by the temporary allowlist file, one pinned phase text, one source tree outside `.projectops/`, and a committed config that differs only in `execution`, `planMemory` and `planSources`.
+3. **SP-3** Config A and config B are exactly the pinned worker pairs (Claude implements and Codex reviews; `codex-implementer-cli` implements through an absolute `codex.exe` with record grants only and Claude reviews with read grants only), and each run was one bare `continue --execute` from its own process with nothing relayed.
+4. **SP-4** Each closed run's reviewer record shows a reviewer of a different provider and kind than the implementer, an APPROVE with no findings, every requested review performed, and a hash bound to the evidence.
+5. **SP-5** Each closed run changed `site/colophon.txt` and otherwise only the loop's own records, the file holds exactly the four requested lines, and the effects record is the six closed fields all false.
+6. **SP-6** Each run claimed closed passed both validator copies, got an independent APPROVE, an approved gatekeeper decision and a closure decision from the provider answer through the broker, stopped for the owner only at the loop's own handover, and ended with the phase closed and exit zero.
+7. **SP-7** The metered broker calls in each run's ledger are exactly the calls its log printed at the logged cost, each run is under 1,500,000 micro-USD and all attempts together are under 3,000,000, and Codex and Claude spend is stated as unmetered.
+8. **SP-8** Every attempt is declared in `setup.json`, has its folder and an outcome that matches what its log shows, is named in the notes, and a refusal can be recorded and never hidden: a closed claim over a refused log fails, and a run with no closed config B attempt is NOT PROVEN, not green.
+9. **SP-9** The notes say no product code, no model call and that the proof does not lift D4, this validator only reads files through `fs`, `path` and `crypto`, and it is registered once, before `val-projectos-memory-stores1a`, with a comment line, identically in both runners.
+
+## Plan, tasks, risk (trimmed)
+
+Constitution check: no PROTECTED file edited beyond the two registration lists; no new table, money rule or login change. The approval gate applies: provider spend, a secrets-handling receipt (credential read by the broker for this proof's gatekeeper and closure questions), and a second write-capable provider run live.
+
+**Reviews:** ECC `security-reviewer` mandatory and independent (the proof exercises a write-capable provider and a credential-reading broker); Agency `application-security-engineer` or `platform` route additive for the runbook and the scratch-checkout assumptions; one recheck at most. Brief every reviewer with: reads by absolute path stay open (D4), the validator proves what was recorded, not what the workers read.
+
+- [ ] T001 Commit this delta section alone; owner approves in Plan Mode (spend, receipt, the agency phase text).
+- [ ] T002 Preconditions P1 to P9 of the runbook; the throwaway runtime worktree and its allowlist commit; the localhost remote up by PID; `BASE`; branch `s4proof-a` and its dry run.
+- [ ] T003 Run A (about $0.007 metered). Collect. Gate: A is closed.
+- [ ] T004 Branch `s4proof-b`, the swap commit, its dry run, Run B1. Collect. A refusal is recorded as it is.
+- [ ] T005 Validator tuned against the real evidence (the draft's mutation list was never run), registered, passing, plus the neighbour validators.
+- [ ] T006 Finish doc stating plainly what was and was not proved; reviews; fix round; one recheck; tick the plan; owner-direct close.
+
+**Residuals to state, not hide:** reads by absolute path stay open under D4 (the Codex implementer can read anything the owner's user can read); the Codex implementer had never run live before this phase; Claude had never reviewed live through this adapter; `providerDistinct` is by worker kind; the evidence is copied by the lead from the agency checkout and the installation state, and a person who re-seals the manifest, notes and records consistently passes every rule; the proof shows what was recorded, not that a worker read or used the brief or the stored context; Codex and Claude spend is unmetered.
+
+**Not in this phase:** any fix to a defect the live run finds (its own plan phase); lifting D4; a no-resume or no-swap control run; the provider broker wiring (4.2 beyond the registry); the Rust `session_digest` follow-up.
