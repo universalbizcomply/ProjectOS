@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-CONTEXT-CODEX1A",
+  "project": "ProjectOS",
+  "objective": "Stage 3 carry-forward A. Adds codex-implementer-cli to the context-pointable kinds: the adapter receives the loop-derived, project-relative path of the stored-context file through an injected function and names it in both fixed sentences. A brief naming stored context the worker cannot be pointed at starts nothing.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:30.871Z",
+      "note": "Owner-approved plan v1.42 (delta spec Phase A, owner 2026-11-17). Built by an agent under the lead (Claude) in its own worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:31.551Z",
+      "note": "codex-implementer-cli added to CONTEXT_POINTABLE_KINDS, the adapter takes an injected contextPointerPathOf, the refusal is removed, pins CM-20 and WI-3 moved with the rule"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:32.359Z",
+      "note": "core 5091/5091, agent 4659/4659, control-center 952/952 at 5785b504 on the plan worktree after a rebuild of core and agent. validate-all 183 registered, 183 PASS, 0 FAIL, 2 retired."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:33.207Z",
+      "note": "Evidence: docs/finish/PROJECTOS-CONTEXT-CODEX1A.md (stacked at 5785b504)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:34.303Z",
+      "note": "closure tail only - no implementation. Review: ECC security-reviewer APPROVE."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:35.128Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
