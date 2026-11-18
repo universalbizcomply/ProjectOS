@@ -79,6 +79,7 @@ import { nodeContextPorts, type ContextManagerPorts } from '../context/contextPo
 import { checkoutIdentityOf } from '../context/contextCheckout.js';
 import { beginStoreGuard, endStoreGuard, storeGuardBaselineProblem, type StoreGuardVerdict } from '../context/contextStoreGuard.js';
 import { afterProposalDoor } from '../context/proposalDoorStep.js';
+import { proposalBudgetOf } from '../context/proposalBudget.js';
 import { openProposalDoor } from '../memory/proposalDoor.js';
 import { nodeInstallationStateDir } from '../nodeRuntimeRoot.js';
 import { nodeEntryProbe } from '../search/nodeHost.js';
@@ -2088,7 +2089,7 @@ export function runLoop(sys: System, root: string, options: RunOptions = {}): Ru
       root,
       storeGuardFs,
       storeGuardCurrent,
-      openProposalDoor(sys, root, { author: resolution.worker.workerId, role: 'implementer', session: sessionId }, doorFindings.ok ? sys.readText(store.findingsPath(root, sessionId)) : null, doorState),
+      openProposalDoor(sys, root, { author: resolution.worker.workerId, role: 'implementer', session: sessionId }, doorFindings.ok ? sys.readText(store.findingsPath(root, sessionId)) : null, doorState, proposalBudgetOf(storeGuardFs, root)),
     );
     storeGuardCurrent = door.baseline;
     lines.push(...door.lines);

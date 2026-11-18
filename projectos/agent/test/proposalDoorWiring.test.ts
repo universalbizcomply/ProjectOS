@@ -1,5 +1,5 @@
 /**
- * The proposal door is called by the loop (PROJECTOS-PROPOSAL-DOOR-WIRING1A, plan v1.38, rules DW-1 .. DW-11).
+ * The proposal door is called by the loop (PROJECTOS-PROPOSAL-DOOR-WIRING1A, plan v1.38, rules DW-1 .. DW-12).
  *
  * The same in-memory world as `loopContext.test.ts` (a copy in `support/loopWorld.ts`): the real config and approved plan, a fake worker
  * that writes what a real one could, and a `git status` worked out from the files. `hidden` is what git ignores, so a test can say
@@ -12,16 +12,18 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { assembleRunContext, summariserKindOf } from '../src/context/contextManager.js';
 import { beginStoreGuard, endStoreGuard, rebaseStoreGuard, type StoreGuardSystem } from '../src/context/contextStoreGuard.js';
-import { doorCreatedPaths, doorOutcomeLines } from '../src/context/proposalDoorStep.js';
+import { PROPOSALS_BUDGET_BYTES, proposalBudgetOf, storeBytesNow } from '../src/context/proposalBudget.js';
+import { afterProposalDoor, doorCreatedPaths, doorOutcomeLines } from '../src/context/proposalDoorStep.js';
 import { openProposalDoor, type DoorEntryOutcome, type ProposalDoorCaller } from '../src/memory/proposalDoor.js';
 import { listPendingMemoryProposals } from '../src/memory/proposalQueue.js';
+import { MAX_STORE_DIGEST_TOTAL_BYTES, snapshotMemoryStores } from '../src/memory/storeDigest.js';
 import { isSkillMinted, type SkillStatePorts } from '../src/skills/skillMint.js';
 import { listPendingSkillProposals } from '../src/skills/skillQueue.js';
 import { nodeSystem } from '../src/system.js';
 import { nodeEntryProbe } from '../src/search/nodeHost.js';
 import { documentFsOver } from '../src/search/ports.js';
-import { EXECUTION, EVIDENCE_PATH, ROOT, SESSION, STATE, run, world, worker, type World } from './support/loopWorld.js';
-import { ENVELOPE_NOW, admittedRun, memoryFs, worldPorts, ROOT as CONTEXT_ROOT } from './support/contextWorld.js';
+import { EXECUTION, EVIDENCE_PATH, ROOT, SESSION, STATE, contextPorts, run, world, worker, type World } from './support/loopWorld.js';
+import { ENVELOPE_NOW, admittedRun, memoryFs, provenanceOf, storeText, worldPorts, ROOT as CONTEXT_ROOT } from './support/contextWorld.js';
 
 /**
  * DW-9 goes through the kernel's own compaction: every draft the context manager hands to `applyCompaction` is recorded here, then really applied,
@@ -152,6 +154,42 @@ describe('DW-3: one entry is exactly one pending proposal, pinned by hash; the s
     expect(door.length).toBeGreaterThan(1);
     const hash = listPendingMemoryProposals(w.sys, ROOT).pending[0]?.proposalHash ?? 'missing';
     expect(result.lines.filter((line) => line.includes(hash) && line.includes('already pending')).length).toBeGreaterThan(0);
+  });
+});
+
+describe('DW-3, the duplicate key: the target an entry acts on is part of what makes it the same entry', () => {
+  const caller: ProposalDoorCaller = { author: 'worker-1', role: 'implementer', session: 'sess-1' };
+  const SECOND = 'The database is Postgres 16.';
+  const replace = (oldText: string, content = 'Replaced entry text.'): Record<string, unknown> => ({ class: 'memory', target: 'memory', op: 'replace', kind: 'fact', oldText, content });
+  const door = (w: World, proposals: readonly unknown[]) => openProposalDoor(w.sys, ROOT, caller, JSON.stringify({ ...baseRecord, proposals }));
+  const withTwoFacts = (): World => {
+    const w = world();
+    const entries = ['The build uses Node 24.', SECOND];
+    w.files[`${ROOT}/.projectops/memory/MEMORY.md`] = storeText(entries);
+    w.files[`${ROOT}/.projectops/memory/MEMORY.provenance.json`] = JSON.stringify({ entries: Object.fromEntries(entries.map((entry) => [provenanceOf(entry).entryHash, provenanceOf(entry)])) });
+    return w;
+  };
+
+  it('two replaces with the same new content but different targets are two proposals', () => {
+    const w = withTwoFacts();
+    const outcome = door(w, [replace('Node 24'), replace('Postgres 16')]);
+    expect(outcome.entries.map((entry) => entry.ok && entry.duplicate)).toEqual([false, false]);
+    expect(listPendingMemoryProposals(w.sys, ROOT).pending).toHaveLength(2);
+  });
+
+  it('the same replace of the same target twice is still one proposal and a duplicate', () => {
+    const w = withTwoFacts();
+    const outcome = door(w, [replace('Node 24'), replace('Node 24')]);
+    expect(outcome.entries.map((entry) => entry.ok && entry.duplicate)).toEqual([false, true]);
+    expect(listPendingMemoryProposals(w.sys, ROOT).pending).toHaveLength(1);
+  });
+
+  it('two adds with the same content and different ledger references are two proposals', () => {
+    const w = world();
+    const cited = (ledgerRef: string): Record<string, unknown> => ({ class: 'memory', target: 'memory', op: 'add', kind: 'fact', content: 'Bookings are never hard deleted.', ledgerRef });
+    const outcome = door(w, [cited('docs/changes/delta_spec_a.md'), cited('docs/changes/delta_spec_b.md')]);
+    expect(outcome.entries.map((entry) => entry.ok && entry.duplicate)).toEqual([false, false]);
+    expect(listPendingMemoryProposals(w.sys, ROOT).pending).toHaveLength(2);
   });
 });
 
@@ -525,5 +563,124 @@ describe('DW-11: outcome lines carry codes, ids and hashes, never worker text', 
       ],
     });
     expect(paths).toEqual(['.projectops/memory/proposals/mem-aaaaaaaaaaaaaaaaaaaaaaaa.json', '.projectops/skills/proposals/skl-bbbbbbbbbbbbbbbbbbbbbbbb.json']);
+  });
+});
+
+describe('DW-12: the proposals the door has made cannot grow the stores past what the guard can digest', () => {
+  const caller: ProposalDoorCaller = { author: 'worker-1', role: 'implementer', session: 'sess-1' };
+  const state: SkillStatePorts = { checkout: () => ({ tenant: 'polygo', project: 'polygo' }), stateDir: STATE };
+  const LINE = ' lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor';
+
+  /** About a megabyte of skill, distinct per `seed`: three reference files of ~250 thousand characters and a fourth of ~250 thousand, lines under the 4096 a line may hold. */
+  function bigSkill(seed: number): Record<string, unknown> {
+    const file = (salt: number): string => Array.from({ length: 250 }, (_, line) => `${seed}-${salt}-${line}${LINE.repeat(13)}`.slice(0, 1000)).join('\n');
+    const name = `big-${String.fromCharCode(97 + seed)}`;
+    return {
+      class: 'skill',
+      files: [
+        { path: 'SKILL.md', text: `---\nname: ${name}\ndescription: A large skill number ${seed}.\n---\n\nRun it.\n` },
+        { path: 'references/a.md', text: file(1) },
+        { path: 'references/b.md', text: file(2) },
+        { path: 'references/c.md', text: file(3) },
+        { path: 'references/d.md', text: file(4) },
+      ],
+    };
+  }
+  const recordOf = (...proposals: unknown[]): string => JSON.stringify({ ...baseRecord, proposals });
+  const gitIgnored = (w: World): void => gitIgnoresProposals(w);
+  const FILLER = `${ROOT}/.projectops/memory/filler.txt`;
+
+  it('the lock-out this prevents: ten large proposals through the door with no budget leave a store the digest refuses, so every later run would be', () => {
+    const w = world();
+    const fs = contextPorts(w).fs;
+    for (let seed = 0; seed < 10; seed += 1) {
+      const outcome = openProposalDoor(w.sys, ROOT, caller, recordOf(bigSkill(seed)), state);
+      expect(outcome.entries[0]?.ok).toBe(true);
+    }
+    const snapshot = snapshotMemoryStores(ROOT, fs);
+    expect(snapshot.ok).toBe(false);
+    expect(snapshot.ok ? '' : snapshot.code).toBe('MEMORY_STORE_TOO_LARGE');
+  }, 120_000);
+
+  it('with the budget the first are accepted and the rest refused with a code, nothing is written for a refused one, and the guard still clears', () => {
+    const w = world();
+    gitIgnored(w);
+    const fs = contextPorts(w).fs;
+    let baseline = beginStoreGuard(w.sys, ROOT, fs);
+    const answers: DoorEntryOutcome[] = [];
+    for (let seed = 0; seed < 10; seed += 1) {
+      const outcome = openProposalDoor(w.sys, ROOT, caller, recordOf(bigSkill(seed)), state, proposalBudgetOf(fs, ROOT));
+      baseline = afterProposalDoor(w.sys, ROOT, fs, baseline, outcome).baseline;
+      answers.push(...outcome.entries);
+    }
+    const accepted = answers.filter((answer) => answer.ok);
+    const refused = answers.filter((answer) => !answer.ok);
+    expect(accepted.length).toBeGreaterThan(0);
+    expect(refused.length).toBeGreaterThan(0);
+    // The first N are accepted and everything after is refused: the budget is a line, and nothing past it is let in.
+    expect(answers.map((answer) => answer.ok)).toEqual([...accepted.map(() => true), ...refused.map(() => false)]);
+    expect(refused.every((answer) => !answer.ok && answer.code === 'PROPOSAL_DOOR_BUDGET')).toBe(true);
+    expect(refused.map((answer) => (answer.ok ? '' : answer.message)).join(' ')).not.toContain('lorem');
+    expect(filesUnder(w, SKILL_PROPOSALS)).toHaveLength(accepted.length);
+    // The stores are under the budget, which is under what the digest bound refuses.
+    const used = storeBytesNow(fs, ROOT);
+    expect(used).not.toBeNull();
+    expect(used ?? Infinity).toBeLessThanOrEqual(PROPOSALS_BUDGET_BYTES);
+    expect(PROPOSALS_BUDGET_BYTES).toBeLessThan(MAX_STORE_DIGEST_TOTAL_BYTES);
+    expect(snapshotMemoryStores(ROOT, fs).ok).toBe(true);
+    // THE PIN: the next judgement of the guard, against the baseline the loop now holds, is not a refusal.
+    expect(endStoreGuard(w.sys, ROOT, fs, baseline)).toEqual({ ok: true });
+  }, 120_000);
+
+  it('a refused entry does not stop an accepted one beside it from being absorbed, and the next attempt of the run is not refused by the guard', () => {
+    const w = world({ validatorExit: 1 });
+    gitIgnored(w);
+    // The stores already hold almost everything the budget allows: room for a small entry, none for a large one.
+    w.files[FILLER] = 'f'.repeat(PROPOSALS_BUDGET_BYTES - 400_000);
+    w.hidden.add(FILLER);
+    ask(w, [memoryAsk(), bigSkill(0)]);
+    const wk = worker(w);
+    const result = run(w, wk);
+    expect(wk.calls.length).toBeGreaterThan(1);
+    expect(stopOf(result)?.code).not.toBe('SCOPE_DECISION');
+    expect(filesUnder(w, MEMORY_PROPOSALS)).toHaveLength(1);
+    expect(filesUnder(w, SKILL_PROPOSALS)).toEqual([]);
+    const door = result.lines.filter((line) => line.startsWith('  proposal'));
+    expect(door.some((line) => line.includes('REFUSED (PROPOSAL_DOOR_BUDGET)'))).toBe(true);
+    expect(door.some((line) => line.includes('already pending'))).toBe(true);
+    expect(result.lines.join('\n')).not.toContain('lorem ipsum');
+  }, 120_000);
+
+  it('applies to a memory entry too, and refuses when the stores cannot be measured', () => {
+    const w = world();
+    w.files[FILLER] = 'f'.repeat(PROPOSALS_BUDGET_BYTES - 10_000);
+    const fs = contextPorts(w).fs;
+    const outcome = openProposalDoor(w.sys, ROOT, caller, recordOf(memoryAsk()), state, proposalBudgetOf(fs, ROOT));
+    expect(outcome.entries[0]).toMatchObject({ ok: false, class: 'memory', code: 'PROPOSAL_DOOR_BUDGET' });
+    expect(filesUnder(w, MEMORY_PROPOSALS)).toEqual([]);
+    const blind = { ...fs, stat: (path: string) => (path.endsWith('/.projectops/memory') ? { kind: 'link' as const, size: 0, mtimeMs: 1 } : fs.stat(path)) };
+    expect(storeBytesNow(blind, ROOT)).toBeNull();
+    const refused = openProposalDoor(w.sys, ROOT, caller, recordOf(memoryAsk('Another fact.')), state, proposalBudgetOf(blind, ROOT));
+    expect(refused.entries[0]).toMatchObject({ ok: false, code: 'PROPOSAL_DOOR_BUDGET' });
+  });
+
+  it('measures what the digest measures: the size of every file under both store roots, and nothing outside them', () => {
+    const w = world();
+    const fs = contextPorts(w).fs;
+    const before = storeBytesNow(fs, ROOT) ?? -1;
+    w.files[`${ROOT}/.projectops/skills/promoted/x.json`] = 'y'.repeat(1000);
+    w.files[`${ROOT}/.projectops/execution/elsewhere.json`] = 'z'.repeat(5000);
+    expect(storeBytesNow(fs, ROOT)).toBe(before + 1000);
+  });
+
+  it('an entry that is already pending is a duplicate and costs the budget nothing', () => {
+    const w = world();
+    const fs = contextPorts(w).fs;
+    const budget = proposalBudgetOf(fs, ROOT);
+    const first = openProposalDoor(w.sys, ROOT, caller, recordOf(memoryAsk()), state, budget);
+    w.files[FILLER] = 'f'.repeat(PROPOSALS_BUDGET_BYTES);
+    const second = openProposalDoor(w.sys, ROOT, caller, recordOf(memoryAsk()), state, budget);
+    expect(first.entries[0]).toMatchObject({ ok: true, duplicate: false });
+    expect(second.entries[0]).toMatchObject({ ok: true, duplicate: true });
   });
 });

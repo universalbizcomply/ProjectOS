@@ -9,7 +9,8 @@
  *         from the checkout identity and the installation state directory, so the proposal is minted and can be reviewed
  *   DW-2  "any point in the attempt will do"             - ONE call, inside the attempt loop, after the post-checks store judgement and before the
  *         evidence is written
- *   DW-3  "an entry may be queued every attempt"         - one entry is one pending proposal pinned by hash; the same entry again is a duplicate
+ *   DW-3  "an entry may be queued every attempt"         - one entry is one pending proposal pinned by hash; the same entry again is a duplicate, and what an entry acts on
+ *         (the entry a replace names, the ledger record it cites) is part of what makes it the same
  *   DW-4  "the record can name its author"               - the caller is `{worker id, implementer, session}` from the kernel; nothing of it is read from the record
  *   DW-5  "git ignores the directory, so skip the guard" - nothing in the guard exempts `proposals/`; a worker write there is still refused
  *   DW-6  "exempt proposals from the guard"              - the baseline is re-taken after the door for exactly the files it made (a shaped
@@ -20,6 +21,8 @@
  *   DW-9  "an honest compaction is a model summary"      - the deterministic kind exists, and is what a compaction with no drafter port is recorded under
  *   DW-10 "a second caller is the same door"             - `runner.ts` is the only caller, and imports no propose, approve or write entry point
  *   DW-11 "print what was asked"                         - the output lines carry codes, indexes, ids and hashes, never worker text or a door message
+ *   DW-12 "the queue the owner reads is the worker's"    - the loop gives the door a budget: the stores are measured the way the digest measures them and an entry that
+ *         would take them past 6 MiB (under the 8 MiB the digest refuses above) is refused with a code before anything is written, so a worker cannot lock every later run out
  *   DW-R  "it is built, so it runs"                      - registered in both runners, identical, immediately before the memory stores validator
  *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT rule fires. Comments are stripped first
@@ -34,6 +37,8 @@ const RUNNER = "projectos/agent/src/loop/runner.ts";
 const DOOR = "projectos/agent/src/memory/proposalDoor.ts";
 const GUARD = "projectos/agent/src/context/contextStoreGuard.ts";
 const STEP = "projectos/agent/src/context/proposalDoorStep.ts";
+const BUDGET = "projectos/agent/src/context/proposalBudget.ts";
+const DIGEST = "projectos/agent/src/memory/storeDigest.ts";
 const MANAGER = "projectos/agent/src/context/contextManager.ts";
 const PROVENANCE = "projectos/core/src/context/provenance.ts";
 const GITIGNORE = ".gitignore";
@@ -42,7 +47,7 @@ const CR = "projectos/speed/cached-runner.cjs";
 const SRC = "projectos/agent/src";
 const THIS = "val-projectos-proposal-door-wiring1a";
 const NEXT = "val-projectos-memory-stores1a";
-const FIXED = [RUNNER, DOOR, GUARD, STEP, MANAGER, PROVENANCE, GITIGNORE, VA, CR];
+const FIXED = [RUNNER, DOOR, GUARD, STEP, BUDGET, DIGEST, MANAGER, PROVENANCE, GITIGNORE, VA, CR];
 
 const TESTS = {
   "projectos/agent/test/proposalDoorWiring.test.ts": [
@@ -73,6 +78,15 @@ const TESTS = {
     "a dry run makes no proposal and writes nothing",
     "an unreadable findings record (%s) makes no proposal",
     "an absent findings record makes no proposal and no directory",
+    "two replaces with the same new content but different targets are two proposals",
+    "the same replace of the same target twice is still one proposal and a duplicate",
+    "two adds with the same content and different ledger references are two proposals",
+    "the lock-out this prevents: ten large proposals through the door with no budget leave a store the digest refuses, so every later run would be",
+    "with the budget the first are accepted and the rest refused with a code, nothing is written for a refused one, and the guard still clears",
+    "a refused entry does not stop an accepted one beside it from being absorbed, and the next attempt of the run is not refused by the guard",
+    "applies to a memory entry too, and refuses when the stores cannot be measured",
+    "measures what the digest measures: the size of every file under both store roots, and nothing outside them",
+    "an entry that is already pending is a duplicate and costs the budget nothing",
     "is the deterministic kind when no drafter port exists, and the agent-model kind when one does",
     "the context manager applies the compaction it made itself under deterministic-selection, and the kernel accepts it",
     "records the agent-model kind for the same compaction when a drafter port wrote it",
@@ -92,11 +106,11 @@ const TESTS = {
 
 const PIN = {
   // DW-1
-  doorStateParam: "export function openProposalDoor(sys: System, root: string, caller: ProposalDoorCaller, findingsText: string | null, state?: SkillStatePorts): ProposalDoorOutcome {",
-  skillStateParam: "function skillEntry(sys: System, root: string, caller: ProposalDoorCaller, one: FindingsSkillRequest, state?: SkillStatePorts): DoorEntryOutcome {",
+  doorStateParam: "export function openProposalDoor(sys: System, root: string, caller: ProposalDoorCaller, findingsText: string | null, state?: SkillStatePorts,",
+  skillStateParam: "function skillEntry(sys: System, root: string, caller: ProposalDoorCaller, one: FindingsSkillRequest, state?: SkillStatePorts,",
   skillStatePassed: "{ files: one.files }, state);",
-  skillEntryState: "skillEntry(sys, root, caller, one, state))",
-  runnerState: "doorFindings.ok ? sys.readText(store.findingsPath(root, sessionId)) : null, doorState),",
+  skillEntryState: "skillEntry(sys, root, caller, one, state",
+  runnerState: "doorFindings.ok ? sys.readText(store.findingsPath(root, sessionId)) : null, doorState",
   checkoutPort: "checkout: contextPorts?.checkout ?? (() => checkoutIdentityOf(sys, root)),",
   stateDirPort: "stateDir: options.contextStateDir === undefined ? nodeInstallationStateDir() : options.contextStateDir,",
   doorStateConst: "const doorState = {",
@@ -114,6 +128,10 @@ const PIN = {
   memoryDuplicate: "if (same !== undefined) return { ok: true, index: one.index, class: 'memory', id: same.id, proposalHash: same.proposalHash, state: 'pending', duplicate: true };",
   skillDuplicate: "if (same !== undefined) return { ok: true, index: one.index, class: 'skill', id: same.id, proposalHash: same.proposalHash, state: 'pending', duplicate: true };",
   skillWanted: "const wanted = filesKey(one.files);",
+  sameTargetCall: "        sameTarget(held, request) &&\n",
+  sameLedger: "if (held.ledgerRef !== (request.ledgerRef ?? null)) return false;",
+  sameOldText: "return held.targetEntry !== null && normalizedEntryKey(held.targetEntry).includes(wantedOld);",
+  sameNoOldText: "if (wantedOld === '') return held.targetEntry === null;",
   // DW-4
   caller: "{ author: resolution.worker.workerId, role: 'implementer', session: sessionId }",
   // DW-5
@@ -142,6 +160,22 @@ const PIN = {
   kindOf: "return drafter === undefined ? DETERMINISTIC_SUMMARISER : DRAFTED_SUMMARISER;",
   kindUsed: "summarisedBy: summariserKindOf(ports.drafter)",
   deterministicConst: "const DETERMINISTIC_SUMMARISER = 'deterministic-selection';",
+  // DW-12
+  doorBudgetType: "export type ProposalBudget = (entry: FindingsMemoryRequest | FindingsSkillRequest) => boolean;",
+  doorBudgetCode: "code: 'PROPOSAL_DOOR_BUDGET',",
+  doorMemoryCall: "memoryEntry(sys, root, caller, one, budget)",
+  doorSkillCall: "skillEntry(sys, root, caller, one, state, budget))",
+  askMemory: "  if (budget !== undefined && !budget(one)) return overBudget(one.index, 'memory');\n",
+  askSkill: "  if (budget !== undefined && !budget(one)) return overBudget(one.index, 'skill');\n",
+  runnerBudget: ", doorState, proposalBudgetOf(storeGuardFs, root)),",
+  runnerBudgetImport: "import { proposalBudgetOf } from '../context/proposalBudget.js';",
+  budgetFits: "return used !== null && used + entryBytesBound(entry) <= PROPOSALS_BUDGET_BYTES;",
+  budgetOverhead: "+ PROPOSAL_FILE_OVERHEAD_BYTES;",
+  budgetEstimate: "Buffer.byteLength(JSON.stringify(own, null, 2), 'utf8')",
+  budgetRoots: "const STORE_ROOTS: readonly string[] = ['.projectops/memory', '.projectops/skills'];",
+  budgetLink: "if (stat === null || stat.kind === 'link') return false;",
+  budgetAgain: "return (entry) => {\n    const used = storeBytesNow(fs, root);",
+  budgetUnmeasurable: "if (parent.kind !== 'directory') return null;",
   // DW-10
   runnerImport: "import { openProposalDoor } from '../memory/proposalDoor.js';",
   // DW-11
@@ -168,6 +202,10 @@ const MUTATIONS = [
   { name: "the-memory-duplicate-is-queued-again", rule: "DW-3", rel: DOOR, from: PIN.memoryDuplicate, to: "if (false) return { ok: true, index: one.index, class: 'memory', id: 'x', proposalHash: 'x', state: 'pending', duplicate: true };" },
   { name: "the-skill-duplicate-is-queued-again", rule: "DW-3", rel: DOOR, from: PIN.skillDuplicate, to: "if (false) return { ok: true, index: one.index, class: 'skill', id: 'x', proposalHash: 'x', state: 'pending', duplicate: true };" },
   { name: "the-skill-entry-is-not-compared-by-its-files", rule: "DW-3", rel: DOOR, from: PIN.skillWanted, to: "const wanted = '';" },
+  { name: "the-memory-duplicate-ignores-the-target", rule: "DW-3", rel: DOOR, from: PIN.sameTargetCall, to: "" },
+  { name: "the-duplicate-ignores-the-ledger-reference", rule: "DW-3", rel: DOOR, from: PIN.sameLedger, to: "" },
+  { name: "the-duplicate-ignores-which-entry-is-replaced", rule: "DW-3", rel: DOOR, from: PIN.sameOldText, to: "return true;" },
+  { name: "an-add-is-a-duplicate-of-a-replace", rule: "DW-3", rel: DOOR, from: PIN.sameNoOldText, to: "if (wantedOld === '') return true;" },
   // DW-4
   { name: "the-caller-is-the-owner", rule: "DW-4", rel: RUNNER, from: PIN.caller, to: "{ author: resolution.worker.workerId, role: 'owner', session: sessionId }" },
   { name: "the-author-comes-from-the-record", rule: "DW-4", rel: RUNNER, from: PIN.caller, to: "{ author: doorFindings.ok ? String((doorFindings.value as unknown as { author?: string }).author) : 'x', role: 'implementer', session: sessionId }" },
@@ -215,6 +253,26 @@ const MUTATIONS = [
   { name: "the-line-quotes-the-door-message", rule: "DW-11", rel: STEP, from: PIN.refusedLine, to: "REFUSED (${entry.code}): ${entry.message}`;" },
   { name: "the-lines-are-unbounded", rule: "DW-11", rel: STEP, from: PIN.boundedLines, to: "const shown = outcome.entries.map(lineOf);" },
   { name: "the-runner-prints-more-than-the-lines", rule: "DW-11", rel: RUNNER, from: PIN.runnerLines, to: "lines.push(...door.lines, JSON.stringify(door));" },
+  // DW-12
+  { name: "the-door-takes-no-budget", rule: "DW-12", rel: DOOR, from: PIN.doorBudgetType, to: "export type ProposalBudget = never;" },
+  { name: "the-budget-code-is-another", rule: "DW-12", rel: DOOR, from: PIN.doorBudgetCode, to: "code: 'PROPOSAL_DOOR_FULL'," },
+  { name: "a-memory-entry-is-not-asked-of-the-budget", rule: "DW-12", rel: DOOR, from: PIN.askMemory, to: "" },
+  { name: "a-skill-entry-is-not-asked-of-the-budget", rule: "DW-12", rel: DOOR, from: PIN.askSkill, to: "" },
+  { name: "the-skill-is-proposed-before-the-budget-is-asked", rule: "DW-12", rel: DOOR, from: PIN.askSkill, to: "", also: [["  if (!made.ok) return { ok: false, index: one.index, class: 'skill'", "  if (budget !== undefined && !budget(one)) return overBudget(one.index, 'skill');\n  if (!made.ok) return { ok: false, index: one.index, class: 'skill'"]] },
+  { name: "the-door-does-not-hand-the-budget-to-the-memory-entry", rule: "DW-12", rel: DOOR, from: PIN.doorMemoryCall, to: "memoryEntry(sys, root, caller, one)" },
+  { name: "the-door-does-not-hand-the-budget-to-the-skill-entry", rule: "DW-12", rel: DOOR, from: PIN.doorSkillCall, to: "skillEntry(sys, root, caller, one, state))" },
+  { name: "the-runner-gives-the-door-no-budget", rule: "DW-12", rel: RUNNER, from: PIN.runnerBudget, to: ", doorState)," },
+  { name: "the-runner-does-not-import-the-budget", rule: "DW-12", rel: RUNNER, from: PIN.runnerBudgetImport, to: "const proposalBudgetOf = (..._args: unknown[]) => (): boolean => true;" },
+  { name: "the-budget-is-at-the-digest-bound", rule: "DW-12", rel: BUDGET, from: "PROPOSALS_BUDGET_BYTES = 6 * 1024 * 1024;", to: "PROPOSALS_BUDGET_BYTES = 8 * 1024 * 1024;" },
+  { name: "the-budget-leaves-no-room-for-the-file-overhead", rel: BUDGET, rule: "DW-12", from: "PROPOSAL_FILE_OVERHEAD_BYTES = 64 * 1024;", to: "PROPOSAL_FILE_OVERHEAD_BYTES = 3 * 1024 * 1024;" },
+  { name: "the-entry-size-is-not-counted", rule: "DW-12", rel: BUDGET, from: PIN.budgetFits, to: "return used !== null && used <= PROPOSALS_BUDGET_BYTES;" },
+  { name: "an-unmeasurable-store-counts-as-empty", rule: "DW-12", rel: BUDGET, from: PIN.budgetFits, to: "return used === null || used + entryBytesBound(entry) <= PROPOSALS_BUDGET_BYTES;" },
+  { name: "the-estimate-leaves-out-the-fixed-overhead", rule: "DW-12", rel: BUDGET, from: PIN.budgetOverhead, to: "+ 0;" },
+  { name: "the-estimate-ignores-the-text", rule: "DW-12", rel: BUDGET, from: PIN.budgetEstimate, to: "0" },
+  { name: "the-skills-store-is-not-measured", rule: "DW-12", rel: BUDGET, from: PIN.budgetRoots, to: "const STORE_ROOTS: readonly string[] = ['.projectops/memory'];" },
+  { name: "a-link-in-a-store-is-measured-as-a-file", rule: "DW-12", rel: BUDGET, from: PIN.budgetLink, to: "if (stat === null) return false;" },
+  { name: "the-stores-are-measured-once", rule: "DW-12", rel: BUDGET, from: PIN.budgetAgain, to: "const used = storeBytesNow(fs, root);\n  return (entry) => {" },
+  { name: "a-store-that-is-not-a-directory-is-skipped", rule: "DW-12", rel: BUDGET, from: PIN.budgetUnmeasurable, to: "if (parent.kind !== 'directory') return 0;" },
   // DW-R
   { name: "validate-all-omits-this-validator", rule: "DW-R", rel: VA, from: `  "${THIS}",\n`, to: "" },
   { name: "the-cached-runner-omits-this-validator", rule: "DW-R", rel: CR, from: `  "${THIS}",\n`, to: "" },
@@ -320,6 +378,8 @@ function check(raw) {
   // DW-3
   if (!has(door, PIN.memoryDuplicate, PIN.skillDuplicate, PIN.skillWanted)) E("DW-3", "an entry that is already pending is not answered as a duplicate");
 
+  if (!has(door, PIN.sameTargetCall, PIN.sameLedger, PIN.sameOldText, PIN.sameNoOldText)) E("DW-3", "the duplicate test ignores what an entry acts on: two requests for different targets collapse into one proposal");
+
   // DW-4
   if (!runner.includes(PIN.caller)) E("DW-4", "the caller is not the worker the loop ran, in the implementer role, in this session");
   if (/doorFindings\.value/.test(runner)) E("DW-4", "something of the caller is read from the findings record");
@@ -368,6 +428,22 @@ function check(raw) {
   if (/\.(?:message|content|text|files|oldText|targetEntry)\b/.test(step)) E("DW-11", "the step reads a message or the worker's text");
   if (!has(step, PIN.refusedLine, PIN.boundedLines)) E("DW-11", "a refused entry line is not a code alone, or the lines are not bounded");
   if (count(runner, "lines.push(...door") !== 1 || (runner.match(/\bdoor\b/g) || []).length !== 3) E("DW-11", "the runner uses the door's answer for anything but its lines and its baseline");
+
+  // DW-12: the door asks a budget before it writes, the loop gives it one measured as the digest measures, and the budget is a line under the digest bound
+  const budgetSrc = code(raw[BUDGET]);
+  const askedBeforeWrite = (ask, write) => door.indexOf(ask) >= 0 && door.indexOf(write) > door.indexOf(ask);
+  if (!has(door, PIN.doorBudgetType, PIN.doorBudgetCode, PIN.doorMemoryCall, PIN.doorSkillCall)) E("DW-12", "the door does not take a budget, hand it to each entry, or refuse with its own closed code");
+  if (!askedBeforeWrite(PIN.askMemory, "proposeMemoryWrite(sys, root, caller, request)") || !askedBeforeWrite(PIN.askSkill, "proposeSkill(sys, root,")) E("DW-12", "an entry is proposed without the budget having been asked first");
+  if (!has(runner, PIN.runnerBudget, PIN.runnerBudgetImport)) E("DW-12", "the loop does not give the door a budget measured on the file system the guard reads");
+  const budgetBytes = /export const PROPOSALS_BUDGET_BYTES = (\d+) \* 1024 \* 1024;/.exec(budgetSrc);
+  const overheadBytes = /export const PROPOSAL_FILE_OVERHEAD_BYTES = (\d+) \* 1024;/.exec(budgetSrc);
+  const digestBytes = /export const MAX_STORE_DIGEST_TOTAL_BYTES = (\d+) \* 1024 \* 1024;/.exec(code(raw[DIGEST]));
+  if (!budgetBytes || !overheadBytes || !digestBytes) E("DW-12", "the budget, the file overhead or the digest bound is not a plain number of mebibytes or kibibytes");
+  else {
+    const room = Number(digestBytes[1]) * 1048576 - Number(budgetBytes[1]) * 1048576 - Number(overheadBytes[1]) * 1024;
+    if (Number(budgetBytes[1]) < 1 || room < 1048576) E("DW-12", "the budget plus one file's overhead is not at least 1 MiB under the bound the store digest refuses above");
+  }
+  if (!has(budgetSrc, PIN.budgetFits, PIN.budgetOverhead, PIN.budgetEstimate, PIN.budgetRoots, PIN.budgetLink, PIN.budgetAgain, PIN.budgetUnmeasurable)) E("DW-12", "the budget does not measure both store roots as the digest does, count the entry, or refuse a store it cannot measure");
 
   // DW-R: registered in both runners, identical, immediately before the memory stores validator
   const a = modulesOf(raw[VA]);

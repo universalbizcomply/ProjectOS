@@ -32,7 +32,26 @@ export const MAX_FINDINGS_RECORD_CHARS = 1_048_576;
 /** What one author may have waiting for the owner through the door, so one worker cannot fill the queue the owner reads (fix round 1, L2). */
 export const MAX_PENDING_MEMORY_PER_AUTHOR = 10;
 
-export type AgentDoorCode = 'PROPOSAL_DOOR_CALLER_NOT_WORKER' | 'PROPOSAL_DOOR_UNREADABLE' | 'PROPOSAL_DOOR_TOO_LARGE' | 'PROPOSAL_DOOR_AUTHOR_QUEUE_FULL';
+export type AgentDoorCode =
+  | 'PROPOSAL_DOOR_CALLER_NOT_WORKER'
+  | 'PROPOSAL_DOOR_UNREADABLE'
+  | 'PROPOSAL_DOOR_TOO_LARGE'
+  | 'PROPOSAL_DOOR_AUTHOR_QUEUE_FULL'
+  | 'PROPOSAL_DOOR_BUDGET';
+
+/**
+ * Whether one more proposal fits in the room the stores are allowed (PROJECTOS-PROPOSAL-DOOR-WIRING1A, rule DW-12). The loop gives it, measured the way the store digest
+ * measures, so a worker cannot fill the stores past what the guard can digest and lock every later run out. Absent, nothing is measured (a caller that is not the loop).
+ */
+export type ProposalBudget = (entry: FindingsMemoryRequest | FindingsSkillRequest) => boolean;
+
+const overBudget = (index: number, entryClass: 'memory' | 'skill'): DoorEntryOutcome => ({
+  ok: false,
+  index,
+  class: entryClass,
+  code: 'PROPOSAL_DOOR_BUDGET',
+  message: 'The memory and skill stores have no room left for this proposal, so it was not made. The owner decides what is waiting, and then it can be asked again.',
+});
 
 /** Who is asking, from the kernel. Never read from the record. */
 export interface ProposalDoorCaller {
@@ -80,7 +99,18 @@ function parsedRecord(text: string): { readonly ok: true; readonly record: unkno
 
 const sameAuthor = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
 
-function memoryEntry(sys: System, root: string, caller: ProposalDoorCaller, one: FindingsMemoryRequest): DoorEntryOutcome {
+/**
+ * THE TARGET IS PART OF THE ENTRY (fix round, LOW-1). Two replaces with the same new content that act on different entries, or two decisions that point at different
+ * ledger records, are different requests. A held proposal keeps the whole entry its `oldText` resolved to, so a request names the same one when its `oldText` is found in it.
+ */
+function sameTarget(held: { readonly targetEntry: string | null; readonly ledgerRef: string | null }, request: FindingsMemoryRequest['request']): boolean {
+  if (held.ledgerRef !== (request.ledgerRef ?? null)) return false;
+  const wantedOld = normalizedEntryKey(request.oldText ?? '');
+  if (wantedOld === '') return held.targetEntry === null;
+  return held.targetEntry !== null && normalizedEntryKey(held.targetEntry).includes(wantedOld);
+}
+
+function memoryEntry(sys: System, root: string, caller: ProposalDoorCaller, one: FindingsMemoryRequest, budget?: ProposalBudget): DoorEntryOutcome {
   const { request } = one;
   const pending = listPendingMemoryProposals(sys, root).pending;
   if (request.op !== 'remove') {
@@ -92,6 +122,7 @@ function memoryEntry(sys: System, root: string, caller: ProposalDoorCaller, one:
         held.op === request.op &&
         held.kind === request.kind &&
         normalizedEntryKey(held.content ?? '') === wanted &&
+        sameTarget(held, request) &&
         sameAuthor(held.provenance.author, caller.author),
     );
     if (same !== undefined) return { ok: true, index: one.index, class: 'memory', id: same.id, proposalHash: same.proposalHash, state: 'pending', duplicate: true };
@@ -105,6 +136,7 @@ function memoryEntry(sys: System, root: string, caller: ProposalDoorCaller, one:
       message: `${MAX_PENDING_MEMORY_PER_AUTHOR} of this author's proposals are already waiting for the owner. Nothing was proposed.`,
     };
   }
+  if (budget !== undefined && !budget(one)) return overBudget(one.index, 'memory');
   const made = proposeMemoryWrite(sys, root, caller, request);
   if (!made.ok) return { ok: false, index: one.index, class: 'memory', code: made.refusal.code, message: made.refusal.message };
   return { ok: true, index: one.index, class: 'memory', id: made.value.id, proposalHash: made.value.proposalHash, state: 'pending', duplicate: false };
@@ -113,10 +145,11 @@ function memoryEntry(sys: System, root: string, caller: ProposalDoorCaller, one:
 const filesKey = (files: readonly { readonly path: string; readonly text: string }[]): string =>
   JSON.stringify([...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).map(({ path, text }) => [path, text]));
 
-function skillEntry(sys: System, root: string, caller: ProposalDoorCaller, one: FindingsSkillRequest, state?: SkillStatePorts): DoorEntryOutcome {
+function skillEntry(sys: System, root: string, caller: ProposalDoorCaller, one: FindingsSkillRequest, state?: SkillStatePorts, budget?: ProposalBudget): DoorEntryOutcome {
   const wanted = filesKey(one.files);
   const same = listPendingSkillProposals(sys, root).pending.find((pending) => pending.provenance.author === caller.author && filesKey(pending.files) === wanted);
   if (same !== undefined) return { ok: true, index: one.index, class: 'skill', id: same.id, proposalHash: same.proposalHash, state: 'pending', duplicate: true };
+  if (budget !== undefined && !budget(one)) return overBudget(one.index, 'skill');
   const made = proposeSkill(sys, root, { actor: caller.author, role: caller.role, session: caller.session }, { files: one.files }, state);
   if (!made.ok) return { ok: false, index: one.index, class: 'skill', code: made.refusal.code, message: made.refusal.message };
   return { ok: true, index: one.index, class: 'skill', id: made.value.id, proposalHash: made.value.proposalHash, state: 'pending', duplicate: false };
@@ -126,7 +159,7 @@ function skillEntry(sys: System, root: string, caller: ProposalDoorCaller, one: 
  * Turn the `proposals` entry of one findings record into pending proposals. `findingsText` is the record's text, or null when
  * there is none. Every accepted entry is pending and pinned by its hash, and every refused one says why.
  */
-export function openProposalDoor(sys: System, root: string, caller: ProposalDoorCaller, findingsText: string | null, state?: SkillStatePorts): ProposalDoorOutcome {
+export function openProposalDoor(sys: System, root: string, caller: ProposalDoorCaller, findingsText: string | null, state?: SkillStatePorts, budget?: ProposalBudget): ProposalDoorOutcome {
   if (findingsText === null) return { findings: 'absent', entries: [] };
   if (caller.role === 'owner') {
     return { findings: 'read', entries: [whole('PROPOSAL_DOOR_CALLER_NOT_WORKER', 'A findings record is the worker\'s, so its proposals are not made in the owner\'s role. Nothing was proposed.')] };
@@ -137,7 +170,7 @@ export function openProposalDoor(sys: System, root: string, caller: ProposalDoor
   const parsed = parsedRecord(findingsText);
   if (!parsed.ok) return { findings: 'unreadable', entries: [whole('PROPOSAL_DOOR_UNREADABLE', 'The findings record is not valid JSON, so it asked for nothing.')] };
   const read = readFindingsProposals(parsed.record, (value) => types.isProxy(value));
-  const accepted = read.requests.map((one) => (one.class === 'memory' ? memoryEntry(sys, root, caller, one) : skillEntry(sys, root, caller, one, state)));
+  const accepted = read.requests.map((one) => (one.class === 'memory' ? memoryEntry(sys, root, caller, one, budget) : skillEntry(sys, root, caller, one, state, budget)));
   const refused = read.refused.map((one): DoorEntryOutcome => ({ ok: false, index: one.index, class: null, code: one.code, message: one.message }));
   return { findings: 'read', entries: [...accepted, ...refused].sort((a, b) => (a.index ?? -1) - (b.index ?? -1)) };
 }
