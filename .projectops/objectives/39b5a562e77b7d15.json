@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "39b5a562e77b7d15",
+  "objective": "Plan v1.44: add PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A (a fixed findings clause in the shared worker instruction, and one baseline commit in the scratch checkout) and PROJECTOS-HOST-REQUEST-STORE-SEAL1A (RequestAdmissionStore no longer returns a session digest), and make PROJECTOS-STAGE4-EXIT-PROOF1A depend on the first (owner approved 2026-11-18).",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "621a2b4f1a4a0740f6f233720c3d9cf682075ae4",
+  "submittedAt": "2026-11-18T17:06:45.516Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
