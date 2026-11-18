@@ -25,6 +25,7 @@ import { workforce } from './commands/workforce.js';
 import { stop } from './commands/stop.js';
 import { tenant } from './commands/tenant.js';
 import { memory } from './commands/memory.js';
+import { roles } from './commands/roles.js';
 import { platformStopDirOf, platformStopRefusal } from './loop/platformStop.js';
 import { CORE_VERSION } from '@projectos/core';
 
@@ -97,6 +98,7 @@ export const HELP: readonly string[] = [
   '  stop [engage|status|lift]    Emergency stop for this Windows account: engage (no authority), status, lift (a person, in a terminal)',
   '  tenant [show|receipt]        Whose work this is (read-only), and the console confirmation of the tenant registry (needs a terminal)',
   '  memory <index|delete|proposals|approve|reject>  Memory: build the index, and delete or decide proposals as the owner (needs a terminal)',
+  '  roles                        Which authorised worker or route fills each role, from committed bytes (read-only)',
   '  version                      Print versions',
   '  help                         Show this help',
 ];
@@ -146,6 +148,8 @@ export function readOnlyUnderPlatformStop(command: string, positionals: readonly
       return sub === undefined || sub === 'show';
     case 'memory':
       return sub === 'proposals';
+    case 'roles':
+      return sub === undefined;
     default:
       return false;
   }
@@ -166,6 +170,8 @@ export function run(ctx: CommandContext, argv: readonly string[]): CommandResult
       return tenant(ctx, flags, positionals);
     case 'memory':
       return memory(ctx, flags, positionals);
+    case 'roles':
+      return roles(ctx, flags, positionals);
     case 'phase':
       return phase(ctx, flags, positionals);
     case 'approve':

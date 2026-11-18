@@ -10,6 +10,7 @@
  */
 
 import { COMMIT_SHA, createProviderRegistry, parseCommittedPricing, type PricingTable, type ProviderRegistry } from '@projectos/core';
+import { parseRoleRegistry, type KnownRoleSources, type RoleRefusal, type RoleRegistry } from '@projectos/core';
 
 export interface CommittedRead {
   (path: string): { readonly text: string; readonly commit: string } | null;
@@ -67,4 +68,31 @@ export function loadCommittedBrokerConfig(params: BrokerConfigParams): BrokerCon
   if (!pricing.ok) problems.push(...pricing.problems);
   if (Array.isArray(registry) || !pricing.ok) return { ok: false, problems };
   return { ok: true, registry: registry.registry, pricing: pricing.table };
+}
+
+export interface RoleRegistryParams {
+  readonly read: CommittedRead;
+  readonly path: string;
+  /** What the project already authorises, read by the caller from its own committed records. */
+  readonly known: KnownRoleSources;
+}
+
+export type RoleRegistryLoad =
+  | { readonly ok: true; readonly registry: RoleRegistry; readonly commit: string; readonly text: string }
+  | { readonly ok: false; readonly refusals: readonly RoleRefusal[] };
+
+const NOT_COMMITTED_NEXT = 'Commit the registry file. A copy that exists only in the working tree, or at no commit, is never read.';
+
+/**
+ * The role registry (PROJECTOS-PROVIDER-ROLES1A), read through the same committed-bytes read as the broker's
+ * own records. The path is judged first, and a copy with no commit is refused, so an edit in place cannot be
+ * trusted. The text then goes to the pure core judge, with what the project already authorises.
+ */
+export function loadCommittedRoleRegistry(params: RoleRegistryParams): RoleRegistryLoad {
+  const found = committedText(params.read, params.path);
+  if (typeof found === 'string') {
+    return { ok: false, refusals: [{ code: 'NOT_COMMITTED', field: 'registry', reason: found, next: NOT_COMMITTED_NEXT }] };
+  }
+  const parsed = parseRoleRegistry(found.text, params.known);
+  return parsed.ok ? { ok: true, registry: parsed.registry, commit: found.commit, text: found.text } : { ok: false, refusals: parsed.refusals };
 }

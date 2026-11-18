@@ -204,6 +204,8 @@ const MODULES = [
   "val-projectos-memory-owner-commands1a",
   // PROJECTOS-PROPOSAL-DOOR-WIRING1A - the loop calls the proposal door once per attempt after the stores were judged and before the evidence: a worker's findings proposals become pending proposals pinned by hash, a skill proposal is minted so it can be reviewed, the store guard is re-baselined for exactly the files the door made and never exempts proposals, the proposals directories are git-ignored, a deterministic compaction has its own summariser kind, and nothing but the runner calls the door.
   "val-projectos-proposal-door-wiring1a",
+  // PROJECTOS-PROVIDER-ROLES1A - a committed role registry names which already-authorised worker, or the committed gatekeeper route, fills each role, with capabilities from a closed list and a cost class; read from committed bytes, a differing working copy is flagged; selection and recording only, nothing consults it and only the roles report imports the model broker.
+  "val-projectos-provider-roles1a",
   // PROJECTOS-MEMORY-STORES1A - the six memory classes on existing stores; one index file per tenant and project; an injected clock and file system; no credential, over-cap body or hidden text reaches a prompt; one proposal door; a worker's direct write to the memory or skill store is refused.
   "val-projectos-memory-stores1a",
   // PROJECTOS-MEMORY-PROVENANCE1A - committed decisions outrank recollection; decisions, plan memory and approved memory are read from committed bytes and a differing working copy is refused; a citation from an index built before HEAD is marked stale; retention per class; deleting approved memory is the P5 action memory-delete, owner only, and every deletion is recorded.

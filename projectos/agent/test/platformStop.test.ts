@@ -304,6 +304,7 @@ const READ_ONLY_UNDER_STOP: readonly (readonly string[])[] = [
   ['tenant'],
   ['tenant', 'show'],
   ['memory', 'proposals'],
+  ['roles'],
   ['closure'],
   ['closure', 'status', '--id', 'P'],
   ['phase'],
