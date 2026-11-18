@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-CONTEXT-CODEX1A",
   "project": "ProjectOS",
   "objective": "Stage 3 carry-forward A. Adds codex-implementer-cli to the context-pointable kinds: the adapter receives the loop-derived, project-relative path of the stored-context file through an injected function and names it in both fixed sentences. A brief naming stored context the worker cannot be pointed at starts nothing.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-18T14:11:35.128Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-18T14:11:37.247Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-CONTEXT-CODEX1A:owner-closure:5785b504"
     }
   ]
 }
