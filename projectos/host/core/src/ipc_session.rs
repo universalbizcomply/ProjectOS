@@ -479,7 +479,7 @@ pub enum RequestAdmissionError {
 /// use projectos_host_core::{RequestAdmissionError, RequestAdmissionStore, REQUEST_CORRELATION_LEN};
 /// struct MyStore;
 /// impl RequestAdmissionStore for MyStore {
-///     fn session_digest(&self) -> [u8; 32] { [0u8; 32] }
+///     fn is_bound_to(&self, _s: &projectos_host_core::BoundIpcSession) -> bool { true }
 ///     fn last_sequence(&self) -> u64 { 0 }
 ///     fn is_correlation_seen(&self, _c: &[u8; REQUEST_CORRELATION_LEN]) -> bool { false }
 ///     fn record(&mut self, _s: u64, _c: [u8; REQUEST_CORRELATION_LEN])
@@ -495,9 +495,40 @@ pub enum RequestAdmissionError {
 /// fn last<S: RequestAdmissionStore + ?Sized>(s: &S) -> u64 { s.last_sequence() }
 /// fn _read(s: &InMemoryRequestAdmissionStore) -> u64 { last(s) }
 /// ```
+///
+/// A store's session digest is not readable by any caller. The two blocks below are identical to the
+/// positive control that follows them except for the one method they call, so the refusal is about
+/// that method not existing on the trait, not about an import or a type that does not resolve. The
+/// first reads it through a generic bound, the second through the concrete store:
+///
+/// ```compile_fail
+/// use projectos_host_core::RequestAdmissionStore;
+/// fn read<S: RequestAdmissionStore + ?Sized>(s: &S) -> [u8; 32] { s.session_digest() }
+/// ```
+///
+/// ```compile_fail
+/// use projectos_host_core::{InMemoryRequestAdmissionStore, RequestAdmissionStore};
+/// fn read(s: &InMemoryRequestAdmissionStore) -> [u8; 32] { s.session_digest() }
+/// ```
+///
+/// The positive control for those two, and the only question a store answers about its session: is
+/// it bound to THIS one. It works through a generic bound, on the concrete store and on a trait
+/// object (the trait stays object-safe):
+///
+/// ```
+/// use projectos_host_core::{BoundIpcSession, InMemoryRequestAdmissionStore, RequestAdmissionStore};
+/// fn generic<S: RequestAdmissionStore + ?Sized>(s: &S, b: &BoundIpcSession) -> bool {
+///     s.is_bound_to(b)
+/// }
+/// fn concrete(s: &InMemoryRequestAdmissionStore, b: &BoundIpcSession) -> bool { s.is_bound_to(b) }
+/// fn dynamic(s: &dyn RequestAdmissionStore, b: &BoundIpcSession) -> bool { s.is_bound_to(b) }
+/// fn _last(s: &InMemoryRequestAdmissionStore) -> u64 { s.last_sequence() }
+/// ```
 pub trait RequestAdmissionStore: sealed::Sealed {
-    /// The session this store belongs to. Compared before anything is recorded.
-    fn session_digest(&self) -> [u8; 32];
+    /// Whether this store belongs to `session`. Asked before anything is recorded.
+    ///
+    /// A predicate, not a getter: the store never hands out the digest it is bound to.
+    fn is_bound_to(&self, session: &BoundIpcSession) -> bool;
     /// The highest sequence admitted so far. Zero when nothing has been admitted.
     fn last_sequence(&self) -> u64;
     /// Whether this correlation was already admitted on this session.
@@ -568,8 +599,8 @@ impl InMemoryRequestAdmissionStore {
 impl sealed::Sealed for InMemoryRequestAdmissionStore {}
 
 impl RequestAdmissionStore for InMemoryRequestAdmissionStore {
-    fn session_digest(&self) -> [u8; 32] {
-        self.session_digest
+    fn is_bound_to(&self, session: &BoundIpcSession) -> bool {
+        self.session_digest == session.session_digest()
     }
     fn last_sequence(&self) -> u64 {
         self.last_sequence
@@ -746,7 +777,7 @@ impl BoundIpcSession {
         correlation: [u8; REQUEST_CORRELATION_LEN],
         sequence: u64,
     ) -> Result<AdmittedRequest, RequestAdmissionError> {
-        if store.session_digest() != self.session_digest {
+        if !store.is_bound_to(self) {
             return Err(RequestAdmissionError::StoreNotBoundToSession);
         }
         if sequence <= store.last_sequence() {

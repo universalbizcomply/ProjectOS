@@ -590,6 +590,25 @@ fn a_store_from_another_session_is_refused() {
 }
 
 #[test]
+fn a_store_answers_only_whether_it_is_bound_to_a_session() {
+    let c = FixtureClock::new(150);
+    let rv = FixtureRuntimeInstanceVerifier::new();
+    let v1 = FixtureIpcSessionVerifier::new();
+    let v2 = FixtureIpcSessionVerifier::new();
+    let s1 = mint(&c, &rv, &v1);
+    let s2 = mint(&c, &rv, &v2);
+
+    let store = InMemoryRequestAdmissionStore::for_session(&s1);
+    assert!(store.is_bound_to(&s1), "a store is bound to the session it was opened for");
+    assert!(!store.is_bound_to(&s2), "a store is not bound to another session");
+
+    // Through the trait object the host composition uses.
+    let dynamic: &dyn RequestAdmissionStore = &store;
+    assert!(dynamic.is_bound_to(&s1));
+    assert!(!dynamic.is_bound_to(&s2));
+}
+
+#[test]
 fn a_refused_request_records_nothing() {
     let c = FixtureClock::new(150);
     let rv = FixtureRuntimeInstanceVerifier::new();

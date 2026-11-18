@@ -148,6 +148,30 @@ fn main(){
 }
 `;
 
+// The request-admission store (PROJECTOS-HOST-REQUEST-STORE-SEAL1A). A store may be asked whether it
+// is bound to a session; it may not hand its session digest to anyone. The control names the SAME
+// trait, the SAME concrete store and the SAME receiver shapes the two store negatives below use, and
+// calls the methods that DO exist, so those negatives cannot be failing for a missing import, a type
+// that does not resolve or a trait that is not in scope.
+const STORE_CONTROL = `
+use projectos_host_core as c;
+use projectos_host_core::RequestAdmissionStore as _;
+fn generic<S: c::RequestAdmissionStore + ?Sized>(s: &S, b: &c::BoundIpcSession) -> (u64, bool) {
+    (s.last_sequence(), s.is_bound_to(b))
+}
+fn concrete(s: &c::InMemoryRequestAdmissionStore, b: &c::BoundIpcSession) -> (u64, bool) {
+    (s.last_sequence(), s.is_bound_to(b))
+}
+fn main(){
+    let _ = generic::<c::InMemoryRequestAdmissionStore>;
+    let _ = concrete;
+    println!("STORE_CONTROL_OK");
+}
+`;
+
+// A refusal for the store negatives must be the right refusal: the method does not exist.
+const NO_SESSION_DIGEST_METHOD = /no method named `session_digest` found/;
+
 const NEGATIVES = [
   {
     name: "neg_runtime_instance_digest",
@@ -158,6 +182,18 @@ const NEGATIVES = [
     name: "neg_ipc_session_digest",
     why: "the IPC session digest is publicly readable",
     body: `use projectos_host_core as c;\nfn f(s: &c::BoundIpcSession) -> [u8;32] { s.session_digest() }\nfn main(){ let _ = f; }`,
+  },
+  {
+    name: "neg_store_session_digest_generic",
+    why: "a request-admission store's session digest is readable through the trait (generic bound)",
+    body: `use projectos_host_core as c;\nuse projectos_host_core::RequestAdmissionStore as _;\nfn f<S: c::RequestAdmissionStore + ?Sized>(s: &S) -> [u8;32] { s.session_digest() }\nfn main(){ let _ = f::<c::InMemoryRequestAdmissionStore>; }`,
+    expect: NO_SESSION_DIGEST_METHOD,
+  },
+  {
+    name: "neg_store_session_digest_concrete",
+    why: "a request-admission store's session digest is readable through the concrete store",
+    body: `use projectos_host_core as c;\nuse projectos_host_core::RequestAdmissionStore as _;\nfn f(s: &c::InMemoryRequestAdmissionStore) -> [u8;32] { s.session_digest() }\nfn main(){ let _ = f; }`,
+    expect: NO_SESSION_DIGEST_METHOD,
   },
   {
     name: "neg_sink_without_authority",
@@ -374,9 +410,14 @@ function run() {
   // ---- compile proofs ----
   const control = compileConsumer("sewf_control", CONTROL);
   if (!control.ok) E("DEFAULT-graph control failed to compile (setup broken):\n" + control.out.slice(0, 1800));
+  const storeControl = compileConsumer("sewf_store_control", STORE_CONTROL);
+  if (!storeControl.ok)
+    E("STORE control failed to compile (the store negatives would prove nothing):\n" + storeControl.out.slice(0, 1800));
   for (const neg of NEGATIVES) {
     const r = compileConsumer(neg.name, neg.body);
     if (r.ok) E("EXPECTED-FACTS LEAK POSSIBLE — " + neg.why + " (" + neg.name + " compiled)");
+    else if (neg.expect && !neg.expect.test(r.out))
+      E("NEGATIVE " + neg.name + " failed for the wrong reason (expected " + neg.expect + "):\n" + r.out.slice(0, 1200));
   }
 
   return errors;
