@@ -301,14 +301,19 @@ function readRole(role: RoleId, raw: unknown, known: KnownRoleSources): RoleRead
 }
 
 function sourceProblems(known: KnownRoleSources): RoleRefusal[] {
-  const ok =
-    typeof known === 'object' &&
-    known !== null &&
-    Array.isArray(known.workers) &&
-    known.workers.every((w) => typeof w === 'object' && w !== null && typeof w.workerId === 'string' && Array.isArray(w.grants) && w.grants.every((g: unknown) => typeof g === 'string')) &&
-    (known.gatekeeperTransportId === null || typeof known.gatekeeperTransportId === 'string') &&
-    typeof known.rateCards === 'object' &&
-    known.rateCards !== null;
+  let ok = false;
+  try {
+    ok =
+      typeof known === 'object' &&
+      known !== null &&
+      Array.isArray(known.workers) &&
+      known.workers.every((w) => typeof w === 'object' && w !== null && typeof w.workerId === 'string' && Array.isArray(w.grants) && w.grants.every((g: unknown) => typeof g === 'string')) &&
+      (known.gatekeeperTransportId === null || typeof known.gatekeeperTransportId === 'string') &&
+      typeof known.rateCards === 'object' &&
+      known.rateCards !== null;
+  } catch {
+    ok = false;
+  }
   return ok ? [] : [refusal('BAD_SOURCES', 'known', 'what the project authorises could not be read', 'Fix the committed project-config and gatekeeper records first.')];
 }
 
@@ -328,8 +333,7 @@ function buildRegistry(entries: readonly RoleEntry[]): RoleRegistry {
   });
 }
 
-/** Judge an already-parsed value against what the project authorises. Reads each field once; never throws. */
-export function validateRoleRegistry(raw: unknown, known: KnownRoleSources): RoleParse {
+function judgeRoleRegistry(raw: unknown, known: KnownRoleSources): RoleParse {
   const bad = sourceProblems(known);
   if (bad.length > 0) return { ok: false, refusals: bad };
   const snap = safeSnapshot(raw);
@@ -353,6 +357,15 @@ export function validateRoleRegistry(raw: unknown, known: KnownRoleSources): Rol
   const clash = sharedWorker(roles);
   if (clash !== null) refusals.push(refusal('SAME_WORKER', 'roles', `the implementer and the reviewer are both ${safeName(clash)}; a worker never reviews its own work`, 'Name a different worker for the reviewer.'));
   return refusals.length > 0 ? { ok: false, refusals: Object.freeze(refusals.slice(0, MAX_ROLE_REFUSALS)) } : { ok: true, registry: buildRegistry(entries) };
+}
+
+/** Judge an already-parsed value against what the project authorises. Reads each field once; a hostile input is a refusal, never a throw. */
+export function validateRoleRegistry(raw: unknown, known: KnownRoleSources): RoleParse {
+  try {
+    return judgeRoleRegistry(raw, known);
+  } catch {
+    return { ok: false, refusals: [refusal('NOT_A_RECORD', 'registry', 'the registry could not be judged as plain data', 'Write it as plain JSON text, numbers, lists and records only.')] };
+  }
 }
 
 /**

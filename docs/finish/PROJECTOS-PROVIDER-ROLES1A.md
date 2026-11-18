@@ -28,6 +28,27 @@ field that could say so.
 4. **Test file names.** Both new test files are `modelBroker-roles.test.ts`, because PP-24 treats a test whose name starts
    `modelBroker-` or `modelBroker.` as inside the module.
 
+## Fix round after the ECC review (APPROVE WITH CHANGES, 8 items)
+
+Each item has its test first, and its named mutation in `val-projectos-provider-roles1a.cjs` (now 125) or `val-projectos-port-providers1a.cjs`.
+
+| # | Change | Pinned by |
+|---|---|---|
+| 1 | The registry requires an implementer (`NO_IMPLEMENTER`). Each capability belongs to one role (`implement` to the implementer, `review` to the reviewer, the three gatekeeper ones to the gatekeeper); a role must carry its own required capability and none that is another's (`CAPABILITY_MISMATCH`). A reviewer whose named worker holds any non-read or ambiguous grant is refused (`REVIEWER_NOT_READ_ONLY`): `KnownRoleWorker` now carries the grants, which the report takes from `argvGrants` of the committed worker args, and the test `agrees with roleBindingProblems on %s` proves the registry and the loop (`roleBindingProblems`) agree on nine grant shapes | core `a role fits its worker and its capabilities`; agent `the registry agrees with the loop...`; validator PR-13 (14 mutations), PR-10 (3 more) |
+| 2 | **Not recoverable.** The review's item 2 was lost in the handoff and is not in this document or the delta. Every numbered delta rule was re-read against the code and each has a test and a mutation; none was found unenforced. One gap of the same kind was closed on my own judgement: a hostile `known` (the sources argument) used to be able to throw out of the judge; it is now `BAD_SOURCES`. The lead should compare against the review text | core `text that is not a string, and sources that throw...`; PR-4 `hostile-sources-throw` |
+| 3 | Validation never throws: a Proxy (ownKeys, getPrototypeOf, descriptor or get trap throwing, revoked), a throwing getter (refused `ACCESSOR`, never called), a `toJSON` (never called), hostile text, hostile sources and a hostile role name are typed refusals or `null` | core `a hostile object cannot make validation throw` (5 tests); PR-4 `snapshot-throw-not-caught`, `judge-throw-not-caught`, `hostile-sources-throw` (the two outer guards overlap on purpose: each alone survives its mutation, both off are killed by the tests) |
+| 4 | Notes refuse C1 controls, DEL, zero-width, bidi marks, overrides and isolates, line and paragraph separators, the BOM and Unicode tag characters (ten cases) | core `notes carry no invisible or reordering characters`; PR-4 `tag-characters-pass-in-notes`, `c1-controls-pass-in-notes`, `bidi-overrides-pass-in-notes`, `control-character-test-off` |
+| 5 | A key written twice in the registry text is refused (`DUPLICATE_KEY`), including an escaped spelling of the same key, and the same key in two records is not mistaken for one; the refusal names the key, never a value | core `a key written twice is refused`; PR-4 `duplicate-key-*`, `keys-are-not-remembered` |
+| 6 | An oversize registry is `TOO_LARGE` at both bounds: core caps the text at 16384 bytes before it parses, and the report maps a committed file past the 65536-byte git read bound to `TOO_LARGE` rather than `NOT_COMMITTED` | core size test; agent `a committed file over the read bound is TOO_LARGE`; PR-5 `oversize-*` |
+| 7 | PP-24 (and the same fence in PR-8) now reads backtick imports, string concatenation, a quoted template part, multi-line and bare imports, and refuses in `commands/roles.ts` any run-time `import(`/`require(` and any re-export. A MISSING `commands/roles.ts` now FAILS PP-24 (before, the code passed it as empty) and PR-8. PP also proves the importer scan on 12 must-find and 4 must-leave samples | PP: `roles-ts-is-missing`, `-loads-the-broker-by-template`, `-concatenates-the-broker-path`, `-builds-the-path-in-a-template`, `-reexports-the-broker-barrel`, `-reexports-the-reader`, `-loads-something-at-run-time` plus the samples; PR-8: the same set, plus `another-command-*` for a file outside |
+| 8 | **`agent/test/platformStop.test.ts` was edited in the original build**: one row, `['roles']`, added to the `readOnlyUnderPlatformStop` table so `roles` is classified read-only beside `tenant`, which the "classifies every command" test requires. It is the only change to that file; PR-9 pins the row (`stop-table-row-removed`) | PR-9 |
+
+The registered validator position is unchanged: immediately before `val-projectos-memory-stores1a` in both `validate-all.cjs` and `speed/cached-runner.cjs`.
+
+The new rule ids: **PR-13** (a role fits its capabilities and its worker) is new; PR-4 (hostile input, hidden characters, duplicate keys), PR-5 (read bound), PR-8 (import spellings) and PR-10 (the record is judged by the same capability binding) grew.
+
+**The report, run for real after the round** (`cli.run` with `nodeSystem` against this worktree, not committed): exit 0, the same three roles, so the committed reviewer `claude-reviewer` passes the real read-only grant check against its real committed args.
+
 ## Existing code found
 
 | Found | Where | Used how |
@@ -113,13 +134,13 @@ All read from real output on this machine. Other builds were running at the same
 | core `npm run -s build` | exit 0 |
 | `grep -rn "from 'node:" projectos/core/src/modelBroker` | nothing listed (core stays browser-pure; PR-11 and PP-5 also judge it) |
 | core `npx vitest run` | 116 files, 5047 tests, all pass. A first run, under load from other builds, had 2 failures: `skills-round1.test.ts` (a 150 ms timing bound; passes alone, 73 of 73) and one I did not identify; the second whole run was clean |
-| core `modelBroker-roles.test.ts` | 42 tests pass |
+| core `modelBroker-roles.test.ts` | 42 tests pass in the first build; 69 after the fix round |
 | agent typecheck, **alias run** (`tsc -p tsconfig.alias.json`) | exit 0 |
 | agent `typecheck:all`, **alias run** | 1 error: `test/skillLoad.test.ts(128,26)` `sort` on a `readonly string[]`. A file this phase does not touch |
-| agent `modelBroker-roles.test.ts`, **alias run** | 18 tests pass |
+| agent `modelBroker-roles.test.ts`, **alias run** | 18 tests pass in the first build; 30 after the fix round |
 | agent `platformStop.test.ts`, **alias run** (with the new `roles` row and the "classifies every command" test) | 116 tests pass |
 | agent whole suite, **alias run**, once | 136 of 138 files pass; 4303 tests pass, 1 fails, 10 skipped. The two failing files are not this phase's. `tenantSidecar.test.ts` runs the plain `tsc -p tsconfig.json`, which reads the junction's core and so cannot see the new core exports (the same cause the port-providers finish doc records, and it goes green once the junction sees this core). `loopToolGrants.test.ts` "Every plan v1.9 phase carries writePaths" fails on `PROJECTOS-PROPOSAL-DOOR-WIRING1A` (writePath `.gitignore` is a bare filename) in `docs/projectos-finish-phases.json`, committed at `a0138a0f`, which this phase does not touch |
-| `val-projectos-provider-roles1a` | PASS (86 named mutations killed) |
+| `val-projectos-provider-roles1a` | PASS (86 named mutations killed in the first build; 125 after the fix round, see above) |
 | `val-projectos-port-providers1a` | PASS (17 real files judged; 225 text and 89 behavioural mutations killed) |
 | `val-projectos-kernel-followup1a` | PASS (88 named mutations killed) |
 | `validate-no-secrets` | PASS |

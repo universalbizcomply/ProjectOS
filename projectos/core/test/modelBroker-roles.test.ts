@@ -364,6 +364,49 @@ describe('a hostile object cannot make validation throw (review round, LOW 3)', 
     const hostile = new Proxy({}, { getPrototypeOf() { throw new Error('boom'); } });
     expect(refusedCodes(validateRoleRegistry({ schema: 1, roles: hostile }, KNOWN))).toContain('NOT_A_RECORD');
   });
+
+  it('a throwing getter is refused as ACCESSOR without being called, and a throwing toJSON is never called', () => {
+    let called = 0;
+    const getter = { schema: 1, get roles(): unknown { called += 1; throw new Error('boom'); } };
+    const withToJson = { schema: 1, roles: {}, toJSON(): unknown { called += 1; throw new Error('boom'); } };
+    let a: RoleParse | undefined;
+    let b: RoleParse | undefined;
+    expect(() => { a = validateRoleRegistry(getter, KNOWN); }).not.toThrow();
+    expect(() => { b = validateRoleRegistry(withToJson, KNOWN); }).not.toThrow();
+    expect(a && refusedCodes(a)).toContain('ACCESSOR');
+    expect(b && refusedCodes(b)).not.toContain('NOT_JSON');
+    expect(called).toBe(0);
+  });
+
+  it('a Proxy whose descriptor or get trap throws is refused the same way', () => {
+    const traps = [new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('boom'); }, ownKeys: () => ['a'] }), new Proxy([], { get() { throw new Error('boom'); } })];
+    for (const roles of traps) {
+      let r: RoleParse | undefined;
+      expect(() => { r = validateRoleRegistry({ schema: 1, roles }, KNOWN); }).not.toThrow();
+      expect(r && refusedCodes(r)).toContain('NOT_A_RECORD');
+    }
+  });
+
+  it('text that is not a string, and sources that throw when read, are typed refusals and never a throw', () => {
+    const hostileText = { toString() { throw new Error('boom'); } } as unknown as string;
+    const hostileSources = new Proxy({}, { get() { throw new Error('boom'); } }) as unknown as KnownRoleSources;
+    let a: RoleParse | undefined;
+    let b: RoleParse | undefined;
+    let c: RoleParse | undefined;
+    expect(() => { a = parseRoleRegistry(hostileText, KNOWN); }).not.toThrow();
+    expect(() => { b = validateRoleRegistry(GOOD, hostileSources); }).not.toThrow();
+    expect(() => { c = parseRoleRegistry(JSON.stringify(GOOD), hostileSources); }).not.toThrow();
+    expect(a && refusedCodes(a)).toEqual(['NOT_JSON']);
+    expect(b && refusedCodes(b)).toEqual(['BAD_SOURCES']);
+    expect(c && refusedCodes(c)).toEqual(['BAD_SOURCES']);
+  });
+
+  it('selecting with a hostile role name returns nothing instead of throwing', () => {
+    const registry = parseRoleRegistry(JSON.stringify(GOOD), KNOWN);
+    const hostile = { toString() { throw new Error('boom'); } } as unknown as string;
+    expect(registry.ok && (() => selectForRole(registry.registry, hostile))).not.toThrow();
+    expect(registry.ok && selectForRole(registry.registry, hostile)).toBeNull();
+  });
 });
 
 describe('notes carry no invisible or reordering characters (review round, LOW 4)', () => {

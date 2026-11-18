@@ -11,7 +11,8 @@
  *   PR-2  "a price can be filled in later"        — and a metered cost names no rate card, or a zero price
  *   PR-3  "another capability is harmless"        — and the closed list is open
  *   PR-4  "a reference to the login is fine"      — and a key, a credential or an address field is read; or a hostile
- *         object answers differently the second time; or a huge file is parsed
+ *         object answers differently the second time or makes the judge throw; or a huge file is parsed; or a hidden character
+ *         or a key written twice is let through
  *   PR-5  "the working tree is the same file"     — and the registry is trusted from an edit nobody committed
  *   PR-6  "one worker can do both"                — and the implementer reviews its own work
  *   PR-7  "selection can say yes"                 — and a selection carries a verdict, or a gatekeeper role is
@@ -24,6 +25,8 @@
  *         does not authorise
  *   PR-11 "core can read the file"                — and the pure registry reaches outside itself
  *   PR-12 "let the loop consult it"               — and a run chooses a worker from a registry nobody reviewed for that
+ *   PR-13 "any role may claim any capability"     — and a reviewer claims to implement, no implementer is named, or a reviewer is
+ *         a worker that holds write grants
  *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT rule alone
  * fires. Comments are stripped first. Reads files; runs nothing, calls no provider.
@@ -87,6 +90,22 @@ const TESTS = {
     "a gatekeeper role reports awaiting: it is a route to a decision, and no decision is held here",
     "no selection carries a verdict, an approval or a decision",
     "selecting does not change the registry",
+    "refuses the swap: the reviewer may not be the worker that holds write grants",
+    "refuses a reviewer with any non-read grant, an ambiguous grant, or an unbalanced one, and accepts reads and no grants",
+    "binds capabilities to roles: each role must carry its own, and none that belongs to another",
+    "a gatekeeper may carry any mix of the gatekeeper capabilities so long as it carries gatekeeper-review",
+    "requires an implementer: a registry with only a reviewer or only the gatekeeper is refused",
+    "refuses a Proxy whose ownKeys throws, and a revoked Proxy, as NOT_A_RECORD",
+    "a getPrototypeOf trap that throws is refused the same way",
+    "a throwing getter is refused as ACCESSOR without being called, and a throwing toJSON is never called",
+    "a Proxy whose descriptor or get trap throws is refused the same way",
+    "text that is not a string, and sources that throw when read, are typed refusals and never a throw",
+    "selecting with a hostile role name returns nothing instead of throwing",
+    "still accepts ordinary text with accents and punctuation",
+    "refuses a duplicate implementer role, a duplicate field inside a role and a duplicate top-level key",
+    "sees through an escaped spelling of the same key",
+    "does not mistake the same key in two different records, or a repeated string value, for a duplicate",
+    "names the key, never a value",
   ],
   "projectos/agent/test/modelBroker-roles.test.ts": [
     "loads a registry through the committed reader and asks for that one path: the positive control",
@@ -101,6 +120,10 @@ const TESTS = {
     "refuses when there is no commit to read at, rather than reading the working tree",
     "prints registry text inert and capped: a control character or escape cannot reach the terminal",
     "is dispatched, appears in help and stays available while the platform stop is engaged",
+    "reports TOO_LARGE with exit 2 when git output overflows the read bound",
+    "a file that is simply not committed is still NOT_COMMITTED",
+    "agrees with roleBindingProblems on %s",
+    "the cases include both outcomes, so the agreement is not vacuous",
   ],
 };
 
@@ -110,7 +133,8 @@ const PIN = {
   capabilities: "export const ROLE_CAPABILITIES = ['implement', 'review', 'gatekeeper-review', 'plan-authoring', 'closure-question'] as const;",
   costClasses: "export const COST_CLASSES = ['unmetered', 'metered'] as const;",
   // PR-1
-  workerKnown: "const ok = typeof id === 'string' && known.workerIds.includes(id);",
+  workerKnown: "const worker = typeof id === 'string' ? known.workers.find((w) => w.workerId === id) : undefined;",
+  workerRefused: "if (worker === undefined) return [refusal('UNKNOWN_WORKER',",
   transportKnown: "const ok = typeof id === 'string' && known.gatekeeperTransportId !== null && id === known.gatekeeperTransportId;",
   routeUsed: "...routeProblems(role, row, known, at),",
   unknownWorker: "refusal('UNKNOWN_WORKER',",
@@ -135,7 +159,7 @@ const PIN = {
   capabilityOutside: "if (outside.length > 0) out.push(refusal('UNKNOWN_CAPABILITY',",
   capabilityDuplicate: "if (new Set(list).size !== list.length) out.push(refusal('BAD_CAPABILITIES',",
   capabilityEmpty: "if (list === null || list.length === 0 || list.length > ROLE_CAPABILITIES.length) {",
-  capabilitiesUsed: "...capabilityProblems(row['capabilities'], at),",
+  capabilitiesUsed: "...capabilityProblems(role, row['capabilities'], at),",
   // PR-4
   credentialName: "const CREDENTIAL_NAME = /key|secret|token|cred|passw|endpoint|url|uri|auth|header/i;",
   credentialTest: "const isCredentialName = (name: string): boolean => CREDENTIAL_NAME.test(name);",
@@ -152,7 +176,17 @@ const PIN = {
   symbolKey: "if (typeof name === 'symbol') {",
   nullProto: "const copy: Record<string, unknown> = Object.create(null) as Record<string, unknown>;",
   frozenCopy: "return { value: Object.freeze(copy), refusals };",
-  snapshotTaken: "const snap = snapshotOf(raw, 'registry', 0);",
+  snapshotTaken: "const snap = safeSnapshot(raw);",
+  snapshotGuarded: "return snapshotOf(raw, 'registry', 0);\n  } catch {",
+  judgeGuarded: "return judgeRoleRegistry(raw, known);\n  } catch {",
+  sourcesGuarded: "  } catch {\n    ok = false;",
+  controlChars: "const CONTROL_CHARS = /[\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2066-\\u2069\\ufeff]|\\udb40[\\udc00-\\udc7f]/;",
+  controlTest: "if (CONTROL_CHARS.test(raw)) return bad('carries a control character');",
+  duplicateCall: "const twice = duplicateKey(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);",
+  duplicateRefused: "if (twice !== null) {",
+  duplicateSeen: "if (scope.has(key)) return key;",
+  duplicateRemembered: "scope.add(key);",
+  duplicateCode: "refusal('DUPLICATE_KEY',",
   snapshotRead: "const top = asRecord(snap.value);",
   snapshotRefused: "if (snap.refusals.length > 0) return { ok: false, refusals: snap.refusals.slice(0, MAX_ROLE_REFUSALS) };",
   sizeCap: "if (text.length > MAX_ROLE_REGISTRY_BYTES || new TextEncoder().encode(text).length > MAX_ROLE_REGISTRY_BYTES) {",
@@ -189,6 +223,27 @@ const PIN = {
   selectResult: "return entry === undefined ? null : Object.freeze({ role: entry.role, entry, standing: entry.role === 'gatekeeper' ? ('awaiting' as const) : ('assigned' as const) });",
   awaitingText: "awaiting: a decision is not held in this registry",
   noApprovalText: "nothing in it is an approval",
+  // PR-13
+  ownerImplement: "implement: 'implementer',",
+  ownerReview: "review: 'reviewer',",
+  ownerGatekeeper: "'gatekeeper-review': 'gatekeeper',",
+  requiredCapability: "const REQUIRED_CAPABILITY: Readonly<Record<RoleId, RoleCapability>> = Object.freeze({ implementer: 'implement', reviewer: 'review', gatekeeper: 'gatekeeper-review' });",
+  foreignFilter: "const foreign = list.filter((item) => CAPABILITY_OWNER[item as RoleCapability] !== role);",
+  missingRequired: "const missing = list.includes(REQUIRED_CAPABILITY[role]) ? [] : [REQUIRED_CAPABILITY[role]];",
+  bindingClean: "if (foreign.length === 0 && missing.length === 0) return [];",
+  bindingRefusal: "return [refusal('CAPABILITY_MISMATCH',",
+  bindingUsed: "if (out.length === 0) out.push(...bindingProblems(role, list as readonly string[], at));",
+  noImplementer: "else if (!names.includes('implementer')) refusals.push(refusal('NO_IMPLEMENTER',",
+  reviewerChecked: "return role === 'reviewer' ? reviewerProblems(worker, at) : [];",
+  readOnlyGrant: "const READ_ONLY_GRANT = /^(Read|Grep|Glob|LS)(\\(.*\\))?$/;",
+  nonReadGrants: "const bad = worker.grants.filter((grant) => ambiguous(grant) || !READ_ONLY_GRANT.test(grant));",
+  nonReadClean: "if (bad.length === 0) return [];",
+  nonReadRefusal: "return [refusal('REVIEWER_NOT_READ_ONLY',",
+  grantsRead: "const knownWorkers = workers.workers.map((w) => ({ workerId: w.workerId, grants: argvGrants(w.args) }));",
+  grantsImport: "import { argvGrants, authorisedWorkers, committedExecutionProblems } from '../loop/workers.js';",
+  // PR-5 (the read bound)
+  oversizeText: "const OVERSIZE_TEXT = ' '.repeat(MAX_ROLE_REGISTRY_BYTES + 1);",
+  oversizeFound: "if (head.code === 0 && shown.failure === 'output-overflow') return { text: OVERSIZE_TEXT, commit: head.stdout.trim() };",
   // PR-9
   cliImport: "import { roles } from './commands/roles.js';",
   cliHelp: "'  roles                        Which authorised worker or route fills each role, from committed bytes (read-only)',",
@@ -204,7 +259,22 @@ const REACHES_OUT = /\bnode:|\bprocess\.|\bfetch\(|\brequire\(|\bimport\(|\bnew 
 const VERDICT_WORDS = /\b(?:verdict|approved|approve|granted|accepted)\b/i;
 /** Names that make the model broker callable, as the broker's own validator lists them. */
 const BROKER_NAMES = /\b(?:bindingKeyOf|callModel|createProviderRegistry|loadCommittedBrokerConfig|detectLocalModels|parseCommittedPricing|retryModelCall|chooseRoute|createCooldownBook|createMemoryAttemptStore|isLoopbackHost|localEndpointProblem)\b/;
-const BROKER_IMPORT = /(?:\bfrom\s+|\bimport\(\s*|\brequire\(\s*|\bimport\s+)['"]([^'"]*modelBroker[^'"]*)['"]/g;
+const BROKER_IMPORT = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"`]([^'"`]*modelBroker[^'"`]*)['"`]/g;
+/** A load computed at run time: the report has no use for one, so it holds none. */
+const DYNAMIC_LOAD = /\b(?:import|require)\s*\(/;
+/** A re-export of any form: it would hand the module on to whoever imports the report. */
+const REEXPORT = /\bexport\s+(?:type\s+)?(?:\*|\{[^}]*\})(?:\s+as\s+[A-Za-z_$][\w$]*)?\s*from\b/;
+
+/** String concatenation and a quoted template part folded into one literal, so a specifier written in parts reads as the path it makes. */
+function foldSpecifiers(text) {
+  let out = text;
+  for (let i = 0; i < 8; i += 1) {
+    const next = out.replace(/(['"`])\s*\+\s*(['"`])/g, "").replace(/\$\{\s*(['"])([^'"`$]*)\1\s*\}/g, "$2");
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
 /** The registry's own names: only the registry, its reader and the report may say them. */
 const REGISTRY_NAMES = /\b(?:selectForRole|loadCommittedRoleRegistry|parseRoleRegistry|validateRoleRegistry|provider-roles)\b/;
 /** The reader the report may import, from the one file it lives in, and nothing else. */
@@ -212,6 +282,9 @@ const ROLES_IMPORT_SPEC = "../modelBroker/committedConfig.js";
 const ROLES_IMPORT_NAMES = ["loadCommittedRoleRegistry"];
 const CREDENTIAL_NAME = /key|secret|token|cred|passw|endpoint|url|uri|auth|header/i;
 const MAX_RECORD_BYTES = 16384;
+/** Which role a capability belongs to, and the one each role must carry: the record is judged by the same binding as the code. */
+const OWNER = { implement: "implementer", review: "reviewer", "gatekeeper-review": "gatekeeper", "plan-authoring": "gatekeeper", "closure-question": "gatekeeper" };
+const REQUIRED = { implementer: "implement", reviewer: "review", gatekeeper: "gatekeeper-review" };
 const CLOSED = {
   roles: ["implementer", "reviewer", "gatekeeper"],
   capabilities: ["implement", "review", "gatekeeper-review", "plan-authoring", "closure-question"],
@@ -298,7 +371,7 @@ function brokerImportProblems(raw, scanned) {
   const out = [];
   for (const rel of scanned) {
     if (insideBroker(rel) || raw[rel] === null || raw[rel] === undefined) continue;
-    const text = code(raw[rel]);
+    const text = foldSpecifiers(code(raw[rel]));
     const specs = [...text.matchAll(BROKER_IMPORT)].map((m) => m[1]);
     if (rel === CORE_INDEX_REL) {
       if (specs.length !== 1 || specs[0] !== "./modelBroker/index.js") out.push(`${rel} imports ${specs.join(", ") || "nothing"} from the broker, not only its barrel`);
@@ -309,6 +382,8 @@ function brokerImportProblems(raw, scanned) {
       if (specs.length !== 1 || specs[0] !== ROLES_IMPORT_SPEC) out.push(`${rel} imports ${specs.join(", ") || "nothing"} from the broker, not only ${ROLES_IMPORT_SPEC}`);
       if (JSON.stringify(names) !== JSON.stringify(ROLES_IMPORT_NAMES)) out.push(`${rel} takes ${names.join(", ") || "nothing"} from the reader file, not exactly ${ROLES_IMPORT_NAMES.join(", ")}`);
       if (BROKER_NAMES.test(text)) out.push(`${rel} names ${BROKER_NAMES.exec(text)[0]}, which makes the broker callable`);
+      if (DYNAMIC_LOAD.test(text)) out.push(`${rel} loads a module at run time (import() or require()), which no static check can follow`);
+      if (REEXPORT.test(text)) out.push(`${rel} re-exports from another file, which would hand the module on to its importers`);
       continue;
     }
     if (specs.length > 0) out.push(`${rel} imports ${specs.join(", ")}`);
@@ -345,6 +420,7 @@ function recordProblems(raw) {
   const roles = doc.roles || {};
   const names = Object.keys(roles);
   if (names.length === 0) out.push("the record names no role");
+  else if (!names.includes("implementer")) out.push("the record names no implementer");
   for (const name of names) {
     const row = roles[name];
     const at = `roles.${name}`;
@@ -362,6 +438,7 @@ function recordProblems(raw) {
     } else if (!workers.includes(row.workerId)) out.push(`${at}.workerId is not in the committed execution.workers`);
     const caps = Array.isArray(row.capabilities) ? row.capabilities : [];
     if (caps.length === 0 || new Set(caps).size !== caps.length || caps.some((c) => !CLOSED.capabilities.includes(c))) out.push(`${at}.capabilities is not a non-empty list from the closed list`);
+    if (caps.some((c) => OWNER[c] !== name) || !caps.includes(REQUIRED[name])) out.push(`${at}.capabilities do not fit a ${name} role`);
     const cost = row.cost || {};
     if (!CLOSED.costs.includes(cost.class)) out.push(`${at}.cost.class is not in the closed list`);
     else if (cost.class === "metered") {
@@ -379,6 +456,10 @@ function recordProblems(raw) {
 function check(raw) {
   const errors = [];
   const E = (rule, msg) => errors.push([rule, `${rule}: ${msg}`]);
+  if (raw[ROLES_REL] === null || raw[ROLES_REL] === undefined) {
+    E("PR-8", `${ROLES_REL} is missing, so what the report imports of the model broker cannot be judged`);
+    return errors;
+  }
   for (const rel of FIXED) {
     if (raw[rel] === null || raw[rel] === undefined) {
       E("PR-0", `${rel} is missing`);
@@ -393,7 +474,7 @@ function check(raw) {
 
 
   // PR-1
-  const p1 = missing(R, [PIN.roleIds, PIN.workerKnown, PIN.transportKnown, PIN.routeUsed, PIN.unknownWorker, PIN.unknownTransport, PIN.workerKeys, PIN.gatekeeperKeys, PIN.roleKeysUsed, PIN.rolesClosed, PIN.entryOnlyClean, PIN.okOnlyClean]);
+  const p1 = missing(R, [PIN.roleIds, PIN.workerKnown, PIN.workerRefused, PIN.transportKnown, PIN.routeUsed, PIN.unknownWorker, PIN.unknownTransport, PIN.workerKeys, PIN.gatekeeperKeys, PIN.roleKeysUsed, PIN.rolesClosed, PIN.entryOnlyClean, PIN.okOnlyClean]);
   if (p1.length > 0) E("PR-1", "a role can name a worker the project does not authorise, a route that is not the committed gatekeeper, or a field of another kind of role");
   // PR-2
   if (!raw[REGISTRY_REL].replace(/\r\n/g, "\n").includes(PIN.rateCardImport) || missing(R, [PIN.costClasses, PIN.cardLookup, PIN.noCard, PIN.zeroPrice, PIN.unmeteredNoModel, PIN.classClosed, PIN.meteredNeedsModel, PIN.costUsed]).length > 0) {
@@ -406,15 +487,20 @@ function check(raw) {
   // PR-4
   const sizeAt = R.indexOf(PIN.sizeCap);
   const parseAt = R.indexOf(PIN.parseCall);
-  const pins4 = [PIN.credentialName, PIN.credentialTest, PIN.unknownNameFilter, PIN.credentialField, PIN.unknownField, PIN.roleNameCredential, PIN.topNames, PIN.costNames, PIN.descriptors, PIN.accessor, PIN.accessorRefused, PIN.plainProto, PIN.symbolKey, PIN.nullProto, PIN.frozenCopy, PIN.snapshotTaken, PIN.snapshotRead, PIN.snapshotRefused, PIN.sizeConst, PIN.refusalCap, PIN.urlShaped, PIN.longRun, PIN.keyPrefix, PIN.notesTest, PIN.notesUsed, PIN.safeName, PIN.noValueInReason];
-  if (missing(R, pins4).length > 0 || sizeAt < 0 || parseAt < 0 || sizeAt > parseAt || /\braw\[/.test(R.slice(R.indexOf("export function validateRoleRegistry")).replace(PIN.snapshotTaken, ""))) {
-    E("PR-4", "a key, credential or address field is no longer refused by name, an accessor is read, the input is read more than once or not as a frozen snapshot, or the size is no longer judged before the parse");
+  const pins4 = [PIN.credentialName, PIN.credentialTest, PIN.unknownNameFilter, PIN.credentialField, PIN.unknownField, PIN.roleNameCredential, PIN.topNames, PIN.costNames, PIN.descriptors, PIN.accessor, PIN.accessorRefused, PIN.plainProto, PIN.symbolKey, PIN.nullProto, PIN.frozenCopy, PIN.snapshotTaken, PIN.snapshotRead, PIN.snapshotRefused, PIN.sizeConst, PIN.refusalCap, PIN.urlShaped, PIN.longRun, PIN.keyPrefix, PIN.notesTest, PIN.notesUsed, PIN.safeName, PIN.noValueInReason, PIN.snapshotGuarded, PIN.judgeGuarded, PIN.sourcesGuarded, PIN.controlChars, PIN.controlTest, PIN.duplicateCall, PIN.duplicateRefused, PIN.duplicateSeen, PIN.duplicateRemembered, PIN.duplicateCode];
+  if (missing(R, pins4).length > 0 || sizeAt < 0 || parseAt < 0 || sizeAt > parseAt || /\braw\[/.test(R.slice(R.indexOf("function judgeRoleRegistry")).replace(PIN.snapshotTaken, ""))) {
+    E("PR-4", "a key, credential or address field is no longer refused by name, an accessor is read, the input is read more than once or not as a frozen snapshot, the size is no longer judged before the parse, a hostile object can make the judge throw, a hidden or reordering character is let into notes, or a key written twice is read as its last value");
   }
   // PR-5
-  const pins5 = [PIN.loaderUsed, PIN.gitBase, PIN.gitShow, PIN.gitOptions, PIN.gitHead, PIN.gitBoth, PIN.workingCompared, PIN.flagged, PIN.reportFromCommitted, PIN.refusedFirst];
+  const pins5 = [PIN.oversizeText, PIN.oversizeFound, PIN.loaderUsed, PIN.gitBase, PIN.gitShow, PIN.gitOptions, PIN.gitHead, PIN.gitBoth, PIN.workingCompared, PIN.flagged, PIN.reportFromCommitted, PIN.refusedFirst];
   const workingReads = (C.match(/\.readText\(/g) || []).length;
   if (missing(K, [PIN.committedFound, PIN.committedRefusal, PIN.parsedFromCommitted]).length > 0 || missing(C, pins5).length > 0 || workingReads !== 1) {
     E("PR-5", "the registry is no longer read from committed bytes only: the reader does not refuse a copy with no commit, the report reads content from the working tree, or a differing working copy is no longer flagged");
+  }
+  // PR-13
+  const pins13 = [PIN.ownerImplement, PIN.ownerReview, PIN.ownerGatekeeper, PIN.requiredCapability, PIN.foreignFilter, PIN.missingRequired, PIN.bindingClean, PIN.bindingRefusal, PIN.bindingUsed, PIN.noImplementer, PIN.reviewerChecked, PIN.readOnlyGrant, PIN.nonReadGrants, PIN.nonReadClean, PIN.nonReadRefusal];
+  if (missing(R, pins13).length > 0 || missing(C, [PIN.grantsRead, PIN.grantsImport]).length > 0) {
+    E("PR-13", "a role no longer has to fit its capabilities and its worker: a reviewer or gatekeeper may claim an implement capability, an implementer may lack one, no implementer is required, or a reviewer may name a worker that holds a non-read grant");
   }
   // PR-6
   if (missing(R, [PIN.sharedWorker, PIN.sharedUsed, PIN.sharedRefused]).length > 0) E("PR-6", "the implementer and the reviewer may name the same worker");
@@ -456,7 +542,7 @@ function check(raw) {
 const rep = (rel, from, to) => ({ rel, from, to });
 const MUTATIONS = [
   // PR-1
-  { name: "worker-not-checked-against-the-config", rule: "PR-1", ...rep(REGISTRY_REL, PIN.workerKnown, "const ok = typeof id === 'string';") },
+  { name: "worker-not-checked-against-the-config", rule: "PR-1", ...rep(REGISTRY_REL, PIN.workerKnown, "const worker = typeof id === 'string' ? known.workers[0] : undefined;") },
   { name: "any-transport-accepted", rule: "PR-1", ...rep(REGISTRY_REL, PIN.transportKnown, "const ok = typeof id === 'string';") },
   { name: "route-not-judged", rule: "PR-1", ...rep(REGISTRY_REL, PIN.routeUsed, "") },
   { name: "worker-role-may-carry-a-transport", rule: "PR-1", ...rep(REGISTRY_REL, PIN.workerKeys, "const WORKER_ROLE_KEYS = ['workerId', 'transportId', 'capabilities', 'cost', 'notes'];") },
@@ -541,6 +627,9 @@ const MUTATIONS = [
   { name: "record-grows-a-capability", rule: "PR-10", ...rep(RECORD_REL, '"capabilities": ["implement"]', '"capabilities": ["implement", "deploy"]') },
   { name: "record-carries-a-key-field", rule: "PR-10", ...rep(RECORD_REL, '"capabilities": ["implement"],', '"capabilities": ["implement"], "apiKey": "x",') },
   { name: "record-carries-an-address", rule: "PR-10", ...rep(RECORD_REL, '"capabilities": ["review"],', '"capabilities": ["review"], "baseUrl": "x",') },
+  { name: "record-reviewer-claims-to-implement", rule: "PR-10", ...rep(RECORD_REL, '"capabilities": ["review"],', '"capabilities": ["review", "implement"],') },
+  { name: "record-gatekeeper-lacks-its-capability", rule: "PR-10", ...rep(RECORD_REL, '"capabilities": ["gatekeeper-review", "plan-authoring", "closure-question"],', '"capabilities": ["plan-authoring", "closure-question"],') },
+  { name: "record-has-no-implementer", rule: "PR-10", ...rep(RECORD_REL, '"implementer": {', '"planner-x": {') },
   { name: "record-drops-the-schema", rule: "PR-10", ...rep(RECORD_REL, '"schema": 1,', "") },
   { name: "record-names-an-extra-role", rule: "PR-10", ...rep(RECORD_REL, '"roles": {', '"roles": { "planner": { "workerId": "claude-local" },') },
   { name: "record-notes-hold-an-address", rule: "PR-10", ...rep(RECORD_REL, "so none is recorded.\"\n    },\n    \"reviewer\"", "so none is recorded, see https://example.invalid/x\"\n    },\n    \"reviewer\"") },
@@ -553,6 +642,46 @@ const MUTATIONS = [
   { name: "loop-selects-a-worker-from-the-registry", rule: "PR-12", ...rep(WORKERS_REL, "export function resolveWorker(", "const FROM_ROLES = (registry: never) => selectForRole(registry, 'implementer');\nexport function resolveWorker(") },
   { name: "runner-reads-the-registry-file", rule: "PR-12", ...rep(RUNNER_REL, "export function runLoop(", "const ROLES = '.projectops/provider-roles.json';\nexport function runLoop(") },
   { name: "another-command-loads-the-registry", rule: "PR-12", ...rep(STATUS_REL, "import { configPath, reportsDir } from '../context.js';", "import { configPath, reportsDir } from '../context.js';\nconst LOAD = loadCommittedRoleRegistry;") },
+  // PR-4 (review round: hostile input, hidden characters, duplicate keys)
+  { name: "snapshot-throw-not-caught", rule: "PR-4", ...rep(REGISTRY_REL, PIN.snapshotGuarded, "return snapshotOf(raw, 'registry', 0);\n  } catch (e) { throw e; } {") },
+  { name: "judge-throw-not-caught", rule: "PR-4", ...rep(REGISTRY_REL, PIN.judgeGuarded, "return judgeRoleRegistry(raw, known);\n  } catch (e) { throw e; } {") },
+  { name: "hostile-sources-throw", rule: "PR-4", ...rep(REGISTRY_REL, PIN.sourcesGuarded, "  } catch (e) { throw e; } {\n    ok = false;") },
+  { name: "tag-characters-pass-in-notes", rule: "PR-4", ...rep(REGISTRY_REL, "|\\udb40[\\udc00-\\udc7f]/;", "/;") },
+  { name: "c1-controls-pass-in-notes", rule: "PR-4", ...rep(REGISTRY_REL, "\\u007f-\\u009f", "\\u007f") },
+  { name: "bidi-overrides-pass-in-notes", rule: "PR-4", ...rep(REGISTRY_REL, "\\u202a-\\u202e\\u2066-\\u2069", "") },
+  { name: "control-character-test-off", rule: "PR-4", ...rep(REGISTRY_REL, PIN.controlTest, "") },
+  { name: "duplicate-key-not-asked", rule: "PR-4", ...rep(REGISTRY_REL, PIN.duplicateRefused, "if (false) {") },
+  { name: "duplicate-key-not-seen", rule: "PR-4", ...rep(REGISTRY_REL, PIN.duplicateSeen, "") },
+  { name: "keys-are-not-remembered", rule: "PR-4", ...rep(REGISTRY_REL, PIN.duplicateRemembered, "") },
+  // PR-5 (review round: a file over the read bound)
+  { name: "oversize-file-reported-as-missing", rule: "PR-5", ...rep(ROLES_REL, PIN.oversizeFound, "") },
+  { name: "oversize-stand-in-fits-the-cap", rule: "PR-5", ...rep(ROLES_REL, PIN.oversizeText, "const OVERSIZE_TEXT = ' '.repeat(1);") },
+  // PR-8 (review round: spellings of an import the fence must still see)
+  { name: "roles-ts-loads-the-broker-by-template", rule: "PR-8", ...rep(ROLES_REL, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nconst later = import(`../modelBroker/callModel.js`);") },
+  { name: "roles-ts-concatenates-the-broker-path", rule: "PR-8", ...rep(ROLES_REL, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nconst later = require('../model' + 'Broker/callModel.js');") },
+  { name: "roles-ts-builds-the-path-in-a-template", rule: "PR-8", ...rep(ROLES_REL, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nconst later = import(`../model${'Broker'}/index.js`);") },
+  { name: "roles-ts-loads-something-at-run-time", rule: "PR-8", ...rep(ROLES_REL, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nconst later = import(name);") },
+  { name: "roles-ts-reexports-the-broker-barrel", rule: "PR-8", ...rep(ROLES_REL, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nexport * from '../modelBroker/index.js';") },
+  { name: "roles-ts-reexports-the-reader", rule: "PR-8", ...rep(ROLES_REL, "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';", "import { loadCommittedRoleRegistry } from '../modelBroker/committedConfig.js';\nexport { loadCommittedRoleRegistry as load } from '../modelBroker/committedConfig.js';") },
+  { name: "another-command-loads-the-broker-by-template", rule: "PR-8", ...rep(STATUS_REL, "import { configPath, reportsDir } from '../context.js';", "import { configPath, reportsDir } from '../context.js';\nconst later = import(`../modelBroker/index.js`);") },
+  { name: "another-command-concatenates-the-broker-path", rule: "PR-8", ...rep(STATUS_REL, "import { configPath, reportsDir } from '../context.js';", "import { configPath, reportsDir } from '../context.js';\nconst later = import('../model' + 'Broker/index.js');") },
+  { name: "another-command-reexports-the-broker-barrel", rule: "PR-8", ...rep(STATUS_REL, "import { configPath, reportsDir } from '../context.js';", "import { configPath, reportsDir } from '../context.js';\nexport * from '../modelBroker/index.js';") },
+  { name: "roles-ts-is-missing", rule: "PR-8", rel: ROLES_REL, missing: true },
+  // PR-13 (review round: a role fits its capabilities and its worker)
+  { name: "implement-belongs-to-the-gatekeeper", rule: "PR-13", ...rep(REGISTRY_REL, PIN.ownerImplement, "implement: 'gatekeeper',") },
+  { name: "review-belongs-to-the-implementer", rule: "PR-13", ...rep(REGISTRY_REL, PIN.ownerReview, "review: 'implementer',") },
+  { name: "gatekeeper-review-belongs-to-the-reviewer", rule: "PR-13", ...rep(REGISTRY_REL, PIN.ownerGatekeeper, "'gatekeeper-review': 'reviewer',") },
+  { name: "implementer-needs-review", rule: "PR-13", ...rep(REGISTRY_REL, PIN.requiredCapability, "const REQUIRED_CAPABILITY: Readonly<Record<RoleId, RoleCapability>> = Object.freeze({ implementer: 'review', reviewer: 'review', gatekeeper: 'gatekeeper-review' });") },
+  { name: "foreign-capabilities-not-asked", rule: "PR-13", ...rep(REGISTRY_REL, PIN.foreignFilter, "const foreign = list.filter(() => false);") },
+  { name: "required-capability-not-asked", rule: "PR-13", ...rep(REGISTRY_REL, PIN.missingRequired, "const missing: RoleCapability[] = [];") },
+  { name: "mismatch-always-clean", rule: "PR-13", ...rep(REGISTRY_REL, PIN.bindingClean, "if (true) return [];") },
+  { name: "capabilities-not-bound-to-roles", rule: "PR-13", ...rep(REGISTRY_REL, PIN.bindingUsed, "") },
+  { name: "no-implementer-is-fine", rule: "PR-13", ...rep(REGISTRY_REL, PIN.noImplementer, "else if (false) refusals.push(refusal('NO_IMPLEMENTER',") },
+  { name: "reviewer-grants-not-asked", rule: "PR-13", ...rep(REGISTRY_REL, PIN.reviewerChecked, "return [];") },
+  { name: "reviewer-may-hold-a-shell", rule: "PR-13", ...rep(REGISTRY_REL, PIN.readOnlyGrant, "const READ_ONLY_GRANT = /^(Read|Grep|Glob|LS|Bash)(\\(.*\\))?$/;") },
+  { name: "ambiguous-grant-allowed", rule: "PR-13", ...rep(REGISTRY_REL, PIN.nonReadGrants, "const bad = worker.grants.filter((grant) => !READ_ONLY_GRANT.test(grant));") },
+  { name: "non-read-grant-not-refused", rule: "PR-13", ...rep(REGISTRY_REL, PIN.nonReadClean, "if (true) return [];") },
+  { name: "report-hands-over-no-grants", rule: "PR-13", ...rep(ROLES_REL, PIN.grantsRead, "const knownWorkers = workers.workers.map((w) => ({ workerId: w.workerId, grants: [] as string[] }));") },
 ];
 
 /** Every named mutation must be killed by its own rule alone. Applied to CRLF-folded text, as `check` reads it. */
@@ -563,16 +692,16 @@ function selfTest(raw) {
     if (seen.has(m.name)) errors.push(`PR-M: two mutations share the name '${m.name}'`);
     seen.add(m.name);
     const text = raw[m.rel] === null || raw[m.rel] === undefined ? null : raw[m.rel].replace(/\r\n/g, "\n");
-    if (text === null || !text.includes(m.from)) {
+    if (text === null || (!m.missing && !text.includes(m.from))) {
       errors.push(`PR-M: mutation '${m.name}' no longer applies to ${m.rel}; update the mutation with the rule`);
       continue;
     }
-    const fired = [...new Set(check({ ...raw, [m.rel]: text.replace(m.from, m.to) }).map(([rule]) => rule))];
+    const fired = [...new Set(check({ ...raw, [m.rel]: m.missing ? null : text.replace(m.from, m.to) }).map(([rule]) => rule))];
     if (!fired.includes(m.rule)) errors.push(`PR-M: mutation '${m.name}' survived; ${m.rule} did not fire`);
     else if (fired.length > 1) errors.push(`PR-M: mutation '${m.name}' also fired ${fired.filter((r) => r !== m.rule).join(", ")}, so ${m.rule} does not carry it alone`);
   }
   const proved = new Set(MUTATIONS.map((m) => m.rule));
-  for (let n = 1; n <= 12; n += 1) if (!proved.has(`PR-${n}`)) errors.push(`PR-M: rule PR-${n} has no named mutation`);
+  for (let n = 1; n <= 13; n += 1) if (!proved.has(`PR-${n}`)) errors.push(`PR-M: rule PR-${n} has no named mutation`);
   return errors;
 }
 
