@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-WORKER-SCRATCH-CHECKOUT1A",
+  "evidenceSubjectHead": "5785b504163f97a6e2b3ec280aeb7a733fd4ea38",
+  "baselineCommit": "ef473593e2f51dce78d9fa8735689b760caf6dde",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-18T14:12:00.173Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-WORKER-SCRATCH-CHECKOUT1A, phase 52 of 55 of plan v1.42, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 5785b504 on the plan worktree (Stage 4 stack: Codex implementer worker kind, stored-context pointer, scratch checkout, owner memory commands, host digest seal, role registry and proposal door, merged on the plan worktree).",
+    "validatorsPass: val-projectos-worker-codex-implementer1a, val-projectos-worker-lifecycle-bounded1a, val-projectos-context-manager1a and validate-no-secrets PASS on the merged stack at 5785b504. validate-all 183 registered, 183 PASS, 0 FAIL, 2 retired.",
+    "checksPass: core 5091/5091, agent 4659/4659, control-center 952/952 at 5785b504 on the plan worktree, normal package resolution, after a rebuild of core and agent.",
+    "reviewsComplete: Claude self-review; ECC security-reviewer BLOCK on 001822c4 (four findings reproduced with real directories and real git, F1 HIGH: 8.3 short names passed the control-path judgement and overwrote real control files); fix round; one ECC recheck APPROVE WITH CHANGES (F1 to F4 and the LOWs closed, N1 MEDIUM and others new); final round fixed the items and was re-verified by the lead.",
+    "unresolved: zero CRITICAL/HIGH. No CRITICAL or HIGH finding is recorded as open (F1 HIGH was fixed and closed at the recheck). Residuals are named in docs/finish/PROJECTOS-WORKER-SCRATCH-CHECKOUT1A.md: no live Codex run and Codex's acceptance of a commit-less scratch repository and its Windows sandbox are unproven; reads by absolute path stay open (D4); the worker cannot run the tests in the scratch; untracked non-ignored secret files are exported; a worker's descendants are not owned by the spawn (LOW, not fixed); paths over 260 characters, subst drives and a UNC temp directory were not exercised.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
