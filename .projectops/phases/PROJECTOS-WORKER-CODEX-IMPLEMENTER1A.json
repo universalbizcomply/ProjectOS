@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-WORKER-CODEX-IMPLEMENTER1A",
+  "project": "ProjectOS",
+  "objective": "Stage 4 plan 4.1a. A second implementer kind, codex-implementer-cli, runs codex exec headless from the brief path under the one workspace-write sandbox the adapter sets. Codex has no per-path grant, so write scope is judged by the adapter on a before and after snapshot of the checkout: detective, not preventative. It never reviews and never resumes, and no credential crosses in or out. No live Codex run was made and no worker entry is configured.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:16.974Z",
+      "note": "Owner-approved plan v1.42 (delta spec Plan v1.37 section, owner 2026-11-17). Built by an agent under the lead (Claude) in its own worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:17.965Z",
+      "note": "codex-implementer-cli adapter run headless from the brief path, closed argument allowlist, write-scope check with a before and after snapshot, one BUILT_IN_ADAPTERS entry, role-swap tests, validator WI rules"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:18.889Z",
+      "note": "core 5091/5091, agent 4659/4659, control-center 952/952 at 5785b504 on the plan worktree after a rebuild of core and agent. validate-all 183 registered, 183 PASS, 0 FAIL, 2 retired."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:19.736Z",
+      "note": "Evidence: docs/finish/PROJECTOS-WORKER-CODEX-IMPLEMENTER1A.md (stacked at 5785b504)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:20.771Z",
+      "note": "closure tail only - no implementation. Reviews: ECC security-reviewer BLOCK then fix round, one recheck APPROVE WITH CHANGES, final round re-verified by the lead; Agency application-security-engineer advisory."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-18T14:11:21.890Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
