@@ -1,0 +1,33 @@
+{
+  "schema": "projectos.stage4-exit-proof-attempt-setup/1",
+  "attempt": "B2",
+  "config": "B",
+  "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+  "branch": "s4proof-b2",
+  "baseCommit": "bae55991e91dbfa21b93dfc459d10eb2a6078803",
+  "swapCommit": "81726a2 (cherry-pick of e845495, the same execution-block-only change B1 used)",
+  "activationCommit": "253d3c83ce28c02b788167cdbfa3f2383d5c743a",
+  "receiptCommit": "ce240f95e6ffbd7a4aabf4dff5f2ff68b91ba5aa",
+  "receiptDecisionId": "SEO-AGENCY-STAGE4-PROOF1A-SECRETS-GATE-RECEIPT1A-B2",
+  "capMicroUsd": 1500000,
+  "runtime": {
+    "note": "A NEW runtime for B2: the throwaway worktree was reset to the plan head that holds the v1.44 fixes and the one allowlist commit was cherry-picked back on. A1, A2 and B1 ran on the older runtime recorded in ../runtime.json.",
+    "runtimeRoot": "C:/dev/ProjectOS-worktrees/exit-proof-runtime-v137",
+    "planBranchHead": "c9e8188e1d1c8e7c85b4e59caf9b6d55cb82f827",
+    "runtimeHead": "48627650888d2912727f07dfaf56fbcbca459407",
+    "changedPathsVsPlanHead": ["projectos/security/installation-project-allowlist.json"],
+    "worktreeClean": true,
+    "coreAndAgentRebuiltFromThatHead": true,
+    "nodeVersion": "v24.14.1",
+    "gitVersion": "git version 2.55.0.windows.3"
+  },
+  "ownerWords": "Run PROJECTOS-STAGE4-EXIT-PROOF1A config B live. Attempt id B2. Cap $1.50. Secrets-handling receipt: \"Attempt B2: Codex and Claude use their own logins only inside the trusted broker. No credential is written to a file, a log, the evidence or a commit. Spend cap $1.50.\" (2026-11-19)",
+  "dryRun": "Worker: codex-implementer (codex-implementer-cli); no refusal; the agency tree stayed clean.",
+  "ledger": {
+    "beforeMicroUsd": 33598,
+    "afterMicroUsd": 39883,
+    "meteredByB2MicroUsd": 6285,
+    "meteredByAllAttemptsMicroUsd": 26319
+  },
+  "collectorNote": "The first run of collect-evidence for B2 used its default base branch (BASE1, s4proof-base) and wrote baseCommit d23044a6 with baseIsAncestor false; that was my invocation, not the run. It was re-run with S4_BASE_BRANCH=s4proof-base2, which wrote baseCommit bae55991 and baseIsAncestor true. run.log was checked byte-identical (sha256) across both collections."
+}

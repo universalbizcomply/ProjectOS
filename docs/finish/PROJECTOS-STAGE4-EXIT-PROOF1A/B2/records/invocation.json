@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "91f1fd24f3c219c3",
+  "createdAt": "2026-11-19T10:27:52.067Z",
+  "projectId": "seo-agency",
+  "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+  "sessionId": "SEO-AGENCY-STAGE4-PROOF1A-ce240f95e6ff-91f1fd24",
+  "repository": {
+    "root": "C:\\dev\\SEOAgency",
+    "branch": "s4proof-b2",
+    "head": "ce240f95e6ffbd7a4aabf4dff5f2ff68b91ba5aa"
+  },
+  "executionMode": "live",
+  "process": {
+    "pid": 30940,
+    "ppid": 19192,
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\dev\\ProjectOS-worktrees\\exit-proof-runtime-v137\\projectos\\agent\\bin\\projectos.js",
+      "continue",
+      "--execute"
+    ],
+    "cwd": "C:\\dev\\SEOAgency"
+  },
+  "workerId": "codex-implementer",
+  "workerKind": "codex-implementer-cli",
+  "brief": {
+    "path": "C:\\dev\\SEOAgency/.projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-ce240f95e6ff-91f1fd24.brief.json",
+    "briefId": "SEO-AGENCY-STAGE4-PROOF1A@ce240f95e6ffbd7a4aabf4dff5f2ff68b91ba5aa",
+    "digest": "sha256:33db4f0e5677ac2b9078a44956eabf42eabebc44d263f9f34fad6cce49c2abb6"
+  }
+}

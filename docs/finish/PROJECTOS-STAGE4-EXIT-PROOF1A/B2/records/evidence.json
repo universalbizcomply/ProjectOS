@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "SEO-AGENCY-STAGE4-PROOF1A-ce240f95e6ff-91f1fd24",
+  "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+  "briefId": "SEO-AGENCY-STAGE4-PROOF1A@ce240f95e6ffbd7a4aabf4dff5f2ff68b91ba5aa",
+  "collectedAt": "2026-11-19T10:28:36.430Z",
+  "baseHead": "ce240f95e6ffbd7a4aabf4dff5f2ff68b91ba5aa",
+  "currentHead": "ce240f95e6ffbd7a4aabf4dff5f2ff68b91ba5aa",
+  "changedFiles": [
+    ".projectops/current-state-65a3796f0e3921a6-539795b02651.json",
+    ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-ce240f95e6ff-91f1fd24.brief.json",
+    ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-ce240f95e6ff-91f1fd24.effects.json",
+    ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-ce240f95e6ff-91f1fd24.findings.json",
+    ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-ce240f95e6ff-91f1fd24.invocation.json",
+    ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-ce240f95e6ff-91f1fd24.session.json",
+    ".projectops/phases/SEO-AGENCY-STAGE4-PROOF1A.json",
+    ".projectops/work.v1.json",
+    "site/colophon.txt"
+  ],
+  "diffStat": "...urrent-state-65a3796f0e3921a6-539795b02651.json | 25 +++++++++++-----------\n .projectops/work.v1.json                           | 16 +++++++-------\n 2 files changed, 20 insertions(+), 21 deletions(-)",
+  "checks": [
+    {
+      "id": "validate-site",
+      "kind": "validator",
+      "passed": true,
+      "exitCode": 0,
+      "output": "validate-site: PASS (1 page(s))",
+      "at": "2026-11-19T10:28:36.113Z",
+      "timeoutMs": 5400000
+    }
+  ],
+  "requiredReviews": [
+    "Implementer self-review",
+    "Independent code review"
+  ],
+  "effectsSha256": "ed820f042996e124d6c8760bdf1a331c64b0a979ebf28e54f4dfa92df3c3d2e4",
+  "findingsSha256": "ed786c1bb246fb9fb69230a019f4e4f9b2427d0be3c734371a2f1f87c1046997",
+  "invocationId": "91f1fd24f3c219c3",
+  "storedContext": {
+    "schema": "projectos.stored-context/1",
+    "contextPath": ".projectops/execution/SEO-AGENCY-STAGE4-PROOF1A-ce240f95e6ff-91f1fd24.context.md",
+    "tenant": "agency-business",
+    "domain": "business",
+    "project": "seo-agency",
+    "envelopeId": "ENV-1cdaf38beb2677e231424155",
+    "headCommit": "ce240f95e6ffbd7a4aabf4dff5f2ff68b91ba5aa",
+    "ledger": {
+      "seq": 17,
+      "entryHash": "sha256:2d3174e670c6e1d9a890eeef7f33bbf7812ddd5401d0f09e52b33d35dba7ee4d"
+    },
+    "ledgerNewest": {
+      "seq": 18,
+      "entryHash": "sha256:e115fea1e7eab8ae607b0454814ff87742fff120ff79d44bf7de30b32685a915"
+    },
+    "fileHash": "sha256:ec2c69536b6a74999b9a5b44ffc7822f5f95eda06d0c49a3a4b12f346a494b67",
+    "shown": [
+      {
+        "id": ".projectops/closure/decisions/SEO-AGENCY-MEMORY-PROOF1A.json",
+        "kind": "committed-decision",
+        "effectiveKind": "committed-decision",
+        "rank": 1,
+        "tier": 0,
+        "contentHash": "sha256:89bf85f22fdc04e18ef8fbba8d5b828ad6c4ce0b4229e30a860c8b312901be9f",
+        "bytes": 811,
+        "truncated": false,
+        "source": "committed",
+        "freshness": null,
+        "unverifiedClaim": false,
+        "overruledBy": []
+      },
+      {
+        "id": ".projectops/current-state-65a3796f0e3921a6-539795b02651.json",
+        "kind": "plan-memory",
+        "effectiveKind": "plan-memory",
+        "rank": 2,
+        "tier": 1,
+        "contentHash": "sha256:245f6c200aa881fd4f375344946b14d707d1286d4b1c82b32d5c074076fdb474",
+        "bytes": 1051,
+        "truncated": false,
+        "source": "committed",
+        "freshness": null,
+        "unverifiedClaim": false,
+        "overruledBy": []
+      },
+      {
+        "id": ".projectops/plan-65a3796f0e3921a6-539795b02651.json",
+        "kind": "plan-memory",
+        "effectiveKind": "plan-memory",
+        "rank": 3,
+        "tier": 1,
+        "contentHash": "sha256:7977ded271754bf3579faaae524b7c980b2875ad9cf577681a64c1be4062af9b",
+        "bytes": 6081,
+        "truncated": true,
+        "source": "committed",
+        "freshness": null,
+        "unverifiedClaim": false,
+        "overruledBy": []
+      }
+    ],
+    "withheld": [],
+    "omitted": [],
+    "decisions": [],
+    "skills": [],
+    "compactor": "none",
+    "compactionId": null,
+    "estimatedTokens": 2682,
+    "taintsRun": true,
+    "placedAttempts": [
+      1
+    ]
+  },
+  "reviewerSha256": "34344ba2c4db231a1bf98e7cea3f0fff0938b54d9ecc9ec888bc04547b291f35"
+}

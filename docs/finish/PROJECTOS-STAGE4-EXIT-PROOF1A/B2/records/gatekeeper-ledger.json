@@ -1,0 +1,187 @@
+{
+  "schemaVersion": "1.0.0",
+  "entries": [
+    {
+      "requestId": "GKREQ-a4d090c3c1a82185f8b3b11a",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-WEBSITE1A",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 2772,
+        "cachedInputTokens": 0,
+        "outputTokens": 355
+      },
+      "costMicroUsd": 419,
+      "at": "2026-10-25T22:27:29.328Z"
+    },
+    {
+      "requestId": "CLREQ-0b3a4b17e03c65e3b73788ed",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-WEBSITE1A",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 2231,
+        "cachedInputTokens": 0,
+        "outputTokens": 352
+      },
+      "costMicroUsd": 6309,
+      "at": "2026-10-25T22:28:12.657Z"
+    },
+    {
+      "requestId": "GKREQ-2c7e45189aed9b3ad6c91a74",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-SITE-CHECK1A",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 2664,
+        "cachedInputTokens": 0,
+        "outputTokens": 356
+      },
+      "costMicroUsd": 409,
+      "at": "2026-10-26T08:30:40.630Z"
+    },
+    {
+      "requestId": "CLREQ-0a70a20aee63a2aa7fe9f927",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-SITE-CHECK1A",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 2349,
+        "cachedInputTokens": 0,
+        "outputTokens": 331
+      },
+      "costMicroUsd": 6246,
+      "at": "2026-10-26T08:35:32.329Z"
+    },
+    {
+      "requestId": "GKREQ-ee540a3bb068645b9f6e3ea1",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-SITE-CHECK2A",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 2942,
+        "cachedInputTokens": 0,
+        "outputTokens": 357
+      },
+      "costMicroUsd": 437,
+      "at": "2026-10-26T10:53:09.150Z"
+    },
+    {
+      "requestId": "CLREQ-ffd510383096aa37c082cf1b",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-SITE-CHECK2A",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 2405,
+        "cachedInputTokens": 0,
+        "outputTokens": 256
+      },
+      "costMicroUsd": 5566,
+      "at": "2026-10-26T10:53:21.900Z"
+    },
+    {
+      "requestId": "GKREQ-54465d6e45eb21b6f25bcaa1",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-SITE-CHECK3A",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 2409,
+        "cachedInputTokens": 0,
+        "outputTokens": 427
+      },
+      "costMicroUsd": 412,
+      "at": "2026-10-30T10:59:22.190Z"
+    },
+    {
+      "requestId": "GKREQ-fc0ea46ff8ed37b9bfdbe59e",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-SITE-CHECK3A",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 2800,
+        "cachedInputTokens": 0,
+        "outputTokens": 471
+      },
+      "costMicroUsd": 468,
+      "at": "2026-10-30T12:45:45.663Z"
+    },
+    {
+      "requestId": "GKREQ-0f686f655139d456ddd64cb2",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-SITE-CHECK3A",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 2704,
+        "cachedInputTokens": 0,
+        "outputTokens": 326
+      },
+      "costMicroUsd": 401,
+      "at": "2026-10-30T17:41:56.710Z"
+    },
+    {
+      "requestId": "CLREQ-ac344179cc60345d942bee00",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-SITE-CHECK3A",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 2449,
+        "cachedInputTokens": 0,
+        "outputTokens": 329
+      },
+      "costMicroUsd": 6351,
+      "at": "2026-10-30T17:42:14.902Z"
+    },
+    {
+      "requestId": "GKREQ-e5a7c9115a9034d3a7830ecf",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-MEMORY-PROOF1A",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 2561,
+        "cachedInputTokens": 0,
+        "outputTokens": 320
+      },
+      "costMicroUsd": 384,
+      "at": "2026-11-15T22:39:28.746Z"
+    },
+    {
+      "requestId": "CLREQ-6aa39ed6a15776a0890777ff",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-MEMORY-PROOF1A",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 2421,
+        "cachedInputTokens": 0,
+        "outputTokens": 317
+      },
+      "costMicroUsd": 6196,
+      "at": "2026-11-15T22:39:43.951Z"
+    },
+    {
+      "requestId": "GKREQ-e055ba4e085d0777b006b93b",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "inputTokens": 2137,
+        "cachedInputTokens": 0,
+        "outputTokens": 352
+      },
+      "costMicroUsd": 355,
+      "at": "2026-11-19T10:28:55.497Z"
+    },
+    {
+      "requestId": "CLREQ-05ba1e42bc555bb3b3b1feec",
+      "projectId": "seo-agency",
+      "phaseId": "SEO-AGENCY-STAGE4-PROOF1A",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "inputTokens": 2304,
+        "cachedInputTokens": 0,
+        "outputTokens": 305
+      },
+      "costMicroUsd": 5930,
+      "at": "2026-11-19T10:29:11.990Z"
+    }
+  ]
+}

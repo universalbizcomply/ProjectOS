@@ -1,6 +1,9 @@
 # PROJECTOS-STAGE4-EXIT-PROOF1A — finish record
 
-**Result: NOT PROVEN (2026-11-18).** Config A (Claude implements, Codex reviews) ran live and closed. Config B (Codex implements, Claude reviews) ran live and did **not**
+**Update 2026-11-19: attempt B2 CLOSED live (details in "Attempt B2" below). On the evidence the acceptance criterion is met; the phase is NOT closed here, the owner decides that.**
+The 2026-11-18 text below is kept as written (it was true on that day).
+
+**Result on 2026-11-18: NOT PROVEN.** Config A (Claude implements, Codex reviews) ran live and closed. Config B (Codex implements, Claude reviews) ran live and did **not**
 close: the Codex implementer did the work correctly, but the loop stopped after three corrections because of two findings the implementer wrote about itself and cannot
 correct, so the Claude reviewer never ran. This is a product gap, found by the proof, not an environment fault and not a refusal of the Codex implementer. The phase stays open.
 
@@ -89,3 +92,31 @@ consistently passes any check. Agency findings F3 (reads), F6 and F8 of the Code
 The throwaway runtime worktree (`C:/dev/ProjectOS-worktrees/exit-proof-runtime-v137`, branch `projectos-s4-exit-proof-runtime-throwaway`) and the localhost remote (started by PID, recorded
 in `_handoff-v137/exit-proof-prep/githttp.pid`) are still in place for a B2. Agency branches `s4proof-base`, `s4proof-base2`, `s4proof-a`, `s4proof-a2`, `s4proof-b` exist locally and on the
 localhost remote; `work` is untouched at `a12115808abc`. A mirror backup of the remote is at `C:/dev/SEOAgency-git-backup-s4`. Nothing was pushed to any real remote from this phase.
+
+## Attempt B2 (2026-11-19): config B closed live
+
+Owner words (verbatim): "Run PROJECTOS-STAGE4-EXIT-PROOF1A config B live. Attempt id B2. Cap $1.50. Secrets-handling receipt: \"Attempt B2: Codex and Claude use their own logins only inside the trusted broker. No credential is written to a file, a log, the evidence or a commit. Spend cap $1.50.\""
+Evidence `docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A/B2/` (run.log, times, outcome, records, source digest, `setup.json`). run.log sha256 `0a45ab88cb5f0cb1b00eb182997c24715e4c443b6bc1fdaf45cccf09681838db`.
+
+| Attempt | Config | Branch | Base | Result | Metered |
+|---|---|---|---|---|---|
+| B2 | B | `s4proof-b2` | BASE2 `bae55991` + the same execution-block swap | **closed** in 94 s: Codex implemented in one attempt, `validate-site` PASS, `claude-reviewer: APPROVE`, gatekeeper approved, closure authority decided to close, exit 0 | 6,285 micro-USD |
+
+Metered in total across A1, A2, B1 and B2: **26,319 micro-USD (about $0.026)** against the $3.00 cap and $1.50 for this run. Ledger before B2 33,598, after 39,883.
+
+Runtime: a NEW throwaway runtime for B2, the plan head `c9e8188e` (which holds both v1.44 fixes) plus the one allowlist commit `48627650`; core and agent rebuilt from it; changed paths against the plan head: the allowlist file only. A1, A2 and B1 ran on the older runtime.
+
+### What B2 shows
+
+1. **Config B closes live.** The Codex implementer wrote `site/colophon.txt` in the scratch checkout, its findings record is `findings: []` (no caveat about the review or Git history: the wording fix did what it was meant to), the Claude CLI reviewed through its adapter for the first time (`reviewerKind claude-code-cli`, `providerDistinct true`, verdict APPROVE, one LOW verification-limit finding: the read-only reviewer cannot run `git diff`) and the phase closed.
+2. **The swapped run reaches the same end state as A2:** `site/colophon.txt` is byte-identical to A2's; the source digest is identical (`sha256:6695b70a...52b15` in both); the effects record is all false; the only non-`.projectops/` paths changed are `site/colophon.txt` and the loop's own closure report (the same two as A2).
+3. **No credential-shaped string** in the B2 evidence (a pattern scan; `validate-no-secrets` PASS).
+4. The scratch baseline commit and the findings clause were therefore live-exercised. Whether the earlier F2 ("no readable Git HEAD") was missing history or Git's ownership check is NOT settled by this run: B2 simply did not write that finding. Recorded as unproven, not as a finding.
+
+### What B2 does NOT show, and what I did
+
+- **A2 predates the v1.44 fixes.** The shared worker instruction changed, so A and B did not run on one runtime. A re-run of A on the new runtime (about $0.007, a fresh receipt and your words, attempt id A3) would make a clean pair; it is not done.
+- **The evidence validator `val-projectos-stage4-exit-proof1a` is still not built or registered** (the draft is in the prep folder). Its own rule (SP-8) wants a closed config-B attempt, which now exists; building it, registering it and re-running `validate-all` is the next step of the phase, then the closure.
+- The Claude reviewer's one LOW is unresolved and recorded as it was; reads by absolute path stay open (D4); `providerDistinct` is by worker kind, not account or model.
+- My first collection of B2 used the wrong default base branch (BASE1) in `source-digest.json`; I re-collected with BASE2 (run.log byte-identical, verified). Noted in `B2/setup.json`.
+- The run touched the localhost remote only; nothing went to GitHub. The throwaway runtime branch was not pushed and the agency branches `s4proof-*` were not merged into `work`.
