@@ -142,7 +142,7 @@ the refusal when the shared runner cannot be built (`run === null`); an `exec` t
 |---|---|---|
 | 1 | `SCRATCH_GIT_TIMEOUT_MS = 120_000` and `withScratchGitTimeout(sys)`: a derived `System` whose `exec` adds `timeoutMs` and changes nothing else (command, arguments, environment). `commitScratchBaseline` hands it to `isolatedGitRunner`, so the filter-driver listing, the add and the commit are all bounded. A call that runs out of time ends with `failure: 'timeout'`, which the existing `done(r)` test already treats as a failure, so the open is refused with the fixed reason. `writeScope.ts` and the shared runner are NOT edited. | `scratchCheckout.ts` |
 | 2 | WI-34 now also pins: the `done` predicate (exit code AND no failure), that the add result and the commit result are both returned through it, that there are exactly two git calls in the function, and that every `'-c'` of each precedes its verb (`overridesBeforeVerb`); and pins the timeout wrapper, the constant being a positive number, and that the runner is given the wrapped system. 8 new named mutations (215 -> 223): add result never checked; exit test ignores a timeout; commit result discarded; override after the add verb; override after the commit verb; timeout removed from the derived exec; runner given the undecorated system; timeout is zero. | `val-projectos-worker-codex-implementer1a.cjs` |
-| 3 | `...happen after you finish; that they have not happened yet, or that you did not run them, is not a finding.` Changed in ALL FOUR places that hold the text: `FINDINGS_CLAUSE` (`claudeCodeCli.ts`), the test support constant (`test/support/findingsClause.ts`), the validator's `FINDINGS_EXPECTED`, and the approved text in the v1.44 delta spec (`docs/changes/delta_spec.md`, line 639). Only the one comma became a semicolon; no word changed. | four files |
+| 3 | `...happen after you finish; that they have not happened yet, or that you did not run them, is not a finding.` Changed in ALL FOUR places that hold the text: `FINDINGS_CLAUSE` (`claudeCodeCli.ts`), the test support constant (`test/support/findingsClause.ts`), the validator's `FINDINGS_EXPECTED`, and the approved text in the v1.44 delta spec (`docs/changes/delta_spec.md`, line 639). The comma became a semicolon AND the word "so" was dropped (`finish, so that they have` -> `finish; that they have`), because "; so that" would not read right; no other word changed. The four texts are identical to each other. | four files |
 
 New tests (`scratchCheckout.test.ts`, 65 -> 71): add exits non-zero / add times out / commit exits non-zero / commit times out (each: fixed reason, no worker, no directory left); every git call carries a timeout; a hung add or commit is a refusal;
 the filter drivers cannot be listed (this is the `run === null` path: open refused with the fixed reason, directory removed); an `exec` that throws (generic build-failure reason, directory removed, real tree unchanged);
@@ -152,10 +152,15 @@ a submodule gitlink and an untracked nested repository (opens; none of those con
 Environment: the `projectos/control-center/node_modules` junction was created in this worktree (to the plan worktree's install), so `tenantSidecar.test.ts` no longer fails for the environmental reason recorded above.
 The junction is untracked/ignored and is not part of the commit.
 
+### Recheck (one, independent ECC security-reviewer): APPROVE WITH LOW, no CRITICAL or HIGH. Its LOW findings are carried below; its one factual correction (the wording note in row 3) is applied.
+
 ### Carried forward, not fixed
 
 - LOW the 120 s bound is a constant, not configuration; a very large export on a very slow disk could be refused where a longer bound would succeed. The refusal is the safe direction and the export is capped at 1 GiB.
 - LOW R7, R8 above unchanged.
+- LOW (recheck) the timeout wrapper overrides any caller-supplied `timeoutMs`; today the shared runner passes none, so it is harmless. `options?.timeoutMs ?? SCRATCH_GIT_TIMEOUT_MS` would be safer if the shared runner ever sets one.
+- LOW (recheck) the validator accepts any positive `SCRATCH_GIT_TIMEOUT_MS` (a 1 ms value would pass); the test bounds it only above zero and at most 600,000 ms.
+- LOW (recheck) the hang test covers the add and the commit; the filter-driver listing is shown to carry a timeout but has no hang test of its own.
 - INFO `test/skillLoad.test.ts(128,26)` TS2339 in `typecheck:tests` is pre-existing and not part of this phase.
 
 ### Results after the fix round
