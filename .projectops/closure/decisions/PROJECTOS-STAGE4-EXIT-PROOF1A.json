@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "projectos:PROJECTOS-STAGE4-EXIT-PROOF1A:owner-closure:b5100bbb",
+  "phaseId": "PROJECTOS-STAGE4-EXIT-PROOF1A",
+  "projectId": "projectos",
+  "scope": "phase-closure",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-19T12:17:00.000Z",
+  "evidenceSubjectHead": "b5100bbbbb608a0ab9e595fdf6a54e7b855f4596",
+  "decision": "close",
+  "note": "OWNER-DIRECT CLOSURE of PROJECTOS-STAGE4-EXIT-PROOF1A, phase 57 of 57 of plan v1.45, bound to evidence subject b5100bbbbb608a0ab9e595fdf6a54e7b855f4596. AUTHORITY: the owner's own words, verbatim: \"Full authority stands.\". The implementer (Claude) carried out this closure on that grant and recorded it here; no gatekeeper closure ruling was obtained for this phase and none is claimed. ACCEPTED PROOF: acceptance criteria met as recorded in docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A.md; independent reviews with no CRITICAL/HIGH open; Not re-run: this phase wrote no product code (agent 4687/4687 at 14ba39be; core and control-center unchanged). val-projectos-stage4-exit-proof1a PASS (9 rules over 76 evidence files, 115 named mutations killed, proven by attempts A2 and B2); validate-all on the final stack at b5100bbb: 184 registered, 184 PASS, 0 FAIL, 2 retired. OWNER STATEMENT on rotation, carried forward verbatim from 2026-09-28: \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\" Carried forward: the items in the closure evidence and docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A.md. decidedAt is the time of the owner's grant. Authorises nothing beyond this closure tail and its normal fast-forward push: no production, further provider spend, credential, messaging, payment, database or live specialist activity.",
+  "ownerAcceptedFindings": []
+}
