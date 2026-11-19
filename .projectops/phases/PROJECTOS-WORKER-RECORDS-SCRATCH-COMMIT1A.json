@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A",
   "project": "ProjectOS",
   "objective": "Found by the Stage 4 live exit proof (config B stopped at CORRECTION_EXHAUSTED on two findings the Codex worker wrote about the loop's own steps). Two changes, one phase. (1) The shared worker instruction (the one both claude-code-cli and, through injected builders, codex-implementer-cli receive) gains a fixed clause: a finding is a defect in the worker's own work, every real defect is still written at its true severity, and the independent code review, the checks and validators, the closing of the phase, and a missing Git history or a baseline that differs from the brief's repository.head are the loop's business and are not findings; reviews names only reviews the worker performed. No gate moves: an unresolved MEDIUM or LOW is still sent back, CRITICAL or HIGH still stops, and an implementer's claim still credits no independent review. (2) The scratch checkout records ONE initial commit of the exported tree right after git init, through the shared isolated git runner (no hook, no filter, no signing, no user or system configuration, no attributes or excludes file, raw bytes, fixed message and identity), so git rev-parse HEAD and git diff work inside it; a refused add or commit refuses the open and starts no worker. The scratch .git stays the worker's: it is never compared, copied back or run again by ProjectOS. No live provider call in this phase.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-19T10:17:16.328Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-19T10:17:17.905Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A:owner-closure:8715ec0f"
     }
   ]
 }
