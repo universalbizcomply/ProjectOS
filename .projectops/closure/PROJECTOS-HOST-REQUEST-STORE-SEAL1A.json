@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-HOST-REQUEST-STORE-SEAL1A",
+  "evidenceSubjectHead": "8715ec0f084a483382a6718c77462bc8c37efa2a",
+  "baselineCommit": "7253340e911359979bdbaa52cc252f8df27ceabb",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-19T10:17:00.840Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-HOST-REQUEST-STORE-SEAL1A, phase 55 of 57 of plan v1.44, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 8715ec0f on the plan worktree (v1.44 stack: the sealed RequestAdmissionStore trait loses session_digest, and the scratch checkout gets one commit, a bounded git and a findings clause, merged on the plan worktree).",
+    "validatorsPass: val-cd-b4-sealed-expected-window-facts1a and the five other required validators PASS (builder run); validate-all on the merged stack at 8715ec0f: 183 registered, 183 PASS, 0 FAIL, 2 retired.",
+    "checksPass: cargo test --offline --features test-fixtures in projectos/host/core exit 0 (doctests 11 passed); windows-local-ipc 284 passed; gatekeeper-review-composition and service-host build with tests (builder run, 2026-11-18). Not re-run in this closure.",
+    "reviewsComplete: Claude self-review; ECC security-reviewer APPROVE (no CRITICAL, HIGH or MEDIUM); ECC rust-reviewer APPROVE. Neither reviewer ran cargo.",
+    "unresolved: zero CRITICAL/HIGH. No CRITICAL or HIGH finding is open. Residuals are named in docs/finish/PROJECTOS-HOST-REQUEST-STORE-SEAL1A.md: ExpectedWindowFactsSink still receives both digests by design (pinned by the sealed-facts validator).",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
