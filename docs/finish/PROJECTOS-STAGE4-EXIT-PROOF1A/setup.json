@@ -33,6 +33,30 @@
       "branch": "s4proof-b",
       "baseCommit": "bae55991e91dbfa21b93dfc459d10eb2a6078803",
       "note": "BASE2 plus one swap commit that changes only the execution block of project-config.json (e845495)"
+    },
+    {
+      "id": "B2",
+      "config": "B",
+      "branch": "s4proof-b2",
+      "baseCommit": "bae55991e91dbfa21b93dfc459d10eb2a6078803",
+      "note": "BASE2 plus the same one swap commit as B1 (cherry-picked, 81726a2); run on a NEW runtime (B2/runtime.json: the plan head with the v1.44 fixes plus the allowlist commit). Closed.",
+      "swapCommit": "81726a2",
+      "activationCommit": "253d3c83ce28c02b788167cdbfa3f2383d5c743a",
+      "receiptCommit": "ce240f95e6ffbd7a4aabf4dff5f2ff68b91ba5aa",
+      "receiptDecisionId": "SEO-AGENCY-STAGE4-PROOF1A-SECRETS-GATE-RECEIPT1A-B2",
+      "capMicroUsd": 1500000,
+      "ownerWords": "Run PROJECTOS-STAGE4-EXIT-PROOF1A config B live. Attempt id B2. Cap $1.50. Secrets-handling receipt: \"Attempt B2: Codex and Claude use their own logins only inside the trusted broker. No credential is written to a file, a log, the evidence or a commit. Spend cap $1.50.\" (2026-11-19)",
+      "ledger": {
+        "beforeMicroUsd": 33598,
+        "afterMicroUsd": 39883,
+        "meteredByB2MicroUsd": 6285,
+        "meteredByAllAttemptsMicroUsd": 26319
+      },
+      "collectorNote": "The first run of collect-evidence for B2 used its default base branch (BASE1, s4proof-base) and wrote baseCommit d23044a6 with baseIsAncestor false; that was my invocation, not the run. It was re-run with S4_BASE_BRANCH=s4proof-base2, which wrote baseCommit bae55991 and baseIsAncestor true. run.log was checked byte-identical (sha256) across both collections."
     }
+  ],
+  "ownerApprovals2026_11_19": [
+    "Run PROJECTOS-STAGE4-EXIT-PROOF1A config B live. Attempt id B2. Cap $1.50.",
+    "Amend both rules (Recommended) [plan v1.45: SP-2 and SP-4, docs/changes/delta_spec.md]"
   ]
 }

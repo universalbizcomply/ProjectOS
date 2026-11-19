@@ -1,0 +1,14 @@
+{
+  "schema": "projectos.stage4-exit-proof-runtime/1",
+  "runtimeRoot": "C:/dev/ProjectOS-worktrees/exit-proof-runtime-v137",
+  "planBranchHead": "c9e8188e1d1c8e7c85b4e59caf9b6d55cb82f827",
+  "runtimeHead": "48627650888d2912727f07dfaf56fbcbca459407",
+  "changedPathsVsPlanHead": [
+    "projectos/security/installation-project-allowlist.json"
+  ],
+  "worktreeClean": true,
+  "nodeVersion": "v24.14.1",
+  "gitVersion": "git version 2.55.0.windows.3",
+  "coreImportedFrom": "C:/dev/ProjectOS-worktrees/host-review-path1b/projectos/core (the plan worktree's core build, same source as the plan head); core and agent of the runtime were rebuilt from runtimeHead",
+  "note": "The runtime of attempt B2 only. It was the throwaway worktree reset to the plan head that holds the v1.44 fixes, plus the one temporary allowlist commit. Attempts A1, A2 and B1 ran on the older runtime in ../runtime.json."
+}

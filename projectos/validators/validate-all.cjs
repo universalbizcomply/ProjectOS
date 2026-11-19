@@ -174,6 +174,8 @@ const MODULES = [
   "val-projectos-proposal-door-wiring1a",
   // PROJECTOS-PROVIDER-ROLES1A - a committed role registry names which already-authorised worker, or the committed gatekeeper route, fills each role, with capabilities from a closed list and a cost class; read from committed bytes, a differing working copy is flagged; selection and recording only, nothing consults it and only the roles report imports the model broker.
   "val-projectos-provider-roles1a",
+  // PROJECTOS-STAGE4-EXIT-PROOF1A - the Stage 4 exit proof over the recorded live runs: one agency phase run with the implementer and reviewer providers swapped by committed config alone, a clean runtime per attempt and one source, provider-distinct approvals, the write scope held, spend under the caps, every attempt recorded and none hidden.
+  "val-projectos-stage4-exit-proof1a",
   // PROJECTOS-MEMORY-STORES1A - the six memory classes on existing stores; one index file per tenant and project; an injected clock and file system; no credential, over-cap body or hidden text reaches a prompt; one proposal door; a worker's direct write to the memory or skill store is refused.
   "val-projectos-memory-stores1a",
   // PROJECTOS-MEMORY-PROVENANCE1A - committed decisions outrank recollection; decisions, plan memory and approved memory are read from committed bytes and a differing working copy is refused; a citation from an index built before HEAD is marked stale; retention per class; deleting approved memory is the P5 action memory-delete, owner only, and every deletion is recorded.
