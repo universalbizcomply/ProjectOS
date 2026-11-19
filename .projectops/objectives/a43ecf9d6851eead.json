@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "objectiveId": "a43ecf9d6851eead",
+  "objective": "Plan v1.45: amend two acceptance rules of PROJECTOS-STAGE4-EXIT-PROOF1A (each attempt records its own runtime, which differs from its plan head only by the allowlist file; reviewer APPROVE with no unresolved MEDIUM, HIGH or CRITICAL finding, LOWs recorded) after B2 closed live (owner approved 2026-11-19).",
+  "authoritative": false,
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "0854ba81c261600411eddd8d601802743c86f82a",
+  "submittedAt": "2026-11-19T10:38:26.254Z",
+  "submittedBy": "owner",
+  "instructionShaped": false
+}
