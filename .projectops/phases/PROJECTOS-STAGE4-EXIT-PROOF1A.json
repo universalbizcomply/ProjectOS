@@ -2,7 +2,7 @@
   "phaseId": "PROJECTOS-STAGE4-EXIT-PROOF1A",
   "project": "ProjectOS",
   "objective": "Live on the agency pilot (C:/dev/SEOAgency). One governed phase (SEO-AGENCY-STAGE4-PROOF1A, which writes site/colophon.txt) is run twice by a throwaway ProjectOS runtime (each attempt records its own runtime: a worktree of the plan branch plus one temporary allowlist commit): config A (Claude implements, Codex reviews) and config B (Codex implements through codex-implementer-cli, Claude reviews). Each run is one bare projectos continue --execute on its own branch forked from one common BASE commit; the only difference between the runs is the committed worker config. A validator over the recorded evidence proves each runtime differs from its plan head only by the allowlist file and the source and phase text did not change, both reviewer records are provider-distinct approvals, the write scope held, metered spend stayed under the caps ($1.50 per run, $3.00 in total), and every attempt is recorded: a refusal of the Codex implementer is evidence and makes the proof NOT PROVEN, never green. Provider spend and the secrets-handling receipt are owner acts, already approved for this proof on 2026-11-18.",
-  "status": "awaiting_closure",
+  "status": "closed",
   "history": [
     {
       "from": "draft",
@@ -45,6 +45,13 @@
       "by": "implementer",
       "at": "2026-11-19T12:16:54.173Z",
       "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    },
+    {
+      "from": "awaiting_closure",
+      "to": "closed",
+      "by": "owner",
+      "at": "2026-11-19T12:16:55.584Z",
+      "note": "Owner-direct closure under the owner's full-authority grant. — closed by owner Murad, decision projectos:PROJECTOS-STAGE4-EXIT-PROOF1A:owner-closure:b5100bbb"
     }
   ]
 }
