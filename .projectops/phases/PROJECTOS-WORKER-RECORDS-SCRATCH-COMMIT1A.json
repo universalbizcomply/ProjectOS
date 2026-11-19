@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A",
+  "project": "ProjectOS",
+  "objective": "Found by the Stage 4 live exit proof (config B stopped at CORRECTION_EXHAUSTED on two findings the Codex worker wrote about the loop's own steps). Two changes, one phase. (1) The shared worker instruction (the one both claude-code-cli and, through injected builders, codex-implementer-cli receive) gains a fixed clause: a finding is a defect in the worker's own work, every real defect is still written at its true severity, and the independent code review, the checks and validators, the closing of the phase, and a missing Git history or a baseline that differs from the brief's repository.head are the loop's business and are not findings; reviews names only reviews the worker performed. No gate moves: an unresolved MEDIUM or LOW is still sent back, CRITICAL or HIGH still stops, and an implementer's claim still credits no independent review. (2) The scratch checkout records ONE initial commit of the exported tree right after git init, through the shared isolated git runner (no hook, no filter, no signing, no user or system configuration, no attributes or excludes file, raw bytes, fixed message and identity), so git rev-parse HEAD and git diff work inside it; a refused add or commit refuses the open and starts no worker. The scratch .git stays the worker's: it is never compared, copied back or run again by ProjectOS. No live provider call in this phase.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-19T10:17:11.053Z",
+      "note": "Owner-approved plan v1.44 and delta section on 2026-11-18, with the semicolon wording and the 120 second timeout chosen by the owner for the fix round. Built by an agent under the lead (Claude) in its own worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-19T10:17:12.242Z",
+      "note": "loop/adapters/claudeCodeCli.ts findings clause, loop/scratchCheckout.ts baseline commit with a bounded git, the tests and the validator pins WI-33 and WI-34"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-19T10:17:13.449Z",
+      "note": "agent 4687/4687 at 14ba39be; validate-all on the merged stack at 8715ec0f: 183 registered, 183 PASS, 0 FAIL, 2 retired."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-19T10:17:14.600Z",
+      "note": "Evidence: docs/finish/PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A.md (merged at 8715ec0f)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-19T10:17:15.551Z",
+      "note": "closure tail only - no implementation. Reviews: Agency specialist and two ECC reviewers on the baseline, a fix round, one ECC recheck APPROVE WITH LOW."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-19T10:17:16.328Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
