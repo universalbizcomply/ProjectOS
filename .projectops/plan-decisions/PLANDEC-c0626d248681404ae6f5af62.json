@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "decisionId": "PLANDEC-c0626d248681404ae6f5af62",
+  "decision": "approve",
+  "projectId": "projectos",
+  "repository": "universalbizcomply/ProjectOS",
+  "branch": "projectos-autonomy-bootstrap1a",
+  "baseHead": "5a1e58a8b623ad5e281482585d7d03a652fb5dc1",
+  "draftId": "a43ecf9d6851eead",
+  "planDigest": "sha256:fa61a005a5e6a977b194094f6e1743cb3a37795a7f7f416c12d344695cd10398",
+  "decidedBy": "Murad",
+  "decidedAt": "2026-11-19T10:38:43.140Z",
+  "note": "Owner-approved plan amendment (owner, 2026-11-19, interactive prompt): Amend",
+  "recordedBy": "projectos plan decide"
+}
