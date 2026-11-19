@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-STAGE4-EXIT-PROOF1A",
+  "project": "ProjectOS",
+  "objective": "Live on the agency pilot (C:/dev/SEOAgency). One governed phase (SEO-AGENCY-STAGE4-PROOF1A, which writes site/colophon.txt) is run twice by a throwaway ProjectOS runtime (each attempt records its own runtime: a worktree of the plan branch plus one temporary allowlist commit): config A (Claude implements, Codex reviews) and config B (Codex implements through codex-implementer-cli, Claude reviews). Each run is one bare projectos continue --execute on its own branch forked from one common BASE commit; the only difference between the runs is the committed worker config. A validator over the recorded evidence proves each runtime differs from its plan head only by the allowlist file and the source and phase text did not change, both reviewer records are provider-distinct approvals, the write scope held, metered spend stayed under the caps ($1.50 per run, $3.00 in total), and every attempt is recorded: a refusal of the Codex implementer is evidence and makes the proof NOT PROVEN, never green. Provider spend and the secrets-handling receipt are owner acts, already approved for this proof on 2026-11-18.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-19T12:16:50.590Z",
+      "note": "Owner-approved plan v1.43 and delta spec on 2026-11-18; the live proof and the amendment of SP-2 and SP-4 (plan v1.45) approved by the owner on 2026-11-19. Run by the lead (Claude); the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-19T12:16:51.344Z",
+      "note": "live runs A1, A2, B1 and B2 on the agency pilot, the evidence under docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A/, and val-projectos-stage4-exit-proof1a registered before memory-owner-commands1a"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-19T12:16:52.025Z",
+      "note": "validate-all on the final stack at b5100bbb: 184 registered, 184 PASS, 0 FAIL, 2 retired; the exit-proof validator PASS with 115 named mutations killed."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-19T12:16:52.760Z",
+      "note": "Evidence: docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A.md and docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A/ (stacked at b5100bbb)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-19T12:16:53.444Z",
+      "note": "closure tail only - no implementation. Reviews: ECC code-reviewer on the validator, APPROVE WITH LOW, fixes applied and re-verified by the lead."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-19T12:16:54.173Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
