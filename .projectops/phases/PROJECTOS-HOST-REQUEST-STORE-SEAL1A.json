@@ -1,0 +1,50 @@
+{
+  "phaseId": "PROJECTOS-HOST-REQUEST-STORE-SEAL1A",
+  "project": "ProjectOS",
+  "objective": "Follow-up left by PROJECTOS-HOST-SESSION-DIGEST-SEAL1A. The public sealed trait RequestAdmissionStore at projectos/host/core/src/ipc_session.rs still declares session_digest(&self) -> [u8; 32], so any downstream crate can read a store's session digest through the trait even though the getters on BoundIpcSession and AdmittedRequest are pub(crate). The method is replaced by a predicate, is_bound_to(&self, session: &BoundIpcSession) -> bool, used once by admit_request; the trait stays sealed and object-safe. Owner decision 2026-11-18: seal it. A protected-file edit in the dormant Rust host.",
+  "status": "awaiting_closure",
+  "history": [
+    {
+      "from": "draft",
+      "to": "prompted",
+      "by": "implementer",
+      "at": "2026-11-19T10:16:54.688Z",
+      "note": "Owner decision 2026-11-18: seal the public trait method session_digest. Plan v1.44 phase, built by an agent under the lead (Claude) in its own worktree; the phase record is created after the work."
+    },
+    {
+      "from": "prompted",
+      "to": "implementing",
+      "by": "implementer",
+      "at": "2026-11-19T10:16:55.770Z",
+      "note": "projectos/host/core/src/ipc_session.rs: the trait method replaced by the predicate is_bound_to, its doctests and one integration test, two negatives in the sealed-facts validator"
+    },
+    {
+      "from": "implementing",
+      "to": "validating",
+      "by": "implementer",
+      "at": "2026-11-19T10:16:57.043Z",
+      "note": "cargo test in host core (doctests included), windows-local-ipc tests and the six required validators PASS; validate-all on the merged stack at 8715ec0f: 183 registered, 183 PASS, 0 FAIL, 2 retired."
+    },
+    {
+      "from": "validating",
+      "to": "evidence",
+      "by": "implementer",
+      "at": "2026-11-19T10:16:58.502Z",
+      "note": "Evidence: docs/finish/PROJECTOS-HOST-REQUEST-STORE-SEAL1A.md (merged at 8715ec0f)."
+    },
+    {
+      "from": "evidence",
+      "to": "awaiting_review",
+      "by": "implementer",
+      "at": "2026-11-19T10:16:59.330Z",
+      "note": "closure tail only - no implementation. Reviews: ECC security-reviewer APPROVE, ECC rust-reviewer APPROVE."
+    },
+    {
+      "from": "awaiting_review",
+      "to": "awaiting_closure",
+      "by": "implementer",
+      "at": "2026-11-19T10:17:00.221Z",
+      "note": "closure tail only - owner-direct route under the owner's full-authority grant; no gatekeeper closure ruling obtained or claimed."
+    }
+  ]
+}
