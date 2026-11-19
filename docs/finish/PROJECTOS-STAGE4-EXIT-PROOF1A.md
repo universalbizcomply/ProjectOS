@@ -96,7 +96,7 @@ localhost remote; `work` is untouched at `a12115808abc`. A mirror backup of the 
 ## Attempt B2 (2026-11-19): config B closed live
 
 Owner words (verbatim): "Run PROJECTOS-STAGE4-EXIT-PROOF1A config B live. Attempt id B2. Cap $1.50. Secrets-handling receipt: \"Attempt B2: Codex and Claude use their own logins only inside the trusted broker. No credential is written to a file, a log, the evidence or a commit. Spend cap $1.50.\""
-Evidence `docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A/B2/` (run.log, times, outcome, records, source digest, `setup.json`). run.log sha256 `0a45ab88cb5f0cb1b00eb182997c24715e4c443b6bc1fdaf45cccf09681838db`.
+Evidence `docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A/B2/` (run.log, times, outcome, records, source digest, `runtime.json`). run.log sha256 `0a45ab88cb5f0cb1b00eb182997c24715e4c443b6bc1fdaf45cccf09681838db`.
 
 | Attempt | Config | Branch | Base | Result | Metered |
 |---|---|---|---|---|---|
@@ -118,5 +118,5 @@ Runtime: a NEW throwaway runtime for B2, the plan head `c9e8188e` (which holds b
 - **A2 predates the v1.44 fixes.** The shared worker instruction changed, so A and B did not run on one runtime. A re-run of A on the new runtime (about $0.007, a fresh receipt and your words, attempt id A3) would make a clean pair; it is not done.
 - **The evidence validator `val-projectos-stage4-exit-proof1a` is still not built or registered** (the draft is in the prep folder). Its own rule (SP-8) wants a closed config-B attempt, which now exists; building it, registering it and re-running `validate-all` is the next step of the phase, then the closure.
 - The Claude reviewer's one LOW is unresolved and recorded as it was; reads by absolute path stay open (D4); `providerDistinct` is by worker kind, not account or model.
-- My first collection of B2 used the wrong default base branch (BASE1) in `source-digest.json`; I re-collected with BASE2 (run.log byte-identical, verified). Noted in `B2/setup.json`.
+- My first collection of B2 used the wrong default base branch (BASE1) in `source-digest.json`; I re-collected with BASE2 (run.log byte-identical, verified). Noted in the B2 entry of `setup.json`.
 - The run touched the localhost remote only; nothing went to GitHub. The throwaway runtime branch was not pushed and the agency branches `s4proof-*` were not merged into `work`.

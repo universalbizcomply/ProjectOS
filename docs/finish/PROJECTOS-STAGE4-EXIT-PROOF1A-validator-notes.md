@@ -36,3 +36,9 @@ Metered broker calls (the OpenAI gatekeeper and closure questions) in total acro
 ## Limits
 
 An edit of logs and records made consistently, with the manifest and these hashes re-sealed, passes every rule: the mutations are a brake for accident, not a defence against a forger. The proof is one small phase, once in each direction.
+
+## Independent review of the validator (ECC code-reviewer, 2026-11-19): APPROVE WITH LOW, no CRITICAL or HIGH
+
+Fixed in this phase: M1 (MEDIUM) an attempt's own `runtime.json` that was not a JSON object was silently replaced by the shared record; it is now that attempt's record and SP-2 refuses a broken one (two new mutations). L2 SP-9 could be bypassed by aliasing or destructuring `fs`; it now refuses both (two new mutations). L3 the header comment said refused attempts were judged by fewer rules than the code applies; corrected. L6 the finish doc cited `B2/setup.json`; corrected. Named mutations: 111 before the fixes, 115 after.
+
+Carried, not fixed (LOW): L1 "each attempt records its own runtime" is enforced by file placement and the self-reported `changedPathsVsPlanHead`, not by a runtime head in the invocation record. L4 SP-2 compares the two closed runs' configs with each other, not with a base config (none is in the bundle), and the statement check is a plain substring. L5 only 11 of the mutations carry an exact problem text, so a mutation is proved to be killed by its rule, not by one named check inside it. Also noted: SP-1 does not tie each log hash in these notes to its own attempt.

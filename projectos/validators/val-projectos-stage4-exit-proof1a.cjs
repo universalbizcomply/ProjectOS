@@ -26,7 +26,8 @@
  *
  * PROVEN OR NOT. The validator passes only when a closed config A attempt AND a closed config B attempt exist and every rule is clean. A recorded,
  * honest refusal of config B makes every rule clean and the verdict NOT PROVEN (exit 1): the phase cannot close green on a refusal. Refused or stopped
- * attempts (A1 and B1 here) stay in the evidence as declared, hashed, unedited records and are judged by SP-1, SP-3, SP-7 and SP-8 only.
+ * attempts (A1 and B1 here) stay in the evidence as declared, hashed, unedited records. They get SP-1, SP-3, SP-7, SP-8 and the per-attempt part of SP-2
+ * (a clean runtime of their own, the live run, the source digest); the cross-run identity of SP-2, and SP-4, SP-5 and SP-6, judge the closed runs only.
  *
  * WHAT IT CANNOT CATCH. Someone who edits logs and records consistently and re-seals the manifest and the notes passes every rule. The
  * mutations hard-code the real closed attempt ids A2 and B2; this is a brake for accident, not a defence against a forger. It does not show that a
@@ -357,9 +358,11 @@ function sp1(b) {
 }
 
 /** The runtime record an attempt ran on: its own `<id>/runtime.json` when it has one, else the shared `runtime.json`. */
-function runtimeOf(v, a) {
-  const own = v.j(`${a.id}/runtime.json`);
-  return isObject(own) ? { rel: `${a.id}/runtime.json`, record: own } : { rel: "runtime.json", record: v.j("runtime.json") };
+function runtimeOf(b, v, a) {
+  const rel = `${a.id}/runtime.json`;
+  // A file the attempt has is ITS runtime record, whatever it holds: a broken one is reported by runtimeProblems, never swapped for the shared one.
+  if (rel in b.files) return { rel, record: v.j(rel) };
+  return { rel: "runtime.json", record: v.j("runtime.json") };
 }
 
 function runtimeProblems(runtime, rel, label, out) {
@@ -393,7 +396,7 @@ function sp2(b) {
     if (!hasFolder(b, a)) continue;
     const label = `attempt ${a.id}`;
     const closed = claimsClosed(b, v, a);
-    const { rel, record: runtime } = runtimeOf(v, a);
+    const { rel, record: runtime } = runtimeOf(b, v, a);
     if (!checkedRuntimes.has(rel)) {
       checkedRuntimes.add(rel);
       runtimeProblems(runtime, rel, label, out);
@@ -800,6 +803,9 @@ function sp9(b) {
   for (const word of FORBIDDEN_WORDS) if (new RegExp(`\\b${word}\\b`).test(code)) out.push(`this validator contains the word ${word}`);
   for (const use of new Set([...code.matchAll(/\bfs\.(\w+)/g)].map((hit) => hit[1]))) if (!FS_READ_ONLY.includes(use)) out.push(`this validator uses fs.${use}, which is not one of ${FS_READ_ONLY.join(", ")}`);
   if (/\bnew\s+Function\b|\bimport\s*\(/.test(code)) out.push("this validator builds code from text or imports dynamically");
+  // The loader word is built from pieces so that this file holds exactly its three real loads and nothing the loader count above would read.
+  if (!new RegExp(`^const fs = ${["req", "uire"].join("")}\\("fs"\\);$`, "m").test(code)) out.push("this validator does not load the file system with its one plain const fs line");
+  if (new RegExp(`\\bfs\\s*\\[|=\\s*fs\\s*[;,)]|\\{[^}]*\\}\\s*=\\s*(?:fs\\b|${["req", "uire"].join("")}\\()`).test(code)) out.push("this validator reaches the file system through an alias, an index or a destructuring, not through fs.<name> calls");
   const lists = [];
   for (const [text, name] of [[b.validateAll, "validate-all"], [b.cachedRunner, "cached-runner"]]) {
     const slice = modulesOf(text);
@@ -970,6 +976,8 @@ const MUTATIONS = [
   X("a-runtime-that-is-not-the-allowlist-only-is-refused", "SP-2", (b) => runtimeEdit(b, (r) => { r.changedPathsVsPlanHead = []; })),
   X("a-dirty-runtime-is-refused", "SP-2", (b) => runtimeEdit(b, (r) => { r.worktreeClean = false; })),
   X("a-runtime-with-no-plan-head-is-refused", "SP-2", (b) => runtimeEdit(b, (r) => { r.planBranchHead = "not-a-commit"; })),
+  X("an-attempts-own-runtime-record-that-is-not-an-object-is-refused", "SP-2", (b) => put(b, `${B}/runtime.json`, "[]"), [], "is missing or is not a JSON object"),
+  X("an-attempts-own-runtime-record-that-is-unparsable-is-refused", "SP-2", (b) => put(b, `${B}/runtime.json`, "{not json"), [], "is missing or is not a JSON object"),
   X("an-older-runtime-that-changed-another-path-is-refused", "SP-2", (b) => jsonEdit(b, "runtime.json", (r) => { r.changedPathsVsPlanHead = ["projectos/agent/src/loop/runner.ts"]; })),
   X("closed-runs-on-different-runtimes-with-no-statement-are-refused", "SP-2", (b) => { b.notes = b.notes.split(RUNTIME_DIFFERENCE_STATEMENT).join("the closed runs ran on one runtime"); }, [], "ran on different runtimes"),
   X("a-run-of-another-entry-script-is-refused", "SP-2", (b) => inv(b, B, (i) => { i.process.argv[1] = "C:\\dev\\other\\projectos\\agent\\bin\\projectos.js"; })),
@@ -1072,6 +1080,8 @@ const MUTATIONS = [
   // The mutation texts are built from pieces so that this file never contains what the lint forbids.
   X("a-validator-that-writes-is-refused", "SP-9", (b) => { b.selfSource += `\n${["fs", "writeFileSync"].join(".")}('x', 'y');\n`; }),
   X("a-validator-that-loads-another-module-is-refused", "SP-9", (b) => { b.selfSource += `\nconst extra = ${["req", "uire"].join("")}("os");\n`; }),
+  X("a-validator-that-aliases-the-file-system-is-refused", "SP-9", (b) => { b.selfSource += `\nconst alias = ${["f", "s"].join("")};\n`; }),
+  X("a-validator-that-destructures-a-write-is-refused", "SP-9", (b) => { b.selfSource += `\nconst { ${["write", "FileSync"].join("")} } = ${["f", "s"].join("")};\n`; }),
   X("a-validator-that-builds-code-is-refused", "SP-9", (b) => { b.selfSource += `\nconst built = ${["new Fun", "ction"].join("")}('return 1');\n`; }),
   X("a-validator-not-registered-in-validate-all-is-refused", "SP-9", (b) => registered(b, "validateAll", (t) => without(t, REGISTRATION))),
   X("a-validator-not-registered-in-the-cached-runner-is-refused", "SP-9", (b) => registered(b, "cachedRunner", (t) => without(t, REGISTRATION))),
