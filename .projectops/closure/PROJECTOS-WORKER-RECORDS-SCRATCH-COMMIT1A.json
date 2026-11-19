@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A",
+  "evidenceSubjectHead": "8715ec0f084a483382a6718c77462bc8c37efa2a",
+  "baselineCommit": "7253340e911359979bdbaa52cc252f8df27ceabb",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-19T10:17:16.639Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A, phase 56 of 57 of plan v1.44, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. 8715ec0f on the plan worktree (v1.44 stack: the sealed RequestAdmissionStore trait loses session_digest, and the scratch checkout gets one commit, a bounded git and a findings clause, merged on the plan worktree).",
+    "validatorsPass: val-projectos-worker-codex-implementer1a PASS (223 named mutations killed), val-projectos-worker-lifecycle-bounded1a, val-projectos-context-manager1a, val-projectos-kernel-followup1a, val-projectos-kernel-role-review1a, validate-no-secrets and validate-plan-no-secrets PASS; validate-all on the merged stack at 8715ec0f: 183 registered, 183 PASS, 0 FAIL, 2 retired.",
+    "checksPass: agent 4687/4687 in 142 files on the fix-round commit 14ba39be, including the tenant sidecar test. Core and control-center were not re-run on the merged stack: no file of either changed. The only typecheck error is the older skillLoad.test.ts(128,26).",
+    "reviewsComplete: Claude self-review; baseline commit reviewed by an Agency specialist and two ECC reviewers (no CRITICAL or HIGH; MEDIUMs: untimed add and commit, unpinned exit handling and override order, both fixed in the fix round); one independent ECC security-reviewer recheck of the fix round: APPROVE WITH LOW.",
+    "unresolved: zero CRITICAL/HIGH. No CRITICAL or HIGH finding is open. Three LOWs are carried in docs/finish/PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A.md: the timeout wrapper overrides a caller-supplied timeout, the validator accepts any positive timeout, and the filter-driver listing has no hang test of its own. Open by design: the dubious-ownership cause of the live F2 finding is unproven until the re-run, and the records the adapter places show as untracked files in the scratch.",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
