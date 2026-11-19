@@ -158,6 +158,37 @@ describe('PROJECTOS-WORKER-SCRATCH-CHECKOUT1A: the adapter with the real scratch
     expect(gone()).toBe(true);
   });
 
+  it('S9 rules 13 and 17 (PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A): a worker running git in the scratch finds a readable HEAD, a clean status and a diff that is exactly its own edit', () => {
+    // the owner's own git configuration is never read: the worker's git runs against an empty global configuration
+    const emptyConfig = join(base, 'empty.gitconfig');
+    writeFileSync(emptyConfig, '');
+    const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: emptyConfig, GIT_CONFIG_NOSYSTEM: '1' };
+    const inScratch = (cwd: string, ...args: string[]): string => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', env: gitEnv, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const seen: Record<string, string> = {};
+    const out = run(
+      systemWith((cwd) => {
+        seen['head'] = inScratch(cwd, 'rev-parse', 'HEAD');
+        seen['commits'] = inScratch(cwd, 'rev-list', '--count', 'HEAD');
+        // The adapter places the brief and the records AFTER the open; they are the only untracked files, so the status lists nothing else.
+        seen['statusBefore'] = inScratch(cwd, 'status', '--porcelain', '--untracked-files=all').split(/\r?\n/).filter((l) => !l.startsWith('?? .projectops/execution/')).join('\n');
+        seen['diffBefore'] = inScratch(cwd, 'diff', '--name-only');
+        put(cwd, 'src/feature.ts', 'two\n');
+        seen['diffAfter'] = inScratch(cwd, 'diff', '--name-only');
+        seen['statusAfter'] = inScratch(cwd, 'status', '--porcelain', '--untracked-files=all').split(/\r?\n/).filter((l) => !l.startsWith('?? .projectops/execution/')).join('\n');
+      }),
+    );
+    expect(out).toMatchObject({ kind: 'completed', exitCode: 0 });
+    expect(seen['head']).toMatch(/^[0-9a-f]{40}$/);
+    expect(seen['head']).not.toBe(execFileSync('git', ['-C', real, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: gitEnv }).trim()); // not the real repository's commit
+    expect(seen['commits']).toBe('1');
+    expect(seen['statusBefore']).toBe('');
+    expect(seen['diffBefore']).toBe('');
+    expect(seen['diffAfter']).toBe('src/feature.ts');
+    expect(seen['statusAfter']).toBe('M src/feature.ts');
+    expect(readFileSync(join(real, 'src/feature.ts'), 'utf8')).toBe('two\n');
+    expect(gone()).toBe(true);
+  });
+
   it('rule 3 and 10: one change outside the grants refuses the run, names it, and leaves the real tree byte-identical', () => {
     const before = treeOf(real);
     const out = run(

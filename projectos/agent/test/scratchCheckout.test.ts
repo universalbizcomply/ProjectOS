@@ -10,7 +10,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -166,8 +166,9 @@ describe('PROJECTOS-WORKER-SCRATCH-CHECKOUT1A: the scratch export', () => {
     expect(inScratch('remote')).toBe('');
     expect(readFileSync(join(scratch.root, '.git/config'), 'utf8')).not.toMatch(/url\s*=|real\.git|[\\/]repo/);
     expect(existsSync(join(scratch.root, '.git/objects/info/alternates'))).toBe(false);
-    expect(inScratch('status', '--porcelain').length).toBeGreaterThan(0);
-    expect(() => inScratch('rev-parse', 'HEAD')).toThrow();
+    // PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A moved the two assertions that used to pin "no commit" to the opposite: the scratch has ONE commit.
+    expect(inScratch('status', '--porcelain')).toBe('');
+    expect(inScratch('rev-parse', 'HEAD')).toMatch(/^[0-9a-f]{40}$/);
   });
 
   it('refuses to export when the scratch would lie inside the checkout, or the checkout is over the bound, or is not there', () => {
@@ -760,5 +761,448 @@ describe('recheck N5: more agents\' control files', () => {
     });
     expect(inspected.kind).toBe('refused');
     expect(refusedPaths(inspected).sort()).toEqual(MORE.map((m) => `docs/${m}`).sort());
+  });
+});
+
+// ---- PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A: the scratch holds ONE initial commit (rules 10-17 of the v1.44 delta) ----
+//
+// The owner's real git configuration is never used: every test below runs with HOME, USERPROFILE and GIT_CONFIG_GLOBAL pointing into a
+// temporary directory. The "hostile" tests put a configuration there that would, if read, convert line endings, sign the commit with a
+// program that writes a marker file, run a filter and hooks that write marker files, hide every file, and name another identity.
+
+const COMMIT_MESSAGE =
+  'ProjectOS scratch baseline: the working tree of the governed checkout as exported for one worker run. This is not a commit of the governed repository.';
+const REFUSAL = 'git could not record the scratch baseline commit';
+const slash = (p: string): string => p.replace(/\\/g, '/');
+
+describe('PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A: the scratch baseline commit', () => {
+  const AMBIENT_GIT = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1', 'GIT_CONFIG_PARAMETERS'];
+  const ENV_NAMES = ['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'XDG_CONFIG_HOME', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', ...AMBIENT_GIT];
+  let saved: Record<string, string | undefined> = {};
+  let home = '';
+  let markers = '';
+
+  beforeEach(() => {
+    saved = Object.fromEntries(ENV_NAMES.map((n) => [n, process.env[n]]));
+    home = join(base, 'home');
+    markers = join(base, 'markers');
+    mkdirSync(home, { recursive: true });
+    mkdirSync(markers, { recursive: true });
+    writeFileSync(join(home, '.gitconfig'), '');
+    process.env['HOME'] = home;
+    process.env['USERPROFILE'] = home;
+    process.env['HOMEDRIVE'] = home.slice(0, 2);
+    process.env['HOMEPATH'] = home.slice(2);
+    process.env['XDG_CONFIG_HOME'] = join(home, '.config');
+    process.env['GIT_CONFIG_GLOBAL'] = join(home, '.gitconfig');
+    process.env['GIT_CONFIG_NOSYSTEM'] = '1';
+  });
+
+  afterEach(() => {
+    for (const n of ENV_NAMES) {
+      if (saved[n] === undefined) delete process.env[n];
+      else process.env[n] = saved[n];
+    }
+  });
+
+  /** A shell script that writes a marker file named `name` and exits with `exit`. */
+  function markerScript(name: string, exit = 0): string {
+    const script = join(home, 'bin', `${name}.sh`);
+    mkdirSync(dirname(script), { recursive: true });
+    writeFileSync(script, `#!/bin/sh\necho ran > "${slash(markers)}/${name}"\nexit ${exit}\n`, { mode: 0o755 });
+    return slash(script);
+  }
+  const markerNames = (): string[] => (existsSync(markers) ? readdirSync(markers).sort() : []);
+
+  /** The global configuration of a hostile owner machine. */
+  function hostileGlobalConfig(): void {
+    put(home, 'global-excludes', '*\n');
+    put(home, 'global-attributes', '* text eol=crlf\n* filter=evil\n');
+    for (const hook of ['pre-commit', 'commit-msg', 'post-commit']) {
+      mkdirSync(join(home, 'template', 'hooks'), { recursive: true });
+      writeFileSync(join(home, 'template', 'hooks', hook), `#!/bin/sh\necho ran > "${slash(markers)}/template-${hook}"\n`, { mode: 0o755 });
+    }
+    writeFileSync(
+      join(home, '.gitconfig'),
+      [
+        '[core]',
+        '\tautocrlf = true',
+        `\texcludesFile = ${slash(join(home, 'global-excludes'))}`,
+        `\tattributesFile = ${slash(join(home, 'global-attributes'))}`,
+        '[commit]',
+        '\tgpgsign = true',
+        '[gpg]',
+        `\tprogram = ${markerScript('gpg-global', 1)}`,
+        '[filter "evil"]',
+        `\tclean = sh ${markerScript('filter-global')}`,
+        '[user]',
+        '\tname = The Real Owner',
+        '\temail = owner@real.example',
+        '[init]',
+        `\ttemplateDir = ${slash(join(home, 'template'))}`,
+        '',
+      ].join('\n'),
+    );
+  }
+
+  /** What a hostile REPOSITORY configuration of the fresh scratch would hold: put there right after `git init`, before the commit. */
+  function plantHostileRepository(scratchRoot: string, withPostCommit: boolean): void {
+    const gitDir = join(scratchRoot, '.git');
+    put(home, 'local-excludes', '*\n');
+    put(home, 'local-attributes', '* text eol=crlf\n');
+    for (const hook of ['pre-commit', 'commit-msg', ...(withPostCommit ? ['post-commit'] : [])]) {
+      mkdirSync(join(gitDir, 'hooks'), { recursive: true });
+      writeFileSync(join(gitDir, 'hooks', hook), `#!/bin/sh\necho ran > "${slash(markers)}/hook-${hook}"\n`, { mode: 0o755 });
+      mkdirSync(join(home, 'hookspath'), { recursive: true });
+      writeFileSync(join(home, 'hookspath', hook), `#!/bin/sh\necho ran > "${slash(markers)}/hookspath-${hook}"\n`, { mode: 0o755 });
+    }
+    appendFileSync(
+      join(gitDir, 'config'),
+      [
+        '[core]',
+        '\tautocrlf = true',
+        '\tsafecrlf = true',
+        `\texcludesFile = ${slash(join(home, 'local-excludes'))}`,
+        `\tattributesFile = ${slash(join(home, 'local-attributes'))}`,
+        `\tfsmonitor = ${markerScript('fsmonitor')}`,
+        ...(withPostCommit ? [`\thooksPath = ${slash(join(home, 'hookspath'))}`] : []),
+        '[commit]',
+        '\tgpgsign = true',
+        '[gpg]',
+        `\tprogram = ${markerScript('gpg-local', 1)}`,
+        '[filter "evil"]',
+        `\tclean = sh ${markerScript('filter-local')}`,
+        '\trequired = true',
+        '',
+      ].join('\n'),
+    );
+    // Repository-level files that no configuration switch reaches: every file ignored, and a filter on every file.
+    mkdirSync(join(gitDir, 'info'), { recursive: true });
+    writeFileSync(join(gitDir, 'info', 'exclude'), '*\n');
+    writeFileSync(join(gitDir, 'info', 'attributes'), '* filter=evil\n');
+  }
+
+  /** The real system, except that `plant` runs right after the scratch's `git init`; with `bare`, add and commit run with the machine's own environment. */
+  function systemPlanting(plant: (scratchRoot: string) => void, bare = false): System {
+    return {
+      ...nodeSystem,
+      exec: (cmd, args, options): ExecResult => {
+        if (cmd === 'git' && bare && (args.includes('add') || args.includes('commit'))) {
+          try {
+            const stdout = execFileSync('git', [...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+            return { code: 0, stdout, stderr: '' };
+          } catch (e) {
+            const err = e as { status?: number; stderr?: string };
+            return { code: err.status ?? 1, stdout: '', stderr: String(err.stderr ?? '') };
+          }
+        }
+        const r = nodeSystem.exec(cmd, args, options);
+        if (cmd === 'git' && args[0] === 'init' && r.code === 0) plant(args[args.length - 1] as string);
+        return r;
+      },
+    };
+  }
+
+  const gitIn = (root: string, ...args: string[]): string => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const blobOf = (root: string, path: string): Buffer => execFileSync('git', ['-C', root, 'cat-file', 'blob', `HEAD:${path}`], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const committedPaths = (root: string): string[] => gitIn(root, 'ls-tree', '-r', '--name-only', '-z', 'HEAD').split('\0').filter((p) => p !== '').sort();
+  const filesOf = (root: string): string[] =>
+    Object.entries(treeOf(root))
+      .filter(([, kind]) => kind !== 'dir' && kind !== 'link')
+      .map(([path]) => path)
+      .sort();
+
+  it('control: the hostile configuration is live, so the tests below are not vacuous (a plain git run reads every part of it)', () => {
+    hostileGlobalConfig();
+    const control = join(base, 'control');
+    execFileSync('git', ['init', '-q', control], { stdio: 'ignore' });
+    put(control, 'a.txt', 'one\r\ntwo\r\n');
+    try {
+      execFileSync('git', ['-C', control, 'add', '--all', '--force'], { stdio: 'ignore' });
+    } catch {
+      /* the add may or may not succeed; what matters is what it ran */
+    }
+    try {
+      execFileSync('git', ['-C', control, 'commit', '-q', '--allow-empty', '-m', 'x'], { stdio: 'ignore' });
+    } catch {
+      /* the signing program exits 1 on purpose: the commit is expected to fail, after it ran */
+    }
+    expect(markerNames()).toEqual(expect.arrayContaining(['filter-global', 'gpg-global', 'template-pre-commit']));
+  });
+
+  it('rule 10 and 13: exactly one commit holds exactly the exported files, and right after the open nothing is changed and HEAD resolves', () => {
+    const scratch = openScratch();
+    expect(gitIn(scratch.root, 'rev-list', '--count', 'HEAD').trim()).toBe('1');
+    expect(gitIn(scratch.root, 'rev-list', '--all', '--count').trim()).toBe('1');
+    expect(gitIn(scratch.root, 'rev-list', '--parents', '-n', '1', 'HEAD').trim()).toMatch(/^[0-9a-f]{40}$/); // no parent
+    const files = filesOf(scratch.root);
+    expect(files).toHaveLength(8); // the eight files the export copies (the fixture's others are ignored, control or deleted)
+    expect(committedPaths(scratch.root)).toEqual(files);
+    for (const absent of ['.env', 'node_modules/pkg/index.js', '.gitignore', 'CLAUDE.md', '.claude/settings.json', '.projectops/execution/s1.evidence.json']) {
+      expect(committedPaths(scratch.root), absent).not.toContain(absent);
+    }
+    expect(gitIn(scratch.root, 'status', '--porcelain')).toBe('');
+    expect(gitIn(scratch.root, 'rev-parse', 'HEAD').trim()).toMatch(/^[0-9a-f]{40}$/);
+    expect(gitIn(scratch.root, 'rev-parse', '--verify', 'HEAD^{tree}').trim()).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it('rule 10: a checkout with nothing to export still gets its one commit, and that commit is empty', () => {
+    const nothing = join(base, 'nothing');
+    mkdirSync(nothing);
+    execFileSync('git', ['init', '-q', nothing], { stdio: 'ignore' });
+    put(nothing, '.gitignore', '*\n'); // an agent control path: listed by git, never exported
+    const r = nodeScratchHost.open(nodeSystem, nothing);
+    if (!r.ok) throw new Error(`could not open: ${r.reason}`);
+    opened.push(r.scratch);
+    expect(gitIn(r.scratch.root, 'rev-list', '--count', 'HEAD').trim()).toBe('1');
+    expect(committedPaths(r.scratch.root)).toEqual([]);
+    expect(gitIn(r.scratch.root, 'status', '--porcelain')).toBe('');
+  });
+
+  it('rule 11: every blob equals the raw bytes of the exported file (CRLF, mixed, binary, a unicode name), whatever the machine and the repository configure', () => {
+    hostileGlobalConfig();
+    put(real, 'docs/crlf.txt', 'one\r\ntwo\r\n');
+    put(real, 'docs/mixed.txt', 'a\r\nb\nc\r\n');
+    put(real, 'docs/lf.txt', 'x\ny\n');
+    const scratch = openScratch(nodeScratchHost, systemPlanting((root) => plantHostileRepository(root, true)));
+    const paths = committedPaths(scratch.root);
+    expect(paths).toEqual(expect.arrayContaining(['docs/crlf.txt', 'docs/mixed.txt', 'docs/lf.txt', 'assets/logo.bin', 'src/my file é.ts']));
+    for (const path of paths) {
+      const exported = readFileSync(join(scratch.root, path));
+      expect(blobOf(scratch.root, path).equals(exported), path).toBe(true);
+      expect(exported.equals(readFileSync(join(real, path))), `${path} (copy of the real bytes)`).toBe(true);
+    }
+    expect(readFileSync(join(scratch.root, 'docs/crlf.txt'), 'utf8')).toBe('one\r\ntwo\r\n');
+  });
+
+  it('rule 12: no hook, no filter, no fsmonitor program and no signing program runs, and no system, user, excludes or attributes configuration is read', () => {
+    hostileGlobalConfig();
+    put(real, 'docs/crlf.txt', 'one\r\ntwo\r\n');
+    const scratch = openScratch(nodeScratchHost, systemPlanting((root) => plantHostileRepository(root, true)));
+    // Checked first, before any other git call of this test could run a filter or a hook itself.
+    expect(markerNames()).toEqual([]);
+    expect(gitIn(scratch.root, 'cat-file', 'commit', 'HEAD')).not.toContain('gpgsig');
+    expect(committedPaths(scratch.root)).toEqual(filesOf(scratch.root)); // every file ignored by the hostile excludes, and still committed
+    expect(gitIn(scratch.root, 'log', '-1', '--format=%an|%ae|%cn|%ce').trim()).toBe('ProjectOS local candidate|local-candidate@projectos.invalid|ProjectOS local candidate|local-candidate@projectos.invalid');
+  });
+
+  it('rule 12: the commit\'s own arguments are enough; with the shared isolated environment taken away, the repository and global configuration still reach nothing', () => {
+    hostileGlobalConfig();
+    put(real, 'docs/crlf.txt', 'one\r\ntwo\r\n');
+    // No post-commit hook and no hooks path here: with the environment gone only the arguments protect, and `--no-verify` is not a defence against a post-commit hook.
+    const scratch = openScratch(nodeScratchHost, systemPlanting((root) => plantHostileRepository(root, false), true));
+    expect(markerNames()).toEqual([]);
+    expect(blobOf(scratch.root, 'docs/crlf.txt').toString('utf8')).toBe('one\r\ntwo\r\n');
+    expect(gitIn(scratch.root, 'cat-file', 'commit', 'HEAD')).not.toContain('gpgsig');
+    expect(committedPaths(scratch.root)).toEqual(filesOf(scratch.root));
+  });
+
+  /** Open with `sys`; the open must be refused and the one directory it made removed. Returns the refusal reason. */
+  function refusedAndClean(sys: System): string {
+    const made: string[] = [];
+    const recording: ScratchFs = { ...nodeScratchFs, makeTempDir: (prefix) => { const d = nodeScratchFs.makeTempDir(prefix); made.push(d); return d; } };
+    const refused = scratchHostWith(recording).open(sys, real);
+    expect(refused.ok).toBe(false);
+    expect(made).toHaveLength(1);
+    expect(existsSync(made[0] as string)).toBe(false);
+    return refused.ok ? '' : refused.reason;
+  }
+  const failing = (verb: 'add' | 'commit', how: 'exit' | 'timeout'): System => ({
+    ...nodeSystem,
+    exec: (cmd, args, options): ExecResult =>
+      cmd === 'git' && args.includes(verb)
+        ? how === 'exit'
+          ? { code: 1, stdout: '', stderr: 'fatal: boom from the real repository /secret/path' }
+          : { code: 0, stdout: '', stderr: '', failure: 'timeout' }
+        : nodeSystem.exec(cmd, args, options),
+  });
+
+  it('rule 14: an add that exits non-zero refuses the open with the fixed reason, starts no worker and leaves no directory behind', () => {
+    expect(refusedAndClean(failing('add', 'exit'))).toBe(REFUSAL);
+  });
+  it('rule 14: an add that times out refuses the open with the fixed reason, starts no worker and leaves no directory behind', () => {
+    expect(refusedAndClean(failing('add', 'timeout'))).toBe(REFUSAL);
+  });
+  it('rule 14: a commit that exits non-zero refuses the open with the fixed reason, starts no worker and leaves no directory behind', () => {
+    expect(refusedAndClean(failing('commit', 'exit'))).toBe(REFUSAL);
+  });
+  it('rule 14: a commit that times out refuses the open with the fixed reason, starts no worker and leaves no directory behind', () => {
+    expect(refusedAndClean(failing('commit', 'timeout'))).toBe(REFUSAL);
+  });
+
+  it('rule 14: every git call that reads or writes the scratch carries a timeout: the filter-driver listing, the add and the commit', () => {
+    const calls: Array<{ args: readonly string[]; timeoutMs: number | undefined }> = [];
+    let scratchRoot = '';
+    const recording: System = {
+      ...nodeSystem,
+      exec: (cmd, args, options): ExecResult => {
+        if (cmd === 'git' && args[0] === 'init') scratchRoot = args[args.length - 1] as string;
+        if (cmd === 'git' && scratchRoot !== '' && args[0] === '-C' && args[1] === scratchRoot) calls.push({ args, timeoutMs: options?.timeoutMs });
+        return nodeSystem.exec(cmd, args, options);
+      },
+    };
+    openScratch(nodeScratchHost, recording);
+    const kind = (args: readonly string[]): string => (args.includes('add') ? 'add' : args.includes('commit') ? 'commit' : args.includes('--get-regexp') ? 'filter-listing' : 'other');
+    expect(calls.map((c) => kind(c.args))).toEqual(['filter-listing', 'add', 'commit']);
+    for (const c of calls) {
+      expect(c.timeoutMs, kind(c.args)).toBeGreaterThan(0);
+      expect(c.timeoutMs, kind(c.args)).toBeLessThanOrEqual(600_000);
+    }
+    expect(new Set(calls.map((c) => c.timeoutMs)).size).toBe(1);
+  });
+
+  it('rule 14: a hung add or commit is a refusal: a call that is given a timeout and runs out of time refuses the open, one that is not given one would hang', () => {
+    const hanging = (verb: 'add' | 'commit'): System => ({
+      ...nodeSystem,
+      // "hang": with a timeout the call ends by timing out; without one this fake lets the call "succeed", which is the hang production would suffer
+      exec: (cmd, args, options): ExecResult =>
+        cmd === 'git' && args.includes(verb) ? (options?.timeoutMs !== undefined ? { code: 0, stdout: '', stderr: '', failure: 'timeout' } : { code: 0, stdout: '', stderr: '' }) : nodeSystem.exec(cmd, args, options),
+    });
+    expect(refusedAndClean(hanging('add'))).toBe(REFUSAL);
+    expect(refusedAndClean(hanging('commit'))).toBe(REFUSAL);
+  });
+
+  it('rule 14: when the filter drivers of the scratch cannot be listed the open is refused with the fixed reason and the directory is removed', () => {
+    let scratchRoot = '';
+    const sys: System = {
+      ...nodeSystem,
+      exec: (cmd, args, options): ExecResult => {
+        if (cmd === 'git' && args[0] === 'init') scratchRoot = args[args.length - 1] as string;
+        if (cmd === 'git' && scratchRoot !== '' && args[1] === scratchRoot && args.includes('--get-regexp')) return { code: 2, stdout: '', stderr: 'fatal: cannot read the configuration' };
+        return nodeSystem.exec(cmd, args, options);
+      },
+    };
+    expect(refusedAndClean(sys)).toBe(REFUSAL);
+  });
+
+  it('rule 14: an exec that THROWS during the add refuses the open (the reason is the generic one for a failed build, not the fixed commit text), removes the directory and changes nothing in the real tree', () => {
+    const realFactsNow = () => ({ head: git('rev-parse', 'HEAD'), status: git('status', '--porcelain=v1', '-z', '--untracked-files=all'), tree: treeOf(real) });
+    realFactsNow();
+    const before = realFactsNow();
+    const throwing: System = {
+      ...nodeSystem,
+      exec: (cmd, args, options): ExecResult => {
+        if (cmd === 'git' && args.includes('add')) throw new Error('exec blew up with /secret/path');
+        return nodeSystem.exec(cmd, args, options);
+      },
+    };
+    const reason = refusedAndClean(throwing);
+    expect(reason).toBe('building the scratch failed (unknown)');
+    expect(reason).not.toContain('secret');
+    expect(realFactsNow()).toEqual(before);
+  });
+
+  it('rule 15: the message and the identity are fixed text and carry nothing from the real repository, its configuration or its HEAD', () => {
+    hostileGlobalConfig();
+    const realHead = git('rev-parse', 'HEAD').trim();
+    const scratch = openScratch(nodeScratchHost, systemPlanting(() => undefined));
+    expect(gitIn(scratch.root, 'log', '-1', '--format=%B').trimEnd()).toBe(COMMIT_MESSAGE);
+    expect(gitIn(scratch.root, 'log', '-1', '--format=%an|%ae|%cn|%ce').trim()).toBe('ProjectOS local candidate|local-candidate@projectos.invalid|ProjectOS local candidate|local-candidate@projectos.invalid');
+    const whole = gitIn(scratch.root, 'cat-file', 'commit', 'HEAD');
+    for (const leaked of [realHead, 'The Real Owner', 'owner@real.example', 'test@projectos.invalid', slash(real), real, slash(base)]) expect(whole, leaked).not.toContain(leaked);
+    expect(COMMIT_MESSAGE).not.toMatch(/[0-9a-f]{40}/);
+  });
+
+  it('rule 16: the scratch\'s own .git, including a commit the worker makes there, is never compared or copied back, and the real HEAD, index, refs and status are the same before and after', () => {
+    const facts = () => ({
+      head: git('rev-parse', 'HEAD'),
+      status: git('status', '--porcelain=v1', '-z', '--untracked-files=all'),
+      refs: git('show-ref'),
+      index: createHash('sha256').update(readFileSync(join(real, '.git/index'))).digest('hex'),
+      config: readFileSync(join(real, '.git/config'), 'utf8'),
+    });
+    facts(); // the first status may refresh the index; what matters is that the open does not change anything afterwards
+    const before = facts();
+    const scratch = openScratch();
+    expect(facts()).toEqual(before);
+    expect(scratch.baseline()).toBeNull();
+    // The worker commits in its scratch, rewrites its own configuration and moves HEAD. Nothing of that is a change to the checkout.
+    execFileSync('git', ['-C', scratch.root, '-c', 'user.name=worker', '-c', 'user.email=worker@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'the worker commits'], { stdio: 'ignore' });
+    execFileSync('git', ['-C', scratch.root, 'branch', '-q', 'worker-branch'], { stdio: 'ignore' });
+    appendFileSync(join(scratch.root, '.git/config'), '[worker]\n\tnote = 1\n');
+    const inspected = scratch.inspect(GRANTS);
+    expect(inspected).toEqual({ kind: 'clean', writes: 0 });
+    expect(scratch.copyBack()).toEqual({ kind: 'copied', paths: [] });
+    expect(facts()).toEqual(before);
+    expect(treeOf(real)).not.toHaveProperty('worker-branch');
+  });
+
+  it('rule 12: hostile ambient GIT_* variables of the calling process reach nothing: the real repository\'s HEAD, index and status are byte-identical, and the scratch commit is right', () => {
+    const facts = () => ({
+      head: git('rev-parse', 'HEAD'),
+      status: git('status', '--porcelain=v1', '-z', '--untracked-files=all'),
+      refs: git('show-ref'),
+      index: createHash('sha256').update(readFileSync(join(real, '.git/index'))).digest('hex'),
+      config: readFileSync(join(real, '.git/config'), 'utf8'),
+    });
+    put(real, 'docs/crlf.txt', 'one\r\ntwo\r\n');
+    facts(); // the first status may refresh the index; the open must not change anything after that
+    const before = facts();
+    const hostile: Record<string, string> = {
+      GIT_DIR: join(real, '.git'),
+      GIT_WORK_TREE: real,
+      GIT_INDEX_FILE: join(real, '.git', 'index'),
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: 'core.autocrlf',
+      GIT_CONFIG_VALUE_0: 'true',
+      GIT_CONFIG_KEY_1: 'commit.gpgsign',
+      GIT_CONFIG_VALUE_1: 'true',
+      GIT_CONFIG_PARAMETERS: `'core.autocrlf=true' 'commit.gpgsign=true' 'gpg.program=${markerScript('gpg-env', 1)}'`,
+    };
+    let scratch: ScratchCheckout;
+    try {
+      for (const [name, value] of Object.entries(hostile)) process.env[name] = value;
+      // control: with these variables a plain git run anywhere answers for the real repository, so the variables are live
+      const elsewhere = join(base, 'elsewhere');
+      mkdirSync(elsewhere);
+      expect(slash(execFileSync('git', ['rev-parse', '--absolute-git-dir'], { cwd: elsewhere, encoding: 'utf8' }).trim())).toBe(slash(join(real, '.git')));
+      scratch = openScratch();
+    } finally {
+      for (const name of Object.keys(hostile)) delete process.env[name];
+    }
+    expect(markerNames()).toEqual([]);
+    expect(facts()).toEqual(before);
+    expect(gitIn(scratch.root, 'rev-list', '--count', 'HEAD').trim()).toBe('1');
+    expect(committedPaths(scratch.root)).toEqual(filesOf(scratch.root));
+    expect(blobOf(scratch.root, 'docs/crlf.txt').toString('utf8')).toBe('one\r\ntwo\r\n');
+    expect(gitIn(scratch.root, 'cat-file', 'commit', 'HEAD')).not.toContain('gpgsig');
+    expect(gitIn(scratch.root, 'log', '-1', '--format=%an|%ae').trim()).toBe('ProjectOS local candidate|local-candidate@projectos.invalid');
+  });
+
+  it('rule 10 and 11: a real tree with a tracked .gitattributes (eol, filter, working-tree-encoding), a tracked .gitmodules, a submodule gitlink and an untracked nested repository still opens, with none of those control paths in the scratch and every blob raw', () => {
+    put(real, '.gitattributes', '* text eol=crlf\n*.enc working-tree-encoding=UTF-16\n*.f filter=evil\n');
+    put(real, '.gitmodules', '[submodule "vendor/sub"]\n\tpath = vendor/sub\n\turl = https://example.invalid/sub.git\n');
+    git('add', '.gitattributes', '.gitmodules');
+    git('update-index', '--add', '--cacheinfo', `160000,${git('rev-parse', 'HEAD').trim()},vendor/sub`);
+    // untracked files, made AFTER the attributes were staged and never added by real git here: raw CRLF, raw UTF-16, a file the filter would touch
+    put(real, 'docs/crlf.txt', 'one\r\ntwo\r\n');
+    writeFileSync(join(real, 'docs/utf16.enc'), Buffer.from('\ufeffhello\r\n', 'utf16le'));
+    put(real, 'docs/thing.f', 'filtered?\r\n');
+    execFileSync('git', ['init', '-q', join(real, 'nested')], { stdio: 'ignore' });
+    put(real, 'nested/inner.txt', 'inner\r\n');
+    const scratch = openScratch();
+    const paths = committedPaths(scratch.root);
+    for (const absent of ['.gitattributes', '.gitmodules', 'vendor/sub']) expect(paths, absent).not.toContain(absent);
+    expect(paths.filter((p) => p.split('/').some((segment) => segment.startsWith('.git')))).toEqual([]);
+    expect(paths).toEqual(filesOf(scratch.root));
+    expect(paths).toEqual(expect.arrayContaining(['docs/crlf.txt', 'docs/utf16.enc', 'docs/thing.f']));
+    for (const path of paths) expect(blobOf(scratch.root, path).equals(readFileSync(join(real, path))), path).toBe(true);
+    expect(blobOf(scratch.root, 'docs/utf16.enc').equals(Buffer.from('\ufeffhello\r\n', 'utf16le'))).toBe(true);
+    expect(existsSync(join(scratch.root, '.gitattributes'))).toBe(false);
+    expect(existsSync(join(scratch.root, '.gitmodules'))).toBe(false);
+  });
+
+  it('rule 17: a worker in the scratch can read HEAD, and git diff shows exactly its own edit', () => {
+    const scratch = openScratch();
+    expect(scratch.baseline()).toBeNull();
+    expect(gitIn(scratch.root, 'rev-parse', 'HEAD').trim()).toMatch(/^[0-9a-f]{40}$/);
+    expect(gitIn(scratch.root, 'diff', '--name-only').trim()).toBe('');
+    writeFileSync(join(scratch.root, 'src/feature.ts'), 'two\n');
+    expect(gitIn(scratch.root, 'diff', '--name-only').trim()).toBe('src/feature.ts');
+    expect(gitIn(scratch.root, 'diff').replace(/\r/g, '')).toContain('-one\n+two\n');
+    // and the edit is the only thing the copy-back sees
+    expect(scratch.inspect(GRANTS)).toEqual({ kind: 'clean', writes: 1 });
+    expect(scratch.copyBack()).toEqual({ kind: 'copied', paths: ['src/feature.ts'] });
+    expect(readFileSync(join(real, 'src/feature.ts'), 'utf8')).toBe('two\n');
   });
 });

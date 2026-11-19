@@ -19,6 +19,7 @@ import {
   correctionInstruction,
   pointerInstruction,
 } from '../src/loop/adapters/claudeCodeCli.js';
+import { FINDINGS_CLAUSE_TEXT } from './support/findingsClause.js';
 import { buildWorkerBrief } from '../src/loop/brief.js';
 import { PROTECTED_EFFECT_FIELDS } from '../src/loop/outcome.js';
 import type { GovernedContext } from '../src/governedContext.js';
@@ -416,5 +417,22 @@ describe('the Claude Code CLI adapter', () => {
   it('both instructions are constants — the same path always yields the same sentence', () => {
     expect(correctionInstruction(briefPath)).toBe(correctionInstruction(briefPath));
     expect(pointerInstruction(briefPath)).toBe(pointerInstruction(briefPath));
+  });
+
+  // PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A, rule 6: the findings clause is a constant, never data.
+  it('W6 rule 6 — two different brief paths give instructions identical apart from the path, and neither carries a phase, brief or record field', () => {
+    const otherPath = 'D:/another/place/.projectops/execution/another-phase.brief.json';
+    for (const build of [pointerInstruction, correctionInstruction]) {
+      const one = build(briefPath);
+      const other = build(otherPath);
+      expect(one.split(briefPath).join('<PATH>')).toBe(other.split(otherPath).join('<PATH>'));
+      expect(one).toContain(FINDINGS_CLAUSE_TEXT);
+      const b = brief();
+      for (const field of [b.phase.phaseId, b.phase.description, b.plan.path, b.records.findingsPath, b.records.effectsPath, b.records.evidencePath]) {
+        expect(one, field).not.toContain(field);
+      }
+    }
+    // the clause itself has no placeholder, interpolation or path in it
+    expect(FINDINGS_CLAUSE_TEXT).not.toMatch(/\$\{|\{\{|[A-Za-z]:[\\/]/);
   });
 });

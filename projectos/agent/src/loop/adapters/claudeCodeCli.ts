@@ -55,13 +55,37 @@ export const CLAUDE_CODE_CLI = 'claude-code-cli';
  */
 const EFFECTS_SHAPE = `{${PROTECTED_EFFECT_FIELDS.map((f) => `"${f}": true|false`).join(', ')}}`;
 
+/**
+ * WHAT A FINDING IS, said to the worker in the one place sentences are allowed (PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A, plan v1.44).
+ *
+ * THE STAGE 4 LIVE EXIT PROOF STOPPED HERE. A Codex worker wrote two unresolved findings about the LOOP's business: "independent code
+ * review remains outstanding" (MEDIUM) and "the checkout has no readable Git HEAD" (LOW). A worker can resolve neither, and the loop sends
+ * every unresolved MEDIUM or LOW back to the worker, so it was re-run three times and the run ended before the independent reviewer ran.
+ * Nothing had ever said what a finding is. This says it, to both providers, on both paths, through the one shared clause.
+ *
+ * IT WEAKENS NOTHING. It still demands every real defect, at its true severity, resolved only when fixed; the independent review, the
+ * checks and the closing stay with the loop; `decideContinuation` and the credited reviews are untouched. A constant: no brief, phase,
+ * record or worker data, and none of the words the credential heuristics look for. The owner approved this text word for word.
+ */
+const FINDINGS_CLAUSE =
+  'A finding is a defect in your OWN work: write down every real defect you find, at its true severity, and mark it resolved only when ' +
+  'you have fixed it in this run. ' +
+  "The independent code review, the required checks and validators, and the closing of the phase are ProjectOS's own steps and happen " +
+  'after you finish; that they have not happened yet, or that you did not run them, is not a finding. ' +
+  "The checkout you work in may have no Git history, or a Git baseline that is not the brief's `repository.head`; ProjectOS prepared it " +
+  'that way, so that is not a finding either, and you need not verify the baseline against it. ' +
+  'In `reviews` name only reviews you yourself performed, never the independent review. ' +
+  'Write the findings record from what is true now, not by keeping an entry that is not a defect in your own work. ' +
+  'If you found no defect, write an empty `findings` list. ';
+
 const RECORDS_CLAUSE =
   'Before you finish, write the two records the brief names under `records`: the findings record, ' +
   'as {"reviews": [names of the reviews you performed], "findings": [{"id", "severity" of ' +
   'CRITICAL|HIGH|MEDIUM|LOW, "category", "summary", "resolved"}]}; and the effects attestation, ' +
   `EXACTLY as ${EFFECTS_SHAPE} — all six keys at the TOP LEVEL of that record, nested under ` +
   'nothing, each a boolean saying what this run actually did. An incomplete attestation is ' +
-  'refused, a nested one is refused, and a run that attests nothing cannot be certified. ';
+  'refused, a nested one is refused, and a run that attests nothing cannot be certified. ' +
+  FINDINGS_CLAUSE;
 
 /**
  * WHO RUNS THE CHECKS, said to the worker in the one place sentences are allowed.

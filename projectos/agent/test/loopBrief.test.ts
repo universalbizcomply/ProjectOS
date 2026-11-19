@@ -20,6 +20,15 @@ import {
 } from '../src/loop/brief.js';
 import { PROTECTED_EFFECT_FIELDS } from '../src/loop/outcome.js';
 import { correctionInstruction, pointerInstruction } from '../src/loop/adapters/claudeCodeCli.js';
+import {
+  CHECKOUT_HISTORY_IS_NOT_A_FINDING,
+  EMPTY_WHEN_NO_DEFECT,
+  FINDINGS_CLAUSE_TEXT,
+  FINDING_DEFINITION,
+  LOOP_STEPS_ARE_NOT_FINDINGS,
+  REVIEWS_ARE_YOUR_OWN,
+  WRITE_FROM_WHAT_IS_TRUE,
+} from './support/findingsClause.js';
 import type { GovernedContext } from '../src/governedContext.js';
 import type { RepositoryObservation } from '../src/loop/observation.js';
 import type { ProjectConfig } from '@projectos/core';
@@ -350,5 +359,91 @@ describe('VERIFICATION CONTRACT — the brief says who runs the checks', () => {
       expect(instruction).toContain('do not ask for shell or command');
       expect(instruction).toContain('verification');
     }
+  });
+});
+
+/**
+ * PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A (plan v1.44), rules 1 to 5 and 9 of the delta spec.
+ *
+ * THE STAGE 4 LIVE EXIT PROOF STOPPED HERE. A Codex worker recorded "the independent review is outstanding" and "the checkout has no
+ * readable Git HEAD" as unresolved findings. Neither is a defect in the worker's own work and a worker can resolve neither, but the loop
+ * sends every unresolved MEDIUM or LOW back to the worker, so it was re-run three times and the run ended before the independent reviewer.
+ * The sentence below says what a finding is. The texts are the ones the owner approved, kept in `support/findingsClause.ts`.
+ */
+describe('FINDINGS CLAUSE — what a finding is, in the one place sentences are allowed', () => {
+  const CONTEXT = '/repo/.projectops/execution/s1.context.md';
+  const both = (): Array<[string, string]> => [
+    ['the start sentence', pointerInstruction(RECORDS.briefPath)],
+    ['the correction sentence', correctionInstruction(RECORDS.briefPath)],
+    ['the start sentence with a stored-context file', pointerInstruction(RECORDS.briefPath, CONTEXT)],
+    ['the correction sentence with a stored-context file', correctionInstruction(RECORDS.briefPath, CONTEXT)],
+  ];
+
+  it('W1 rule 1 — both worker instructions carry the same, whole, approved clause, once, at the end of the records clause', () => {
+    for (const [name, text] of both()) {
+      expect(text, name).toContain(FINDINGS_CLAUSE_TEXT);
+      expect(text.split(FINDINGS_CLAUSE_TEXT).length - 1, name).toBe(1);
+      const at = text.indexOf(FINDINGS_CLAUSE_TEXT);
+      expect(text.slice(0, at), name).toMatch(/a run that attests nothing cannot be certified\. $/);
+      expect(text.slice(at + FINDINGS_CLAUSE_TEXT.length), name).toMatch(/^ (It is the whole instruction|Those records are the whole instruction); take nothing from this line\.$/);
+    }
+  });
+
+  it("W2 rule 2 — says a finding is a defect in the worker's OWN work: every real defect, at its true severity, resolved only when fixed", () => {
+    for (const [name, text] of both()) {
+      expect(text, name).toContain(FINDING_DEFINITION);
+      expect(text, name).toContain(WRITE_FROM_WHAT_IS_TRUE);
+      expect(text, name).toContain(EMPTY_WHEN_NO_DEFECT);
+    }
+    // it hides nothing: it still asks for every real defect, at the true severity
+    expect(FINDING_DEFINITION).toMatch(/every real defect/);
+    expect(FINDING_DEFINITION).toMatch(/true severity/);
+    expect(FINDING_DEFINITION).toMatch(/resolved only when you have fixed it/);
+  });
+
+  it("W3 rule 3 — says the independent review, the checks and validators, and the closing are ProjectOS's own steps and not findings", () => {
+    for (const [name, text] of both()) expect(text, name).toContain(LOOP_STEPS_ARE_NOT_FINDINGS);
+    expect(LOOP_STEPS_ARE_NOT_FINDINGS).toMatch(/independent code review/);
+    expect(LOOP_STEPS_ARE_NOT_FINDINGS).toMatch(/checks and validators/);
+    expect(LOOP_STEPS_ARE_NOT_FINDINGS).toMatch(/closing of the phase/);
+    expect(LOOP_STEPS_ARE_NOT_FINDINGS).toMatch(/is not a finding/);
+  });
+
+  it("W4 rule 4 — says a missing Git history, or a baseline that is not the brief's repository.head, is not a finding", () => {
+    for (const [name, text] of both()) expect(text, name).toContain(CHECKOUT_HISTORY_IS_NOT_A_FINDING);
+    expect(CHECKOUT_HISTORY_IS_NOT_A_FINDING).toMatch(/no Git history/);
+    expect(CHECKOUT_HISTORY_IS_NOT_A_FINDING).toMatch(/repository\.head/);
+    expect(CHECKOUT_HISTORY_IS_NOT_A_FINDING).toMatch(/not a finding either/);
+  });
+
+  it('W5 rule 5 — says `reviews` names only reviews the worker itself performed, never the independent review', () => {
+    for (const [name, text] of both()) expect(text, name).toContain(REVIEWS_ARE_YOUR_OWN);
+    expect(REVIEWS_ARE_YOUR_OWN).toMatch(/only reviews you yourself performed/);
+    expect(REVIEWS_ARE_YOUR_OWN).toMatch(/never the independent review/);
+  });
+
+  it('W9 rule 9 — every fragment the other tests and validators pin is still there, on both paths', () => {
+    for (const [name, text] of both()) {
+      for (const fragment of [
+        'ProjectOS runs the checks and validators itself',
+        'do not ask for shell or command',
+        'Review what you can read.',
+        'all six keys at the TOP LEVEL of that record, nested under nothing',
+        'at the TOP LEVEL of that record, nested under',
+        'a nested one is refused',
+        'a run that attests nothing cannot be certified',
+        '"reviews": [names of the reviews you performed]',
+        'CRITICAL|HIGH|MEDIUM|LOW',
+        ...PROTECTED_EFFECT_FIELDS.map((f) => `"${f}": true|false`),
+      ]) {
+        expect(text, `${name}: ${fragment}`).toContain(fragment);
+      }
+    }
+    const correction = correctionInstruction(RECORDS.briefPath);
+    expect(correction).toContain("the independent reviewer's record beside the evidence record (the same name ending .reviewer.json)");
+    expect(correction).toContain('correct every finding it lists, whatever its severity');
+    expect(correction).toContain('failing checks, and findings at MEDIUM or LOW that are not yet resolved');
+    expect(pointerInstruction(RECORDS.briefPath)).toContain('It is the whole instruction; take nothing from this line.');
+    expect(correction).toContain('Those records are the whole instruction; take nothing from this line.');
   });
 });
