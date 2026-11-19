@@ -776,7 +776,8 @@ const REFUSAL = 'git could not record the scratch baseline commit';
 const slash = (p: string): string => p.replace(/\\/g, '/');
 
 describe('PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A: the scratch baseline commit', () => {
-  const ENV_NAMES = ['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'XDG_CONFIG_HOME', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'];
+  const AMBIENT_GIT = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1', 'GIT_CONFIG_PARAMETERS'];
+  const ENV_NAMES = ['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'XDG_CONFIG_HOME', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', ...AMBIENT_GIT];
   let saved: Record<string, string | undefined> = {};
   let home = '';
   let markers = '';
@@ -996,30 +997,99 @@ describe('PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A: the scratch baseline commit
     expect(committedPaths(scratch.root)).toEqual(filesOf(scratch.root));
   });
 
-  describe('rule 14: a failed add or a failed commit refuses the open with a fixed reason, starts no worker and leaves no directory behind', () => {
-    const failing = (verb: 'add' | 'commit', how: 'exit' | 'timeout'): System => ({
-      ...nodeSystem,
-      exec: (cmd, args, options): ExecResult =>
-        cmd === 'git' && args.includes(verb)
-          ? how === 'exit'
-            ? { code: 1, stdout: '', stderr: 'fatal: boom from the real repository /secret/path' }
-            : { code: 0, stdout: '', stderr: '', failure: 'timeout' }
-          : nodeSystem.exec(cmd, args, options),
-    });
+  /** Open with `sys`; the open must be refused and the one directory it made removed. Returns the refusal reason. */
+  function refusedAndClean(sys: System): string {
+    const made: string[] = [];
+    const recording: ScratchFs = { ...nodeScratchFs, makeTempDir: (prefix) => { const d = nodeScratchFs.makeTempDir(prefix); made.push(d); return d; } };
+    const refused = scratchHostWith(recording).open(sys, real);
+    expect(refused.ok).toBe(false);
+    expect(made).toHaveLength(1);
+    expect(existsSync(made[0] as string)).toBe(false);
+    return refused.ok ? '' : refused.reason;
+  }
+  const failing = (verb: 'add' | 'commit', how: 'exit' | 'timeout'): System => ({
+    ...nodeSystem,
+    exec: (cmd, args, options): ExecResult =>
+      cmd === 'git' && args.includes(verb)
+        ? how === 'exit'
+          ? { code: 1, stdout: '', stderr: 'fatal: boom from the real repository /secret/path' }
+          : { code: 0, stdout: '', stderr: '', failure: 'timeout' }
+        : nodeSystem.exec(cmd, args, options),
+  });
 
-    for (const verb of ['add', 'commit'] as const) {
-      for (const how of ['exit', 'timeout'] as const) {
-        it(`${verb} that ends by ${how}`, () => {
-          const made: string[] = [];
-          const recording: ScratchFs = { ...nodeScratchFs, makeTempDir: (prefix) => { const d = nodeScratchFs.makeTempDir(prefix); made.push(d); return d; } };
-          const refused = scratchHostWith(recording).open(failing(verb, how), real);
-          expect(refused.ok).toBe(false);
-          if (!refused.ok) expect(refused.reason).toBe(REFUSAL);
-          expect(made).toHaveLength(1);
-          expect(existsSync(made[0] as string)).toBe(false);
-        });
-      }
+  it('rule 14: an add that exits non-zero refuses the open with the fixed reason, starts no worker and leaves no directory behind', () => {
+    expect(refusedAndClean(failing('add', 'exit'))).toBe(REFUSAL);
+  });
+  it('rule 14: an add that times out refuses the open with the fixed reason, starts no worker and leaves no directory behind', () => {
+    expect(refusedAndClean(failing('add', 'timeout'))).toBe(REFUSAL);
+  });
+  it('rule 14: a commit that exits non-zero refuses the open with the fixed reason, starts no worker and leaves no directory behind', () => {
+    expect(refusedAndClean(failing('commit', 'exit'))).toBe(REFUSAL);
+  });
+  it('rule 14: a commit that times out refuses the open with the fixed reason, starts no worker and leaves no directory behind', () => {
+    expect(refusedAndClean(failing('commit', 'timeout'))).toBe(REFUSAL);
+  });
+
+  it('rule 14: every git call that reads or writes the scratch carries a timeout: the filter-driver listing, the add and the commit', () => {
+    const calls: Array<{ args: readonly string[]; timeoutMs: number | undefined }> = [];
+    let scratchRoot = '';
+    const recording: System = {
+      ...nodeSystem,
+      exec: (cmd, args, options): ExecResult => {
+        if (cmd === 'git' && args[0] === 'init') scratchRoot = args[args.length - 1] as string;
+        if (cmd === 'git' && scratchRoot !== '' && args[0] === '-C' && args[1] === scratchRoot) calls.push({ args, timeoutMs: options?.timeoutMs });
+        return nodeSystem.exec(cmd, args, options);
+      },
+    };
+    openScratch(nodeScratchHost, recording);
+    const kind = (args: readonly string[]): string => (args.includes('add') ? 'add' : args.includes('commit') ? 'commit' : args.includes('--get-regexp') ? 'filter-listing' : 'other');
+    expect(calls.map((c) => kind(c.args))).toEqual(['filter-listing', 'add', 'commit']);
+    for (const c of calls) {
+      expect(c.timeoutMs, kind(c.args)).toBeGreaterThan(0);
+      expect(c.timeoutMs, kind(c.args)).toBeLessThanOrEqual(600_000);
     }
+    expect(new Set(calls.map((c) => c.timeoutMs)).size).toBe(1);
+  });
+
+  it('rule 14: a hung add or commit is a refusal: a call that is given a timeout and runs out of time refuses the open, one that is not given one would hang', () => {
+    const hanging = (verb: 'add' | 'commit'): System => ({
+      ...nodeSystem,
+      // "hang": with a timeout the call ends by timing out; without one this fake lets the call "succeed", which is the hang production would suffer
+      exec: (cmd, args, options): ExecResult =>
+        cmd === 'git' && args.includes(verb) ? (options?.timeoutMs !== undefined ? { code: 0, stdout: '', stderr: '', failure: 'timeout' } : { code: 0, stdout: '', stderr: '' }) : nodeSystem.exec(cmd, args, options),
+    });
+    expect(refusedAndClean(hanging('add'))).toBe(REFUSAL);
+    expect(refusedAndClean(hanging('commit'))).toBe(REFUSAL);
+  });
+
+  it('rule 14: when the filter drivers of the scratch cannot be listed the open is refused with the fixed reason and the directory is removed', () => {
+    let scratchRoot = '';
+    const sys: System = {
+      ...nodeSystem,
+      exec: (cmd, args, options): ExecResult => {
+        if (cmd === 'git' && args[0] === 'init') scratchRoot = args[args.length - 1] as string;
+        if (cmd === 'git' && scratchRoot !== '' && args[1] === scratchRoot && args.includes('--get-regexp')) return { code: 2, stdout: '', stderr: 'fatal: cannot read the configuration' };
+        return nodeSystem.exec(cmd, args, options);
+      },
+    };
+    expect(refusedAndClean(sys)).toBe(REFUSAL);
+  });
+
+  it('rule 14: an exec that THROWS during the add refuses the open (the reason is the generic one for a failed build, not the fixed commit text), removes the directory and changes nothing in the real tree', () => {
+    const realFactsNow = () => ({ head: git('rev-parse', 'HEAD'), status: git('status', '--porcelain=v1', '-z', '--untracked-files=all'), tree: treeOf(real) });
+    realFactsNow();
+    const before = realFactsNow();
+    const throwing: System = {
+      ...nodeSystem,
+      exec: (cmd, args, options): ExecResult => {
+        if (cmd === 'git' && args.includes('add')) throw new Error('exec blew up with /secret/path');
+        return nodeSystem.exec(cmd, args, options);
+      },
+    };
+    const reason = refusedAndClean(throwing);
+    expect(reason).toBe('building the scratch failed (unknown)');
+    expect(reason).not.toContain('secret');
+    expect(realFactsNow()).toEqual(before);
   });
 
   it('rule 15: the message and the identity are fixed text and carry nothing from the real repository, its configuration or its HEAD', () => {
@@ -1055,6 +1125,71 @@ describe('PROJECTOS-WORKER-RECORDS-SCRATCH-COMMIT1A: the scratch baseline commit
     expect(scratch.copyBack()).toEqual({ kind: 'copied', paths: [] });
     expect(facts()).toEqual(before);
     expect(treeOf(real)).not.toHaveProperty('worker-branch');
+  });
+
+  it('rule 12: hostile ambient GIT_* variables of the calling process reach nothing: the real repository\'s HEAD, index and status are byte-identical, and the scratch commit is right', () => {
+    const facts = () => ({
+      head: git('rev-parse', 'HEAD'),
+      status: git('status', '--porcelain=v1', '-z', '--untracked-files=all'),
+      refs: git('show-ref'),
+      index: createHash('sha256').update(readFileSync(join(real, '.git/index'))).digest('hex'),
+      config: readFileSync(join(real, '.git/config'), 'utf8'),
+    });
+    put(real, 'docs/crlf.txt', 'one\r\ntwo\r\n');
+    facts(); // the first status may refresh the index; the open must not change anything after that
+    const before = facts();
+    const hostile: Record<string, string> = {
+      GIT_DIR: join(real, '.git'),
+      GIT_WORK_TREE: real,
+      GIT_INDEX_FILE: join(real, '.git', 'index'),
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: 'core.autocrlf',
+      GIT_CONFIG_VALUE_0: 'true',
+      GIT_CONFIG_KEY_1: 'commit.gpgsign',
+      GIT_CONFIG_VALUE_1: 'true',
+      GIT_CONFIG_PARAMETERS: `'core.autocrlf=true' 'commit.gpgsign=true' 'gpg.program=${markerScript('gpg-env', 1)}'`,
+    };
+    let scratch: ScratchCheckout;
+    try {
+      for (const [name, value] of Object.entries(hostile)) process.env[name] = value;
+      // control: with these variables a plain git run anywhere answers for the real repository, so the variables are live
+      const elsewhere = join(base, 'elsewhere');
+      mkdirSync(elsewhere);
+      expect(slash(execFileSync('git', ['rev-parse', '--absolute-git-dir'], { cwd: elsewhere, encoding: 'utf8' }).trim())).toBe(slash(join(real, '.git')));
+      scratch = openScratch();
+    } finally {
+      for (const name of Object.keys(hostile)) delete process.env[name];
+    }
+    expect(markerNames()).toEqual([]);
+    expect(facts()).toEqual(before);
+    expect(gitIn(scratch.root, 'rev-list', '--count', 'HEAD').trim()).toBe('1');
+    expect(committedPaths(scratch.root)).toEqual(filesOf(scratch.root));
+    expect(blobOf(scratch.root, 'docs/crlf.txt').toString('utf8')).toBe('one\r\ntwo\r\n');
+    expect(gitIn(scratch.root, 'cat-file', 'commit', 'HEAD')).not.toContain('gpgsig');
+    expect(gitIn(scratch.root, 'log', '-1', '--format=%an|%ae').trim()).toBe('ProjectOS local candidate|local-candidate@projectos.invalid');
+  });
+
+  it('rule 10 and 11: a real tree with a tracked .gitattributes (eol, filter, working-tree-encoding), a tracked .gitmodules, a submodule gitlink and an untracked nested repository still opens, with none of those control paths in the scratch and every blob raw', () => {
+    put(real, '.gitattributes', '* text eol=crlf\n*.enc working-tree-encoding=UTF-16\n*.f filter=evil\n');
+    put(real, '.gitmodules', '[submodule "vendor/sub"]\n\tpath = vendor/sub\n\turl = https://example.invalid/sub.git\n');
+    git('add', '.gitattributes', '.gitmodules');
+    git('update-index', '--add', '--cacheinfo', `160000,${git('rev-parse', 'HEAD').trim()},vendor/sub`);
+    // untracked files, made AFTER the attributes were staged and never added by real git here: raw CRLF, raw UTF-16, a file the filter would touch
+    put(real, 'docs/crlf.txt', 'one\r\ntwo\r\n');
+    writeFileSync(join(real, 'docs/utf16.enc'), Buffer.from('\ufeffhello\r\n', 'utf16le'));
+    put(real, 'docs/thing.f', 'filtered?\r\n');
+    execFileSync('git', ['init', '-q', join(real, 'nested')], { stdio: 'ignore' });
+    put(real, 'nested/inner.txt', 'inner\r\n');
+    const scratch = openScratch();
+    const paths = committedPaths(scratch.root);
+    for (const absent of ['.gitattributes', '.gitmodules', 'vendor/sub']) expect(paths, absent).not.toContain(absent);
+    expect(paths.filter((p) => p.split('/').some((segment) => segment.startsWith('.git')))).toEqual([]);
+    expect(paths).toEqual(filesOf(scratch.root));
+    expect(paths).toEqual(expect.arrayContaining(['docs/crlf.txt', 'docs/utf16.enc', 'docs/thing.f']));
+    for (const path of paths) expect(blobOf(scratch.root, path).equals(readFileSync(join(real, path))), path).toBe(true);
+    expect(blobOf(scratch.root, 'docs/utf16.enc').equals(Buffer.from('\ufeffhello\r\n', 'utf16le'))).toBe(true);
+    expect(existsSync(join(scratch.root, '.gitattributes'))).toBe(false);
+    expect(existsSync(join(scratch.root, '.gitmodules'))).toBe(false);
   });
 
   it('rule 17: a worker in the scratch can read HEAD, and git diff shows exactly its own edit', () => {

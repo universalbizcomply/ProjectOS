@@ -636,6 +636,19 @@ const SCRATCH_BASELINE_MESSAGE =
 const SCRATCH_COMMIT_REFUSED = 'git could not record the scratch baseline commit';
 
 /**
+ * The most time one git call against the scratch (the filter-driver listing, the add, the commit) may take. `isolatedGitRunner` passes no
+ * timeout and `writeScope.ts` is not edited here, so the runner is given a System whose `exec` adds one. A call that runs out of time ends
+ * with `failure: 'timeout'`, which refuses the open: a hung git must not hold the loop. The add and the commit are bounded by the export's
+ * own limits (at most 100,000 files and 1 GiB), which two minutes covers on any real disk with room to spare; the `init` has its own 60 s.
+ */
+const SCRATCH_GIT_TIMEOUT_MS = 120_000;
+
+/** `sys`, but every call carries the scratch's git timeout. Nothing else about a call (command, arguments, environment) is touched. */
+function withScratchGitTimeout(sys: System): System {
+  return { ...sys, exec: (cmd, args, options) => sys.exec(cmd, args, { ...options, timeoutMs: SCRATCH_GIT_TIMEOUT_MS }) };
+}
+
+/**
  * Commit exactly the exported files, as they are, once. Run through the SHARED isolated runner (no system or user configuration, hooks
  * closed, fsmonitor off, filter drivers switched off, a fixed identity), so there is no second isolation path.
  *
@@ -648,7 +661,7 @@ const SCRATCH_COMMIT_REFUSED = 'git could not record the scratch baseline commit
  * True when the commit was made; false on a failed listing of filter drivers, a failed add or a failed commit (the caller refuses the open).
  */
 function commitScratchBaseline(sys: System, root: string): boolean {
-  const run = isolatedGitRunner(sys, root);
+  const run = isolatedGitRunner(withScratchGitTimeout(sys), root);
   if (run === null) return false;
   const done = (r: ExecResult): boolean => r.code === 0 && r.failure === undefined;
   const added = run([

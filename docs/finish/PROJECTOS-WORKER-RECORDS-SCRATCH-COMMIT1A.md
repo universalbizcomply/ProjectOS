@@ -30,11 +30,11 @@ times and the run ended before the independent reviewer. This phase tells both p
 | `projectos/agent/test/codexImplementerAdapter.test.ts` | W7. |
 | `projectos/agent/test/loopBrief.test.ts`, `loopWorkers.test.ts` | W1-W5, W9 and W6. |
 | `projectos/agent/test/support/findingsClause.ts` (new) | the owner-approved text as literals, one export per sentence, so a test fails when the source drifts from what was approved. |
-| `projectos/validators/val-projectos-worker-codex-implementer1a.cjs` | WI-33 and WI-34, 30 new named mutations (185 -> 215), TESTS needles for every new test. |
+| `projectos/validators/val-projectos-worker-codex-implementer1a.cjs` | WI-33 and WI-34, 30 new named mutations (185 -> 215; 223 after the fix round below), TESTS needles for every new test. |
 
 Edited-or-not report for the four neighbour validators the phase was granted: `val-projectos-context-manager1a.cjs`, `val-projectos-kernel-followup1a.cjs`,
 `val-projectos-kernel-role-review1a.cjs`, `val-projectos-worker-lifecycle-bounded1a.cjs` are **UNTOUCHED** (no pin on the changed region; all four pass). No pin outside the write list moved.
-`docs/06_Plan.md` and `docs/changes/delta_spec.md` are not edited (the lead ticks at close).
+`docs/06_Plan.md` is not edited (the lead ticks at close). `docs/changes/delta_spec.md` gained only the owner-chosen semicolon in the approved clause text (fix round).
 
 The two commit commands, exactly as built (every `-c` before the verb; none contains the text `core.fsmonitor`, which WI-25 forbids in this file):
 `add` with `-c core.autocrlf=false -c core.safecrlf=false -c core.attributesFile=<null device> -c core.excludesFile=<null device>` and `--all --force -- .`;
@@ -100,7 +100,7 @@ SURVIVED, honestly (the validator pins each of these by text, but no test can ob
 - **R1** the real cause of F2 may be Git's ownership check ("dubious ownership"), not the missing commit, if `windows.sandbox="elevated"` runs commands as another Windows user. NOT resolved: T008 was skipped. The commit may not fix F2; the wording sentence still tells the worker not to record it. The re-run answers it.
 - **R2** the scratch HEAD is not the brief's `repository.head`. The clause (rule 4) says so and the message says it is not the governed repository's commit; the real sha is deliberately not in the message.
 - **R3** a worker may still record some other caveat with `resolved:false` (for example "validate-site was not run by me"). The clause says to write only defects; a residual is possible. Not provable without the re-run.
-- **R4** cost: `git add` hashes and compresses every exported file (bounded at 100,000 files and 1 GiB by the export) and writes loose objects (about the tree's size again on disk). Not measured; the 8-file test tree is instant. The commit and the add run through the shared runner, which has no timeout option, exactly like the existing file listing (`listedFiles`); a hung git there would hold the open (the `init` has a 60 s timeout, the add and commit do not). Giving them one needs an edit to PROTECTED `writeScope.ts`; not done.
+- **R4** cost: `git add` hashes and compresses every exported file (bounded at 100,000 files and 1 GiB by the export) and writes loose objects (about the tree's size again on disk). Not measured; the 8-file test tree is instant. FIXED in the fix round (see "Review round and fix round"): the add, the commit and the filter-driver listing now carry a 120 s timeout through a wrapped `exec`, without editing `writeScope.ts`; a hang is a fail-closed refusal.
 - **R5** fail closed: a git hiccup (an antivirus lock) refuses the open instead of degrading the run. Chosen by the owner.
 - **R6** the identity is the isolated environment's fixed "local candidate" identity; nothing is set. A `-c user.name` could not override it anyway (the environment variables win), so no test-level mutation of the identity exists; the validator pins that none is set.
 - **New R7** the brief, evidence, findings, effects and context files are placed in the scratch AFTER the open, so to a worker's git they are untracked files under `.projectops/execution/` (`git status` is clean right after the open, rule 13, but not after the adapter places the records; S9 proves status shows only those). Not changed (outside the spec). Whether a worker records "untracked files" as a finding is part of R3.
@@ -119,4 +119,48 @@ SURVIVED, honestly (the validator pins each of these by text, but no test can ob
 
 1. The independent ECC `security-reviewer` review (T007) is the lead's, after this report; the brief for it: reads by absolute path stay open (D4); the worker owns the scratch `.git`; no gate moved.
 2. T010 the re-run, with the owner's words for new attempt ids and a fresh secrets-handling receipt per attempt.
-3. Optional: a timeout for the scratch add and commit (needs `writeScope.ts`); the R7 question below.
+3. Done in the fix round: the timeout for the scratch add and commit (no `writeScope.ts` edit was needed). Still open: the R7 question (the placed records show as untracked files in the scratch).
+4. Carried LOW/INFO from the review round, not fixed (listed in the next section).
+
+## Review round and fix round
+
+### Reviews of the baseline commit (the first build, `61b5c155`)
+
+Three independent reviews ran after the first report: an Agency specialist and two ECC reviewers (the security reviewer and a second code reviewer). None found a CRITICAL or HIGH defect.
+Two MEDIUM findings were raised and one wording point:
+
+1. **MEDIUM** the scratch `add` and `commit` had no timeout (R4 above): a hung git would hold the open and so the loop.
+2. **MEDIUM** the validator did not pin how the exit status of the add and of the commit is handled, nor that every `-c` override comes BEFORE its verb (a `-c` after `add` or `commit` is an argument of the verb, not an override, and the isolation would silently go).
+3. **Wording** the loop-steps sentence of the findings clause joined two clauses with a comma ("...happen after you finish, so that they have not happened yet..."), which reads as a purpose clause. The owner chose the semicolon.
+
+Test-coverage gaps the reviews named (no new production risk, only unproved paths): ambient `GIT_*` variables of the calling process; a real tree with tracked `.gitattributes` and `.gitmodules`, a submodule and a nested repository;
+the refusal when the shared runner cannot be built (`run === null`); an `exec` that throws.
+
+### What the fix round changed (tests first; each new test seen RED, then GREEN)
+
+| Finding | Change | Where |
+|---|---|---|
+| 1 | `SCRATCH_GIT_TIMEOUT_MS = 120_000` and `withScratchGitTimeout(sys)`: a derived `System` whose `exec` adds `timeoutMs` and changes nothing else (command, arguments, environment). `commitScratchBaseline` hands it to `isolatedGitRunner`, so the filter-driver listing, the add and the commit are all bounded. A call that runs out of time ends with `failure: 'timeout'`, which the existing `done(r)` test already treats as a failure, so the open is refused with the fixed reason. `writeScope.ts` and the shared runner are NOT edited. | `scratchCheckout.ts` |
+| 2 | WI-34 now also pins: the `done` predicate (exit code AND no failure), that the add result and the commit result are both returned through it, that there are exactly two git calls in the function, and that every `'-c'` of each precedes its verb (`overridesBeforeVerb`); and pins the timeout wrapper, the constant being a positive number, and that the runner is given the wrapped system. 8 new named mutations (215 -> 223): add result never checked; exit test ignores a timeout; commit result discarded; override after the add verb; override after the commit verb; timeout removed from the derived exec; runner given the undecorated system; timeout is zero. | `val-projectos-worker-codex-implementer1a.cjs` |
+| 3 | `...happen after you finish; that they have not happened yet, or that you did not run them, is not a finding.` Changed in ALL FOUR places that hold the text: `FINDINGS_CLAUSE` (`claudeCodeCli.ts`), the test support constant (`test/support/findingsClause.ts`), the validator's `FINDINGS_EXPECTED`, and the approved text in the v1.44 delta spec (`docs/changes/delta_spec.md`, line 639). Only the one comma became a semicolon; no word changed. | four files |
+
+New tests (`scratchCheckout.test.ts`, 65 -> 71): add exits non-zero / add times out / commit exits non-zero / commit times out (each: fixed reason, no worker, no directory left); every git call carries a timeout; a hung add or commit is a refusal;
+the filter drivers cannot be listed (this is the `run === null` path: open refused with the fixed reason, directory removed); an `exec` that throws (generic build-failure reason, directory removed, real tree unchanged);
+hostile ambient `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and similar pointing at a real repository (its HEAD, index and status byte-identical, scratch commit right); a real tree with tracked `.gitattributes` (eol, filter, working-tree-encoding), tracked `.gitmodules`,
+a submodule gitlink and an untracked nested repository (opens; none of those control paths in the scratch; every blob raw).
+
+Environment: the `projectos/control-center/node_modules` junction was created in this worktree (to the plan worktree's install), so `tenantSidecar.test.ts` no longer fails for the environmental reason recorded above.
+The junction is untracked/ignored and is not part of the commit.
+
+### Carried forward, not fixed
+
+- LOW the 120 s bound is a constant, not configuration; a very large export on a very slow disk could be refused where a longer bound would succeed. The refusal is the safe direction and the export is capped at 1 GiB.
+- LOW R7, R8 above unchanged.
+- INFO `test/skillLoad.test.ts(128,26)` TS2339 in `typecheck:tests` is pre-existing and not part of this phase.
+
+### Results after the fix round
+
+- `scratchCheckout.test.ts` 71 passed. Whole agent suite, once (`npx vitest run` in `projectos/agent`): **142 files passed, 4687 tests passed, 0 failed** (this includes `tenantSidecar.test.ts`, which now runs with the control-center junction, and the timing test that failed under load before).
+- `val-projectos-worker-codex-implementer1a` PASS (223 named mutations killed).
+- `npx tsc -p tsconfig.json --noEmit` clean; `typecheck:tests` shows only the pre-existing `skillLoad.test.ts(128,26)` error.
+- `validate-all` is NOT run here; the lead runs it once on the merged stack for both phases.

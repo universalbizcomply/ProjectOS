@@ -58,7 +58,8 @@
  *   WI-33 "say what a finding is, roughly"                 — the sentence is the owner-approved text, word for word, a constant, in the ONE shared
  *         records clause, so the start sentence and the correction sentence of BOTH providers carry it, and the Codex adapter builds none of its own
  *   WI-34 "the scratch needs no commit" / "commit however"  — the scratch gets ONE commit through the shared isolated runner, with no line-ending
- *         conversion, no excludes or attributes file, no hook, no signing, no background maintenance, a fixed message and identity, and a refused
+ *         conversion, no excludes or attributes file, no hook, no signing, no background maintenance, a fixed message and identity, a timeout on
+ *         every call (a hung git is a refusal), the exit status and the timeout of the add and of the commit both checked, and a refused
  *         commit refuses the open (no worker starts)
  *
  * Each rule has a NAMED MUTATION; `selfTest` applies it in memory and counts it killed only when THAT rule fires.
@@ -160,7 +161,16 @@ const TESTS = {
     "rule 11: every blob equals the raw bytes of the exported file",
     "rule 12: no hook, no filter, no fsmonitor program and no signing program runs",
     "rule 12: the commit",
-    "rule 14: a failed add or a failed commit refuses the open with a fixed reason",
+    "rule 14: an add that exits non-zero refuses the open with the fixed reason",
+    "rule 14: an add that times out refuses the open with the fixed reason",
+    "rule 14: a commit that exits non-zero refuses the open with the fixed reason",
+    "rule 14: a commit that times out refuses the open with the fixed reason",
+    "rule 14: every git call that reads or writes the scratch carries a timeout",
+    "rule 14: a hung add or commit is a refusal",
+    "rule 14: when the filter drivers of the scratch cannot be listed the open is refused",
+    "rule 14: an exec that THROWS during the add refuses the open",
+    "rule 12: hostile ambient GIT_* variables of the calling process reach nothing",
+    "rule 10 and 11: a real tree with a tracked .gitattributes",
     "rule 15: the message and the identity are fixed text",
     "rule 16: the scratch",
     "rule 17: a worker in the scratch can read HEAD",
@@ -395,7 +405,11 @@ const PIN = {
   scCommitCall: "if (!commitScratchBaseline(sys, root)) return fail(SCRATCH_COMMIT_REFUSED);",
   scCommitRefusal: "const SCRATCH_COMMIT_REFUSED = 'git could not record the scratch baseline commit';",
   scCommitSignature: "function commitScratchBaseline(sys: System, root: string): boolean {",
-  scCommitRunner: "const run = isolatedGitRunner(sys, root);\n  if (run === null) return false;",
+  scCommitRunner: "const run = isolatedGitRunner(withScratchGitTimeout(sys), root);\n  if (run === null) return false;",
+  scTimeoutWrapper: "return { ...sys, exec: (cmd, args, options) => sys.exec(cmd, args, { ...options, timeoutMs: SCRATCH_GIT_TIMEOUT_MS }) };",
+  scDonePredicate: "const done = (r: ExecResult): boolean => r.code === 0 && r.failure === undefined;",
+  scAddChecked: "if (!done(added)) return false;",
+  scCommitReturned: "return done(committed);",
   scAddNoConversion: "'-c', 'core.autocrlf=false',",
   scAddNoSafety: "'-c', 'core.safecrlf=false',",
   scAddNoAttributes: "'-c', `core.attributesFile=${NULL_DEVICE}`,",
@@ -411,7 +425,7 @@ const PIN = {
 /** The approved sentences of the findings clause, word for word (the owner approved them on 2026-11-18). */
 const FINDINGS_EXPECTED = [
   "A finding is a defect in your OWN work: write down every real defect you find, at its true severity, and mark it resolved only when you have fixed it in this run.",
-  "The independent code review, the required checks and validators, and the closing of the phase are ProjectOS's own steps and happen after you finish, so that they have not happened yet, or that you did not run them, is not a finding.",
+  "The independent code review, the required checks and validators, and the closing of the phase are ProjectOS's own steps and happen after you finish; that they have not happened yet, or that you did not run them, is not a finding.",
   "The checkout you work in may have no Git history, or a Git baseline that is not the brief's `repository.head`; ProjectOS prepared it that way, so that is not a finding either, and you need not verify the baseline against it.",
   "In `reviews` name only reviews you yourself performed, never the independent review.",
   "Write the findings record from what is true now, not by keeping an entry that is not a defect in your own work.",
@@ -457,6 +471,12 @@ function literalConstant(text, name) {
       return null;
     }
   }
+}
+
+/** Is the verb in the argument list `block` after every `'-c'` of it? A `-c` after the verb is an argument of the verb, not an override. */
+function overridesBeforeVerb(block, verb) {
+  const v = block.indexOf(verb);
+  return v >= 0 && block.lastIndexOf("'-c'") < v;
 }
 
 /** The text of one top-level function of a (comment-stripped) source: from its signature to the first line that is a lone closing brace. */
@@ -702,15 +722,20 @@ function check(raw) {
   // alter the bytes or run a program switched off at command scope, a fixed message, no identity of its own, no data from the real repository,
   // and a refusal (no worker starts) when it cannot be made.
   const commitBody = functionBody(sc, PIN.scCommitSignature);
+  const commitCalls = commitBody === null ? [] : [...commitBody.matchAll(/run\(\[([\s\S]*?)\]\);/g)].map((m) => m[1]);
+  const timeoutBody = functionBody(sc, "function withScratchGitTimeout(sys: System): System {");
   const iInit = sc.indexOf(PIN.scInit);
   const iCommit = sc.indexOf(PIN.scCommitCall);
   if (commitBody === null || iInit < 0 || !(iCommit > iInit) || !has(sc, [PIN.scCommitCall, PIN.scCommitRefusal, PIN.scSharedImport]) ||
       !has(commitBody, [PIN.scCommitRunner, PIN.scAddNoConversion, PIN.scAddNoSafety, PIN.scAddNoAttributes, PIN.scAddNoExcludes, PIN.scAddForced,
         PIN.scCommitNoSigning, PIN.scCommitNoGc, PIN.scCommitNoDetach, PIN.scCommitNoMaintenance, PIN.scCommitVerb]) ||
       /sys\.exec\(/.test(commitBody) ||
+      !has(commitBody, [PIN.scDonePredicate, PIN.scAddChecked, PIN.scCommitReturned]) ||
+      commitCalls.length !== 2 || !overridesBeforeVerb(commitCalls[0], "'add'") || !overridesBeforeVerb(commitCalls[1], "'commit'") ||
+      timeoutBody === null || !timeoutBody.includes(PIN.scTimeoutWrapper) || !/const SCRATCH_GIT_TIMEOUT_MS = [1-9][0-9_]*;/.test(sc) ||
       literalConstant(sc, "SCRATCH_BASELINE_MESSAGE") !== BASELINE_MESSAGE_EXPECTED ||
       /user\.(?:name|email)|GIT_AUTHOR|GIT_COMMITTER|--author|--date|rev-parse|realRoot/.test(commitBody)) {
-    E("WI-34", "the scratch baseline commit is no longer made right after the init, through the shared isolated runner, with no line-ending conversion, excludes or attributes file, hook, signing or background maintenance, a fixed message and identity, no data from the real repository, and a refusal when it cannot be made");
+    E("WI-34", "the scratch baseline commit is no longer made right after the init, through the shared isolated runner, with no line-ending conversion, excludes or attributes file, hook, signing or background maintenance, a fixed message and identity, no data from the real repository, and a refusal when it cannot be made, every call bounded by a timeout, and the exit status and timeout of the add and of the commit both checked, with every override before its verb");
   }
   // The reviewer file only gained exports, so the exit-proof reviewer is unchanged in behaviour.
   if (!PIN.codexExports.every((p) => cx.includes(p))) {
@@ -924,7 +949,7 @@ const MUTATIONS = [
   { name: "scratch-baseline-commit-failure-ignored", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scCommitCall, to: "commitScratchBaseline(sys, root);" },
   { name: "scratch-baseline-commit-made-before-the-init", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scInit, to: PIN.scCommitCall + "\n    " + PIN.scInit },
   { name: "scratch-baseline-refusal-reason-changed", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scCommitRefusal, to: "const SCRATCH_COMMIT_REFUSED = 'git said no';" },
-  { name: "scratch-baseline-commit-runs-its-own-git", rule: "WI-34", rel: SCRATCH_REL, from: "const run = isolatedGitRunner(sys, root);\n  if (run === null) return false;", to: "const run = (args: readonly string[]) => sys.exec('git', ['-C', root, ...args]);" },
+  { name: "scratch-baseline-commit-runs-its-own-git", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scCommitRunner, to: "const run = (args: readonly string[]) => sys.exec('git', ['-C', root, ...args]);" },
   { name: "scratch-baseline-add-converts-line-endings", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scAddNoConversion, to: "" },
   { name: "scratch-baseline-add-refuses-mixed-line-endings", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scAddNoSafety, to: "" },
   { name: "scratch-baseline-add-reads-an-attributes-file", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scAddNoAttributes, to: "" },
@@ -940,6 +965,14 @@ const MUTATIONS = [
   { name: "scratch-baseline-message-reworded", rule: "WI-34", rel: SCRATCH_REL, from: "as exported for one worker run.", to: "as exported for one worker run of the real repository." },
   { name: "scratch-baseline-message-carries-data", rule: "WI-34", rel: SCRATCH_REL, from: "'ProjectOS scratch baseline: the working tree", to: "process.cwd() + 'ProjectOS scratch baseline: the working tree" },
   { name: "scratch-baseline-commit-sets-an-identity", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scCommitNoGc, to: "'-c', 'user.name=someone',\n    " + PIN.scCommitNoGc },
+  { name: "scratch-baseline-add-result-never-checked", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scAddChecked, to: "" },
+  { name: "scratch-baseline-exit-test-ignores-a-timeout", rule: "WI-34", rel: SCRATCH_REL, from: "r.code === 0 && r.failure === undefined", to: "r.code === 0" },
+  { name: "scratch-baseline-commit-result-discarded", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scCommitReturned, to: "return true;" },
+  { name: "scratch-baseline-override-after-the-add-verb", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scAddForced, to: PIN.scAddForced + " " + PIN.scAddNoConversion },
+  { name: "scratch-baseline-override-after-the-commit-verb", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scCommitVerb, to: PIN.scCommitVerb + " " + PIN.scCommitNoGc },
+  { name: "scratch-baseline-timeout-removed-from-the-derived-exec", rule: "WI-34", rel: SCRATCH_REL, from: "{ ...options, timeoutMs: SCRATCH_GIT_TIMEOUT_MS }", to: "options" },
+  { name: "scratch-baseline-runner-given-the-undecorated-system", rule: "WI-34", rel: SCRATCH_REL, from: "isolatedGitRunner(withScratchGitTimeout(sys), root)", to: "isolatedGitRunner(sys, root)" },
+  { name: "scratch-baseline-timeout-is-zero", rule: "WI-34", rel: SCRATCH_REL, from: "const SCRATCH_GIT_TIMEOUT_MS = 120_000;", to: "const SCRATCH_GIT_TIMEOUT_MS = 0;" },
   { name: "scratch-baseline-commit-reads-the-real-repository", rule: "WI-34", rel: SCRATCH_REL, from: PIN.scCommitSignature, to: "function commitScratchBaseline(sys: System, root: string, realRoot: string): boolean {" },
 ];
 

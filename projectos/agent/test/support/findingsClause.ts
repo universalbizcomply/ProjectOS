@@ -8,7 +8,7 @@ export const FINDING_DEFINITION =
   'A finding is a defect in your OWN work: write down every real defect you find, at its true severity, and mark it resolved only when you have fixed it in this run.';
 
 export const LOOP_STEPS_ARE_NOT_FINDINGS =
-  "The independent code review, the required checks and validators, and the closing of the phase are ProjectOS's own steps and happen after you finish, so that they have not happened yet, or that you did not run them, is not a finding.";
+  "The independent code review, the required checks and validators, and the closing of the phase are ProjectOS's own steps and happen after you finish; that they have not happened yet, or that you did not run them, is not a finding.";
 
 export const CHECKOUT_HISTORY_IS_NOT_A_FINDING =
   "The checkout you work in may have no Git history, or a Git baseline that is not the brief's `repository.head`; ProjectOS prepared it that way, so that is not a finding either, and you need not verify the baseline against it.";
