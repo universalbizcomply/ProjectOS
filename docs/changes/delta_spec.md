@@ -737,3 +737,22 @@ Scratch commit
 4. `session_digest` stays `pub(crate)` on `BoundIpcSession` and `AdmittedRequest`.
 
 **Verify (toolchain 1.96.1 from `rust-toolchain.toml`).** RED first: the new doctest and test fail or do not compile before the change. Then `cargo test --offline --features test-fixtures` and `cargo test --offline --doc` in `projectos/host/core`; `cargo test --offline` in `projectos/host/windows-local-ipc` (a compile break there means stop); a build of `projectos/host/service-host` if it builds on this machine; the five validators above plus `val-cd-b4-sealed-expected-window-facts1a`; then one `validate-all`. Review: ECC `security-reviewer` mandatory and independent; the builder is never the sole reviewer.
+
+## Plan v1.45 — amendment of two acceptance rules of PROJECTOS-STAGE4-EXIT-PROOF1A (owner-approved 2026-11-19)
+
+**Why.** Config B closed live as attempt B2 (2026-11-19, `docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A/B2/`). Judging the evidence against the rules approved on 2026-11-18 showed two of them cannot be met by the evidence now held, and a validator built to them would fail and turn `validate-all` red:
+- **SP-2** said both runs used ONE runtime. A2 ran on the runtime of plan head `d4771156` (before the v1.44 fixes); B2 ran on a new runtime built from `c9e8188e` (after them), because the fix phases had to be in the runtime B2 exercised. The owner chose to skip A3 (the re-run of A on the new runtime).
+- **SP-4** said each reviewer record is an APPROVE with NO findings. B2's read-only Claude reviewer approved and wrote one unresolved LOW verification limit (it cannot run `git diff`).
+
+Asked first, per the owner's standing rule. Owner's answer (interactive prompt, 2026-11-19, verbatim): "Amend both rules (Recommended)", the option described as: SP-2 each attempt records its own runtime which must differ from its plan head only by the allowlist file, same phase text and byte-identical source tree, the older-runtime fact for A2 stated in the notes; SP-4 APPROVE with no unresolved MEDIUM, HIGH or CRITICAL finding, LOWs recorded and never hidden; strict mutations stay for the rest. Then: build the validator, register it, run validate-all, close owner-direct on "Full authority stands.", fast-forward main and push.
+
+**ADDED / MODIFIED / PROTECTED.**
+- MODIFIED: `docs/projectos-finish-phases.json`, the `PROJECTOS-STAGE4-EXIT-PROOF1A` entry only (description sentence on the runtime, acceptance criteria 2 and 3). New plan version v1.45 records it.
+- MODIFIED: SP-2 and SP-4 as below. All other rules (SP-1, SP-3, SP-5 to SP-9) are unchanged and stay strict.
+- PROTECTED, unchanged: every other phase entry, the gates, the closure authority, the caps ($1.50 per run, $3.00 in total), `writePaths` of the phase, and the evidence already committed (never edited).
+
+**SP-2 as amended.** Every attempt has its own runtime record naming its plan head and its runtime head; each runtime differs from its own plan head only by the temporary allowlist file and is clean; the phase text and the source tree outside `.projectops/` (digest) are identical across the two closed runs; each committed config differs from the base only in `execution`, `planMemory` and `planSources`. When the two closed runs ran on different runtimes, the validator notes must state it.
+
+**SP-4 as amended.** Each closed run's reviewer record shows a reviewer of a different provider and kind than the implementer, an APPROVE, no unresolved MEDIUM, HIGH or CRITICAL finding (a LOW is allowed and must be the finding as the reviewer wrote it, bound to the evidence by hash), every requested review performed, and a hash bound to the evidence.
+
+**What this does not change.** The proof is still not a proof of what any worker READ (D4 stands). `providerDistinct` is by worker kind. A2 pre-dates the v1.44 fixes; the pair is not "one runtime" and the notes say so.
