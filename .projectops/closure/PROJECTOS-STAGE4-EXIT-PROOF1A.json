@@ -1,0 +1,24 @@
+{
+  "phaseId": "PROJECTOS-STAGE4-EXIT-PROOF1A",
+  "evidenceSubjectHead": "b5100bbbbb608a0ab9e595fdf6a54e7b855f4596",
+  "baselineCommit": "c9e8188e1d1c8e7c85b4e59caf9b6d55cb82f827",
+  "validatorsPass": true,
+  "checksPass": true,
+  "reviewsComplete": true,
+  "unresolvedCriticalOrHigh": 0,
+  "unresolvedCritical": 0,
+  "unresolvedHighIds": [],
+  "headedProofPass": null,
+  "protectedEffects": "NONE",
+  "establishedAt": "2026-11-19T12:16:54.581Z",
+  "notes": [
+    "THIS RECORD CLOSES NOTHING. Closure evidence for PROJECTOS-STAGE4-EXIT-PROOF1A, phase 57 of 57 of plan v1.45, closed owner-direct under the owner's general grant of full authority (see the decision record). NO gatekeeper closure ruling was obtained for THIS phase and none is claimed. No code writes this file; the convention follows PROJECTOS-FOUNDATION-GAPS1A.",
+    "SUBJECT. b5100bbb on the plan worktree (Stage 4 exit proof: config A and config B both closed live on the agency pilot, judged by val-projectos-stage4-exit-proof1a, plan v1.45).",
+    "validatorsPass: val-projectos-stage4-exit-proof1a PASS (9 rules over 76 evidence files, 115 named mutations killed, proven by attempts A2 and B2); validate-all on the final stack at b5100bbb: 184 registered, 184 PASS, 0 FAIL, 2 retired.",
+    "checksPass: Not re-run: this phase wrote no product code (agent 4687/4687 at 14ba39be; core and control-center unchanged).",
+    "reviewsComplete: Claude self-review; ECC code-reviewer on the validator: APPROVE WITH LOW (one MEDIUM, a broken per-attempt runtime record silently replaced by the shared one, and the SP-9 alias bypass fixed, five LOWs recorded, three carried). The live runs themselves are the evidence.",
+    "unresolved: zero CRITICAL/HIGH. No CRITICAL or HIGH finding is open. Carried LOWs are in docs/finish/PROJECTOS-STAGE4-EXIT-PROOF1A-validator-notes.md: the runtime of an attempt is bound by file placement and a self-reported changed-paths list, SP-2 compares the closed runs' configs with each other and not with a base config, and most mutations are checked against their rule and not an exact problem text. Open by design: D4 (reads by absolute path), providerDistinct is by worker kind, A2 pre-dates the v1.44 fixes (no A3 re-run, by the owner's choice).",
+    "protectedEffects NONE: no provider spend, deployment, credential, message, payment, database mutation, service, ACL, registry, force push or merge commit to main.",
+    "OWNER STATEMENT on credential and token rotation, carried forward verbatim from 2026-09-28 (not newly given): \"If any credential or token rotation is required, it will be completed after ProjectOS project completion.\""
+  ]
+}
